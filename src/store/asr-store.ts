@@ -83,6 +83,8 @@ interface AsrConfigState {
   denoiseSmoothing: number;
   denoiseCalibrationSeconds: number;
   noiseCalibrationRequestedAt?: number | null;
+  autoTunePreprocess: boolean;
+  lastAutoTuneParams?: { noiseFloorDb: number; reductionDb: number; smoothing: number } | null;
   telemetryCollector: TelemetryCollector | null;
   chunkPlan: ChunkDefinition[];
   chunkMetrics: ChunkTelemetry[];
@@ -129,6 +131,8 @@ interface AsrConfigActions {
     denoiseSmoothing: number;
     denoiseCalibrationSeconds: number;
   }>) => void;
+  setAutoTunePreprocess: (value: boolean) => void;
+  setLastAutoTuneParams: (params: { noiseFloorDb: number; reductionDb: number; smoothing: number } | null) => void;
   requestNoiseCalibration: () => void;
   clearNoiseCalibrationRequest: () => void;
   hydrateFromStorage: () => void;
@@ -172,17 +176,19 @@ const initialState: AsrConfigState = {
   minSilenceMs: 600,
   minChunkMs: 3000,
   maxChunkMs: 30000,
-  showSegments: false,
+  showSegments: true,
   showExportVtt: false,
   showExportSrt: false,
   showExportJson: false,
   showExportTelemetry: false,
-  preprocessingMode: "quick",
+  preprocessingMode: "full",
   denoiseNoiseFloorDb: -25,
   denoiseReductionDb: 12,
   denoiseSmoothing: 0.8,
-  denoiseCalibrationSeconds: 1,
+  denoiseCalibrationSeconds: 5,
   noiseCalibrationRequestedAt: null,
+  autoTunePreprocess: true,
+  lastAutoTuneParams: null,
   telemetryCollector: null,
   chunkPlan: [],
   chunkMetrics: [],
@@ -197,7 +203,7 @@ const initialState: AsrConfigState = {
   preprocessingStatus: "idle",
   preprocessingProgress: 0,
   // defaults
-  forceSingleThread: true,
+  forceSingleThread: false,
   wasmThreads: null,
 };
 
@@ -264,6 +270,7 @@ export const useAsrStore = create<AsrConfigStore>((set) => ({
       denoiseReductionDb: settings.denoiseReductionDb ?? state.denoiseReductionDb,
       denoiseSmoothing: settings.denoiseSmoothing ?? state.denoiseSmoothing,
       denoiseCalibrationSeconds: settings.denoiseCalibrationSeconds ?? state.denoiseCalibrationSeconds,
+      autoTunePreprocess: settings.autoTunePreprocess ?? state.autoTunePreprocess,
       forceSingleThread: settings.forceSingleThread ?? state.forceSingleThread,
     }));
   },
@@ -286,6 +293,8 @@ export const useAsrStore = create<AsrConfigStore>((set) => ({
   setPreprocessingStatus: (status) => set(() => ({ preprocessingStatus: status })),
   setPreprocessingProgress: (value) => set(() => ({ preprocessingProgress: value })),
   setDenoiseParams: (params) => set((state) => ({ ...state, ...params })),
+  setAutoTunePreprocess: (value: boolean) => set(() => ({ autoTunePreprocess: value })),
+  setLastAutoTuneParams: (params) => set(() => ({ lastAutoTuneParams: params })),
   requestNoiseCalibration: () => set(() => ({ noiseCalibrationRequestedAt: Date.now() })),
   clearNoiseCalibrationRequest: () => set(() => ({ noiseCalibrationRequestedAt: null })),
   requestStop: () => set(() => ({ stopRequested: true })),

@@ -24,6 +24,7 @@ function UploadPage() {
   const setStatus = useAsrStore((state) => state.setStatus);
   const activePreset = useAsrStore((state) => state.activePreset);
   const setPreset = useAsrStore((state) => state.setPreset);
+  const preprocessingMode = useAsrStore((state) => state.preprocessingMode);
   const { startUploadTranscription, stopTranscription, isTranscribing } = useTranscriptionController();
 
   const handleFileSelected = useCallback(
@@ -92,7 +93,7 @@ function UploadPage() {
 
       <div className="grid gap-6 xl:grid-cols-[360px,1fr]">
         <div className="space-y-4">
-          <PreprocessingStatusPanel />
+          {preprocessingMode === "full" ? <PreprocessingStatusPanel /> : null}
           <AudioUploader
             onFileSelected={handleFileSelected}
             metadata={audioMetadata}

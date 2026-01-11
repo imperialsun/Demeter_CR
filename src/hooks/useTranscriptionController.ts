@@ -11,7 +11,7 @@ import {
   probeAudioMetadata,
   type ProgressiveChunkResult,
 } from "@/lib/audio";
-import { preprocessDecodedAudio, preprocessPcmChunk, estimateNoiseProfile } from "@/lib/preprocessing";
+import { preprocessDecodedAudio, preprocessPcmChunk, estimateNoiseProfile, computePreprocessParams } from "@/lib/preprocessing";
 import { TelemetryCollector } from "@/lib/telemetry";
 import type { TranscriptionSegment } from "@/lib/export";
 import { useAsrStore } from "@/store/asr-store";
@@ -81,6 +81,19 @@ export function useTranscriptionController() {
           );
           preprocessConfig.noiseProfile = profile;
           telemetry.logEvent("PREPROCESS_NOISE_PROFILE", { frames, source: "auto" });
+
+          // Auto-tune gate parameters if enabled
+          if (state.autoTunePreprocess) {
+            const tune = computePreprocessParams(profile, decoded.pcm.subarray(0, Math.floor(preprocessConfig.calibrationSeconds * decoded.sampleRate)));
+            preprocessConfig.noiseFloorDb = tune.noiseFloorDb;
+            preprocessConfig.reductionDb = tune.reductionDb;
+            preprocessConfig.smoothing = tune.smoothing;
+            // apply autotuned params to global settings so sliders reflect current autotune
+            useAsrStore.getState().setDenoiseParams({ denoiseNoiseFloorDb: tune.noiseFloorDb, denoiseReductionDb: tune.reductionDb, denoiseSmoothing: tune.smoothing });
+            useAsrStore.getState().setLastAutoTuneParams({ noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing });
+            console.info("[preprocess][autotune] full applied", { noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing, snrDb: tune.snrDb });
+            telemetry.logEvent("PREPROCESS_AUTOTUNE", { source: "auto", snrDb: tune.snrDb, noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing });
+          }
         } catch (err) {
           console.warn("Calibration failed", err);
           telemetry.recordAlert("PREPROCESS_CALIBRATION_FAILED", { message: (err as Error).message });
@@ -213,6 +226,8 @@ export function useTranscriptionController() {
       const abortController = new AbortController();
       abortRef.current = abortController;
       // We'll perform a per-chunk calibration (estimate a noise profile) and then a processing pass for each chunk.
+      // We'll also smooth profiles across chunks to avoid abrupt changes (ASR-friendly).
+      let sharedNoiseProfile: Float32Array | null = preprocessConfig?.noiseProfile ?? null;
 
       try {
         await decodeFileProgressively(file, {
@@ -230,8 +245,6 @@ export function useTranscriptionController() {
             let processed = null as Awaited<ReturnType<typeof preprocessPcmChunk>> | null;
 
             if (preprocessConfig) {
-              // per-chunk calibration
-              const denominator = chunkPlan.length || chunk.index + 1;
               useAsrStore.getState().setPreprocessingStatus("calibrating");
               useAsrStore.getState().setPreprocessingProgress(chunk.index / denominator);
 
@@ -242,6 +255,30 @@ export function useTranscriptionController() {
                   preprocessConfig.calibrationSeconds
                 );
                 telemetry.logEvent("PREPROCESS_NOISE_PROFILE", { frames, source: "chunk" });
+
+                // Smooth the profile across chunks (exponential smoothing)
+                if (sharedNoiseProfile) {
+                  const alpha = 0.4;
+                  for (let i = 0; i < profile.length; i++) {
+                    sharedNoiseProfile[i] = alpha * profile[i] + (1 - alpha) * sharedNoiseProfile[i];
+                  }
+                } else {
+                  sharedNoiseProfile = profile;
+                }
+
+                // Auto-tune per-chunk params if enabled
+                if (state.autoTunePreprocess) {
+                  const tune = computePreprocessParams(sharedNoiseProfile, chunk.pcm.subarray(0, Math.floor(preprocessConfig.calibrationSeconds * chunk.sampleRate)));
+                  preprocessConfig.noiseFloorDb = tune.noiseFloorDb;
+                  preprocessConfig.reductionDb = tune.reductionDb;
+                  preprocessConfig.smoothing = tune.smoothing;
+                  // apply autotuned params to global settings so sliders reflect current autotune
+                  useAsrStore.getState().setDenoiseParams({ denoiseNoiseFloorDb: tune.noiseFloorDb, denoiseReductionDb: tune.reductionDb, denoiseSmoothing: tune.smoothing });
+                  useAsrStore.getState().setLastAutoTuneParams({ noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing });
+                  console.info("[preprocess][autotune] chunk applied", { chunkIndex: chunk.index, noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing, snrDb: tune.snrDb });
+                  telemetry.logEvent("PREPROCESS_AUTOTUNE", { source: "chunk", chunkIndex: chunk.index, snrDb: tune.snrDb, noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing });
+                }
+
                 useAsrStore.getState().setPreprocessingStatus("processing");
 
                 processed = await preprocessPcmChunk(
@@ -249,7 +286,7 @@ export function useTranscriptionController() {
                   chunk.sampleRate,
                   {
                     ...preprocessConfig,
-                    noiseProfile: profile,
+                    noiseProfile: sharedNoiseProfile ?? undefined,
                   },
                   telemetry
                 );

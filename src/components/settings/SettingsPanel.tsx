@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SliderField } from "@/components/ui/SliderField";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
@@ -98,6 +99,8 @@ export function SettingsPanel({
     denoiseReductionDb,
     denoiseSmoothing,
     denoiseCalibrationSeconds,
+    autoTunePreprocess,
+    setAutoTunePreprocess,
     chunkDurationSec,
     overlapSec,
     minChunkMs,
@@ -139,6 +142,8 @@ export function SettingsPanel({
     denoiseReductionDb: state.denoiseReductionDb,
     denoiseSmoothing: state.denoiseSmoothing,
     denoiseCalibrationSeconds: state.denoiseCalibrationSeconds,
+    autoTunePreprocess: state.autoTunePreprocess,
+    setAutoTunePreprocess: state.setAutoTunePreprocess,
     chunkDurationSec: state.chunkDurationSec,
     overlapSec: state.overlapSec,
     minChunkMs: state.minChunkMs,
@@ -1108,7 +1113,7 @@ export function SettingsPanel({
           <div>
             <CardTitle>Pré-traitement</CardTitle>
             <CardDescription>
-              Choisissez le mode de pré-traitement appliqué avant la transcription. Le mode "Rapide" est le comportement par défaut.
+              Choisissez le mode de pré-traitement appliqué avant la transcription. Le mode "Complet" est le comportement par défaut.
             </CardDescription>
           </div>
         </CardHeader>
@@ -1116,14 +1121,14 @@ export function SettingsPanel({
           <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
             <div>
               <p className="text-sm font-medium">Mode de pré-traitement</p>
-              <p className="text-xs text-muted-foreground">Sélectionnez "Rapide" pour le traitement léger par défaut, ou "Complet" pour forcer le décodage complet préalable.</p>
+              <p className="text-xs text-muted-foreground">Sélectionnez "Rapide" pour un prétraitement léger chunk par chunk, ou "Complet" pour effectuer un décodage et un prétraitement complet avant la transcription (par défaut : Complet).</p>
             </div>
             <Select value={preprocessingMode} onValueChange={(v) => setPreprocessingMode(v as "quick" | "full") }>
               <SelectTrigger className="w-44">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="quick">Rapide (par défaut)</SelectItem>
+                <SelectItem value="quick">Rapide</SelectItem>
                 <SelectItem value="full">Complet</SelectItem>
               </SelectContent>
             </Select>
@@ -1143,6 +1148,7 @@ export function SettingsPanel({
                   value={denoiseNoiseFloorDb}
                   onChange={(value) => setDenoiseParams({ denoiseNoiseFloorDb: value })}
                   help="Décalage du seuil par rapport au profil de bruit. Valeur plus basse = gating plus prudent."
+                  disabled={useAsrStore.getState().autoTunePreprocess}
                 />
                 <SliderField
                   id="reduction-db"
@@ -1153,6 +1159,7 @@ export function SettingsPanel({
                   value={denoiseReductionDb}
                   onChange={(value) => setDenoiseParams({ denoiseReductionDb: value })}
                   help="Atténuation max dans les bandes bruyantes (soft-knee)."
+                  disabled={useAsrStore.getState().autoTunePreprocess}
                 />
                 <SliderField
                   id="smoothing"
@@ -1163,8 +1170,32 @@ export function SettingsPanel({
                   value={denoiseSmoothing}
                   onChange={(value) => setDenoiseParams({ denoiseSmoothing: value })}
                   help="0 = réactif, 0.8 par défaut = transitions douces."
+                  disabled={useAsrStore.getState().autoTunePreprocess}
                 />
               </div>
+
+              <div className="mt-3">
+                <SliderField
+                  id="calibration-seconds"
+                  label="Durée calibration (s)"
+                  min={0.25}
+                  max={5}
+                  step={0.25}
+                  value={denoiseCalibrationSeconds}
+                  onChange={(value) => setDenoiseParams({ denoiseCalibrationSeconds: value })}
+                  help="Durée (en secondes) utilisée pour estimer le profil de bruit pendant la calibration."
+                />
+                <div className="mt-3 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Autotune prétraitement</p>
+                    <p className="text-xs text-muted-foreground">Autoriser l'ajustement automatique de noiseFloor/reduction/smoothing pour une lecture optimisée pour Whisper.</p>
+                  </div>
+                  <div>
+                    <Switch className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500" checked={autoTunePreprocess} onCheckedChange={(v) => setAutoTunePreprocess(v)} />
+                  </div>
+                </div>
+              </div>
+
               <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
                 <div>
                   <p className="text-sm font-medium">Calibrer le bruit</p>
@@ -1173,7 +1204,7 @@ export function SettingsPanel({
                   </p>
                 </div>
                 <Button size="sm" variant="secondary" onClick={() => requestNoiseCalibration()}>
-                  Calibrer bruit (1 s)
+                  Calibrer bruit ({denoiseCalibrationSeconds.toFixed(1)} s)
                 </Button>
               </div>
             </div>
@@ -1283,38 +1314,7 @@ function NumberField({ id, label, value, min, max, step, onChange }: NumberField
   );
 }
 
-interface SliderFieldProps {
-  id: string;
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  onChange: (value: number) => void;
-  help?: string;
-}
 
-function SliderField({ id, label, value, min, max, step, onChange, help }: SliderFieldProps) {
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <Label htmlFor={id}>{label}</Label>
-        <span className="text-xs text-muted-foreground">{value.toFixed(step < 1 ? 2 : 0)}</span>
-      </div>
-      <input
-        id={id}
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-        className="w-full"
-      />
-      {help ? <p className="text-[11px] text-muted-foreground">{help}</p> : null}
-    </div>
-  );
-}
 
 function Reminder({ title, description }: { title: string; description: string }) {
   return (

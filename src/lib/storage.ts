@@ -25,6 +25,7 @@ export interface PersistedSettings {
   denoiseReductionDb: number;
   denoiseSmoothing: number;
   denoiseCalibrationSeconds: number;
+  autoTunePreprocess?: boolean;
   // performance
   forceSingleThread?: boolean;
 }
@@ -63,16 +64,17 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   minSilenceMs: 600,
   minChunkMs: 3000,
   maxChunkMs: 30000,
-  showSegments: false,
+  showSegments: true,
   showExportVtt: false,
   showExportSrt: false,
   showExportJson: false,
   showExportTelemetry: false,
-  preprocessingMode: "quick",
+  preprocessingMode: "full",
   denoiseNoiseFloorDb: -25,
   denoiseReductionDb: 12,
   denoiseSmoothing: 0.8,
-  denoiseCalibrationSeconds: 1,
+  denoiseCalibrationSeconds: 5,
+  autoTunePreprocess: true,
   // default performance settings
-  forceSingleThread: true,
+  forceSingleThread: false,
 };

@@ -243,10 +243,12 @@ export function estimateNoiseProfile(
   fftSize: number = DEFAULT_FFT_SIZE,
   hopSize: number = DEFAULT_HOP_SIZE
 ): { profile: Float32Array; frames: number } {
+  // ASR-friendly noise profile estimation: use a low percentile across frames (robust to speech frames)
+  // and apply light smoothing across frequency bins to avoid spiky profiles.
   const window = buildHann(fftSize);
   const binCount = fftSize / 2 + 1;
-  const accumulator = new Float32Array(binCount);
   const calibrationSamples = Math.max(fftSize, Math.min(pcm.length, Math.floor(calibrationSeconds * sampleRate)));
+  const frameMags: number[][] = Array.from({ length: binCount }, () => []);
   let frames = 0;
 
   for (let offset = 0; offset + fftSize <= calibrationSamples; offset += hopSize) {
@@ -260,19 +262,91 @@ export function estimateNoiseProfile(
     fftRadix2(re, im);
     for (let bin = 0; bin < binCount; bin++) {
       const mag = Math.hypot(re[bin]!, im[bin]!);
-      accumulator[bin]! += mag;
+      frameMags[bin]!.push(mag);
     }
     frames += 1;
   }
 
   if (frames === 0) {
-    return { profile: accumulator, frames: 0 };
+    return { profile: new Float32Array(binCount), frames: 0 };
   }
 
-  for (let bin = 0; bin < accumulator.length; bin++) {
-    accumulator[bin]! /= frames;
+  // compute a conservative percentile (20th) for each bin to avoid speech contamination
+  const percentile = (arr: number[], p: number) => {
+    const copy = arr.slice().sort((a, b) => a - b);
+    const idx = Math.max(0, Math.min(copy.length - 1, Math.floor(p * (copy.length - 1))));
+    return copy[idx] ?? 0;
+  };
+
+  const profile = new Float32Array(binCount);
+  for (let bin = 0; bin < binCount; bin++) {
+    profile[bin] = percentile(frameMags[bin]!, 0.2);
   }
-  return { profile: accumulator, frames };
+
+  // Smooth across bins with a small kernel to avoid sharp spectral artifacts
+  if (binCount > 2) {
+    const smoothed = new Float32Array(binCount);
+    smoothed[0] = profile[0];
+    smoothed[binCount - 1] = profile[binCount - 1];
+    for (let bin = 1; bin < binCount - 1; bin++) {
+      smoothed[bin] = 0.25 * profile[bin - 1] + 0.5 * profile[bin] + 0.25 * profile[bin + 1];
+    }
+    return { profile: smoothed, frames };
+  }
+
+  return { profile, frames };
+}
+
+/**
+ * Compute ASR‑friendly gate parameters from a noise profile and a short audio segment.
+ * Returns noiseFloorDb, reductionDb and smoothing that are conservative for Whisper.
+ */
+export function computePreprocessParams(
+  noiseProfile: Float32Array,
+  pcmSegment: Float32Array
+): { noiseFloorDb: number; reductionDb: number; smoothing: number; snrDb: number } {
+  const binCount = noiseProfile.length;
+  const eps = 1e-12;
+
+  // noise median in dB
+  const noiseBinsDb = new Float32Array(binCount);
+  for (let i = 0; i < binCount; i++) {
+    noiseBinsDb[i] = 20 * Math.log10(Math.max(noiseProfile[i]!, eps));
+  }
+  // median
+  const copy = Array.from(noiseBinsDb).sort((a, b) => a - b);
+  const noiseDbMedian = copy[Math.floor(copy.length / 2)] ?? copy[0] ?? -100;
+
+  // signal RMS dB on the pcm segment
+  let sumSq = 0;
+  for (let i = 0; i < pcmSegment.length; i++) {
+    const s = pcmSegment[i] ?? 0;
+    sumSq += s * s;
+  }
+  const rms = Math.sqrt(sumSq / Math.max(1, pcmSegment.length));
+  const signalDb = 20 * Math.log10(Math.max(rms, eps));
+
+  const snrDb = signalDb - noiseDbMedian;
+
+  // map SNR to parameters (conservative ASR-friendly defaults)
+  let noiseFloorDb: number;
+  if (snrDb >= 20) noiseFloorDb = -35;
+  else if (snrDb >= 10) noiseFloorDb = -30;
+  else if (snrDb >= 0) noiseFloorDb = -25;
+  else noiseFloorDb = -20;
+
+  // reduction: 6..14 dB
+  let reductionDb = 10;
+  if (snrDb >= 20) reductionDb = 6;
+  else if (snrDb >= 10) reductionDb = 8;
+  else if (snrDb >= 0) reductionDb = 10;
+  else reductionDb = 12;
+
+  // smoothing: more smoothing for lower SNR (0.6..0.98)
+  let smoothing = 0.9 - snrDb / 40; // lower SNR -> higher smoothing
+  smoothing = Math.min(0.98, Math.max(0.6, smoothing));
+
+  return { noiseFloorDb, reductionDb, smoothing, snrDb };
 }
 
 async function applySpectralGate(
