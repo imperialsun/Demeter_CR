@@ -132,7 +132,7 @@ export function TelemetryPanel({ summary }: TelemetryPanelProps) {
       <Card ref={memoryRef} className="flex flex-col">
         <CardHeader>
           <CardTitle>Mémoire</CardTitle>
-          <CardDescription>Snapshots Chrome (en Mo).</CardDescription>
+          <CardDescription>Snapshots Chrome (en Mo) et usage par chunk lorsqu'il est disponible.</CardDescription>
         </CardHeader>
         <CardContent className="flex-1 min-h-0">
           <ScrollArea className="h-full">
@@ -145,20 +145,45 @@ export function TelemetryPanel({ summary }: TelemetryPanelProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {effective.memorySnapshots.map((snapshot: TelemetrySnapshot, i: number) => (
-                  <TableRow key={`${snapshot.timestamp}-${i}`}>
-                    <TableCell>{snapshot.label}</TableCell>
-                    <TableCell>{snapshot.usedJSHeapSize ? `${snapshot.usedJSHeapSize} Mo` : "—"}</TableCell>
-                    <TableCell>{snapshot.totalJSHeapSize ? `${snapshot.totalJSHeapSize} Mo` : "—"}</TableCell>
-                  </TableRow>
-                ))}
-                {!effective.memorySnapshots.length ? (
-                  <TableRow>
-                    <TableCell colSpan={3} className="text-center text-muted-foreground">
-                      Indisponible dans ce navigateur.
-                    </TableCell>
-                  </TableRow>
-                ) : null}
+                {(() => {
+                  type MemRow = { label: string; used?: string | number; total?: string | number; timestamp: number };
+
+                  const snapshotRows: MemRow[] = effective.memorySnapshots.map((s) => ({
+                    label: s.label,
+                    used: s.usedJSHeapSize ? `${s.usedJSHeapSize} Mo` : undefined,
+                    total: s.totalJSHeapSize ? `${s.totalJSHeapSize} Mo` : undefined,
+                    timestamp: s.timestamp,
+                  }));
+
+                  const chunkRamRows: MemRow[] = effective.events
+                    .filter((e) => e.type === "RAM_USAGE" && e.data && (e.data as any).context === "chunk")
+                    .map((e) => ({
+                      label: `Chunk ${(e.data as any).index}`,
+                      used: (e.data as any).mb ? `${(e.data as any).mb} Mo` : undefined,
+                      total: (e.data as any).bytes ? `${(e.data as any).bytes} B` : undefined,
+                      timestamp: e.timestamp,
+                    }));
+
+                  const combined: MemRow[] = [...snapshotRows, ...chunkRamRows].sort((a, b) => a.timestamp - b.timestamp);
+
+                  if (!combined.length) {
+                    return (
+                      <TableRow>
+                        <TableCell colSpan={3} className="text-center text-muted-foreground">
+                          Indisponible dans ce navigateur.
+                        </TableCell>
+                      </TableRow>
+                    );
+                  }
+
+                  return combined.map((row, i) => (
+                    <TableRow key={`${row.label}-${row.timestamp}-${i}`}>
+                      <TableCell>{row.label}</TableCell>
+                      <TableCell>{row.used ?? "—"}</TableCell>
+                      <TableCell>{row.total ?? "—"}</TableCell>
+                    </TableRow>
+                  ));
+                })()}
               </TableBody>
             </Table>
           </ScrollArea>
