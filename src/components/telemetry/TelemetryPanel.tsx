@@ -1,16 +1,53 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { useLayoutEffect, useRef } from "react";
-import type { TelemetrySummary } from "@/lib/telemetry";
+import { useLayoutEffect, useRef, useState, useEffect } from "react";
+import { useAsrStore } from "@/store/asr-store";
+import type { TelemetrySummary, TelemetryEvent, TelemetrySnapshot, ChunkTelemetry } from "@/lib/telemetry";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { PreprocessTelemetryPanel } from "@/components/telemetry/PreprocessTelemetryPanel"; 
 
 interface TelemetryPanelProps {
   summary?: TelemetrySummary | null;
 }
 
 export function TelemetryPanel({ summary }: TelemetryPanelProps) {
-  if (!summary) {
+  // support live telemetry during an active transcription
+  const collector = useAsrStore((s) => s.telemetryCollector);
+  const isTranscribing = useAsrStore((s) => s.isTranscribing);
+
+  const [liveSummary, setLiveSummary] = useState<TelemetrySummary | null>(
+    summary ?? (collector ? collector.exportSummary() : null)
+  );
+
+  // keep local live summary in sync with prop when provided
+  useLayoutEffect(() => {
+    if (summary) setLiveSummary(summary);
+  }, [summary]);
+
+  useEffect(() => {
+    if (!collector || !isTranscribing) return;
+    let mounted = true;
+    const update = () => {
+      try {
+        const s = collector.exportSummary();
+        if (!mounted) return;
+        setLiveSummary(s);
+      } catch (e) {
+        // ignore
+      }
+    };
+    update();
+    const id = window.setInterval(update, 500);
+    return () => {
+      mounted = false;
+      window.clearInterval(id);
+    };
+  }, [collector, isTranscribing]);
+
+  const effective = liveSummary;
+
+  if (!effective) {
     return (
       <Card>
         <CardHeader>
@@ -50,7 +87,7 @@ export function TelemetryPanel({ summary }: TelemetryPanelProps) {
       if (ro) ro.disconnect();
       if (memoryRef.current) memoryRef.current.style.height = "";
     };
-  }, [summary]);
+  }, [liveSummary]);
 
   return (
     <div className="grid gap-4 lg:grid-cols-2 items-stretch">
@@ -61,30 +98,30 @@ export function TelemetryPanel({ summary }: TelemetryPanelProps) {
         </CardHeader>
         <CardContent className="flex-1 min-h-0 space-y-3 text-sm text-muted-foreground">
           <p>
-            <span className="font-medium text-foreground">Session :</span> {summary.sessionId}
+            <span className="font-medium text-foreground">Session :</span> {effective.sessionId}
           </p>
           <p>
-            <span className="font-medium text-foreground">Date :</span> {new Date(summary.createdAt).toLocaleString()}
+            <span className="font-medium text-foreground">Date :</span> {new Date(effective.createdAt).toLocaleString()}
           </p>
           <p>
-            <span className="font-medium text-foreground">Agent :</span> {summary.userAgent}
+            <span className="font-medium text-foreground">Agent :</span> {effective.userAgent}
           </p>
           <p>
-            <span className="font-medium text-foreground">Transformers.js :</span> {summary.transformersVersion}
+            <span className="font-medium text-foreground">Transformers.js :</span> {effective.transformersVersion}
           </p>
           <p>
-            <span className="font-medium text-foreground">Backend :</span> {summary.backend}
+            <span className="font-medium text-foreground">Backend :</span> {effective.backend}
           </p>
           <p>
-            <span className="font-medium text-foreground">Modèle :</span> {summary.modelId}
+            <span className="font-medium text-foreground">Modèle :</span> {effective.modelId}
           </p>
           <div>
             <span className="font-medium text-foreground">Timings :</span>
             <div className="mt-1 grid gap-1">
-              {Object.entries(summary.timings).map(([key, value]) => (
+              {Object.entries(effective.timings).map(([key, value]) => (
                 <div key={key} className="flex justify-between">
                   <span>{translateTimingKey(key)}</span>
-                  <span>{value.toFixed(0)} ms</span>
+                  <span>{(value as number).toFixed(0)} ms</span>
                 </div>
               ))}
             </div>
@@ -108,14 +145,14 @@ export function TelemetryPanel({ summary }: TelemetryPanelProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {summary.memorySnapshots.map((snapshot, i) => (
+                {effective.memorySnapshots.map((snapshot: TelemetrySnapshot, i: number) => (
                   <TableRow key={`${snapshot.timestamp}-${i}`}>
                     <TableCell>{snapshot.label}</TableCell>
                     <TableCell>{snapshot.usedJSHeapSize ? `${snapshot.usedJSHeapSize} Mo` : "—"}</TableCell>
                     <TableCell>{snapshot.totalJSHeapSize ? `${snapshot.totalJSHeapSize} Mo` : "—"}</TableCell>
                   </TableRow>
                 ))}
-                {!summary.memorySnapshots.length ? (
+                {!effective.memorySnapshots.length ? (
                   <TableRow>
                     <TableCell colSpan={3} className="text-center text-muted-foreground">
                       Indisponible dans ce navigateur.
@@ -146,7 +183,7 @@ export function TelemetryPanel({ summary }: TelemetryPanelProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {summary.chunks.map((chunk) => (
+                {effective.chunks.map((chunk: ChunkTelemetry) => (
                   <TableRow key={chunk.id}>
                     <TableCell>{chunk.index + 1}</TableCell>
                     <TableCell>
@@ -161,7 +198,7 @@ export function TelemetryPanel({ summary }: TelemetryPanelProps) {
                     </TableCell>
                   </TableRow>
                 ))}
-                {!summary.chunks.length ? (
+                {!effective.chunks.length ? (
                   <TableRow>
                     <TableCell colSpan={5} className="text-center text-muted-foreground">
                       Chunks non mesurés.
@@ -174,6 +211,8 @@ export function TelemetryPanel({ summary }: TelemetryPanelProps) {
         </CardContent>
       </Card>
 
+      <PreprocessTelemetryPanel summary={effective} />
+
       <Card className="lg:col-span-2">
         <CardHeader>
           <CardTitle>Timeline événements</CardTitle>
@@ -182,7 +221,7 @@ export function TelemetryPanel({ summary }: TelemetryPanelProps) {
         <CardContent>
           <ScrollArea className="h-64">
             <ul className="space-y-2 text-sm">
-              {summary.events.map((event, i) => (
+              {effective.events.map((event: TelemetryEvent, i: number) => (
                 <li key={`${event.timestamp}-${i}-${event.type}`} className="rounded-md border bg-muted/40 p-2">
                   <div className="flex items-center justify-between">
                     <span className="font-medium">{event.type}</span>
@@ -195,7 +234,7 @@ export function TelemetryPanel({ summary }: TelemetryPanelProps) {
                   ) : null}
                 </li>
               ))}
-              {!summary.events.length ? (
+              {!effective.events.length ? (
                 <li className="text-center text-muted-foreground">Aucun événement consigné.</li>
               ) : null}
             </ul>
