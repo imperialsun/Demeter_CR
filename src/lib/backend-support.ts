@@ -70,3 +70,53 @@ export async function initializeBackendSupport(): Promise<boolean> {
 
   return supported;
 }
+
+/**
+ * Perform a lightweight runtime test to determine if multithreaded WASM is usable.
+ * Checks crossOriginIsolated, SharedArrayBuffer and attempts a small worker + Atomics
+ */
+export async function testWasmMultithreadSupport(timeoutMs = 1000): Promise<{ ok: boolean; reason?: string }> {
+  if (typeof window === "undefined") return { ok: false, reason: "no-window" };
+  if ((window as any).crossOriginIsolated !== true) return { ok: false, reason: "not_cross_origin_isolated" };
+  if (typeof SharedArrayBuffer === "undefined") return { ok: false, reason: "no_SAB" };
+  // try worker roundtrip using SharedArrayBuffer and Atomics
+  return await new Promise((resolve) => {
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      resolve({ ok: false, reason: "timeout" });
+    }, timeoutMs);
+
+    const blob = new Blob([
+      `self.onmessage = function(e) { try { const sab = e.data; const v = new Int32Array(sab); Atomics.add(v, 0, 1); postMessage({ok:true}); } catch (err) { postMessage({ok:false, err: String(err)}); } }`
+    ], { type: 'text/javascript' });
+    const url = URL.createObjectURL(blob);
+    try {
+      const worker = new Worker(url);
+      const sab = new SharedArrayBuffer(4);
+      worker.onmessage = (ev) => {
+        if (timedOut) return;
+        clearTimeout(timer);
+        worker.terminate();
+        URL.revokeObjectURL(url);
+        const data = ev.data as any;
+        if (data && data.ok) resolve({ ok: true });
+        else resolve({ ok: false, reason: data?.err ?? 'worker_failed' });
+      };
+      worker.onerror = (e) => {
+        if (timedOut) return;
+        clearTimeout(timer);
+        worker.terminate();
+        URL.revokeObjectURL(url);
+        resolve({ ok: false, reason: String(e?.message ?? 'worker_error') });
+      };
+      // post the SAB to worker
+      worker.postMessage(sab);
+    } catch (err: any) {
+      if (timedOut) return;
+      clearTimeout(timer);
+      try { URL.revokeObjectURL(url); } catch (e) {}
+      resolve({ ok: false, reason: String(err?.message ?? err) });
+    }
+  });
+}

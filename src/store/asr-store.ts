@@ -91,6 +91,10 @@ interface AsrConfigState {
   isTranscribing: boolean;
   stopRequested: boolean;
   progress: number;
+
+  // Performance options
+  forceSingleThread: boolean; // when true, force single-threaded WASM
+  wasmThreads: number | null; // effective number of threads in use (null = unknown)
 }
 
 interface AsrConfigActions {
@@ -139,6 +143,9 @@ interface AsrConfigActions {
   resetApp: () => void;
   setWebGpuSupport: (supported: boolean) => void;
   setWasmAvailable: (available: boolean) => void;
+  // performance
+  setForceSingleThread: (value: boolean) => void;
+  setWasmThreads: (value: number | null) => void;
 }
 
 export type AsrConfigStore = AsrConfigState & AsrConfigActions;
@@ -182,6 +189,9 @@ const initialState: AsrConfigState = {
   isTranscribing: false,
   stopRequested: false,
   progress: 0,
+  // defaults
+  forceSingleThread: true,
+  wasmThreads: null,
 };
 
 export const useAsrStore = create<AsrConfigStore>((set) => ({
@@ -247,6 +257,7 @@ export const useAsrStore = create<AsrConfigStore>((set) => ({
       denoiseReductionDb: settings.denoiseReductionDb ?? state.denoiseReductionDb,
       denoiseSmoothing: settings.denoiseSmoothing ?? state.denoiseSmoothing,
       denoiseCalibrationSeconds: settings.denoiseCalibrationSeconds ?? state.denoiseCalibrationSeconds,
+      forceSingleThread: settings.forceSingleThread ?? state.forceSingleThread,
     }));
   },
   registerTelemetry: (collector) => set(() => ({ telemetryCollector: collector })),
@@ -259,7 +270,10 @@ export const useAsrStore = create<AsrConfigStore>((set) => ({
   pushChunkMetric: (metric) =>
     set((state) => ({ chunkMetrics: [...state.chunkMetrics, metric] })),
   setTelemetrySummary: (summary) => set(() => ({ telemetrySummary: summary })),
+  setForceSingleThread: (value: boolean) => set(() => ({ forceSingleThread: value })),
+  setWasmThreads: (value: number | null) => set(() => ({ wasmThreads: value })),
   setIsTranscribing: (value) => set(() => ({ isTranscribing: value })),
+
   setProgress: (value) => set(() => ({ progress: value })),
   setPreprocessingMode: (mode) => set(() => ({ preprocessingMode: mode })),
   setDenoiseParams: (params) => set((state) => ({ ...state, ...params })),
@@ -350,6 +364,8 @@ useAsrStore.subscribe((state) => {
     denoiseReductionDb: state.denoiseReductionDb,
     denoiseSmoothing: state.denoiseSmoothing,
     denoiseCalibrationSeconds: state.denoiseCalibrationSeconds,
+    // performance
+    forceSingleThread: state.forceSingleThread,
   };
   saveSettings(payload);
 });

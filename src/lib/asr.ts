@@ -70,13 +70,7 @@ const BACKEND_SEQUENCE: Record<BackendImplementation, BackendImplementation[]> =
 };
 const WEBGPU_SUPPORT_PROMISE = detectWebGpuSupport();
 const WASM_PATH = "/onnx/";
-const WASM_PROVIDER_OPTIONS = {
-  wasmPaths: WASM_PATH,
-  numThreads: 1,
-  proxy: true,
-  simd: true,
-  useJsep: false,
-};
+
 
 async function forceSingleThreadedWasmEnv() {
   const module = await loadTransformers();
@@ -135,6 +129,23 @@ export async function createAsrPipeline({
 
   const wasmAvailable = useAsrStore.getState().wasmAvailable;
   let triedWasmNoThreads = false;
+
+  function computeWasmOptions() {
+    const forceSingle = useAsrStore.getState().forceSingleThread;
+    const crossIsolated = typeof window !== "undefined" && (window as any).crossOriginIsolated === true;
+    let numThreads = 1;
+    if (!forceSingle && crossIsolated && typeof navigator !== "undefined") {
+      numThreads = Math.max(2, navigator.hardwareConcurrency || 2);
+    }
+    return {
+      wasmPaths: WASM_PATH,
+      numThreads,
+      proxy: true,
+      simd: true,
+      useJsep: false,
+    } as const;
+  }
+
   for (const backend of backends) {
     if (backend === "webgpu" && !webGpuAvailable) {
       lastError = new Error("WebGPU non supporté");
@@ -146,17 +157,16 @@ export async function createAsrPipeline({
       continue;
     }
 
+    let attemptedThreads = 1;
     try {
       onStatus?.("loading", `Initialisation ${backend}`);
       const device = backend;
-      const sessionOptions: Record<string, unknown> = {
-        executionProviders: [
-          backend === "wasm"
-            ? { name: "wasm", options: WASM_PROVIDER_OPTIONS }
-            : backend,
-        ],
-      };
+      const sessionOptions: Record<string, unknown> = { executionProviders: [backend] };
+
       if (backend === "wasm") {
+        const wasmOptions = computeWasmOptions();
+        attemptedThreads = wasmOptions.numThreads ?? 1;
+        sessionOptions.executionProviders = [ { name: "wasm", options: wasmOptions } ];
         flagWasmSessionOptions(sessionOptions);
       }
       console.debug("ASR session options", {
@@ -227,6 +237,17 @@ export async function createAsrPipeline({
       telemetry?.stopTimer("load_model_total");
       telemetry?.logEvent("READY", { backend });
       telemetry?.setRuntimeContext({ backend, modelId });
+      // report effective wasm threads to the store
+      if (backend === "wasm") {
+        try {
+          useAsrStore.getState().setWasmThreads(attemptedThreads);
+        } catch (e) {}
+        // If multithread was actually used, emit telemetry and a confirmation toast
+        if (attemptedThreads > 1) {
+          telemetry?.logEvent && telemetry.logEvent("WASM_MULTITHREAD_AVAILABLE", { attemptedThreads });
+          try { const { toast } = await import("@/components/ui/use-toast"); toast(`mode multithread actif (${attemptedThreads} threads)`); } catch (e) { /* ignore */ }
+        }
+      }
       const mem = readMemoryUsage();
       if (mem) {
         console.info("[transformers] JS heap after pipeline init", { backend, ...mem });
@@ -271,6 +292,16 @@ export async function createAsrPipeline({
       // If wasm init failed and we haven't tried a no-threads fallback, try it now.
       if (backend === "wasm" && !triedWasmNoThreads) {
         triedWasmNoThreads = true;
+
+        // If we attempted multithread and it failed, log/telemetry/toast and persist fallback to single-thread
+        if (attemptedThreads > 1) {
+          console.warn("WASM multithread failed, falling back to single-threaded mode");
+          telemetry?.recordAlert && telemetry?.recordAlert("WASM_MULTITHREAD_UNAVAILABLE", { attemptedThreads, message: (error as Error).message });
+          try { const { toast } = await import("@/components/ui/use-toast"); toast("mode multithread indisponible sur cette plateforme"); } catch (e) { /* ignore */ }
+          // Persist fallback so UI updates
+          useAsrStore.getState().setForceSingleThread(true);
+        }
+
         try {
           console.info("Retrying WASM backend with single-threaded fallback");
           onStatus?.("loading", "Initialisation WASM (mode sans threads)");
@@ -283,7 +314,13 @@ export async function createAsrPipeline({
             executionProviders: [
               {
                 name: "wasm",
-                options: WASM_PROVIDER_OPTIONS,
+                options: {
+                  wasmPaths: WASM_PATH,
+                  numThreads: 1,
+                  proxy: true,
+                  simd: true,
+                  useJsep: false,
+                },
               },
             ],
           };
@@ -311,7 +348,6 @@ export async function createAsrPipeline({
               });
             },
           });
-
           telemetry?.stopTimer("load_model_total");
           telemetry?.logEvent("READY", { backend: `${backend}-single-thread` });
           telemetry?.setRuntimeContext({ backend: `${backend}-single-thread`, modelId });

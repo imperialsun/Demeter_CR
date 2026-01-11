@@ -27,7 +27,9 @@ export type TelemetryEventType =
   | "PREPROCESS_GATE"
   | "PREPROCESS_DONE"
   | "CALIBRATION_REQUESTED"
-  | "RAM_USAGE";
+  | "RAM_USAGE"
+  | "WASM_MULTITHREAD_AVAILABLE"
+  | "WASM_MULTITHREAD_TEST";
 
 export interface TelemetryEvent {
   type: TelemetryEventType;

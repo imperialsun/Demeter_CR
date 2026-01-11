@@ -25,6 +25,8 @@ export interface PersistedSettings {
   denoiseReductionDb: number;
   denoiseSmoothing: number;
   denoiseCalibrationSeconds: number;
+  // performance
+  forceSingleThread?: boolean;
 }
 
 export function loadSettings(): Partial<PersistedSettings> | null {
@@ -71,4 +73,6 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   denoiseReductionDb: 12,
   denoiseSmoothing: 0.8,
   denoiseCalibrationSeconds: 1,
+  // default performance settings
+  forceSingleThread: true,
 };

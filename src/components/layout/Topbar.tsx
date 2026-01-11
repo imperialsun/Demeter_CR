@@ -30,6 +30,7 @@ export function Topbar() {
     activeBackend,
     status,
     statusDetail,
+    wasmThreads,
   } =
     useAsrStore();
 
@@ -57,6 +58,12 @@ export function Topbar() {
           {showPreferenceBadge ? (
             <Badge variant="outline" className="capitalize">
               {`Préférence : ${backendPreference}`}
+            </Badge>
+          ) : null}
+          {/* Multithread indicator for WASM */}
+          {backendDisplay === "wasm" ? (
+            <Badge variant={wasmThreads && wasmThreads > 1 ? 'success' : 'warning'}>
+              {wasmThreads && wasmThreads > 1 ? `multithread (${wasmThreads})` : 'single-thread'}
             </Badge>
           ) : null}
           <Badge variant="secondary">{presetLabel}</Badge>

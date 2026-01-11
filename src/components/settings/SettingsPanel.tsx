@@ -25,6 +25,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { useTheme, type Theme } from "@/components/theme-context";
 import { cn } from "@/lib/utils";
+import { testWasmMultithreadSupport } from "@/lib/backend-support";
 
 type BackendOption = {
   value: BackendImplementation;
@@ -103,6 +104,8 @@ export function SettingsPanel({
     maxChunkMs,
     minSilenceMs,
     silenceThresholdDb,
+    forceSingleThread,
+    wasmThreads,
     setPreset,
     setBackendPreference,
     setMemoryMode,
@@ -117,6 +120,7 @@ export function SettingsPanel({
     setDenoiseParams,
     requestNoiseCalibration,
     updateChunkParameters,
+    setForceSingleThread,
   } = useAsrStore(
     useShallow((state) => ({
     activePreset: state.activePreset,
@@ -157,6 +161,11 @@ export function SettingsPanel({
     setDenoiseParams: state.setDenoiseParams,
     requestNoiseCalibration: state.requestNoiseCalibration,
     updateChunkParameters: state.updateChunkParameters,
+    // performance
+    forceSingleThread: state.forceSingleThread,
+    wasmThreads: state.wasmThreads,
+    setForceSingleThread: state.setForceSingleThread,
+    setWasmThreads: state.setWasmThreads,
     }))
   );
 
@@ -201,6 +210,8 @@ export function SettingsPanel({
     totalBytes: number;
     lastUpdated?: string;
   } | null>(null);
+
+  const [testingMultithread, setTestingMultithread] = useState(false);
 
   // Confirm dialog handler
   const onConfirmClear = async () => {
@@ -903,6 +914,82 @@ export function SettingsPanel({
               <p className="text-xs text-muted-foreground">Choisissez le thème de l'application. "Système" suit les préférences de votre système d'exploitation.</p>
             </div>
             <ThemeToggle />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="lg:col-span-2">
+        <CardHeader>
+          <div>
+            <CardTitle>Performance</CardTitle>
+            <CardDescription>
+              Réglages relatifs aux performances et au multithreading WASM.
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Forcer single-thread</p>
+              <p className="text-xs text-muted-foreground">Désactive le multithreading WASM. Multithread requiert isolation cross-origin (COOP/COEP) ; l'application basculera automatiquement en single-thread en cas d'échec.</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <Switch
+                className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                checked={forceSingleThread}
+                aria-label="Forcer single-thread"
+                onCheckedChange={(v) => {
+                  setForceSingleThread(v);
+                  try {
+                    const telemetry = useAsrStore.getState().telemetryCollector;
+                    telemetry?.logEvent && telemetry.logEvent("WASM_MULTITHREAD_TEST", { action: v ? 'force_single' : 'allow_multithread' });
+                  } catch (e) {}
+                  if (v) {
+                    toast('Forcé en single-thread');
+                  } else {
+                    toast('Autorisé multithread (sera utilisé si la plateforme le permet)');
+                  }
+                }}
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={async () => {
+                  if (testingMultithread) return;
+                  setTestingMultithread(true);
+                  try {
+                    const res = await testWasmMultithreadSupport(1500);
+                    const telemetry = useAsrStore.getState().telemetryCollector;
+                    telemetry?.logEvent && telemetry.logEvent("WASM_MULTITHREAD_TEST", { ok: res.ok, reason: res.reason });
+                    if (res.ok) {
+                      // enable multithread
+                      useAsrStore.getState().setForceSingleThread(false);
+                      const threads = Math.max(2, (typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 2 : 2));
+                      useAsrStore.getState().setWasmThreads(threads);
+                      toast(`mode multithread actif (${threads} threads)`);
+                    } else {
+                      // fallback to single thread
+                      useAsrStore.getState().setForceSingleThread(true);
+                      useAsrStore.getState().setWasmThreads(1);
+                      useAsrStore.getState().telemetryCollector?.recordAlert('WASM_MULTITHREAD_UNAVAILABLE', { reason: res.reason });
+                      toast('mode multithread indisponible sur cette plateforme');
+                    }
+                  } catch (err) {
+                    useAsrStore.getState().setForceSingleThread(true);
+                    useAsrStore.getState().setWasmThreads(1);
+                    useAsrStore.getState().telemetryCollector?.recordAlert('WASM_MULTITHREAD_UNAVAILABLE', { reason: String(err) });
+                    toast('mode multithread indisponible sur cette plateforme');
+                  } finally {
+                    setTestingMultithread(false);
+                  }
+                }}
+                disabled={testingMultithread}
+              >{testingMultithread ? 'Test...' : 'Tester'}</Button>
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-medium">État effectif des threads</p>
+            <p className="text-xs text-muted-foreground">{wasmThreads === null ? "Inconnu" : wasmThreads === 1 ? "Single-thread" : `Multi-thread (${wasmThreads} threads)`}</p>
           </div>
         </CardContent>
       </Card>
