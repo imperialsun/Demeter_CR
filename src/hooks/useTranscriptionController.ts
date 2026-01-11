@@ -11,7 +11,7 @@ import {
   probeAudioMetadata,
   type ProgressiveChunkResult,
 } from "@/lib/audio";
-import { preprocessDecodedAudio, preprocessPcmChunk } from "@/lib/preprocessing";
+import { preprocessDecodedAudio, preprocessPcmChunk, estimateNoiseProfile } from "@/lib/preprocessing";
 import { TelemetryCollector } from "@/lib/telemetry";
 import type { TranscriptionSegment } from "@/lib/export";
 import { useAsrStore } from "@/store/asr-store";
@@ -70,12 +70,31 @@ export function useTranscriptionController() {
       });
       if (preprocessConfig) {
         console.info("[preprocess] applying full pipeline on decoded audio", preprocessConfig);
+        // Derive a noise profile from the decoded audio (auto-calibration in full-preprocess mode).
+        try {
+          useAsrStore.getState().setPreprocessingStatus("calibrating");
+          useAsrStore.getState().setPreprocessingProgress(0);
+          const { profile, frames } = estimateNoiseProfile(
+            decoded.pcm,
+            decoded.sampleRate,
+            preprocessConfig.calibrationSeconds
+          );
+          preprocessConfig.noiseProfile = profile;
+          telemetry.logEvent("PREPROCESS_NOISE_PROFILE", { frames, source: "auto" });
+        } catch (err) {
+          console.warn("Calibration failed", err);
+          telemetry.recordAlert("PREPROCESS_CALIBRATION_FAILED", { message: (err as Error).message });
+        }
+        useAsrStore.getState().setPreprocessingStatus("processing");
+        useAsrStore.getState().setPreprocessingProgress(0);
         const processed = await preprocessDecodedAudio(decoded, preprocessConfig, telemetry);
         decoded = {
           metadata: decoded.metadata,
           pcm: processed.pcm,
           sampleRate: processed.sampleRate,
         };
+        useAsrStore.getState().setPreprocessingProgress(1);
+        useAsrStore.getState().setPreprocessingStatus("done");
       }
       useAsrStore.getState().registerAudioSource(source, decoded.metadata);
 
@@ -205,23 +224,37 @@ export function useTranscriptionController() {
             const definition = chunkPlan.length
               ? chunkPlan[Math.min(chunk.index, chunkPlan.length - 1)]
               : undefined;
-            const processed = preprocessConfig
-              ? await preprocessPcmChunk(
-                  chunk.pcm,
-                  chunk.sampleRate,
-                  {
-                    ...preprocessConfig,
-                    noiseProfile: sharedNoiseProfile,
-                  },
-                  telemetry
-                )
-              : null;
-            if (processed) {
-              sharedNoiseProfile = processed.noiseProfile;
+            let processed = null as Awaited<ReturnType<typeof preprocessPcmChunk>> | null;
+            if (preprocessConfig) {
+              // if we are in calibration mode and don't yet have a profile, mark as calibrating
+              if (!sharedNoiseProfile) {
+                useAsrStore.getState().setPreprocessingStatus("calibrating");
+                useAsrStore.getState().setPreprocessingProgress(0);
+              }
+              processed = await preprocessPcmChunk(
+                chunk.pcm,
+                chunk.sampleRate,
+                {
+                  ...preprocessConfig,
+                  noiseProfile: sharedNoiseProfile,
+                },
+                telemetry
+              );
+
+              // if we just computed a noise profile during chunk processing, assume calibration step completed
+              if (!sharedNoiseProfile && processed.noiseProfile) {
+                sharedNoiseProfile = processed.noiseProfile;
+                useAsrStore.getState().setPreprocessingStatus("processing");
+              }
             }
 
             const pcmToUse = processed?.pcm ?? chunk.pcm;
             const sampleRateToUse = processed?.sampleRate ?? chunk.sampleRate;
+
+            // update preprocessing progress (based on chunk index if we have a chunk plan)
+            const denominator = chunkPlan.length || chunk.index + 1;
+            useAsrStore.getState().setPreprocessingProgress((chunk.index + 1) / denominator);
+
 
             const result = await transcribeChunk({
               pipeline,
@@ -253,7 +286,6 @@ export function useTranscriptionController() {
             telemetry.pushChunkMetric(metric);
             state.pushChunkMetric(metric);
 
-            const denominator = chunkPlan.length || chunk.index + 1;
             state.setProgress((chunk.index + 1) / denominator);
 
             if (shouldStopAfterChunk()) {
@@ -265,6 +297,11 @@ export function useTranscriptionController() {
         if ((error as DOMException)?.name !== "AbortError") {
           throw error;
         }
+      }
+      // mark preprocessing done for progressive mode
+      if (preprocessConfig) {
+        useAsrStore.getState().setPreprocessingProgress(1);
+        useAsrStore.getState().setPreprocessingStatus("done");
       }
     },
     []

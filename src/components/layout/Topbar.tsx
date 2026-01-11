@@ -31,6 +31,7 @@ export function Topbar() {
     status,
     statusDetail,
     wasmThreads,
+    preprocessingMode,
   } =
     useAsrStore();
 
@@ -66,6 +67,10 @@ export function Topbar() {
               {wasmThreads && wasmThreads > 1 ? `multithread (${wasmThreads})` : 'single-thread'}
             </Badge>
           ) : null}
+          {/* Preprocessing mode badge */}
+          <Badge variant={preprocessingMode === 'full' ? 'success' : 'warning'} className="capitalize">
+            {preprocessingMode === 'full' ? 'Complet' : 'Rapide'}
+          </Badge>
           <Badge variant="secondary">{presetLabel}</Badge>
           <Badge variant="default">{modelId}</Badge>
         </div>

@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { AudioUploader } from "@/components/audio/AudioUploader";
 import { AudioPlayer } from "@/components/audio/AudioPlayer";
 import { StatusBar } from "@/components/status/StatusBar";
+import { PreprocessingStatusPanel } from "@/components/status/PreprocessingStatusPanel";
 import { ResultsTable } from "@/components/results/ResultsTable";
 import { ExportButtons } from "@/components/results/ExportButtons";
 import { Card, CardContent } from "@/components/ui/card";
@@ -91,6 +92,7 @@ function UploadPage() {
 
       <div className="grid gap-6 xl:grid-cols-[360px,1fr]">
         <div className="space-y-4">
+          <PreprocessingStatusPanel />
           <AudioUploader
             onFileSelected={handleFileSelected}
             metadata={audioMetadata}

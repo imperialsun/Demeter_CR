@@ -76,6 +76,8 @@ interface AsrConfigState {
   showExportJson: boolean;
   showExportTelemetry: boolean;
   preprocessingMode: "quick" | "full";
+  preprocessingStatus: "idle" | "calibrating" | "processing" | "done";
+  preprocessingProgress: number;
   denoiseNoiseFloorDb: number;
   denoiseReductionDb: number;
   denoiseSmoothing: number;
@@ -119,6 +121,8 @@ interface AsrConfigActions {
   setShowExportJson: (value: boolean) => void;
   setShowExportTelemetry: (value: boolean) => void;
   setPreprocessingMode: (mode: "quick" | "full") => void;
+  setPreprocessingStatus: (status: "idle" | "calibrating" | "processing" | "done") => void;
+  setPreprocessingProgress: (value: number) => void;
   setDenoiseParams: (params: Partial<{
     denoiseNoiseFloorDb: number;
     denoiseReductionDb: number;
@@ -189,6 +193,9 @@ const initialState: AsrConfigState = {
   isTranscribing: false,
   stopRequested: false,
   progress: 0,
+  // preprocessing status
+  preprocessingStatus: "idle",
+  preprocessingProgress: 0,
   // defaults
   forceSingleThread: true,
   wasmThreads: null,
@@ -276,6 +283,8 @@ export const useAsrStore = create<AsrConfigStore>((set) => ({
 
   setProgress: (value) => set(() => ({ progress: value })),
   setPreprocessingMode: (mode) => set(() => ({ preprocessingMode: mode })),
+  setPreprocessingStatus: (status) => set(() => ({ preprocessingStatus: status })),
+  setPreprocessingProgress: (value) => set(() => ({ preprocessingProgress: value })),
   setDenoiseParams: (params) => set((state) => ({ ...state, ...params })),
   requestNoiseCalibration: () => set(() => ({ noiseCalibrationRequestedAt: Date.now() })),
   clearNoiseCalibrationRequest: () => set(() => ({ noiseCalibrationRequestedAt: null })),
@@ -296,7 +305,10 @@ export const useAsrStore = create<AsrConfigStore>((set) => ({
       isTranscribing: false,
       stopRequested: false,
       progress: 0,
+      preprocessingStatus: "idle",
+      preprocessingProgress: 0,
     })),
+
   resetApp: () =>
     set((state) => {
       // Persist default settings and reset in-memory state
@@ -323,6 +335,8 @@ export const useAsrStore = create<AsrConfigStore>((set) => ({
         isTranscribing: false,
         stopRequested: false,
         progress: 0,
+        preprocessingStatus: "idle",
+        preprocessingProgress: 0,
       };
     }),
   setWebGpuSupport: (supported) => set(() => ({ webGpuSupported: supported })),
