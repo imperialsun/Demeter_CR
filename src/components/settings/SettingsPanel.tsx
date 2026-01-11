@@ -1,0 +1,1240 @@
+import { useMemo, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
+import { ChevronDown } from "lucide-react";
+
+import {
+  MODEL_PRESETS,
+  useAsrStore,
+  type BackendImplementation,
+} from "@/store/asr-store";
+import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/use-toast";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { initializeBackendSupport, resetWebGpuSupportCache } from "@/lib/backend-support";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import { useTheme, type Theme } from "@/components/theme-context";
+import { cn } from "@/lib/utils";
+
+type BackendOption = {
+  value: BackendImplementation;
+  label: string;
+  description: string;
+  disabled?: boolean;
+};
+
+const BACKENDS: BackendOption[] = [
+  {
+    value: "webgpu",
+    label: "WebGPU",
+    description: "Accélération GPU (Chrome/Edge récent).",
+  },
+  {
+    value: "wasm",
+    label: "WASM",
+    description: "Fallback CPU universel, plus lent mais compatible.",
+  },
+];
+
+interface SettingsPanelProps {
+  showMicroReminder?: boolean;
+  showReminders?: boolean;
+  initialModelOpen?: boolean;
+  initialChunkingOpen?: boolean;
+}
+
+function ThemeToggle() {
+  const { theme, setTheme } = useTheme();
+
+  return (
+    <div className="flex items-center">
+      <Select value={theme} onValueChange={(v) => setTheme(v as Theme)}>
+        <SelectTrigger className="w-36">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="light">Clair</SelectItem>
+          <SelectItem value="system">Système</SelectItem>
+          <SelectItem value="dark">Sombre</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+export function SettingsPanel({
+  showMicroReminder = true,
+  showReminders = true,
+  initialModelOpen = false,
+  initialChunkingOpen = false,
+}: SettingsPanelProps) {
+  const {
+    activePreset,
+    customModelId,
+    backendPreference,
+    webGpuSupported,
+    wasmAvailable,
+    memoryMode,
+    chunkStrategy,
+    segmentationMode,
+    preprocessingMode,
+    showSegments,
+    showExportVtt,
+    showExportSrt,
+    showExportJson,
+    showExportTelemetry,
+    denoiseNoiseFloorDb,
+    denoiseReductionDb,
+    denoiseSmoothing,
+    denoiseCalibrationSeconds,
+    chunkDurationSec,
+    overlapSec,
+    minChunkMs,
+    maxChunkMs,
+    minSilenceMs,
+    silenceThresholdDb,
+    setPreset,
+    setBackendPreference,
+    setMemoryMode,
+    setChunkStrategy,
+    setSegmentationMode,
+    setShowSegments,
+    setShowExportVtt,
+    setShowExportSrt,
+    setShowExportJson,
+    setShowExportTelemetry,
+    setPreprocessingMode,
+    setDenoiseParams,
+    requestNoiseCalibration,
+    updateChunkParameters,
+  } = useAsrStore(
+    useShallow((state) => ({
+    activePreset: state.activePreset,
+    customModelId: state.customModelId,
+    backendPreference: state.backendPreference,
+    memoryMode: state.memoryMode,
+    chunkStrategy: state.chunkStrategy,
+    segmentationMode: state.segmentationMode,
+    preprocessingMode: state.preprocessingMode,
+    showSegments: state.showSegments,
+    showExportVtt: state.showExportVtt,
+    showExportSrt: state.showExportSrt,
+    showExportJson: state.showExportJson,
+    showExportTelemetry: state.showExportTelemetry,
+    denoiseNoiseFloorDb: state.denoiseNoiseFloorDb,
+    denoiseReductionDb: state.denoiseReductionDb,
+    denoiseSmoothing: state.denoiseSmoothing,
+    denoiseCalibrationSeconds: state.denoiseCalibrationSeconds,
+    chunkDurationSec: state.chunkDurationSec,
+    overlapSec: state.overlapSec,
+    minChunkMs: state.minChunkMs,
+    maxChunkMs: state.maxChunkMs,
+    minSilenceMs: state.minSilenceMs,
+    silenceThresholdDb: state.silenceThresholdDb,
+    webGpuSupported: state.webGpuSupported,
+    wasmAvailable: state.wasmAvailable,
+    setPreset: state.setPreset,
+    setBackendPreference: state.setBackendPreference,
+    setMemoryMode: state.setMemoryMode,
+    setChunkStrategy: state.setChunkStrategy,
+    setSegmentationMode: state.setSegmentationMode,
+    setShowSegments: state.setShowSegments,
+    setShowExportVtt: state.setShowExportVtt,
+    setShowExportSrt: state.setShowExportSrt,
+    setShowExportJson: state.setShowExportJson,
+    setShowExportTelemetry: state.setShowExportTelemetry,
+    setPreprocessingMode: state.setPreprocessingMode,
+    setDenoiseParams: state.setDenoiseParams,
+    requestNoiseCalibration: state.requestNoiseCalibration,
+    updateChunkParameters: state.updateChunkParameters,
+    }))
+  );
+
+  const backendOptions = useMemo<BackendOption[]>(() => {
+    return BACKENDS.map((backend) => {
+      if (backend.value === "webgpu") {
+        if (webGpuSupported) return { ...backend, disabled: false };
+        return {
+          ...backend,
+          label: "WebGPU (non disponible)",
+          description: "Ce périphérique ne prend pas en charge WebGPU.",
+          disabled: true,
+        };
+      }
+
+      if (!wasmAvailable) {
+        return {
+          ...backend,
+          label: "WASM (non disponible)",
+          description: "Les fichiers WASM nécessaires ne sont pas accessibles sous /onnx/.",
+          disabled: true,
+        };
+      }
+
+      return backend;
+    });
+  }, [webGpuSupported, wasmAvailable]);
+
+  const [modelOpen, setModelOpen] = useState(initialModelOpen);
+  const [chunkingOpen, setChunkingOpen] = useState(initialChunkingOpen);
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
+
+  const [computingStats, setComputingStats] = useState(false);
+  const [cacheStats, setCacheStats] = useState<{
+    cacheTotals: Array<{ name: string; size: number; entries: number }>;
+    cacheTotalBytes: number;
+    indexedDbs: Array<{ name: string; size: number }>;
+    indexedTotalBytes: number;
+    localStorageBytes: number;
+    sessionStorageBytes: number;
+    totalBytes: number;
+    lastUpdated?: string;
+  } | null>(null);
+
+  // Confirm dialog handler
+  const onConfirmClear = async () => {
+    setConfirmClearOpen(false);
+    await clearAppCache();
+  };
+
+  const computeDefaultOverlap = (durationSec: number) => {
+    const raw = durationSec * 0.15; // ~15% de la durée cible
+    const clamped = Math.min(30, Math.max(0, raw));
+    return Number(clamped.toFixed(1));
+  };
+
+  const handleChunkDurationChange = (value: number) => {
+    const defaultForCurrent = computeDefaultOverlap(chunkDurationSec);
+    const defaultForNew = computeDefaultOverlap(value);
+    const shouldAutoUpdate = overlapSec === defaultForCurrent;
+    updateChunkParameters({
+      chunkDurationSec: value,
+      overlapSec: shouldAutoUpdate ? defaultForNew : overlapSec,
+    });
+  };
+
+  const presetOptions = useMemo(() => Object.values(MODEL_PRESETS), []);
+
+  async function clearAppCache() {
+    setClearing(true);
+    const telemetryCollector = useAsrStore.getState().telemetryCollector;
+    const results: {
+      cachesDeleted: string[];
+      cachesFailed: Array<{ name: string; error: unknown }>;
+      dbsDeleted: string[];
+      dbsFailed: Array<{ name?: string; error: unknown }>;
+    } = { cachesDeleted: [], cachesFailed: [], dbsDeleted: [], dbsFailed: [] };
+
+    try {
+      // Clear Cache Storage (delete all caches for this origin)
+      if (typeof window !== "undefined" && "caches" in window) {
+        try {
+          const names = await caches.keys();
+          for (const name of names) {
+            try {
+              const ok = await caches.delete(name);
+              if (ok) results.cachesDeleted.push(name);
+              else results.cachesFailed.push({ name, error: "delete returned false" });
+            } catch (err) {
+              results.cachesFailed.push({ name, error: err });
+            }
+          }
+        } catch (err) {
+          console.warn("Failed to enumerate caches", err);
+        }
+      }
+
+      // Clear IndexedDB (if supported, enumerate and delete databases)
+      if (typeof indexedDB !== "undefined" && typeof (indexedDB as any).databases === "function") {
+        try {
+          const dbs = await (indexedDB as any).databases();
+          for (const info of dbs) {
+            const name: string | undefined = info.name;
+            if (!name) continue;
+            try {
+              await new Promise<void>((resolve, reject) => {
+                const req = indexedDB.deleteDatabase(name);
+                req.onsuccess = () => resolve();
+                req.onerror = () => reject(req.error);
+                req.onblocked = () => console.warn("deleteDatabase blocked", name);
+              });
+              results.dbsDeleted.push(name);
+            } catch (err) {
+              results.dbsFailed.push({ name, error: err });
+            }
+          }
+        } catch (err) {
+          console.warn("Failed to enumerate indexedDB databases", err);
+        }
+      } else {
+        // Can't enumerate DBs; attempt to delete common transformers DB names
+        const candidates = ["transformers_cache", "hf_cache", "huggingface_cache"];
+        for (const name of candidates) {
+          try {
+            await new Promise<void>((resolve, reject) => {
+              const req = indexedDB.deleteDatabase(name as string);
+              req.onsuccess = () => resolve();
+              req.onerror = () => reject(req.error);
+            });
+            results.dbsDeleted.push(name);
+          } catch (err) {
+            // ignore missing
+          }
+        }
+      }
+
+      // Clear local/session storage
+      try {
+        if (typeof localStorage !== "undefined") localStorage.clear();
+        if (typeof sessionStorage !== "undefined") sessionStorage.clear();
+      } catch (err) {
+        console.warn("Failed to clear local/session storage", err);
+      }
+
+      // Reset WebGPU detection cache and reinitialize backend support (like on startup)
+      resetWebGpuSupportCache();
+      initializeBackendSupport();
+
+      // Telemetry
+      telemetryCollector?.logEvent && telemetryCollector.logEvent("CACHE_CLEARED", {
+        cachesDeleted: results.cachesDeleted.length,
+        cachesFailed: results.cachesFailed.length,
+        dbsDeleted: results.dbsDeleted.length,
+        dbsFailed: results.dbsFailed.length,
+      });
+
+      console.info("[cache-clear] completed", results);
+      toast("Cache vidé. L'application a été réinitialisée en partie.");
+    } catch (err) {
+      console.error("Failed to clear app cache", err);
+      toast("Échec lors du vidage du cache. Consultez la console pour détails.");
+    } finally {
+      setClearing(false);
+      // clear the cached stats so they are recalculated only on user action
+      setCacheStats(null);
+    }
+  }
+  // Utilities to compute cache sizes and show estimations
+  function formatBytes(bytes: number) {
+    if (bytes === 0) return "0 B";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
+  }
+
+  async function computeCacheStats() {
+    setComputingStats(true);
+    const telemetryCollector = useAsrStore.getState().telemetryCollector;
+
+    // Snapshot memory before heavy work (light method still snapshots to track impact)
+    telemetryCollector?.snapshotMemory && telemetryCollector.snapshotMemory('CACHE_STATS_START');
+    console.info("[cache-stats] start (light)");
+    telemetryCollector?.logEvent && telemetryCollector.logEvent("CACHE_STATS_CALC_START", { mode: 'light' });
+
+    const stats = {
+      cacheTotals: [] as Array<{ name: string; size: number; entries: number }>,
+      cacheTotalBytes: 0,
+      indexedDbs: [] as Array<{ name: string; size: number }>,
+      indexedTotalBytes: 0,
+      localStorageBytes: 0,
+      sessionStorageBytes: 0,
+      totalBytes: 0,
+      lastUpdated: new Date().toLocaleString(),
+    };
+
+    try {
+      // Prefer navigator.storage.estimate() for a quick, low-cost baseline if available
+      try {
+        if (typeof navigator !== 'undefined' && (navigator as any).storage && typeof (navigator as any).storage.estimate === 'function') {
+          try {
+            const estimate = await (navigator as any).storage.estimate();
+            if (typeof estimate?.usage === 'number') {
+              // we don't trust this as exact but store as a hint
+              stats.localStorageBytes = stats.localStorageBytes || 0; // leave unchanged, show estimate separately in console below
+              console.info('[cache-stats] storage.estimate', estimate);
+            }
+          } catch (err) {
+            // ignore estimate failures
+          }
+        }
+      } catch (err) {
+        // ignore
+      }
+
+      // Cache Storage (light): count entries and attempt to use content-length headers only; do NOT read bodies
+      if (typeof window !== 'undefined' && 'caches' in window) {
+        try {
+          const names = await caches.keys();
+          const DEFAULT_AVG_PER_ENTRY = 50 * 1024; // 50 KB default estimate when headers absent
+          for (const name of names) {
+            try {
+              const c = await caches.open(name);
+              const requests = await c.keys();
+              const entries = requests.length;
+              let sampledSizeTotal = 0;
+              let sampledCount = 0;
+
+              // sample up to N entries' headers (no body) to look for content-length
+              const sampleN = Math.min(3, entries);
+              for (let i = 0; i < sampleN; i++) {
+                try {
+                  const req = requests[i];
+                  const resp = await c.match(req);
+                  if (!resp) continue;
+                  const cl = resp.headers.get('content-length');
+                  if (cl && !Number.isNaN(Number(cl))) {
+                    sampledSizeTotal += Number(cl);
+                    sampledCount++;
+                  }
+                } catch (err) {
+                  // ignore
+                }
+              }
+
+              let estimatedSize = 0;
+              if (sampledCount > 0) {
+                const avg = Math.round(sampledSizeTotal / sampledCount);
+                estimatedSize = avg * entries;
+              } else {
+                estimatedSize = DEFAULT_AVG_PER_ENTRY * entries;
+              }
+
+              stats.cacheTotals.push({ name, size: estimatedSize, entries });
+              stats.cacheTotalBytes += estimatedSize;
+            } catch (err) {
+              console.warn('failed to inspect cache (light)', name, err);
+            }
+          }
+        } catch (err) {
+          console.warn('failed to enumerate caches (light)', err);
+        }
+      }
+
+      // IndexedDB (light): count entries per store and sample a few values per store to estimate average size
+      if (typeof indexedDB !== 'undefined') {
+        try {
+          const dbCandidates: string[] = [];
+          if (typeof (indexedDB as any).databases === 'function') {
+            try {
+              const dbs = await (indexedDB as any).databases();
+              for (const info of dbs) {
+                if (info?.name) dbCandidates.push(info.name as string);
+              }
+            } catch (err) {
+              // ignore
+            }
+          }
+
+          // fallback candidate names
+          const fallback = ['transformers_cache', 'hf_cache', 'huggingface_cache'];
+          for (const f of fallback) if (!dbCandidates.includes(f)) dbCandidates.push(f);
+
+          for (const name of dbCandidates) {
+            try {
+              const openReq = indexedDB.open(name as string);
+              const db = await new Promise<IDBDatabase>((resolve, reject) => {
+                openReq.onsuccess = () => resolve(openReq.result);
+                openReq.onerror = () => reject(openReq.error);
+                openReq.onblocked = () => console.warn('opening indexeddb blocked', name);
+              });
+
+              let dbSize = 0;
+
+              for (let i = 0; i < db.objectStoreNames.length; i++) {
+                const storeName = db.objectStoreNames[i];
+                try {
+                  const tx = db.transaction(storeName, 'readonly');
+                  const store = tx.objectStore(storeName);
+
+                  const count = await new Promise<number>((resolve, reject) => {
+                    const r = store.count();
+                    r.onsuccess = () => resolve(r.result as number);
+                    r.onerror = () => reject(r.error);
+                  });
+
+                  if (count === 0) continue;
+
+                  // sample up to N entries using cursor (small, bounded memory use)
+                  const sampleN = Math.min(3, count);
+                  let sampled = 0;
+                  let sampledTotalBytes = 0;
+
+                  await new Promise<void>((resolve) => {
+                    const cursorReq = store.openCursor();
+                    cursorReq.onsuccess = (ev) => {
+                      const cursor = (ev.target as IDBRequest).result;
+                      if (cursor && sampled < sampleN) {
+                        try {
+                          const str = JSON.stringify(cursor.value);
+                          sampledTotalBytes += new TextEncoder().encode(str).length;
+                        } catch (err) {
+                          // ignore serialization errors
+                        }
+                        sampled++;
+                        cursor.continue();
+                      } else {
+                        resolve();
+                      }
+                    };
+                    cursorReq.onerror = () => resolve();
+                  });
+
+                  const avg = sampled > 0 ? Math.round(sampledTotalBytes / sampled) : 1024; // 1KB default
+                  dbSize += avg * count;
+                } catch (err) {
+                  console.warn('failed to inspect store (light)', name, storeName, err);
+                }
+              }
+
+              if (dbSize > 0) {
+                stats.indexedDbs.push({ name, size: dbSize });
+                stats.indexedTotalBytes += dbSize;
+              }
+
+              try { db.close(); } catch (e) {}
+            } catch (err) {
+              // ignore missing DBs or access errors
+            }
+          }
+        } catch (err) {
+          console.warn('failed to estimate indexeddb sizes (light)', err);
+        }
+      }
+
+      // local/session storage
+      try {
+        if (typeof localStorage !== 'undefined') {
+          let s = 0;
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (!key) continue;
+            const v = localStorage.getItem(key) ?? '';
+            s += new TextEncoder().encode(key + v).length;
+          }
+          stats.localStorageBytes = s;
+        }
+      } catch (err) {
+        console.warn('failed to inspect localStorage', err);
+      }
+
+      try {
+        if (typeof sessionStorage !== 'undefined') {
+          let s = 0;
+          for (let i = 0; i < sessionStorage.length; i++) {
+            const key = sessionStorage.key(i);
+            if (!key) continue;
+            const v = sessionStorage.getItem(key) ?? '';
+            s += new TextEncoder().encode(key + v).length;
+          }
+          stats.sessionStorageBytes = s;
+        }
+      } catch (err) {
+        console.warn('failed to inspect sessionStorage', err);
+      }
+
+      stats.totalBytes = stats.cacheTotalBytes + stats.indexedTotalBytes + stats.localStorageBytes + stats.sessionStorageBytes;
+      // Snapshot memory after calculation
+      telemetryCollector?.snapshotMemory && telemetryCollector.snapshotMemory('CACHE_STATS_END');
+      console.info('[cache-stats] done', stats);
+      telemetryCollector?.logEvent && telemetryCollector.logEvent('CACHE_STATS_CALC_DONE', {
+        cacheTotalBytes: stats.cacheTotalBytes,
+        indexedTotalBytes: stats.indexedTotalBytes,
+        localStorageBytes: stats.localStorageBytes,
+        sessionStorageBytes: stats.sessionStorageBytes,
+        totalBytes: stats.totalBytes,
+        cachesCount: stats.cacheTotals.length,
+        indexedDbCount: stats.indexedDbs.length,
+        mode: 'light',
+      });
+      setCacheStats(stats);
+    } catch (err) {
+      console.error('computeCacheStats failed', err);
+      telemetryCollector?.snapshotMemory && telemetryCollector.snapshotMemory('CACHE_STATS_ERROR');
+      telemetryCollector?.logEvent && telemetryCollector.logEvent('CACHE_STATS_CALC_ERROR', { message: String(err) });
+    } finally {
+      setComputingStats(false);
+    }
+  }
+
+  const reminders = [
+    {
+      title: "Upload",
+      description: "Glissez un fichier audio. Choisissez Full RAM ou Progressif selon la durée.",
+    },
+    ...(showMicroReminder
+      ? [
+          {
+            title: "Micro",
+            description:
+              "Armez le micro et enclenchez Start. Les chunks sont découpés toutes les 15 s avec 3 s d'overlap.",
+          },
+        ]
+      : []),
+    {
+      title: "Export",
+      description: "VTT, SRT, JSON segments et telemetry.json disponibles dans l'onglet Télémetrie.",
+    },
+  ];
+  const isCustom = activePreset === "custom";
+  const backendTriggerTone = backendPreference === "webgpu"
+    ? "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-500/90 focus:ring-emerald-500/40"
+    : "border-amber-400 bg-amber-400 text-amber-950 hover:bg-amber-400/90 focus:ring-amber-400/40";
+  const backendItemTone = (value: BackendImplementation) =>
+    value === "webgpu"
+      ? "data-[state=checked]:bg-emerald-500 data-[state=checked]:text-white"
+      : "data-[state=checked]:bg-amber-400 data-[state=checked]:text-amber-950";
+
+  type PresetKey = Parameters<typeof setPreset>[0];
+  type ChunkStrategyValue = Parameters<typeof setChunkStrategy>[0];
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      {showReminders ? (
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Rappels d&apos;utilisation</CardTitle>
+            <CardDescription>
+              Sélectionnez un mode d&apos;import dans la sidebar puis lancez la transcription en un clic.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-6 md:grid-cols-3">
+            {reminders.map((reminder) => (
+              <Reminder key={reminder.title} title={reminder.title} description={reminder.description} />
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <Card>
+        <CardHeader className="space-y-0">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <CardTitle>Modèle Whisper</CardTitle>
+              <CardDescription>
+                Choisissez le preset adapté à votre cas d&apos;usage ou renseignez un modèle custom.
+              </CardDescription>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1 text-xs"
+              onClick={() => setModelOpen((open) => !open)}
+            >
+              {modelOpen ? "Masquer" : "Afficher"}
+              <ChevronDown
+                className={cn("h-4 w-4 transition-transform", modelOpen ? "rotate-180" : "")}
+              />
+            </Button>
+          </div>
+        </CardHeader>
+        {modelOpen ? (
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Preset</Label>
+              <Select value={activePreset} onValueChange={(value) => setPreset(value as PresetKey)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Sélectionnez un preset" />
+                </SelectTrigger>
+                <SelectContent>
+                  {presetOptions.map((preset) => (
+                    <SelectItem key={preset.key} value={preset.key}>
+                      <div className="flex flex-col">
+                        <span className="font-medium">{preset.label}</span>
+                        <span className="text-xs text-muted-foreground">{preset.description}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="custom">
+                    <div className="flex flex-col">
+                      <span className="font-medium">Custom</span>
+                      <span className="text-xs text-muted-foreground">Renseignez un repo Hugging Face compatible.</span>
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {isCustom ? (
+              <div className="space-y-2">
+                <Label htmlFor="custom-model">ModelId Hugging Face</Label>
+                <Input
+                  id="custom-model"
+                  placeholder="ex: MonOrganisation/whisper-finetune"
+                  value={customModelId}
+                  onChange={(event) => setPreset("custom" as PresetKey, event.target.value)}
+                />
+              </div>
+            ) : null}
+            <div className="space-y-2">
+              <Label>Backend</Label>
+              <Select
+                value={backendPreference}
+                onValueChange={(value) => setBackendPreference(value as BackendImplementation)}
+              >
+                <SelectTrigger className={cn("capitalize", backendTriggerTone)}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {backendOptions.map((backend) => (
+                    <SelectItem
+                      key={backend.value}
+                      value={backend.value}
+                      disabled={backend.disabled}
+                      className={cn("capitalize", backendItemTone(backend.value))}
+                    >
+                      <div className="flex flex-col">
+                          <span className="font-medium">{backend.label}</span>
+                          <span className={cn("text-xs", backend.value === "wasm" ? "text-black" : "text-muted-foreground")}>{backend.description}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!webGpuSupported ? (
+                <p className="text-xs text-muted-foreground">
+                  WebGPU n&apos;est pas disponible sur ce périphérique. Le mode WASM est appliqué automatiquement.
+                </p>
+              ) : null}
+            </div>
+            <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+              <div>
+                <p className="text-sm font-medium">Mode progressif</p>
+                <p className="text-xs text-muted-foreground">
+                  Décode par segments via capture audio pour limiter la mémoire (Chrome uniquement).
+                </p>
+              </div>
+              <Switch
+                className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                checked={memoryMode === "progressive"}
+                onCheckedChange={(checked) => setMemoryMode(checked ? "progressive" : "full")}
+              />
+            </div>
+
+
+          </CardContent>
+        ) : null}
+      </Card>
+
+
+
+
+      <Card>
+        <CardHeader className="space-y-0">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <CardTitle>Chunking & segmentation</CardTitle>
+              <CardDescription>
+                Contrôlez la découpe audio et les paramètres silence pour optimiser la précision et la vitesse.
+              </CardDescription>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1 text-xs"
+              onClick={() => setChunkingOpen((open) => !open)}
+            >
+              {chunkingOpen ? "Masquer" : "Afficher"}
+              <ChevronDown
+                className={cn("h-4 w-4 transition-transform", chunkingOpen ? "rotate-180" : "")}
+              />
+            </Button>
+          </div>
+        </CardHeader>
+        {chunkingOpen ? (
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label>Stratégie de chunking</Label>
+              <Select value={chunkStrategy} onValueChange={(value) => setChunkStrategy(value as ChunkStrategyValue)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sequential">Séquentiel</SelectItem>
+                  <SelectItem value="overlap">Overlap + dédoublonnage</SelectItem>
+                  <SelectItem value="silence">Détection de silences (énergie)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+              <div>
+                <p className="text-sm font-medium">Micro segment</p>
+                <p className="text-xs text-muted-foreground">
+                  On : coupe aux silences. Off : un segment par chunk.
+                </p>
+              </div>
+              <Switch
+                className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                checked={segmentationMode === "silence"}
+                onCheckedChange={(checked) => setSegmentationMode(checked ? "silence" : "chunks")}
+              />
+            </div>
+
+            {chunkStrategy === "sequential" ? (
+              <div className="space-y-3 pt-2">
+                <p className="text-xs text-muted-foreground">Séquentiel : découpe fixe sans overlap.</p>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <NumberField
+                    id="chunk-duration"
+                    label="Durée chunk (s)"
+                    value={chunkDurationSec}
+                    min={5}
+                    max={120}
+                    step={5}
+                    onChange={handleChunkDurationChange}
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            {chunkStrategy === "overlap" ? (
+              <div className="space-y-3 pt-2">
+                <p className="text-xs text-muted-foreground">Overlap : fenêtres fixes avec chevauchement.</p>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <NumberField
+                    id="chunk-duration"
+                    label="Durée chunk (s)"
+                    value={chunkDurationSec}
+                    min={5}
+                    max={120}
+                    step={5}
+                    onChange={handleChunkDurationChange}
+                  />
+                  <NumberField
+                    id="overlap"
+                    label="Overlap (s)"
+                    value={overlapSec}
+                    min={0}
+                    max={30}
+                    step={1}
+                    onChange={(value) => updateChunkParameters({ overlapSec: value })}
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            {chunkStrategy === "silence" ? (
+              <div className="space-y-3 pt-2">
+                <p className="text-xs text-muted-foreground">Silence : découpe adaptative guidée par les pauses.</p>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <NumberField
+                    id="chunk-duration"
+                    label="Durée cible (s)"
+                    value={chunkDurationSec}
+                    min={5}
+                    max={120}
+                    step={5}
+                    onChange={handleChunkDurationChange}
+                  />
+                  <NumberField
+                    id="overlap"
+                    label="Overlap (s)"
+                    value={overlapSec}
+                    min={0}
+                    max={30}
+                    step={1}
+                    onChange={(value) => updateChunkParameters({ overlapSec: value })}
+                  />
+                  <NumberField
+                    id="silence-threshold"
+                    label="Seuil silence (dB)"
+                    value={silenceThresholdDb}
+                    min={-80}
+                    max={-5}
+                    step={1}
+                    onChange={(value) => updateChunkParameters({ silenceThresholdDb: value })}
+                  />
+                  <NumberField
+                    id="min-silence"
+                    label="Silence min (ms)"
+                    value={minSilenceMs}
+                    min={200}
+                    max={5000}
+                    step={100}
+                    onChange={(value) => updateChunkParameters({ minSilenceMs: value })}
+                  />
+                  <NumberField
+                    id="min-chunk"
+                    label="Chunk min (ms)"
+                    value={minChunkMs}
+                    min={500}
+                    max={30000}
+                    step={100}
+                    onChange={(value) => updateChunkParameters({ minChunkMs: value })}
+                  />
+                  <NumberField
+                    id="max-chunk"
+                    label="Chunk max (ms)"
+                    value={maxChunkMs}
+                    min={5000}
+                    max={120000}
+                    step={1000}
+                    onChange={(value) => updateChunkParameters({ maxChunkMs: value })}
+                  />
+                </div>
+              </div>
+            ) : null}
+          </CardContent>
+        ) : null}
+      </Card>
+
+      <Card className="lg:col-span-2">
+        <CardHeader className="space-y-0">
+          <div>
+            <CardTitle>Apparence</CardTitle>
+            <CardDescription>
+              Réglages d'apparence de l'application (thème, couleurs, etc.). C'est ici que vous pourrez configurer l'apparence à l'avenir.
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Thème</p>
+              <p className="text-xs text-muted-foreground">Choisissez le thème de l'application. "Système" suit les préférences de votre système d'exploitation.</p>
+            </div>
+            <ThemeToggle />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="lg:col-span-2">
+        <CardHeader className="space-y-0">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <CardTitle>Gestion du cache</CardTitle>
+              <CardDescription>
+                Outils pour supprimer complètement les caches et forcer le rechargement des modèles et ressources.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-md border bg-muted/40 p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium">Vider le cache</p>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Videz complètement le cache de l'application (Cache Storage, IndexedDB, localStorage). Utile pour réinitialiser les déploiements ou forcer un nouveau téléchargement des modèles.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="destructive" size="sm" onClick={() => setConfirmClearOpen(true)} disabled={clearing}>
+                  {clearing ? "Vider..." : "Vider le cache"}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => {
+                  // show quick help
+                  toast("Cette opération supprime les caches (Cache Storage, IndexedDB) et les paramètres locaux.");
+                }}>Aide</Button>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <div className="space-y-2 md:col-span-2">
+                <p className="text-xs text-muted-foreground">Occupation actuelle des caches :</p>
+                <div className="mt-2 space-y-2">
+                  {/* Summary */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">Cache Storage</span>
+                    <span className="text-xs text-muted-foreground">{cacheStats ? formatBytes(cacheStats.cacheTotalBytes) : "—"}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">IndexedDB</span>
+                    <span className="text-xs text-muted-foreground">{cacheStats ? formatBytes(cacheStats.indexedTotalBytes) : "—"}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">localStorage</span>
+                    <span className="text-xs text-muted-foreground">{cacheStats ? formatBytes(cacheStats.localStorageBytes) : "—"}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm">sessionStorage</span>
+                    <span className="text-xs text-muted-foreground">{cacheStats ? formatBytes(cacheStats.sessionStorageBytes) : "—"}</span>
+                  </div>
+                  <div className="flex items-center justify-between border-t pt-2">
+                    <span className="text-sm font-medium">Total estimé</span>
+                    <span className="text-xs text-muted-foreground font-medium">{cacheStats ? formatBytes(cacheStats.totalBytes) : "—"}</span>
+                  </div>
+
+                  {cacheStats && cacheStats.cacheTotals.length > 0 ? (
+                    <div className="mt-2">
+                      <p className="text-xs text-muted-foreground">Détails Cache Storage:</p>
+                      <ul className="mt-1 space-y-1">
+                        {cacheStats.cacheTotals.map((c) => (
+                          <li key={c.name} className="flex items-center justify-between text-xs">
+                            <span>{c.name}</span>
+                            <span className="text-muted-foreground">{formatBytes(c.size)} ({c.entries} entrées)</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {cacheStats && cacheStats.indexedDbs.length > 0 ? (
+                    <div className="mt-2">
+                      <p className="text-xs text-muted-foreground">Bases IndexedDB (estimation):</p>
+                      <ul className="mt-1 space-y-1">
+                        {cacheStats.indexedDbs.map((db) => (
+                          <li key={db.name} className="flex items-center justify-between text-xs">
+                            <span>{db.name}</span>
+                            <span className="text-muted-foreground">{formatBytes(db.size)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {cacheStats?.lastUpdated ? (
+                    <div className="mt-2 text-xs text-muted-foreground">Dernière mise à jour : {cacheStats.lastUpdated}</div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 md:col-span-1">
+                <Button variant="secondary" size="sm" onClick={() => computeCacheStats()} disabled={computingStats}>
+                  {computingStats ? "Calcul en cours…" : "Rafraîchir"}
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <ConfirmDialog
+            open={confirmClearOpen}
+            title="Vider le cache de l'application"
+            description="Êtes-vous sûr ? Cette action supprimera Cache Storage, IndexedDB et storage locaux."
+            onCancel={() => setConfirmClearOpen(false)}
+            onConfirm={onConfirmClear}
+          />
+        </CardContent>
+      </Card>
+
+      <Card className="lg:col-span-2">
+        <CardHeader>
+          <div>
+            <CardTitle>Pré-traitement</CardTitle>
+            <CardDescription>
+              Choisissez le mode de pré-traitement appliqué avant la transcription. Le mode "Rapide" est le comportement par défaut.
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">Mode de pré-traitement</p>
+              <p className="text-xs text-muted-foreground">Sélectionnez "Rapide" pour le traitement léger par défaut, ou "Complet" pour forcer le décodage complet préalable.</p>
+            </div>
+            <Select value={preprocessingMode} onValueChange={(v) => setPreprocessingMode(v as "quick" | "full") }>
+              <SelectTrigger className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="quick">Rapide (par défaut)</SelectItem>
+                <SelectItem value="full">Complet</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {preprocessingMode === "full" ? (
+            <div className="mt-4 space-y-4 rounded-md border bg-muted/30 px-3 py-3">
+              <p className="text-xs text-muted-foreground">
+                Le mode complet applique un filtrage passe-haut/passe-bas, compression douce, normalisation sécurisée, puis débruitage spectral (FFT 1024 / hop 256).
+              </p>
+              <div className="grid gap-3 md:grid-cols-3">
+                <SliderField
+                  id="noise-floor"
+                  label="Noise floor (dB)"
+                  min={-50}
+                  max={-5}
+                  step={1}
+                  value={denoiseNoiseFloorDb}
+                  onChange={(value) => setDenoiseParams({ denoiseNoiseFloorDb: value })}
+                  help="Décalage du seuil par rapport au profil de bruit. Valeur plus basse = gating plus prudent."
+                />
+                <SliderField
+                  id="reduction-db"
+                  label="Réduction (dB)"
+                  min={0}
+                  max={24}
+                  step={1}
+                  value={denoiseReductionDb}
+                  onChange={(value) => setDenoiseParams({ denoiseReductionDb: value })}
+                  help="Atténuation max dans les bandes bruyantes (soft-knee)."
+                />
+                <SliderField
+                  id="smoothing"
+                  label="Lissage"
+                  min={0}
+                  max={0.99}
+                  step={0.01}
+                  value={denoiseSmoothing}
+                  onChange={(value) => setDenoiseParams({ denoiseSmoothing: value })}
+                  help="0 = réactif, 0.8 par défaut = transitions douces."
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+                <div>
+                  <p className="text-sm font-medium">Calibrer le bruit</p>
+                  <p className="text-xs text-muted-foreground">
+                    Capture ~{denoiseCalibrationSeconds.toFixed(1)} s de bruit pour affiner le profil avant gating.
+                  </p>
+                </div>
+                <Button size="sm" variant="secondary" onClick={() => requestNoiseCalibration()}>
+                  Calibrer bruit (1 s)
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card className="lg:col-span-2">
+        <CardHeader>
+          <div>
+            <CardTitle>Segments</CardTitle>
+            <CardDescription>
+              Choisissez si le tableau des segments s'affiche sur la page Upload. Cette option est
+              désactivée par défaut pour alléger l&apos;interface.
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">Afficher le tableau des segments</p>
+              <p className="text-xs text-muted-foreground">
+                Les segments sont masqués sur /upload lorsque l&apos;option est désactivée.
+              </p>
+            </div>
+            <Switch
+              className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+              checked={showSegments}
+              onCheckedChange={(checked) => setShowSegments(checked)}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="lg:col-span-2">
+        <CardHeader>
+          <div>
+            <CardTitle>Exports</CardTitle>
+            <CardDescription>
+              Contrôlez quels boutons d'export apparaissent sur la page Upload.
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-2">
+          <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">VTT</p>
+              <p className="text-xs text-muted-foreground">Affiche le bouton d'export VTT sur /upload.</p>
+            </div>
+            <Switch className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500" checked={showExportVtt} onCheckedChange={(v) => setShowExportVtt(v)} />
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">SRT</p>
+              <p className="text-xs text-muted-foreground">Affiche le bouton d'export SRT sur /upload.</p>
+            </div>
+            <Switch className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500" checked={showExportSrt} onCheckedChange={(v) => setShowExportSrt(v)} />
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">JSON segments</p>
+              <p className="text-xs text-muted-foreground">Affiche le bouton d'export JSON (segments).</p>
+            </div>
+            <Switch className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500" checked={showExportJson} onCheckedChange={(v) => setShowExportJson(v)} />
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">Telemetry</p>
+              <p className="text-xs text-muted-foreground">Affiche le bouton d'export telemetry.json.</p>
+            </div>
+            <Switch className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500" checked={showExportTelemetry} onCheckedChange={(v) => setShowExportTelemetry(v)} />
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+interface NumberFieldProps {
+  id: string;
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (value: number) => void;
+}
+
+function NumberField({ id, label, value, min, max, step, onChange }: NumberFieldProps) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
+        type="number"
+        inputMode="numeric"
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </div>
+  );
+}
+
+interface SliderFieldProps {
+  id: string;
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (value: number) => void;
+  help?: string;
+}
+
+function SliderField({ id, label, value, min, max, step, onChange, help }: SliderFieldProps) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <Label htmlFor={id}>{label}</Label>
+        <span className="text-xs text-muted-foreground">{value.toFixed(step < 1 ? 2 : 0)}</span>
+      </div>
+      <input
+        id={id}
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="w-full"
+      />
+      {help ? <p className="text-[11px] text-muted-foreground">{help}</p> : null}
+    </div>
+  );
+}
+
+function Reminder({ title, description }: { title: string; description: string }) {
+  return (
+    <div>
+      <h3 className="text-sm font-semibold">{title}</h3>
+      <Separator className="my-2" />
+      <p className="text-sm text-muted-foreground">{description}</p>
+    </div>
+  );
+}

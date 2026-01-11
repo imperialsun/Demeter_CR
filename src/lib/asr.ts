@@ -1,0 +1,508 @@
+import {
+  resolveModelId,
+  useAsrStore,
+  type BackendImplementation,
+  type PipelineStatus,
+} from "@/store/asr-store";
+import type { ChunkDefinition } from "@/lib/chunking";
+import type { TelemetryCollector, TelemetryEventType } from "@/lib/telemetry";
+import { flagWasmSessionOptions } from "@/lib/ort-wasm";
+import { loadTransformers } from "@/lib/transformers-loader";
+import type {
+  AutomaticSpeechRecognitionPipeline,
+  GenericPipeline,
+} from "@/lib/transformers-loader";
+import { detectWebGpuSupport } from "@/lib/backend-support";
+import { cleanTranscriptText } from "@/lib/text-cleanup";
+
+interface PipelineProgressPayload {
+  progress?: number;
+  status?: string;
+  file?: string;
+}
+
+interface PipelineInvokeChunk {
+  text?: string;
+  timestamp?: [number, number];
+  probability?: number;
+}
+
+interface PipelineInvokeResult {
+  text?: string;
+  chunks?: PipelineInvokeChunk[];
+  [key: string]: unknown;
+}
+
+export interface CreatePipelineOptions {
+  modelPreset: "fast" | "balanced" | "quality" | "custom";
+  customModelId: string;
+  backendPreference: BackendImplementation;
+  telemetry?: TelemetryCollector;
+  onStatus?: (status: PipelineStatus, detail?: string) => void;
+  onProgress?: (progress: number, status: string) => void;
+}
+
+export interface ChunkTranscriptionResult {
+  chunk: ChunkDefinition;
+  text: string;
+  segments: Array<{
+    start: number;
+    end: number;
+    text: string;
+    confidence?: number;
+  }>;
+  processingMs: number;
+  realtimeFactor: number;
+}
+
+export interface TranscribeChunkOptions {
+  pipeline: AutomaticSpeechRecognitionPipeline;
+  chunk: ChunkDefinition;
+  pcm: Float32Array;
+  sampleRate: number;
+  telemetry?: TelemetryCollector;
+  abortSignal?: AbortSignal;
+}
+
+const BACKEND_SEQUENCE: Record<BackendImplementation, BackendImplementation[]> = {
+  webgpu: ["webgpu", "wasm"],
+  wasm: ["wasm"],
+};
+const WEBGPU_SUPPORT_PROMISE = detectWebGpuSupport();
+const WASM_PATH = "/onnx/";
+const WASM_PROVIDER_OPTIONS = {
+  wasmPaths: WASM_PATH,
+  numThreads: 1,
+  proxy: true,
+  simd: true,
+  useJsep: false,
+};
+
+async function forceSingleThreadedWasmEnv() {
+  const module = await loadTransformers();
+  const envMutable = (module as any).env as any;
+  const config = {
+    numThreads: 1,
+    proxy: true,
+    simd: true,
+    wasmPaths: WASM_PATH,
+    useJsep: false,
+  };
+
+  if (envMutable?.backends?.onnx?.wasm) {
+    Object.assign(envMutable.backends.onnx.wasm, config);
+  }
+
+  try {
+    const ort = await import("onnxruntime-web");
+    if ((ort as any).env?.wasm) {
+      Object.assign((ort as any).env.wasm, config);
+    }
+  } catch (error) {
+    console.warn("Unable to patch onnxruntime env for single-threaded WASM", error);
+  }
+
+  return module;
+}
+
+export async function createAsrPipeline({
+  modelPreset,
+  customModelId,
+  backendPreference,
+  telemetry,
+  onStatus,
+  onProgress,
+}: CreatePipelineOptions): Promise<{
+  pipeline: AutomaticSpeechRecognitionPipeline;
+  backend: BackendImplementation;
+  modelId: string;
+}> {
+  const modelId = resolveModelId(modelPreset, customModelId);
+  telemetry?.setRuntimeContext({ backend: backendPreference, modelId });
+  onStatus?.("downloading", "Préparation du modèle");
+  console.info("ASR model load start", { modelId, backendPreference });
+  telemetry?.logEvent("START_LOAD_MODEL", { modelId });
+  telemetry?.startTimer("load_model_total");
+
+  const backends = BACKEND_SEQUENCE[backendPreference];
+  let lastError: unknown;
+
+  // Track per-file fetch/cache diagnostics reported during model bootstrap
+  const modelFetchMap = new Map<string, { cached?: boolean; transferSize?: number | null; encodedBodySize?: number | null }>();
+
+  const webGpuAvailable = await WEBGPU_SUPPORT_PROMISE;
+  useAsrStore.getState().setWebGpuSupport(webGpuAvailable);
+
+  const wasmAvailable = useAsrStore.getState().wasmAvailable;
+  let triedWasmNoThreads = false;
+  for (const backend of backends) {
+    if (backend === "webgpu" && !webGpuAvailable) {
+      lastError = new Error("WebGPU non supporté");
+      continue;
+    }
+
+    if (backend === "wasm" && !wasmAvailable) {
+      lastError = new Error("WASM assets non disponibles (vérifiez /onnx/)");
+      continue;
+    }
+
+    try {
+      onStatus?.("loading", `Initialisation ${backend}`);
+      const device = backend;
+      const sessionOptions: Record<string, unknown> = {
+        executionProviders: [
+          backend === "wasm"
+            ? { name: "wasm", options: WASM_PROVIDER_OPTIONS }
+            : backend,
+        ],
+      };
+      if (backend === "wasm") {
+        flagWasmSessionOptions(sessionOptions);
+      }
+      console.debug("ASR session options", {
+        backend,
+        sessionOptions,
+      });
+        console.info("ASR pipeline init", {
+          backend,
+          modelId,
+          device,
+          sessionOptions,
+        });
+      const { pipeline } = await loadTransformers();
+      const createPipeline = pipeline as unknown as (
+        task: string,
+        model?: string,
+        options?: Record<string, unknown>
+      ) => Promise<AutomaticSpeechRecognitionPipeline>;
+      const pipe = await createPipeline("automatic-speech-recognition", modelId, {
+        device,
+        session_options: sessionOptions,
+        progress_callback: (data: PipelineProgressPayload) => {
+          const progressValue = typeof data.progress === "number" ? data.progress : undefined;
+          const statusValue = typeof data.status === "string" ? data.status : "loading";
+          onProgress?.(progressValue ?? 0, statusValue);
+          telemetry?.logEvent("PROGRESS_MODEL", {
+            backend,
+            progress: progressValue,
+            status: statusValue,
+            file: typeof data.file === "string" ? data.file : undefined,
+          });
+
+          // If we receive a file name in progress updates, attempt to inspect the
+          // corresponding resource timing entry to determine whether the asset
+          // was fetched over network (transferSize > 0) or served from cache
+          // (transferSize === 0). We log this to telemetry and to console for
+          // easier debugging of cache vs download behavior.
+          if (typeof data.file === "string" && typeof performance !== "undefined") {
+            const fileName = data.file as string;
+            try {
+              let entries = performance.getEntriesByName(fileName) as PerformanceResourceTiming[];
+              let entry = entries && entries.length ? entries[entries.length - 1] : undefined;
+              if (!entry) {
+                // fallback: try to find resource whose URL ends with the file string
+                const all = performance.getEntriesByType("resource") as PerformanceResourceTiming[];
+                entry = all.find((e) => e.name.endsWith(fileName));
+              }
+              if (entry) {
+                const transferSize = (entry as PerformanceResourceTiming).transferSize ?? null;
+                const encodedBodySize = (entry as PerformanceResourceTiming).encodedBodySize ?? null;
+                const cached = typeof transferSize === "number" ? transferSize === 0 : undefined;
+                telemetry?.logEvent("MODEL_FETCH", { file: fileName, cached, transferSize, encodedBodySize });
+                console.info("[model-fetch]", { file: fileName, cached, transferSize, encodedBodySize });
+                // record into summary map
+                modelFetchMap.set(fileName, { cached, transferSize, encodedBodySize });
+              } else {
+                telemetry?.logEvent("MODEL_FETCH", { file: fileName, cached: undefined });
+                console.info("[model-fetch] resource timing not found for", { file: fileName });
+                modelFetchMap.set(fileName, { cached: undefined });
+              }
+            } catch (err) {
+              console.warn("[model-fetch] failed to inspect resource timing", err);
+            }
+          }
+        },
+      });
+
+      telemetry?.stopTimer("load_model_total");
+      telemetry?.logEvent("READY", { backend });
+      telemetry?.setRuntimeContext({ backend, modelId });
+      const mem = readMemoryUsage();
+      if (mem) {
+        console.info("[transformers] JS heap after pipeline init", { backend, ...mem });
+        telemetry?.logEvent("RAM_USAGE", { context: "transformers_worker", backend, ...mem });
+      }
+      const uaMem = await readTotalMemory();
+      if (uaMem) {
+        console.info("[transformers] Total memory snapshot after init", { backend, ...uaMem });
+        telemetry?.logEvent("RAM_USAGE", { context: "total_memory_snapshot", backend, ...uaMem });
+      }
+
+      // Summarize model fetch diagnostics collected during the bootstrap
+      const fetches = Array.from(modelFetchMap.entries()).map(([file, info]) => ({ file, ...info }));
+      if (fetches.length > 0) {
+        const cachedCount = fetches.filter((f) => f.cached === true).length;
+        const networkCount = fetches.filter((f) => f.cached === false).length;
+        console.info("[model-fetch-summary]", {
+          total: fetches.length,
+          downloaded: networkCount,
+          cached: cachedCount,
+          unknown: fetches.length - cachedCount - networkCount,
+          details: fetches,
+        });
+        telemetry?.logEvent("MODEL_FETCH", { summary: true, total: fetches.length, downloaded: networkCount, cached: cachedCount });
+      } else {
+        console.info("[model-fetch-summary] no resource timing entries were captured for model assets");
+      }
+
+      console.info("ASR model load success", { backend, modelId });
+      onStatus?.("ready", `Backend ${backend}`);
+
+      return { pipeline: pipe, backend, modelId };
+    } catch (error) {
+      console.warn(`Échec initialisation backend ${backend}`, error);
+      lastError = error;
+      telemetry?.logEvent("ERROR", { backend, message: (error as Error).message });
+      const friendly = backend === "wasm"
+        ? `Erreur initialisation WASM : ${(error as Error).message}. Vérifiez que les fichiers WASM sont accessibles dans /onnx/ et que les en-têtes COOP/COEP sont configurés si vous utilisez des threads.`
+        : (error as Error).message;
+      onStatus?.("error", friendly);
+
+      // If wasm init failed and we haven't tried a no-threads fallback, try it now.
+      if (backend === "wasm" && !triedWasmNoThreads) {
+        triedWasmNoThreads = true;
+        try {
+          console.info("Retrying WASM backend with single-threaded fallback");
+          onStatus?.("loading", "Initialisation WASM (mode sans threads)");
+          telemetry?.logEvent("ERROR", { backend: "wasm", message: "Tentative de reprise sans threads" });
+
+          const module = await forceSingleThreadedWasmEnv();
+
+          const device = backend;
+          const sessionOptions2: Record<string, unknown> = {
+            executionProviders: [
+              {
+                name: "wasm",
+                options: WASM_PROVIDER_OPTIONS,
+              },
+            ],
+          };
+          flagWasmSessionOptions(sessionOptions2);
+
+          const { pipeline: pipeline2 } = module;
+          const createPipeline2 = pipeline2 as unknown as (
+            task: string,
+            model?: string,
+            options?: Record<string, unknown>
+          ) => Promise<AutomaticSpeechRecognitionPipeline>;
+
+          const pipe2 = await createPipeline2("automatic-speech-recognition", modelId, {
+            device,
+            session_options: sessionOptions2,
+            progress_callback: (data: PipelineProgressPayload) => {
+              const progressValue = typeof data.progress === "number" ? data.progress : undefined;
+              const statusValue = typeof data.status === "string" ? data.status : "loading";
+              onProgress?.(progressValue ?? 0, statusValue);
+              telemetry?.logEvent("PROGRESS_MODEL", {
+                backend,
+                progress: progressValue,
+                status: statusValue,
+                file: typeof data.file === "string" ? data.file : undefined,
+              });
+            },
+          });
+
+          telemetry?.stopTimer("load_model_total");
+          telemetry?.logEvent("READY", { backend: `${backend}-single-thread` });
+          telemetry?.setRuntimeContext({ backend: `${backend}-single-thread`, modelId });
+          onStatus?.("ready", `Backend ${backend} (sans threads)`);
+
+          return { pipeline: pipe2, backend, modelId };
+        } catch (err2) {
+          console.warn("Retry WASM single-thread failed", err2);
+          lastError = err2;
+          telemetry?.logEvent("ERROR", { backend: "wasm-single-thread", message: (err2 as Error).message });
+          onStatus?.("error", `Échec initialisation WASM en mode sans threads : ${(err2 as Error).message}`);
+        }
+      }
+    }
+  }
+  telemetry?.stopTimer("load_model_total");
+  throw lastError ?? new Error("Impossible de charger le pipeline ASR");
+}
+
+export async function transcribeChunk({
+  pipeline: asr,
+  chunk,
+  pcm,
+  sampleRate,
+  telemetry,
+  abortSignal,
+}: TranscribeChunkOptions): Promise<ChunkTranscriptionResult> {
+  if (abortSignal?.aborted) {
+    throw new Error("Transcription annulée");
+  }
+  telemetry?.logEvent("START_CHUNK", {
+    chunkId: chunk.id,
+    index: chunk.index,
+    start: chunk.start,
+    end: chunk.end,
+  });
+  console.info("ASR chunk start", {
+    id: chunk.id,
+    index: chunk.index,
+    start: chunk.start,
+    end: chunk.end,
+    duration: chunk.end - chunk.start,
+    pcmLength: pcm.length,
+  });
+  telemetry?.startTimer(`chunk_${chunk.index}`);
+  const startTime = performance.now();
+
+  const invokeAsr = asr as unknown as (
+    input: Float32Array,
+    options?: Record<string, unknown>
+  ) => Promise<PipelineInvokeResult>;
+
+  const invokeOptions = {
+    sampling_rate: sampleRate,
+    return_timestamps: "word",
+    chunk_length_s: chunk.end - chunk.start,
+    stride_length_s: chunk.paddedStart < chunk.start ? chunk.start - chunk.paddedStart : 0,
+    language: "fr",
+  } as const;
+
+  let result: PipelineInvokeResult;
+  try {
+    result = await invokeAsr(pcm, { ...invokeOptions });
+  } catch (error) {
+    const message = (error as Error)?.message ?? "";
+    const lacksCrossAttn = /cross attentions|output_attentions/i.test(message);
+    if (!lacksCrossAttn) {
+      throw error;
+    }
+    console.warn("Model lacks cross attentions; retrying without word timestamps");
+    telemetry?.logEvent("WARN" as TelemetryEventType, { chunkId: chunk.id, reason: "no_cross_attention" });
+    result = await invokeAsr(pcm, {
+      ...invokeOptions,
+      // Disable word-level timestamps when the model cannot emit cross-attention.
+      return_timestamps: false,
+    });
+  }
+
+  const cleanedText = cleanTranscriptText(result.text);
+  console.info("ASR chunk transcript", {
+    id: chunk.id,
+    index: chunk.index,
+    text: cleanedText,
+  });
+
+  const processingMs = performance.now() - startTime;
+  telemetry?.stopTimer(`chunk_${chunk.index}`);
+
+  let outputSegments = Array.isArray(result.chunks)
+    ? result.chunks
+        .map((segment) => {
+          const timestamp = Array.isArray(segment.timestamp) ? segment.timestamp : undefined;
+          const rawStart = timestamp?.[0] ?? 0;
+          const rawEnd = timestamp?.[1] ?? chunk.end - chunk.start;
+          const sanitized = cleanTranscriptText(segment.text);
+          return {
+            start: chunk.start + rawStart,
+            end: chunk.start + rawEnd,
+            text: sanitized,
+            confidence: segment.probability,
+          };
+        })
+        .filter((segment) => segment.text.length > 0)
+    : [
+        {
+          start: chunk.start,
+          end: chunk.end,
+          text: cleanedText,
+        },
+      ];
+
+  if (outputSegments.length === 0) {
+    outputSegments = [
+      {
+        start: chunk.start,
+        end: chunk.end,
+        text: cleanedText,
+      },
+    ];
+  }
+
+  const chunkDuration = Math.max(0.1, chunk.end - chunk.start);
+  const realtimeFactor = processingMs / 1000 / chunkDuration;
+
+  console.info("ASR chunk done", {
+    id: chunk.id,
+    index: chunk.index,
+    durationMs: processingMs,
+    durationSec: Number((processingMs / 1000).toFixed(3)),
+    realtimeFactor,
+    speed: `x${realtimeFactor.toFixed(2)}`,
+    segments: outputSegments.length,
+  });
+
+  telemetry?.logEvent("END_CHUNK", {
+    chunkId: chunk.id,
+    index: chunk.index,
+    processingMs,
+    realtimeFactor,
+  });
+
+  return {
+    chunk,
+    text: cleanedText,
+    segments: outputSegments,
+    processingMs,
+    realtimeFactor,
+  };
+}
+
+function readMemoryUsage() {
+  if (typeof performance === "undefined") return null;
+  const perf = performance as unknown as { memory?: { usedJSHeapSize: number; totalJSHeapSize: number; jsHeapSizeLimit?: number } };
+  const mem = perf.memory;
+  if (!mem) return null;
+  const toMb = (bytes: number) => Math.round((bytes / (1024 * 1024)) * 100) / 100;
+  return {
+    usedMB: toMb(mem.usedJSHeapSize),
+    totalMB: toMb(mem.totalJSHeapSize),
+    limitMB: mem.jsHeapSizeLimit ? toMb(mem.jsHeapSizeLimit) : undefined,
+  };
+}
+
+async function readTotalMemory() {
+  const measure = (performance as any)?.measureUserAgentSpecificMemory;
+  if (typeof measure !== "function") return null;
+  try {
+    const result = await measure();
+    const toMb = (bytes: number) => Math.round((bytes / (1024 * 1024)) * 100) / 100;
+    const breakdown = Array.isArray(result.breakdown)
+      ? result.breakdown.map((item: any) => ({
+          bytes: item?.bytes,
+          attribution: item?.attribution,
+          types: item?.types,
+        }))
+      : undefined;
+    return {
+      totalMB: toMb(result.bytes ?? 0),
+      breakdown,
+    };
+  } catch (error) {
+    console.warn("measureUserAgentSpecificMemory failed", error);
+    return null;
+  }
+}
+
+export async function disposePipeline(pipe: GenericPipeline | undefined) {
+  if (!pipe) return;
+  try {
+    await pipe.dispose?.();
+  } catch (error) {
+    console.warn("Erreur lors de la libération du pipeline", error);
+  }
+}
