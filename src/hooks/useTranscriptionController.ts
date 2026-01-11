@@ -212,7 +212,7 @@ export function useTranscriptionController() {
 
       const abortController = new AbortController();
       abortRef.current = abortController;
-      let sharedNoiseProfile = preprocessConfig?.noiseProfile;
+      // We'll perform a per-chunk calibration (estimate a noise profile) and then a processing pass for each chunk.
 
       try {
         await decodeFileProgressively(file, {
@@ -224,36 +224,57 @@ export function useTranscriptionController() {
             const definition = chunkPlan.length
               ? chunkPlan[Math.min(chunk.index, chunkPlan.length - 1)]
               : undefined;
-            let processed = null as Awaited<ReturnType<typeof preprocessPcmChunk>> | null;
-            if (preprocessConfig) {
-              // if we are in calibration mode and don't yet have a profile, mark as calibrating
-              if (!sharedNoiseProfile) {
-                useAsrStore.getState().setPreprocessingStatus("calibrating");
-                useAsrStore.getState().setPreprocessingProgress(0);
-              }
-              processed = await preprocessPcmChunk(
-                chunk.pcm,
-                chunk.sampleRate,
-                {
-                  ...preprocessConfig,
-                  noiseProfile: sharedNoiseProfile,
-                },
-                telemetry
-              );
 
-              // if we just computed a noise profile during chunk processing, assume calibration step completed
-              if (!sharedNoiseProfile && processed.noiseProfile) {
-                sharedNoiseProfile = processed.noiseProfile;
+            const denominator = chunkPlan.length || chunk.index + 1;
+
+            let processed = null as Awaited<ReturnType<typeof preprocessPcmChunk>> | null;
+
+            if (preprocessConfig) {
+              // per-chunk calibration
+              const denominator = chunkPlan.length || chunk.index + 1;
+              useAsrStore.getState().setPreprocessingStatus("calibrating");
+              useAsrStore.getState().setPreprocessingProgress(chunk.index / denominator);
+
+              try {
+                const { profile, frames } = estimateNoiseProfile(
+                  chunk.pcm,
+                  chunk.sampleRate,
+                  preprocessConfig.calibrationSeconds
+                );
+                telemetry.logEvent("PREPROCESS_NOISE_PROFILE", { frames, source: "chunk" });
+                useAsrStore.getState().setPreprocessingStatus("processing");
+
+                processed = await preprocessPcmChunk(
+                  chunk.pcm,
+                  chunk.sampleRate,
+                  {
+                    ...preprocessConfig,
+                    noiseProfile: profile,
+                  },
+                  telemetry
+                );
+              } catch (err) {
+                console.warn("Chunk calibration or processing failed, falling back to single-pass preprocess", err);
+                telemetry.recordAlert("PREPROCESS_CALIBRATION_FAILED", { message: (err as Error).message });
+                // Fallback: let preprocessPcmChunk compute/estimate a noise profile itself
+                processed = await preprocessPcmChunk(
+                  chunk.pcm,
+                  chunk.sampleRate,
+                  {
+                    ...preprocessConfig,
+                    noiseProfile: undefined,
+                  },
+                  telemetry
+                );
                 useAsrStore.getState().setPreprocessingStatus("processing");
               }
+
+              // update preprocessing progress (based on chunk index if we have a chunk plan)
+              useAsrStore.getState().setPreprocessingProgress((chunk.index + 1) / denominator);
             }
 
             const pcmToUse = processed?.pcm ?? chunk.pcm;
             const sampleRateToUse = processed?.sampleRate ?? chunk.sampleRate;
-
-            // update preprocessing progress (based on chunk index if we have a chunk plan)
-            const denominator = chunkPlan.length || chunk.index + 1;
-            useAsrStore.getState().setPreprocessingProgress((chunk.index + 1) / denominator);
 
 
             const result = await transcribeChunk({
