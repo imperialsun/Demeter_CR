@@ -29,7 +29,8 @@ export type TelemetryEventType =
   | "CALIBRATION_REQUESTED"
   | "RAM_USAGE"
   | "WASM_MULTITHREAD_AVAILABLE"
-  | "WASM_MULTITHREAD_TEST";
+  | "WASM_MULTITHREAD_TEST"
+  | "WASM_MEMORY_MEASURE_FAILED";
 
 export interface TelemetryEvent {
   type: TelemetryEventType;

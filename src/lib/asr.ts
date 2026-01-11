@@ -515,7 +515,8 @@ async function readTotalMemory() {
   const measure = (performance as any)?.measureUserAgentSpecificMemory;
   if (typeof measure !== "function") return null;
   try {
-    const result = await measure();
+    // bind correct this (measure must be called with Performance as receiver)
+    const result = await measure.call(performance);
     const toMb = (bytes: number) => Math.round((bytes / (1024 * 1024)) * 100) / 100;
     const breakdown = Array.isArray(result.breakdown)
       ? result.breakdown.map((item: any) => ({
@@ -530,6 +531,12 @@ async function readTotalMemory() {
     };
   } catch (error) {
     console.warn("measureUserAgentSpecificMemory failed", error);
+    try {
+      const telemetry = useAsrStore.getState().telemetryCollector;
+      telemetry?.logEvent && telemetry.logEvent("WASM_MEMORY_MEASURE_FAILED", { message: String(error) });
+    } catch (e) {
+      // ignore telemetry failures
+    }
     return null;
   }
 }
