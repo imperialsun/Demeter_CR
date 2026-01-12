@@ -109,6 +109,8 @@ export function SettingsPanel({
     silenceThresholdDb,
     forceSingleThread,
     wasmThreads,
+    enableWordTimestamps,
+    setEnableWordTimestamps,
     setPreset,
     setBackendPreference,
     setMemoryMode,
@@ -168,6 +170,8 @@ export function SettingsPanel({
     updateChunkParameters: state.updateChunkParameters,
     // performance
     forceSingleThread: state.forceSingleThread,
+    enableWordTimestamps: state.enableWordTimestamps,
+    setEnableWordTimestamps: state.setEnableWordTimestamps,
     wasmThreads: state.wasmThreads,
     setForceSingleThread: state.setForceSingleThread,
     setWasmThreads: state.setWasmThreads,
@@ -717,6 +721,18 @@ export function SettingsPanel({
                   WebGPU n&apos;est pas disponible sur ce périphérique. Le mode WASM est appliqué automatiquement.
                 </p>
               ) : null}
+            </div>
+
+            <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+              <div>
+                <p className="text-sm font-medium">Timestamps par mot</p>
+                <p className="text-xs text-muted-foreground">Activer les timestamps au niveau des mots (coûteux en CPU/mémoire).</p>
+              </div>
+              <Switch
+                className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                checked={enableWordTimestamps}
+                onCheckedChange={(checked) => setEnableWordTimestamps(checked ? true : false)}
+              />
             </div>
             <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
               <div>

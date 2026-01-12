@@ -26,6 +26,8 @@ export interface PersistedSettings {
   denoiseSmoothing: number;
   denoiseCalibrationSeconds: number;
   autoTunePreprocess?: boolean;
+  // Whisper options
+  enableWordTimestamps?: boolean;
   // performance
   forceSingleThread?: boolean;
 }
@@ -75,6 +77,8 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   denoiseSmoothing: 0.8,
   denoiseCalibrationSeconds: 5,
   autoTunePreprocess: true,
+  // Whisper: enable word timestamps (disabled by default to save CPU/memory)
+  enableWordTimestamps: false,
   // default performance settings
   forceSingleThread: false,
 };

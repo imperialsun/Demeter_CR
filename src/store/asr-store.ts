@@ -86,6 +86,8 @@ interface AsrConfigState {
   autoTunePreprocess: boolean;
   lastAutoTuneParams?: { noiseFloorDb: number; reductionDb: number; smoothing: number } | null;
   telemetryCollector: TelemetryCollector | null;
+  // Whisper specific
+  enableWordTimestamps: boolean;
   chunkPlan: ChunkDefinition[];
   chunkMetrics: ChunkTelemetry[];
   segments: TranscriptionSegment[];
@@ -151,6 +153,7 @@ interface AsrConfigActions {
   resetApp: () => void;
   setWebGpuSupport: (supported: boolean) => void;
   setWasmAvailable: (available: boolean) => void;
+  setEnableWordTimestamps: (value: boolean) => void;
   // performance
   setForceSingleThread: (value: boolean) => void;
   setWasmThreads: (value: number | null) => void;
@@ -207,6 +210,8 @@ const initialState: AsrConfigState = {
   // defaults
   forceSingleThread: false,
   wasmThreads: null,
+  // Whisper defaults
+  enableWordTimestamps: false,
 };
 
 export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
@@ -279,6 +284,7 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
       denoiseCalibrationSeconds: settings.denoiseCalibrationSeconds ?? state.denoiseCalibrationSeconds,
       autoTunePreprocess: settings.autoTunePreprocess ?? state.autoTunePreprocess,
       forceSingleThread: settings.forceSingleThread ?? state.forceSingleThread,
+      enableWordTimestamps: settings.enableWordTimestamps ?? state.enableWordTimestamps,
     }));
   },
   registerTelemetry: (collector) => set(() => ({ telemetryCollector: collector })),
@@ -357,6 +363,7 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
     }),
   setWebGpuSupport: (supported) => set(() => ({ webGpuSupported: supported })),
   setWasmAvailable: (available) => set(() => ({ wasmAvailable: available })),
+  setEnableWordTimestamps: (value: boolean) => set(() => ({ enableWordTimestamps: value })),
 
 }));
 
@@ -396,6 +403,8 @@ useAsrStore.subscribe((state) => {
     denoiseCalibrationSeconds: state.denoiseCalibrationSeconds,
     // performance
     forceSingleThread: state.forceSingleThread,
+    // whisper
+    enableWordTimestamps: state.enableWordTimestamps,
   };
   saveSettings(payload);
 });

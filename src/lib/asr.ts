@@ -367,6 +367,8 @@ export async function createAsrPipeline({
   throw lastError ?? new Error("Impossible de charger le pipeline ASR");
 }
 
+const PIPELINES_WITHOUT_CROSS = new WeakSet<object>();
+
 export async function transcribeChunk({
   pipeline: asr,
   chunk,
@@ -400,9 +402,11 @@ export async function transcribeChunk({
     options?: Record<string, unknown>
   ) => Promise<PipelineInvokeResult>;
 
+  const supportsWordTimestamps = !PIPELINES_WITHOUT_CROSS.has(asr);
+
   const invokeOptions = {
     sampling_rate: sampleRate,
-    return_timestamps: "word",
+    return_timestamps: supportsWordTimestamps ? "word" : false,
     chunk_length_s: chunk.end - chunk.start,
     stride_length_s: chunk.paddedStart < chunk.start ? chunk.start - chunk.paddedStart : 0,
     language: "fr",
@@ -417,11 +421,13 @@ export async function transcribeChunk({
     if (!lacksCrossAttn) {
       throw error;
     }
-    console.warn("Model lacks cross attentions; retrying without word timestamps");
+    // Remember that this pipeline does not support cross-attention/word timestamps
+    PIPELINES_WITHOUT_CROSS.add(asr);
+    console.warn("Model lacks cross attentions; will skip word timestamps for subsequent chunks");
     telemetry?.logEvent("WARN" as TelemetryEventType, { chunkId: chunk.id, reason: "no_cross_attention" });
+    // Retry once without word timestamps for this chunk
     result = await invokeAsr(pcm, {
       ...invokeOptions,
-      // Disable word-level timestamps when the model cannot emit cross-attention.
       return_timestamps: false,
     });
   }
