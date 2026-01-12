@@ -19,6 +19,7 @@ interface ResultsTableProps {
 export function ResultsTable({ segments }: ResultsTableProps) {
   const [query, setQuery] = useState("");
   const enableWordTimestamps = useAsrStore((s) => s.enableWordTimestamps);
+  const showSegmentConfidence = useAsrStore((s) => s.showSegmentConfidence);
   const filtered = useMemo(() => {
     if (!query) return segments;
     const lower = query.toLowerCase();
@@ -39,6 +40,7 @@ export function ResultsTable({ segments }: ResultsTableProps) {
               <TableHead className="w-12">#</TableHead>
               <TableHead>Début</TableHead>
               <TableHead>Fin</TableHead>
+              {showSegmentConfidence ? <TableHead className="w-24">Conf.</TableHead> : null}
               <TableHead>Texte</TableHead>
             </TableRow>
           </TableHeader>
@@ -48,6 +50,19 @@ export function ResultsTable({ segments }: ResultsTableProps) {
                 <TableCell className="font-medium">{segment.index + 1}</TableCell>
                 <TableCell>{formatTimestamp(segment.start)}</TableCell>
                 <TableCell>{formatTimestamp(segment.end)}</TableCell>
+                {showSegmentConfidence ? (
+                  <TableCell>
+                    {typeof segment.confidence === "number" ? (
+                      <div className="text-sm font-mono">
+                        <span className={
+                          segment.confidence >= 0.85 ? "text-emerald-600" : segment.confidence >= 0.6 ? "text-amber-600" : "text-destructive-600"
+                        }>{Math.round(segment.confidence * 100)}%</span>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-muted-foreground">—</div>
+                    )}
+                  </TableCell>
+                ) : null}
                 <TableCell className="max-w-xl whitespace-pre-wrap text-sm">
                   <div>{segment.text}</div>
                   {enableWordTimestamps && segment.words && segment.words.length ? (
@@ -65,7 +80,7 @@ export function ResultsTable({ segments }: ResultsTableProps) {
             ))}
             {!filtered.length ? (
               <TableRow>
-                <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={showSegmentConfidence ? 5 : 4} className="h-24 text-center text-muted-foreground">
                   Aucun segment ne correspond à « {query} ».
                 </TableCell>
               </TableRow>

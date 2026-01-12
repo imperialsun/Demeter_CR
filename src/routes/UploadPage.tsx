@@ -12,6 +12,8 @@ import { MODEL_PRESETS, useAsrStore } from "@/store/asr-store";
 import { useTranscriptionController } from "@/hooks/useTranscriptionController";
 import { probeAudioMetadata } from "@/lib/audio";
 import { toast } from "@/components/ui/use-toast";
+import { Badge } from "@/components/ui/badge";
+import { overallConfidenceVariant } from "@/lib/utils";
 
 function UploadPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -25,6 +27,8 @@ function UploadPage() {
   const activePreset = useAsrStore((state) => state.activePreset);
   const setPreset = useAsrStore((state) => state.setPreset);
   const preprocessingMode = useAsrStore((state) => state.preprocessingMode);
+  // Read transcription confidence unconditionally to respect Hooks rules
+  const transcriptionConfidence = useAsrStore((s) => s.transcriptionConfidence);
   const { startUploadTranscription, stopTranscription, isTranscribing } = useTranscriptionController();
 
   const handleFileSelected = useCallback(
@@ -106,7 +110,16 @@ function UploadPage() {
 
           {showSegments && (
             segments.length ? (
-              <ResultsTable segments={segments} />
+              <>
+                <div className="flex items-center justify-between">
+                  <div />
+                  <div className="flex items-center gap-2">
+                    <div className="text-sm text-muted-foreground">Indice de confiance globale :</div>
+                    <Badge variant={overallConfidenceVariant(transcriptionConfidence)}>{typeof transcriptionConfidence === 'number' ? `${Math.round((transcriptionConfidence ?? 0)*100)}%` : '—'}</Badge>
+                  </div>
+                </div>
+                <ResultsTable segments={segments} />
+              </>
             ) : (
               <Card>
                 <CardContent className="py-10 text-center text-sm text-muted-foreground">

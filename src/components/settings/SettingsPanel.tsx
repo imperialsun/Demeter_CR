@@ -111,6 +111,8 @@ export function SettingsPanel({
     wasmThreads,
     enableWordTimestamps,
     setEnableWordTimestamps,
+    showSegmentConfidence,
+    setShowSegmentConfidence,
     setPreset,
     setBackendPreference,
     setMemoryMode,
@@ -172,6 +174,8 @@ export function SettingsPanel({
     forceSingleThread: state.forceSingleThread,
     enableWordTimestamps: state.enableWordTimestamps,
     setEnableWordTimestamps: state.setEnableWordTimestamps,
+    showSegmentConfidence: state.showSegmentConfidence,
+    setShowSegmentConfidence: state.setShowSegmentConfidence,
     wasmThreads: state.wasmThreads,
     setForceSingleThread: state.setForceSingleThread,
     setWasmThreads: state.setWasmThreads,
@@ -732,6 +736,21 @@ export function SettingsPanel({
                 className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
                 checked={enableWordTimestamps}
                 onCheckedChange={(checked) => setEnableWordTimestamps(checked ? true : false)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+              <div>
+                <p className="text-sm font-medium">Afficher l'indice de confiance</p>
+                <p className="text-xs text-muted-foreground">Afficher l'indice de confiance calculé pour chaque segment.</p>
+              </div>
+              <Switch
+                className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                checked={showSegmentConfidence}
+                onCheckedChange={(checked) => {
+                  setShowSegmentConfidence(checked ? true : false);
+                  setEnableWordTimestamps(checked ? true : false);
+                }}
               />
             </div>
             <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">

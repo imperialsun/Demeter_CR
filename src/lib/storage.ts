@@ -28,6 +28,7 @@ export interface PersistedSettings {
   autoTunePreprocess?: boolean;
   // Whisper options
   enableWordTimestamps?: boolean;
+  showSegmentConfidence?: boolean;
   // performance
   forceSingleThread?: boolean;
 }
@@ -79,6 +80,7 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   autoTunePreprocess: true,
   // Whisper: enable word timestamps (disabled by default to save CPU/memory)
   enableWordTimestamps: false,
+  showSegmentConfidence: false,
   // default performance settings
   forceSingleThread: false,
 };

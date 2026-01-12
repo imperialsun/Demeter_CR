@@ -410,11 +410,11 @@ export async function transcribeChunk({
   ) => Promise<PipelineInvokeResult>;
 
   const supportsWordTimestamps = !PIPELINES_WITHOUT_CROSS.has(asr);
-  const enabledInSettings = useAsrStore.getState().enableWordTimestamps;
+  const enabledInSettings = useAsrStore.getState().enableWordTimestamps || useAsrStore.getState().showSegmentConfidence;
 
   const invokeOptions = {
     sampling_rate: sampleRate,
-    // only request word-level timestamps if the pipeline supports them and the setting is enabled
+    // request word-level timestamps when enabled in settings (or when confidence display is requested) and supported
     return_timestamps: supportsWordTimestamps && enabledInSettings ? "word" : false,
     chunk_length_s: chunk.end - chunk.start,
     stride_length_s: chunk.paddedStart < chunk.start ? chunk.start - chunk.paddedStart : 0,

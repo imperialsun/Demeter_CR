@@ -88,12 +88,14 @@ interface AsrConfigState {
   telemetryCollector: TelemetryCollector | null;
   // Whisper specific
   enableWordTimestamps: boolean;
+  showSegmentConfidence: boolean;
   chunkPlan: ChunkDefinition[];
   chunkMetrics: ChunkTelemetry[];
   segments: TranscriptionSegment[];
   audioMetadata: AudioMetadata | null;
   audioSource: SessionSource | null;
   telemetrySummary: TelemetrySummary | null;
+  transcriptionConfidence: number | null; // 0..1 overall transcript confidence or null if unavailable
   isTranscribing: boolean;
   stopRequested: boolean;
   progress: number;
@@ -145,6 +147,7 @@ interface AsrConfigActions {
   appendSegments: (segments: TranscriptionSegment[]) => void;
   pushChunkMetric: (metric: ChunkTelemetry) => void;
   setTelemetrySummary: (summary: TelemetrySummary | null) => void;
+  setTranscriptionConfidence: (value: number | null) => void;
   setIsTranscribing: (value: boolean) => void;
   setProgress: (value: number) => void;
   requestStop: () => void;
@@ -154,10 +157,11 @@ interface AsrConfigActions {
   setWebGpuSupport: (supported: boolean) => void;
   setWasmAvailable: (available: boolean) => void;
   setEnableWordTimestamps: (value: boolean) => void;
+  setShowSegmentConfidence: (value: boolean) => void;
   // performance
   setForceSingleThread: (value: boolean) => void;
   setWasmThreads: (value: number | null) => void;
-}
+} 
 
 export type AsrConfigStore = AsrConfigState & AsrConfigActions;
 
@@ -212,6 +216,10 @@ const initialState: AsrConfigState = {
   wasmThreads: null,
   // Whisper defaults
   enableWordTimestamps: false,
+  // UI toggles
+  showSegmentConfidence: false,
+  // derived metrics
+  transcriptionConfidence: null,
 };
 
 export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
@@ -285,6 +293,7 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
       autoTunePreprocess: settings.autoTunePreprocess ?? state.autoTunePreprocess,
       forceSingleThread: settings.forceSingleThread ?? state.forceSingleThread,
       enableWordTimestamps: settings.enableWordTimestamps ?? state.enableWordTimestamps,
+      showSegmentConfidence: settings.showSegmentConfidence ?? state.showSegmentConfidence,
     }));
   },
   registerTelemetry: (collector) => set(() => ({ telemetryCollector: collector })),
@@ -297,11 +306,13 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
   pushChunkMetric: (metric) =>
     set((state) => ({ chunkMetrics: [...state.chunkMetrics, metric] })),
   setTelemetrySummary: (summary) => set(() => ({ telemetrySummary: summary })),
+  setTranscriptionConfidence: (value: number | null) => set(() => ({ transcriptionConfidence: value })),
   setForceSingleThread: (value: boolean) => set(() => ({ forceSingleThread: value })),
   setWasmThreads: (value: number | null) => set(() => ({ wasmThreads: value })),
   setIsTranscribing: (value) => set(() => ({ isTranscribing: value })),
 
   setProgress: (value) => set(() => ({ progress: value })),
+
   setPreprocessingMode: (mode) => set(() => ({ preprocessingMode: mode })),
   setPreprocessingStatus: (status) => set(() => ({ preprocessingStatus: status })),
   setPreprocessingProgress: (value) => set(() => ({ preprocessingProgress: value })),
@@ -328,8 +339,7 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
       stopRequested: false,
       progress: 0,
       preprocessingStatus: "idle",
-      preprocessingProgress: 0,
-    })),
+      preprocessingProgress: 0,      transcriptionConfidence: null,    })),
 
   resetApp: () =>
     set((state) => {
@@ -354,6 +364,7 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
         audioMetadata: null,
         audioSource: null,
         telemetrySummary: null,
+        transcriptionConfidence: null,
         isTranscribing: false,
         stopRequested: false,
         progress: 0,
@@ -364,6 +375,7 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
   setWebGpuSupport: (supported) => set(() => ({ webGpuSupported: supported })),
   setWasmAvailable: (available) => set(() => ({ wasmAvailable: available })),
   setEnableWordTimestamps: (value: boolean) => set(() => ({ enableWordTimestamps: value })),
+  setShowSegmentConfidence: (value: boolean) => set(() => ({ showSegmentConfidence: value })), 
 
 }));
 
@@ -405,6 +417,7 @@ useAsrStore.subscribe((state) => {
     forceSingleThread: state.forceSingleThread,
     // whisper
     enableWordTimestamps: state.enableWordTimestamps,
+    showSegmentConfidence: state.showSegmentConfidence,
   };
   saveSettings(payload);
 });

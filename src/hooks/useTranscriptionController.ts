@@ -445,6 +445,27 @@ export function useTranscriptionController() {
         await handleProgressivePipeline({ file, telemetry, pipeline, source, preprocessConfig });
       }
 
+      // Compute overall transcription confidence (duration-weighted average)
+      try {
+        const segments = useAsrStore.getState().segments;
+        const computeTranscriptConfidence = (segs: TranscriptionSegment[]): number | null => {
+          const items = segs
+            .map((s) => ({ conf: s.confidence, dur: Math.max(0.001, s.end - s.start) }))
+            .filter((x) => typeof x.conf === "number" && !Number.isNaN(x.conf));
+          if (!items.length) return null;
+          const totalDur = items.reduce((acc, it) => acc + it.dur, 0);
+          if (totalDur <= 0) return items.reduce((acc, it) => acc + (it.conf ?? 0), 0) / items.length;
+          const weighted = items.reduce((acc, it) => acc + (it.conf ?? 0) * it.dur, 0) / totalDur;
+          // clamp
+          return Math.max(0, Math.min(1, weighted));
+        };
+        const overall = computeTranscriptConfidence(segments);
+        useAsrStore.getState().setTranscriptionConfidence(overall);
+        console.info("Computed transcript confidence", { overall });
+      } catch (err) {
+        console.warn("Failed to compute transcript confidence", err);
+      }
+
       telemetry.logEvent("STOPPED");
       const summary = telemetry.exportSummary();
       state.setTelemetrySummary(summary);
@@ -514,18 +535,34 @@ function normaliseSegments(
     const text = trimChunkOverlap(previous?.text, result.text).trim();
     if (text.length) {
       const enableWordTimestamps = useAsrStore.getState().enableWordTimestamps;
-      const words: WordSegment[] | undefined = enableWordTimestamps
-        ? (Array.isArray(result.segments) ? result.segments.map((s) => ({
+      // If the pipeline returned fine-grained segments inside this chunk, use them for words and for computing confidence
+      const words: WordSegment[] | undefined = enableWordTimestamps && Array.isArray(result.segments)
+        ? result.segments.map((s) => ({
             word: s.text.trim(),
             start: s.start,
             end: s.end,
             confidence: s.confidence,
-          })) : undefined)
+          }))
         : undefined;
 
       if (words && words.length) {
         console.info("Attaching word timestamps to chunk segment", { chunkId: result.chunk.id, wordCount: words.length });
       }
+
+      // Compute aggregated confidence for this chunk segment from child segments' confidences when available
+      let aggregateConf: number | undefined;
+      if (Array.isArray(result.segments) && result.segments.length) {
+        const items = result.segments
+          .map((s) => ({ conf: s.confidence, dur: Math.max(0.001, (s.end ?? s.start) - (s.start ?? 0)) }))
+          .filter((x) => typeof x.conf === "number" && !Number.isNaN(x.conf));
+        if (items.length) {
+          const totalDur = items.reduce((acc, it) => acc + it.dur, 0);
+          const weighted = items.reduce((acc, it) => acc + (it.conf ?? 0) * it.dur, 0) / totalDur;
+          aggregateConf = Math.max(0, Math.min(1, weighted));
+        }
+      }
+
+      console.info("Chunk aggregate confidence", { chunkId: result.chunk.id, aggregateConf });
 
       segments.push({
         index: startIndex,
@@ -534,6 +571,7 @@ function normaliseSegments(
         text,
         chunkId: result.chunk.id,
         strategy: "chunks",
+        confidence: typeof aggregateConf === "number" ? aggregateConf : undefined,
         words,
       });
     }
@@ -558,6 +596,22 @@ function normaliseSegments(
       confidence: segment.confidence,
       words: (segment as any).words,
     };
+
+    // If confidence is missing, compute it from per-word confidences when available
+    if (typeof item.confidence !== "number" && Array.isArray(item.words) && item.words.length) {
+      const wordItems = (item.words as WordSegment[])
+        .map((w) => ({ conf: w.confidence, dur: Math.max(0.001, w.end - w.start) }))
+        .filter((x) => typeof x.conf === "number" && !Number.isNaN(x.conf));
+      if (wordItems.length) {
+        const tot = wordItems.reduce((a, b) => a + b.dur, 0);
+        const weighted = wordItems.reduce((a, b) => a + (b.conf ?? 0) * b.dur, 0) / tot;
+        item.confidence = Math.max(0, Math.min(1, weighted));
+        console.info("Computed segment confidence from words", { index: item.index, confidence: item.confidence });
+      }
+    } else {
+      console.info("Segment confidence present", { index: item.index, confidence: item.confidence });
+    }
+
     segments.push(item);
     last = item;
     idx += 1;
