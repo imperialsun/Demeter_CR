@@ -58,6 +58,28 @@ export async function initializeBackendSupport(): Promise<boolean> {
   const wasmAvailable = await checkWasmAssets();
   setWasmAvailable(wasmAvailable);
 
+  // Run multithreaded WASM test when WASM is available (store result for later use)
+  try {
+    const res = await testWasmMultithreadSupport(1000);
+    if (res.ok) {
+      // Choose a reasonable thread count based on hardware, default to 2
+      const threads = typeof navigator !== "undefined" ? Math.max(2, navigator.hardwareConcurrency || 2) : 2;
+      useAsrStore.getState().setWasmThreads(threads);
+    } else {
+      useAsrStore.getState().setWasmThreads(null);
+    }
+    // Emit telemetry if available
+    try {
+      const telemetry = useAsrStore.getState().telemetryCollector;
+      if (telemetry?.logEvent) telemetry.logEvent("WASM_MULTITHREAD_TEST", { ok: res.ok, reason: res.reason });
+    } catch (err) {
+      void err;
+    }
+  } catch (err) {
+    void err;
+    useAsrStore.getState().setWasmThreads(null);
+  }
+
   // choose sensible default preference: prefer webgpu when supported, otherwise wasm only if available
   if (supported) {
     setBackendPreference("webgpu");

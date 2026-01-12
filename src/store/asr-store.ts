@@ -170,12 +170,14 @@ const initialState: AsrConfigState = {
   memoryMode: "full",
   chunkStrategy: "overlap",
   segmentationMode: "chunks",
-  chunkDurationSec: 20,
+  // Target chunk duration used when building chunks in 'silence' mode (seconds)
+  chunkDurationSec: 15,
   overlapSec: 3,
   silenceThresholdDb: -35,
   minSilenceMs: 600,
   minChunkMs: 3000,
-  maxChunkMs: 30000,
+  // Max chunk size default is target + 5s (automatically recalculated when target changes)
+  maxChunkMs: (15 + 5) * 1000,
   showSegments: true,
   showExportVtt: false,
   showExportSrt: false,
@@ -229,10 +231,15 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
   setMemoryMode: (mode) => set(() => ({ memoryMode: mode })),
   setChunkStrategy: (strategy) => set(() => ({ chunkStrategy: strategy })),
   setSegmentationMode: (mode) => set(() => ({ segmentationMode: mode })),
-  updateChunkParameters: (params) => set((state) => ({
-    ...state,
-    ...params,
-  })),
+  updateChunkParameters: (params) => set((state) => {
+    const merged = { ...state, ...params } as AsrConfigState;
+    // If user updated the target chunk duration but did not provide an explicit maxChunkMs,
+    // recompute maxChunkMs as (chunkDurationSec + 5) seconds expressed in ms.
+    if (Object.prototype.hasOwnProperty.call(params, "chunkDurationSec") && !Object.prototype.hasOwnProperty.call(params, "maxChunkMs")) {
+      merged.maxChunkMs = Math.round((params.chunkDurationSec ?? state.chunkDurationSec + 5) * 1000);
+    }
+    return merged;
+  }),
   setShowSegments: (value) => set(() => ({ showSegments: value })),
   setShowExportVtt: (value) => set(() => ({ showExportVtt: value })),
   setShowExportSrt: (value) => set(() => ({ showExportSrt: value })),

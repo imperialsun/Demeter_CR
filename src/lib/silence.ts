@@ -52,9 +52,10 @@ export function detectSilenceRegions(
       silenceFrames += 1;
       if (silenceFrames >= minSilenceFrames) {
         const speechEndFrame = Math.max(frameIndex - silenceFrames, speechStartFrame + 1);
+        // endSec should include the last speech frame, so add one frameDuration
         segments.push({
           startSec: speechStartFrame * frameDuration,
-          endSec: speechEndFrame * frameDuration,
+          endSec: (speechEndFrame + 1) * frameDuration,
           peakDb,
         });
         inSpeech = false;
@@ -63,10 +64,11 @@ export function detectSilenceRegions(
   }
 
   if (inSpeech) {
-    const totalFrames = Math.ceil(pcm.length / frameSamples);
+    // Use precise audio duration for the final segment end
+    const totalSec = pcm.length / sampleRate;
     segments.push({
       startSec: speechStartFrame * frameDuration,
-      endSec: totalFrames * frameDuration,
+      endSec: Math.min(totalSec, pcm.length / sampleRate),
       peakDb,
     });
   }
