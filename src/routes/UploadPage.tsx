@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { AudioUploader } from "@/components/audio/AudioUploader";
 import { AudioPlayer } from "@/components/audio/AudioPlayer";
 import { StatusBar } from "@/components/status/StatusBar";
@@ -16,7 +16,9 @@ import { Badge } from "@/components/ui/badge";
 import { overallConfidenceVariant } from "@/lib/utils";
 
 function UploadPage() {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  // Keep the selected file in the global store so pre-listen survives navigation
+  const selectedFile = useAsrStore((state) => state.uploadedFile);
+  const setUploadedFile = useAsrStore((state) => state.setUploadedFile);
   const segments = useAsrStore((state) => state.segments);
   const showSegments = useAsrStore((state) => state.showSegments);
   const telemetrySummary = useAsrStore((state) => state.telemetrySummary);
@@ -33,7 +35,7 @@ function UploadPage() {
 
   const handleFileSelected = useCallback(
     (file: File) => {
-      setSelectedFile(file);
+      setUploadedFile(file);
       resetSession();
       setStatus("idle", "Fichier chargé, prêt à lancer");
       void (async () => {
@@ -47,7 +49,7 @@ function UploadPage() {
         }
       })();
     },
-    [registerAudioSource, resetSession, setStatus]
+    [registerAudioSource, resetSession, setStatus, setUploadedFile]
   );
 
   const handleManualStart = useCallback(async () => {

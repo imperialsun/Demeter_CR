@@ -94,6 +94,8 @@ interface AsrConfigState {
   segments: TranscriptionSegment[];
   audioMetadata: AudioMetadata | null;
   audioSource: SessionSource | null;
+  // Persist the uploaded file in-memory so UI like pre-listen survives navigation
+  uploadedFile: File | null;
   telemetrySummary: TelemetrySummary | null;
   transcriptionConfidence: number | null; // 0..1 overall transcript confidence or null if unavailable
   isTranscribing: boolean;
@@ -158,6 +160,8 @@ interface AsrConfigActions {
   setWasmAvailable: (available: boolean) => void;
   setEnableWordTimestamps: (value: boolean) => void;
   setShowSegmentConfidence: (value: boolean) => void;
+  // Keep the uploaded File in-memory so pre-listen persists across navigation
+  setUploadedFile: (file: File | null) => void;
   // performance
   setForceSingleThread: (value: boolean) => void;
   setWasmThreads: (value: number | null) => void;
@@ -204,6 +208,8 @@ const initialState: AsrConfigState = {
   segments: [],
   audioMetadata: null,
   audioSource: null,
+  // Persist uploaded file in-memory so pre-listen survives navigation
+  uploadedFile: null,
   telemetrySummary: null,
   isTranscribing: false,
   stopRequested: false,
@@ -307,6 +313,7 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
     set((state) => ({ chunkMetrics: [...state.chunkMetrics, metric] })),
   setTelemetrySummary: (summary) => set(() => ({ telemetrySummary: summary })),
   setTranscriptionConfidence: (value: number | null) => set(() => ({ transcriptionConfidence: value })),
+  setUploadedFile: (file: File | null) => set(() => ({ uploadedFile: file })),
   setForceSingleThread: (value: boolean) => set(() => ({ forceSingleThread: value })),
   setWasmThreads: (value: number | null) => set(() => ({ wasmThreads: value })),
   setIsTranscribing: (value) => set(() => ({ isTranscribing: value })),

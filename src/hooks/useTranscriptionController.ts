@@ -586,6 +586,8 @@ function normaliseSegments(
     if (last && text === last.text && segment.start - last.end < 1) {
       continue;
     }
+    const segmentWords = (segment as unknown as Record<string, unknown>).words as WordSegment[] | undefined;
+
     const item: TranscriptionSegment = {
       index: idx,
       start: segment.start,
@@ -594,11 +596,11 @@ function normaliseSegments(
       chunkId: result.chunk.id,
       strategy: "silence",
       confidence: segment.confidence,
-      words: (segment as any).words,
+      words: segmentWords,
     };
 
     // If confidence is missing, compute it from per-word confidences when available
-    if (typeof item.confidence !== "number" && Array.isArray(item.words) && item.words.length) {
+    if (typeof item.confidence !== "number" && Array.isArray(item.words) && item.words!.length) {
       const wordItems = (item.words as WordSegment[])
         .map((w) => ({ conf: w.confidence, dur: Math.max(0.001, w.end - w.start) }))
         .filter((x) => typeof x.conf === "number" && !Number.isNaN(x.conf));

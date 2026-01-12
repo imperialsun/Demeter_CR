@@ -445,9 +445,10 @@ export async function transcribeChunk({
   try {
     console.info("ASR invoke options", invokeOptions);
 
-    const rawKeys = Object.keys(result ?? {});
-    const chunks = Array.isArray((result as any)?.chunks) ? (result as any).chunks : [];
-    const topWords = Array.isArray((result as any)?.words) ? (result as any).words : [];
+    const resultUnknown = result as unknown as Record<string, unknown>;
+    const rawKeys = Object.keys(resultUnknown ?? {});
+    const chunks = Array.isArray(resultUnknown?.chunks) ? (resultUnknown.chunks as Array<Record<string, unknown>>) : [];
+    const topWords = Array.isArray(resultUnknown?.words) ? (resultUnknown.words as Array<Record<string, unknown>>) : [];
 
     console.info("ASR raw result keys", rawKeys);
     console.info("ASR raw result summary", {
@@ -459,36 +460,37 @@ export async function transcribeChunk({
     if (chunks.length) {
       const sample = chunks.slice(0, 5);
       const chunkKeySet = new Set<string>();
-      sample.forEach((c: any) => Object.keys(c || {}).forEach((k) => chunkKeySet.add(k)));
+      sample.forEach((c) => Object.keys(c || {}).forEach((k) => chunkKeySet.add(k)));
       console.info("ASR chunk keys (sample)", Array.from(chunkKeySet));
 
-      sample.forEach((c: any, i: number) => {
+      sample.forEach((c, i: number) => {
         const info: Record<string, unknown> = {};
         Object.keys(c || {}).forEach((k) => {
           const v = c[k];
           if (Array.isArray(v)) info[k] = `[array:${v.length}]`;
-          else if (v && typeof v === "object") info[k] = `[object keys: ${Object.keys(v).slice(0, 6).join(",")}]`;
+          else if (v && typeof v === "object") info[k] = `[object keys: ${Object.keys(v as Record<string, unknown>).slice(0, 6).join(",")}]`;
           else info[k] = typeof v;
         });
         info.textSample = String(c.text ?? "").slice(0, 200);
         console.info(`ASR chunk[${i}] keys/types`, info);
 
-        if (Array.isArray(c.words) && c.words.length) {
-          console.info(`ASR chunk[${i}] words sample`, (c.words as any).slice(0, 10));
+        const wordsField = c["words"];
+        if (Array.isArray(wordsField) && (wordsField as unknown[]).length) {
+          console.info(`ASR chunk[${i}] words sample`, (wordsField as unknown[]).slice(0, 10));
         }
       });
     }
 
     if (topWords.length) {
-      console.info("ASR top-level words sample", (topWords as any).slice(0, 20));
+      console.info("ASR top-level words sample", (topWords as unknown[]).slice(0, 20));
     } else {
       // look for alternative fields that might contain token/timestamp information
       const interesting = new Set<string>();
       const keyCandidates = ["tokens", "token_timestamps", "pieces", "word_timestamps", "timestamps", "timestamp_tokens"];
       keyCandidates.forEach((k) => {
-        if (k in (result as any)) interesting.add(k);
+        if (k in resultUnknown) interesting.add(k);
       });
-      chunks.forEach((c: any) => Object.keys(c || {}).forEach((k) => {
+      chunks.forEach((c) => Object.keys(c || {}).forEach((k) => {
         if (/token|piece|word|timestamp|time/i.test(k)) interesting.add(k);
       }));
       console.info("ASR alternative fields detected", Array.from(interesting));
@@ -516,18 +518,20 @@ export async function transcribeChunk({
           const sanitized = cleanTranscriptText(segment.text);
 
           // map any word-level timestamps inside this chunk segment
-          const words: WordSegment[] | undefined = Array.isArray(segment.words)
-            ? segment.words
-                .map((w) => {
-                  const wStart = w.start ?? (Array.isArray(w.timestamp) ? w.timestamp[0] : undefined) ?? 0;
-                  const wEnd = w.end ?? (Array.isArray(w.timestamp) ? w.timestamp[1] : undefined) ?? wStart;
-                  const wordText = (w.word ?? (w as any).text ?? "").toString();
-                  const conf = w.probability ?? (w as any).score ?? undefined;
+          const rawWordsField = (segment as unknown as Record<string, unknown>)["words"];
+          const words: WordSegment[] | undefined = Array.isArray(rawWordsField)
+            ? (rawWordsField as Array<Record<string, unknown>>)
+                .map((wObj) => {
+                  const w = wObj as Record<string, unknown>;
+                  const wStart = typeof w.start === "number" ? w.start : (Array.isArray(w.timestamp) && typeof (w.timestamp as unknown[])[0] === "number" ? (w.timestamp as unknown[])[0] as number : 0);
+                  const wEnd = typeof w.end === "number" ? w.end : (Array.isArray(w.timestamp) && typeof (w.timestamp as unknown[])[1] === "number" ? (w.timestamp as unknown[])[1] as number : wStart);
+                  const wordText = typeof (w.word ?? w.text) === "string" ? String(w.word ?? w.text) : "";
+                  const prob = typeof w.probability === "number" ? w.probability : typeof w.score === "number" ? w.score : undefined;
                   return {
                     word: wordText,
                     start: chunk.start + wStart,
                     end: chunk.start + wEnd,
-                    confidence: conf,
+                    confidence: prob as number | undefined,
                   } as WordSegment;
                 })
                 .filter((w) => w.word.length > 0)
@@ -549,17 +553,18 @@ export async function transcribeChunk({
           text: cleanedText,
           // if pipeline provided top-level words, map them
           words: Array.isArray(result.words)
-            ? (result.words as Array<any>)
-                .map((w) => {
-                  const wStart = w.start ?? (Array.isArray(w.timestamp) ? w.timestamp[0] : undefined) ?? 0;
-                  const wEnd = w.end ?? (Array.isArray(w.timestamp) ? w.timestamp[1] : undefined) ?? wStart;
-                  const wordText = (w.word ?? (w as any).text ?? "").toString();
-                  const conf = w.probability ?? (w as any).score ?? undefined;
+            ? (result.words as Array<Record<string, unknown>>)
+                .map((wObj) => {
+                  const w = wObj as Record<string, unknown>;
+                  const wStart = typeof w.start === "number" ? w.start : (Array.isArray(w.timestamp) && typeof (w.timestamp as unknown[])[0] === "number" ? (w.timestamp as unknown[])[0] as number : 0);
+                  const wEnd = typeof w.end === "number" ? w.end : (Array.isArray(w.timestamp) && typeof (w.timestamp as unknown[])[1] === "number" ? (w.timestamp as unknown[])[1] as number : wStart);
+                  const wordText = typeof (w.word ?? w.text) === "string" ? String(w.word ?? w.text) : "";
+                  const prob = typeof w.probability === "number" ? w.probability : typeof w.score === "number" ? w.score : undefined;
                   return {
                     word: wordText,
                     start: chunk.start + wStart,
                     end: chunk.start + wEnd,
-                    confidence: conf,
+                    confidence: prob as number | undefined,
                   } as WordSegment;
                 })
                 .filter((w) => w.word.length > 0)
