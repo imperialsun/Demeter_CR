@@ -35,9 +35,18 @@ function UploadPage() {
 
   const handleFileSelected = useCallback(
     (file: File) => {
-      setUploadedFile(file);
-      resetSession();
-      setStatus("idle", "Fichier chargé, prêt à lancer");
+      console.info("handleFileSelected called", { fileName: file?.name });
+      // Reset session first, then store the uploaded file to ensure the file remains available
+      try {
+        resetSession();
+        setUploadedFile(file);
+        setStatus("idle", "Fichier chargé, prêt à lancer");
+      } catch (error) {
+        console.error("Erreur lors de l'initialisation de la session pour le fichier", error);
+        toast("Erreur interne lors de la préparation du fichier");
+        return;
+      }
+
       void (async () => {
         try {
           const metadata = await probeAudioMetadata(file);

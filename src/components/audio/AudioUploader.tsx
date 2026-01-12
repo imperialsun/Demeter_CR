@@ -22,9 +22,14 @@ export function AudioUploader({ onFileSelected, metadata, disabled }: AudioUploa
 
   const handleFiles = useCallback(
     (items: FileList | null) => {
+      console.info("AudioUploader.handleFiles called", { length: items?.length });
       if (!items || items.length === 0) return;
       const file = items[0]!;
       onFileSelected(file);
+      // Clear the input value after handling so the same file can be selected again later
+      try {
+        if (inputRef.current) (inputRef.current as HTMLInputElement).value = "";
+      } catch (err) { void err; }
     },
     [onFileSelected]
   );
@@ -40,8 +45,47 @@ export function AudioUploader({ onFileSelected, metadata, disabled }: AudioUploa
   );
 
   const pickFile = useCallback(() => {
-    inputRef.current?.click();
-  }, []);
+    try {
+      console.info("AudioUploader.pickFile invoked", { inputRef: !!inputRef.current });
+      const el = inputRef.current;
+      if (el) {
+        try {
+          const visible = el instanceof HTMLElement ? (el as HTMLElement).offsetParent !== null : true;
+          console.info('Audio input pre-click state', { disabled: el.disabled, visible, accept: el.getAttribute('accept') });
+          if (!visible || el.disabled) {
+            console.warn('Audio input not visible or disabled; using fallback input');
+            throw new Error('input not actionable');
+          }
+        } catch (err) { void err; }
+        try { el.focus(); } catch (err) { void err; }
+        // Clear the input value so selecting the same file again still fires onChange
+        try {
+          (el as HTMLInputElement).value = "";
+        } catch (err) { void err; }
+        el.click();
+        console.info('Audio input click dispatched');
+      } else {
+        console.warn('AudioUploader.pickFile: inputRef is null, falling back');
+        throw new Error('inputRef null');
+      }
+    } catch (err) {
+      console.error("AudioUploader.pickFile failed, using fallback input", err);
+      // Fallback: create a temporary input element and trigger it
+      try {
+        const tmp = document.createElement("input");
+        tmp.type = "file";
+        tmp.accept = "audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,audio/aac";
+        tmp.style.display = "none";
+        document.body.appendChild(tmp);
+        tmp.addEventListener("change", () => handleFiles(tmp.files));
+        tmp.click();
+        console.info('Fallback input click dispatched');
+        setTimeout(() => { try { document.body.removeChild(tmp); } catch (e) { void e; } }, 2000);
+      } catch (err2) {
+        console.error("Fallback pick file creation failed", err2);
+      }
+    }
+  }, [handleFiles]);
 
   const renderDurationWarning = () => {
     if (!metadata) return null;
@@ -94,12 +138,15 @@ export function AudioUploader({ onFileSelected, metadata, disabled }: AudioUploa
             Déposez votre fichier ici ou <span className="text-primary">cliquez</span> pour parcourir.
           </p>
           <p className="text-xs text-muted-foreground/80">Formats supportés : mp3, wav, m4a.</p>
+          {/* keep the input in the DOM (not display:none) so programmatic click reliably opens the file picker across browsers */}
           <Input
             ref={inputRef}
             type="file"
             accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,audio/aac"
-            className="hidden"
-            onChange={(event) => handleFiles(event.target.files)}
+            className="sr-only absolute w-0 h-0 opacity-0"
+            onChange={(event) => { console.info('Audio input onChange', { files: event.target.files?.length }); handleFiles(event.target.files); }}
+            onClick={() => console.info('Audio input clicked')}
+            onFocus={() => console.info('Audio input focused')}
             disabled={disabled}
           />
         </div>
