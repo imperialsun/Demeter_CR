@@ -125,6 +125,11 @@ export function Topbar() {
                   toast(
                     supported ? "WebGPU disponible sur ce périphérique." : "WebGPU non disponible; WASM sélectionné si disponible."
                   );
+                  // Show multithread status if detected (only show positive info to avoid noisy toasts)
+                  const threads = useAsrStore.getState().wasmThreads;
+                  if (typeof threads === 'number' && threads > 1) {
+                    toast(`Mode multithread WASM actif (${threads} threads)`);
+                  }
                 });
 
                 toast("Application réinitialisée aux paramètres par défaut.");

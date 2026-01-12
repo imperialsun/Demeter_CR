@@ -243,10 +243,9 @@ export async function createAsrPipeline({
         try {
           useAsrStore.getState().setWasmThreads(attemptedThreads);
         } catch (err) { void err; }
-        // If multithread was actually used, emit telemetry and a confirmation toast
+        // If multithread was actually used, emit telemetry (no immediate toast here)
         if (attemptedThreads > 1) {
           if (telemetry?.logEvent) telemetry.logEvent("WASM_MULTITHREAD_AVAILABLE", { attemptedThreads });
-          try { const { toast } = await import("@/components/ui/use-toast"); toast(`mode multithread actif (${attemptedThreads} threads)`); } catch (err) { void err; }
         }
       }
       const mem = readMemoryUsage();
