@@ -2,7 +2,7 @@ import { useCallback, useRef } from "react";
 import type { AutomaticSpeechRecognitionPipeline } from "@huggingface/transformers";
 
 import { toast } from "@/components/ui/use-toast";
-import { createAsrPipeline, disposePipeline, transcribeChunk } from "@/lib/asr";
+import { createAsrPipeline, disposePipeline, transcribeChunk, isModelTooLargeError } from "@/lib/asr";
 import { buildChunks } from "@/lib/chunking";
 import {
   decodeFileFully,
@@ -473,9 +473,15 @@ export function useTranscriptionController() {
       state.setStatus("ready", "Prêt");
     } catch (error) {
       console.error(error);
-      const message = (error as Error).message ?? "Erreur inconnue";
-      state.setStatus("error", message);
-      toast(`Échec de la transcription : ${message}`);
+      const message = (error as Error)?.message ?? String(error ?? "Erreur inconnue");
+      if (isModelTooLargeError(error)) {
+        const friendly = "Erreur : modèle trop gros pour cette plateforme (mémoire insuffisante). Essayez un preset plus léger ou activez le mode single-thread.";
+        state.setStatus("error", friendly);
+        toast(friendly);
+      } else {
+        state.setStatus("error", message);
+        toast(`Échec de la transcription : ${message}`);
+      }
     } finally {
       if (activePipeline) {
         await disposePipeline(activePipeline);

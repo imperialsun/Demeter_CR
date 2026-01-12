@@ -659,6 +659,18 @@ async function readTotalMemory() {
   }
 }
 
+// Heuristic to detect errors that are likely caused by insufficient memory / model too large
+export function isModelTooLargeError(err: unknown): boolean {
+  try {
+    const raw = err === undefined || err === null ? "" : (typeof err === "object" && "message" in (err as any) ? String((err as any).message) : String(err));
+    const s = raw.toLowerCase();
+    // include numeric error codes observed in the wild and common OOM messages
+    return /1261431424|out of memory|oom|insufficient memory|memory limit|cannot allocate|js_out_of_memory|wasm memory/i.test(s);
+  } catch (_) {
+    return false;
+  }
+}
+
 export async function disposePipeline(pipe: GenericPipeline | undefined) {
   if (!pipe) return;
   try {
