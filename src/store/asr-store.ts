@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { loadSettings, saveSettings, type PersistedSettings, DEFAULT_SETTINGS } from "@/lib/storage";
 import type { AudioMetadata } from "@/lib/audio";
+import { computeDefaultOverlap } from "@/lib/chunking";
 import type { ChunkDefinition } from "@/lib/chunking";
 import type { TranscriptionSegment } from "@/lib/export";
 import type { TelemetryCollector, ChunkTelemetry, TelemetrySummary } from "@/lib/telemetry";
@@ -183,7 +184,7 @@ const initialState: AsrConfigState = {
   segmentationMode: "chunks",
   // Target chunk duration used when building chunks in 'silence' mode (seconds)
   chunkDurationSec: 15,
-  overlapSec: 3,
+  overlapSec: 1.5,
   silenceThresholdDb: -35,
   minSilenceMs: 600,
   minChunkMs: 3000,
@@ -257,6 +258,15 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
     if (Object.prototype.hasOwnProperty.call(params, "chunkDurationSec") && !Object.prototype.hasOwnProperty.call(params, "maxChunkMs")) {
       merged.maxChunkMs = Math.round((params.chunkDurationSec ?? state.chunkDurationSec + 5) * 1000);
     }
+
+    // If user updated the chunk duration but did not explicitly set overlapSec,
+    // set overlapSec to 10% of the new chunk duration (minimum 0.5s to avoid tiny overlaps).
+    if (Object.prototype.hasOwnProperty.call(params, "chunkDurationSec") && !Object.prototype.hasOwnProperty.call(params, "overlapSec")) {
+      const newChunkSec = (params.chunkDurationSec ?? state.chunkDurationSec) as number;
+      // Use centralised computation
+      merged.overlapSec = computeDefaultOverlap(newChunkSec);
+    }
+
     return merged;
   }),
   setShowSegments: (value) => set(() => ({ showSegments: value })),

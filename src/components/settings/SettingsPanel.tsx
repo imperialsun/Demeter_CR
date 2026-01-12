@@ -25,6 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { useTheme, type Theme } from "@/components/theme-context";
+import { computeDefaultOverlap } from "@/lib/chunking";
 import { cn } from "@/lib/utils";
 import { testWasmMultithreadSupport } from "@/lib/backend-support";
 
@@ -232,12 +233,7 @@ export function SettingsPanel({
     await clearAppCache();
   };
 
-  const computeDefaultOverlap = (durationSec: number) => {
-    const raw = durationSec * 0.15; // ~15% de la durée cible
-    const clamped = Math.min(30, Math.max(0, raw));
-    return Number(clamped.toFixed(1));
-  };
-
+  // Use shared overlap computation (10% with a minimum of 0.5s)
   const handleChunkDurationChange = (value: number) => {
     const defaultForCurrent = computeDefaultOverlap(chunkDurationSec);
     const defaultForNew = computeDefaultOverlap(value);

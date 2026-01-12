@@ -107,3 +107,11 @@ function toChunkDefinition(
 }
 
 // deduplicateOverlaps removed: overlaps are preserved to honor chunking settings.
+
+// Compute the default overlap for a given chunk duration.
+// Business rule: overlap = max(0.5s, 10% of chunk duration), rounded to 2 decimals.
+export function computeDefaultOverlap(durationSec: number) {
+  const raw = durationSec * 0.1;
+  const clamped = Math.max(0.5, raw);
+  return Math.round(clamped * 100) / 100;
+}
