@@ -40,13 +40,18 @@ export default defineConfig({
   },
   // For multithreaded WASM we need cross-origin isolation (COOP/COEP).
   // Set these headers in dev/preview so local testing with multithreaded WASM works.
+  // Make the dev server listen on all interfaces so it is reachable from other PCs on the LAN.
   server: {
+    host: true, // allow access from other machines on the same network
+    // enable polling which can be more reliable when editing files over network mounts
+    watch: { usePolling: true },
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
     },
   },
   preview: {
+    host: true,
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
