@@ -3,7 +3,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { useLayoutEffect, useRef, useState, useEffect } from "react";
 import { useAsrStore } from "@/store/asr-store";
-import type { TelemetrySummary, TelemetryEvent, TelemetrySnapshot, ChunkTelemetry } from "@/lib/telemetry";
+import type { TelemetrySummary, TelemetryEvent, ChunkTelemetry } from "@/lib/telemetry";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { PreprocessTelemetryPanel } from "@/components/telemetry/PreprocessTelemetryPanel"; 
 
@@ -20,10 +20,7 @@ export function TelemetryPanel({ summary }: TelemetryPanelProps) {
     summary ?? (collector ? collector.exportSummary() : null)
   );
 
-  // keep local live summary in sync with prop when provided
-  useLayoutEffect(() => {
-    if (summary) setLiveSummary(summary);
-  }, [summary]);
+
 
   useEffect(() => {
     if (!collector || !isTranscribing) return;
@@ -33,8 +30,8 @@ export function TelemetryPanel({ summary }: TelemetryPanelProps) {
         const s = collector.exportSummary();
         if (!mounted) return;
         setLiveSummary(s);
-      } catch (e) {
-        // ignore
+      } catch (err) {
+        void err;
       }
     };
     update();
@@ -45,7 +42,40 @@ export function TelemetryPanel({ summary }: TelemetryPanelProps) {
     };
   }, [collector, isTranscribing]);
 
-  const effective = liveSummary;
+  // Refs for synchronizing heights between Session and Memory cards
+  const sessionRef = useRef<HTMLDivElement | null>(null);
+  const memoryRef = useRef<HTMLDivElement | null>(null);
+
+  // Sync memory card height to session card height using ResizeObserver
+  useLayoutEffect(() => {
+    const sEl = sessionRef.current;
+    const mEl = memoryRef.current;
+    if (!sEl || !mEl) return;
+
+    const setHeight = () => {
+      const h = sEl.offsetHeight;
+      mEl.style.height = `${h}px`;
+    };
+
+    setHeight();
+
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(setHeight);
+      ro.observe(sEl as Element);
+    }
+
+    const onWin = () => setHeight();
+    window.addEventListener("resize", onWin);
+
+    return () => {
+      window.removeEventListener("resize", onWin);
+      if (ro) ro.disconnect();
+      mEl.style.height = "";
+    };
+  }, [liveSummary]);
+
+  const effective = summary ?? liveSummary;
 
   if (!effective) {
     return (
@@ -58,36 +88,7 @@ export function TelemetryPanel({ summary }: TelemetryPanelProps) {
     );
   }
 
-  // Refs for synchronizing heights between Session and Memory cards
-  const sessionRef = useRef<HTMLDivElement | null>(null);
-  const memoryRef = useRef<HTMLDivElement | null>(null);
 
-  // Sync memory card height to session card height using ResizeObserver
-  useLayoutEffect(() => {
-    if (!sessionRef.current || !memoryRef.current) return;
-
-    const setHeight = () => {
-      const h = sessionRef.current!.offsetHeight;
-      memoryRef.current!.style.height = `${h}px`;
-    };
-
-    setHeight();
-
-    let ro: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== "undefined") {
-      ro = new ResizeObserver(setHeight);
-      ro.observe(sessionRef.current);
-    }
-
-    const onWin = () => setHeight();
-    window.addEventListener("resize", onWin);
-
-    return () => {
-      window.removeEventListener("resize", onWin);
-      if (ro) ro.disconnect();
-      if (memoryRef.current) memoryRef.current.style.height = "";
-    };
-  }, [liveSummary]);
 
   return (
     <div className="grid gap-4 lg:grid-cols-2 items-stretch">
@@ -155,14 +156,23 @@ export function TelemetryPanel({ summary }: TelemetryPanelProps) {
                     timestamp: s.timestamp,
                   }));
 
+                  type ChunkRamData = { context: "chunk"; index?: number; mb?: number; bytes?: number };
+
+                  function isChunkRamEvent(e: TelemetryEvent): e is TelemetryEvent & { data: ChunkRamData } {
+                    return e.type === "RAM_USAGE" && typeof e.data === "object" && (e.data as Record<string, unknown>).context === "chunk";
+                  }
+
                   const chunkRamRows: MemRow[] = effective.events
-                    .filter((e) => e.type === "RAM_USAGE" && e.data && (e.data as any).context === "chunk")
-                    .map((e) => ({
-                      label: `Chunk ${(e.data as any).index}`,
-                      used: (e.data as any).mb ? `${(e.data as any).mb} Mo` : undefined,
-                      total: (e.data as any).bytes ? `${(e.data as any).bytes} B` : undefined,
-                      timestamp: e.timestamp,
-                    }));
+                    .filter(isChunkRamEvent)
+                    .map((e) => {
+                      const d = e.data as ChunkRamData;
+                      return {
+                        label: `Chunk ${d.index ?? "?"}`,
+                        used: d.mb ? `${d.mb} Mo` : undefined,
+                        total: d.bytes ? `${d.bytes} B` : undefined,
+                        timestamp: e.timestamp,
+                      };
+                    });
 
                   const combined: MemRow[] = [...snapshotRows, ...chunkRamRows].sort((a, b) => a.timestamp - b.timestamp);
 

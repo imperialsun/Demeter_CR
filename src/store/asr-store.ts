@@ -207,7 +207,7 @@ const initialState: AsrConfigState = {
   wasmThreads: null,
 };
 
-export const useAsrStore = create<AsrConfigStore>((set) => ({
+export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
   ...initialState,
   setPreset: (preset, customId) =>
     set(() => ({

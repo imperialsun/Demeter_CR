@@ -74,7 +74,7 @@ const WASM_PATH = "/onnx/";
 
 async function forceSingleThreadedWasmEnv() {
   const module = await loadTransformers();
-  const envMutable = (module as any).env as any;
+  const moduleEnv = (module as unknown as { env?: { backends?: { onnx?: { wasm?: Record<string, unknown> } } } }).env;
   const config = {
     numThreads: 1,
     proxy: true,
@@ -83,14 +83,15 @@ async function forceSingleThreadedWasmEnv() {
     useJsep: false,
   };
 
-  if (envMutable?.backends?.onnx?.wasm) {
-    Object.assign(envMutable.backends.onnx.wasm, config);
+  if (moduleEnv?.backends?.onnx?.wasm && typeof moduleEnv.backends.onnx.wasm === "object") {
+    Object.assign(moduleEnv.backends.onnx.wasm, config);
   }
 
   try {
     const ort = await import("onnxruntime-web");
-    if ((ort as any).env?.wasm) {
-      Object.assign((ort as any).env.wasm, config);
+    const ortEnv = (ort as unknown as { env?: { wasm?: Record<string, unknown> } }).env;
+    if (ortEnv?.wasm && typeof ortEnv.wasm === "object") {
+      Object.assign(ortEnv.wasm, config);
     }
   } catch (error) {
     console.warn("Unable to patch onnxruntime env for single-threaded WASM", error);
@@ -132,7 +133,7 @@ export async function createAsrPipeline({
 
   function computeWasmOptions() {
     const forceSingle = useAsrStore.getState().forceSingleThread;
-    const crossIsolated = typeof window !== "undefined" && (window as any).crossOriginIsolated === true;
+    const crossIsolated = typeof window !== "undefined" && ((window as unknown) as { crossOriginIsolated?: boolean }).crossOriginIsolated === true;
     let numThreads = 1;
     if (!forceSingle && crossIsolated && typeof navigator !== "undefined") {
       numThreads = Math.max(2, navigator.hardwareConcurrency || 2);
@@ -207,7 +208,7 @@ export async function createAsrPipeline({
           if (typeof data.file === "string" && typeof performance !== "undefined") {
             const fileName = data.file as string;
             try {
-              let entries = performance.getEntriesByName(fileName) as PerformanceResourceTiming[];
+              const entries = performance.getEntriesByName(fileName) as PerformanceResourceTiming[];
               let entry = entries && entries.length ? entries[entries.length - 1] : undefined;
               if (!entry) {
                 // fallback: try to find resource whose URL ends with the file string
@@ -241,11 +242,11 @@ export async function createAsrPipeline({
       if (backend === "wasm") {
         try {
           useAsrStore.getState().setWasmThreads(attemptedThreads);
-        } catch (e) {}
+        } catch (err) { void err; }
         // If multithread was actually used, emit telemetry and a confirmation toast
         if (attemptedThreads > 1) {
-          telemetry?.logEvent && telemetry.logEvent("WASM_MULTITHREAD_AVAILABLE", { attemptedThreads });
-          try { const { toast } = await import("@/components/ui/use-toast"); toast(`mode multithread actif (${attemptedThreads} threads)`); } catch (e) { /* ignore */ }
+          if (telemetry?.logEvent) telemetry.logEvent("WASM_MULTITHREAD_AVAILABLE", { attemptedThreads });
+          try { const { toast } = await import("@/components/ui/use-toast"); toast(`mode multithread actif (${attemptedThreads} threads)`); } catch (err) { void err; }
         }
       }
       const mem = readMemoryUsage();
@@ -296,8 +297,8 @@ export async function createAsrPipeline({
         // If we attempted multithread and it failed, log/telemetry/toast and persist fallback to single-thread
         if (attemptedThreads > 1) {
           console.warn("WASM multithread failed, falling back to single-threaded mode");
-          telemetry?.recordAlert && telemetry?.recordAlert("WASM_MULTITHREAD_UNAVAILABLE", { attemptedThreads, message: (error as Error).message });
-          try { const { toast } = await import("@/components/ui/use-toast"); toast("mode multithread indisponible sur cette plateforme"); } catch (e) { /* ignore */ }
+          if (telemetry?.recordAlert) telemetry.recordAlert("WASM_MULTITHREAD_UNAVAILABLE", { attemptedThreads, message: (error as Error).message });
+          try { const { toast } = await import("@/components/ui/use-toast"); toast("mode multithread indisponible sur cette plateforme"); } catch (err) { void err; }
           // Persist fallback so UI updates
           useAsrStore.getState().setForceSingleThread(true);
         }
@@ -512,14 +513,20 @@ function readMemoryUsage() {
 }
 
 async function readTotalMemory() {
-  const measure = (performance as any)?.measureUserAgentSpecificMemory;
+  const measure = (performance as unknown as { measureUserAgentSpecificMemory?: () => Promise<{
+    bytes?: number;
+    breakdown?: Array<{ bytes?: number; attribution?: unknown; types?: unknown }>;
+  }> }).measureUserAgentSpecificMemory;
   if (typeof measure !== "function") return null;
   try {
     // bind correct this (measure must be called with Performance as receiver)
-    const result = await measure.call(performance);
+    const result = await measure.call(performance) as {
+      bytes?: number;
+      breakdown?: Array<{ bytes?: number; attribution?: unknown; types?: unknown }>;
+    };
     const toMb = (bytes: number) => Math.round((bytes / (1024 * 1024)) * 100) / 100;
     const breakdown = Array.isArray(result.breakdown)
-      ? result.breakdown.map((item: any) => ({
+      ? result.breakdown.map((item) => ({
           bytes: item?.bytes,
           attribution: item?.attribution,
           types: item?.types,
@@ -533,9 +540,9 @@ async function readTotalMemory() {
     console.warn("measureUserAgentSpecificMemory failed", error);
     try {
       const telemetry = useAsrStore.getState().telemetryCollector;
-      telemetry?.logEvent && telemetry.logEvent("WASM_MEMORY_MEASURE_FAILED", { message: String(error) });
-    } catch (e) {
-      // ignore telemetry failures
+      if (telemetry?.logEvent) telemetry.logEvent("WASM_MEMORY_MEASURE_FAILED", { message: String(error) });
+    } catch (err) {
+      void err;
     }
     return null;
   }

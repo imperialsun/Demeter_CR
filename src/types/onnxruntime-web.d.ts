@@ -6,7 +6,7 @@ declare module "onnxruntime-web" {
     }
   }
 
-  export interface InferenceSession {}
+  export type InferenceSession = unknown;
 
   export const InferenceSession: {
     create(
@@ -24,6 +24,6 @@ declare module "onnxruntime-web" {
   export const env: {
     allowLocalModels: boolean;
     useBrowserCache: boolean;
-    backends: Record<string, any>;
+    backends: Record<string, unknown>;
   };
 }

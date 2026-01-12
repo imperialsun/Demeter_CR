@@ -173,8 +173,8 @@ export function useTranscriptionController() {
           const bytes = (chunkPcm as Float32Array).byteLength ?? 0;
           telemetry.snapshotMemory(`CHUNK_AFTER_PROCESS_${definition.index}`);
           telemetry.logEvent("RAM_USAGE", { context: "chunk", index: definition.index, bytes, mb: Number((bytes / (1024 * 1024)).toFixed(3)) });
-        } catch (e) {
-          // ignore snapshot/log errors
+        } catch (err) {
+          void err;
         }
       }
     },
@@ -360,8 +360,8 @@ export function useTranscriptionController() {
               const bytes = (pcmToUse as Float32Array).byteLength ?? 0;
               telemetry.snapshotMemory(`CHUNK_AFTER_PROCESS_${chunk.index}`);
               telemetry.logEvent("RAM_USAGE", { context: "chunk", index: chunk.index, bytes, mb: Number((bytes / (1024 * 1024)).toFixed(3)) });
-            } catch (e) {
-              // ignore snapshot/log errors
+            } catch (err) {
+              void err;
             }
 
             if (shouldStopAfterChunk()) {

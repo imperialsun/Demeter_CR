@@ -272,11 +272,11 @@ export function SettingsPanel({
       }
 
       // Clear IndexedDB (if supported, enumerate and delete databases)
-      if (typeof indexedDB !== "undefined" && typeof (indexedDB as any).databases === "function") {
+      if (typeof indexedDB !== "undefined" && typeof ((indexedDB as unknown) as { databases?: () => Promise<unknown[]> }).databases === "function") {
         try {
-          const dbs = await (indexedDB as any).databases();
-          for (const info of dbs) {
-            const name: string | undefined = info.name;
+          const dbs = await (((indexedDB as unknown) as { databases?: () => Promise<unknown[]> }).databases!());
+          for (const info of dbs as Array<{ name?: string }>) {
+            const name: string | undefined = info?.name;
             if (!name) continue;
             try {
               await new Promise<void>((resolve, reject) => {
@@ -305,7 +305,7 @@ export function SettingsPanel({
             });
             results.dbsDeleted.push(name);
           } catch (err) {
-            // ignore missing
+            void err;
           }
         }
       }
@@ -323,7 +323,7 @@ export function SettingsPanel({
       initializeBackendSupport();
 
       // Telemetry
-      telemetryCollector?.logEvent && telemetryCollector.logEvent("CACHE_CLEARED", {
+      if (telemetryCollector?.logEvent) telemetryCollector.logEvent("CACHE_CLEARED", {
         cachesDeleted: results.cachesDeleted.length,
         cachesFailed: results.cachesFailed.length,
         dbsDeleted: results.dbsDeleted.length,
@@ -354,9 +354,9 @@ export function SettingsPanel({
     const telemetryCollector = useAsrStore.getState().telemetryCollector;
 
     // Snapshot memory before heavy work (light method still snapshots to track impact)
-    telemetryCollector?.snapshotMemory && telemetryCollector.snapshotMemory('CACHE_STATS_START');
+    if (telemetryCollector?.snapshotMemory) telemetryCollector.snapshotMemory('CACHE_STATS_START');
     console.info("[cache-stats] start (light)");
-    telemetryCollector?.logEvent && telemetryCollector.logEvent("CACHE_STATS_CALC_START", { mode: 'light' });
+    if (telemetryCollector?.logEvent) telemetryCollector.logEvent("CACHE_STATS_CALC_START", { mode: 'light' });
 
     const stats = {
       cacheTotals: [] as Array<{ name: string; size: number; entries: number }>,
@@ -371,24 +371,20 @@ export function SettingsPanel({
 
     try {
       // Prefer navigator.storage.estimate() for a quick, low-cost baseline if available
-      try {
-        if (typeof navigator !== 'undefined' && (navigator as any).storage && typeof (navigator as any).storage.estimate === 'function') {
+        const storage = typeof navigator !== 'undefined' ? ((navigator as unknown) as { storage?: { estimate?: () => Promise<unknown> } }).storage : undefined;
+        if (storage && typeof storage.estimate === 'function') {
           try {
-            const estimate = await (navigator as any).storage.estimate();
-            if (typeof estimate?.usage === 'number') {
+            const estimate = await storage.estimate();
+            const estimateAny = estimate as unknown as { usage?: number };
+            if (typeof estimateAny.usage === 'number') {
               // we don't trust this as exact but store as a hint
               stats.localStorageBytes = stats.localStorageBytes || 0; // leave unchanged, show estimate separately in console below
               console.info('[cache-stats] storage.estimate', estimate);
             }
           } catch (err) {
-            // ignore estimate failures
+            void err;
           }
         }
-      } catch (err) {
-        // ignore
-      }
-
-      // Cache Storage (light): count entries and attempt to use content-length headers only; do NOT read bodies
       if (typeof window !== 'undefined' && 'caches' in window) {
         try {
           const names = await caches.keys();
@@ -414,7 +410,7 @@ export function SettingsPanel({
                     sampledCount++;
                   }
                 } catch (err) {
-                  // ignore
+                  void err;
                 }
               }
 
@@ -441,14 +437,14 @@ export function SettingsPanel({
       if (typeof indexedDB !== 'undefined') {
         try {
           const dbCandidates: string[] = [];
-          if (typeof (indexedDB as any).databases === 'function') {
+          if (typeof (((indexedDB as unknown) as { databases?: () => Promise<unknown[]> }).databases) === 'function') {
             try {
-              const dbs = await (indexedDB as any).databases();
-              for (const info of dbs) {
+              const dbs = await (((indexedDB as unknown) as { databases?: () => Promise<unknown[]> }).databases!());
+              for (const info of dbs as unknown as Array<{ name?: string }>) {
                 if (info?.name) dbCandidates.push(info.name as string);
               }
             } catch (err) {
-              // ignore
+              void err;
             }
           }
 
@@ -495,7 +491,7 @@ export function SettingsPanel({
                           const str = JSON.stringify(cursor.value);
                           sampledTotalBytes += new TextEncoder().encode(str).length;
                         } catch (err) {
-                          // ignore serialization errors
+                          void err;
                         }
                         sampled++;
                         cursor.continue();
@@ -518,9 +514,9 @@ export function SettingsPanel({
                 stats.indexedTotalBytes += dbSize;
               }
 
-              try { db.close(); } catch (e) {}
+              try { db.close(); } catch (err) { void err; }
             } catch (err) {
-              // ignore missing DBs or access errors
+              void err;
             }
           }
         } catch (err) {
@@ -561,9 +557,9 @@ export function SettingsPanel({
 
       stats.totalBytes = stats.cacheTotalBytes + stats.indexedTotalBytes + stats.localStorageBytes + stats.sessionStorageBytes;
       // Snapshot memory after calculation
-      telemetryCollector?.snapshotMemory && telemetryCollector.snapshotMemory('CACHE_STATS_END');
+      if (telemetryCollector?.snapshotMemory) telemetryCollector.snapshotMemory('CACHE_STATS_END');
       console.info('[cache-stats] done', stats);
-      telemetryCollector?.logEvent && telemetryCollector.logEvent('CACHE_STATS_CALC_DONE', {
+      if (telemetryCollector?.logEvent) telemetryCollector.logEvent('CACHE_STATS_CALC_DONE', {
         cacheTotalBytes: stats.cacheTotalBytes,
         indexedTotalBytes: stats.indexedTotalBytes,
         localStorageBytes: stats.localStorageBytes,
@@ -576,8 +572,8 @@ export function SettingsPanel({
       setCacheStats(stats);
     } catch (err) {
       console.error('computeCacheStats failed', err);
-      telemetryCollector?.snapshotMemory && telemetryCollector.snapshotMemory('CACHE_STATS_ERROR');
-      telemetryCollector?.logEvent && telemetryCollector.logEvent('CACHE_STATS_CALC_ERROR', { message: String(err) });
+      if (telemetryCollector?.snapshotMemory) telemetryCollector.snapshotMemory('CACHE_STATS_ERROR');
+      if (telemetryCollector?.logEvent) telemetryCollector.logEvent('CACHE_STATS_CALC_ERROR', { message: String(err) });
     } finally {
       setComputingStats(false);
     }
@@ -947,8 +943,8 @@ export function SettingsPanel({
                   setForceSingleThread(v);
                   try {
                     const telemetry = useAsrStore.getState().telemetryCollector;
-                    telemetry?.logEvent && telemetry.logEvent("WASM_MULTITHREAD_TEST", { action: v ? 'force_single' : 'allow_multithread' });
-                  } catch (e) {}
+                    if (telemetry?.logEvent) telemetry.logEvent("WASM_MULTITHREAD_TEST", { action: v ? 'force_single' : 'allow_multithread' });
+                  } catch (err) { void err; }
                   if (v) {
                     toast('Forcé en single-thread');
                   } else {
@@ -965,7 +961,7 @@ export function SettingsPanel({
                   try {
                     const res = await testWasmMultithreadSupport(1500);
                     const telemetry = useAsrStore.getState().telemetryCollector;
-                    telemetry?.logEvent && telemetry.logEvent("WASM_MULTITHREAD_TEST", { ok: res.ok, reason: res.reason });
+                    if (telemetry?.logEvent) telemetry.logEvent("WASM_MULTITHREAD_TEST", { ok: res.ok, reason: res.reason });
                     if (res.ok) {
                       // enable multithread
                       useAsrStore.getState().setForceSingleThread(false);

@@ -64,16 +64,17 @@ async function ensureOrtPatched() {
 function configureEnvironment(module: TransformersModule) {
   if (environmentConfigured) return;
   const { env } = module;
+  type BackendsMap = Record<string, Record<string, unknown>>;
   const envMutable = env as unknown as {
     allowLocalModels: boolean;
     useBrowserCache: boolean;
-    backends?: Record<string, any>;
+    backends?: BackendsMap;
   };
   envMutable.allowLocalModels = false;
   envMutable.useBrowserCache = true;
-  const backends = (envMutable.backends ??= {});
-  const onnxBackends = (backends.onnx ??= {});
-  const wasmBackend = (onnxBackends.wasm ??= {});
+  const backends = (envMutable.backends ??= {}) as BackendsMap;
+  const onnxBackends = (backends.onnx ??= {}) as Record<string, unknown>;
+  const wasmBackend = (onnxBackends.wasm ??= {}) as Record<string, unknown>;
   onnxBackends.webgpu = onnxBackends.webgpu ?? {};
 
   wasmBackend.wasmPaths = wasmBackend.wasmPaths ?? "/onnx/";

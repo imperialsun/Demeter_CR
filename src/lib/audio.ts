@@ -412,8 +412,8 @@ export async function decodeFileProgressively(
       async () => {
         try {
           await processingQueue;
-        } catch (e) {
-          // ignore errors already handled and recorded
+        } catch (err) {
+          void err;
         }
         await decodeCtx.close();
 
@@ -495,8 +495,8 @@ export async function probeAudioMetadata(file: File): Promise<AudioMetadata> {
     } finally {
       try {
         await ctx.close();
-      } catch (e) {
-        // ignore
+      } catch (err) {
+        void err;
       }
     }
   } catch (err) {
