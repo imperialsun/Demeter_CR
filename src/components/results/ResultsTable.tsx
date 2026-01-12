@@ -9,6 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { useAsrStore } from "@/store/asr-store";
 import type { TranscriptionSegment } from "@/lib/export";
 
 interface ResultsTableProps {
@@ -17,6 +18,7 @@ interface ResultsTableProps {
 
 export function ResultsTable({ segments }: ResultsTableProps) {
   const [query, setQuery] = useState("");
+  const enableWordTimestamps = useAsrStore((s) => s.enableWordTimestamps);
   const filtered = useMemo(() => {
     if (!query) return segments;
     const lower = query.toLowerCase();
@@ -46,7 +48,19 @@ export function ResultsTable({ segments }: ResultsTableProps) {
                 <TableCell className="font-medium">{segment.index + 1}</TableCell>
                 <TableCell>{formatTimestamp(segment.start)}</TableCell>
                 <TableCell>{formatTimestamp(segment.end)}</TableCell>
-                <TableCell className="max-w-xl whitespace-pre-wrap text-sm">{segment.text}</TableCell>
+                <TableCell className="max-w-xl whitespace-pre-wrap text-sm">
+                  <div>{segment.text}</div>
+                  {enableWordTimestamps && segment.words && segment.words.length ? (
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      {segment.words.map((w, i) => (
+                        <span key={i} className="rounded px-1 py-0.5 bg-muted/10">
+                          <span className="font-medium">{w.word}</span>
+                          <span className="ml-1 text-xs text-muted-foreground">[{formatTimestamp(w.start)} - {formatTimestamp(w.end)}]</span>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </TableCell>
               </TableRow>
             ))}
             {!filtered.length ? (

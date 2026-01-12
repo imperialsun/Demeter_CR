@@ -13,7 +13,7 @@ import {
 } from "@/lib/audio";
 import { preprocessDecodedAudio, preprocessPcmChunk, estimateNoiseProfile, computePreprocessParams } from "@/lib/preprocessing";
 import { TelemetryCollector } from "@/lib/telemetry";
-import type { TranscriptionSegment } from "@/lib/export";
+import type { TranscriptionSegment, WordSegment } from "@/lib/export";
 import { useAsrStore } from "@/store/asr-store";
 
 export function useTranscriptionController() {
@@ -513,6 +513,20 @@ function normaliseSegments(
   if (segmentationMode === "chunks") {
     const text = trimChunkOverlap(previous?.text, result.text).trim();
     if (text.length) {
+      const enableWordTimestamps = useAsrStore.getState().enableWordTimestamps;
+      const words: WordSegment[] | undefined = enableWordTimestamps
+        ? (Array.isArray(result.segments) ? result.segments.map((s) => ({
+            word: s.text.trim(),
+            start: s.start,
+            end: s.end,
+            confidence: s.confidence,
+          })) : undefined)
+        : undefined;
+
+      if (words && words.length) {
+        console.info("Attaching word timestamps to chunk segment", { chunkId: result.chunk.id, wordCount: words.length });
+      }
+
       segments.push({
         index: startIndex,
         start: result.chunk.start,
@@ -520,6 +534,7 @@ function normaliseSegments(
         text,
         chunkId: result.chunk.id,
         strategy: "chunks",
+        words,
       });
     }
     return segments;
@@ -541,6 +556,7 @@ function normaliseSegments(
       chunkId: result.chunk.id,
       strategy: "silence",
       confidence: segment.confidence,
+      words: (segment as any).words,
     };
     segments.push(item);
     last = item;

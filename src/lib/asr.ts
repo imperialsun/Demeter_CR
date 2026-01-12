@@ -21,15 +21,21 @@ interface PipelineProgressPayload {
   file?: string;
 }
 
+import type { WordSegment } from "@/lib/export";
+
 interface PipelineInvokeChunk {
   text?: string;
   timestamp?: [number, number];
   probability?: number;
+  // some pipelines include per-word timestamps inside each chunk
+  words?: Array<{ word?: string; start?: number; end?: number; timestamp?: [number, number]; probability?: number; score?: number }>;
 }
 
 interface PipelineInvokeResult {
   text?: string;
   chunks?: PipelineInvokeChunk[];
+  // top-level words array is also possible
+  words?: Array<{ word?: string; start?: number; end?: number; timestamp?: [number, number]; probability?: number; score?: number }>;
   [key: string]: unknown;
 }
 
@@ -50,6 +56,7 @@ export interface ChunkTranscriptionResult {
     end: number;
     text: string;
     confidence?: number;
+    words?: WordSegment[];
   }>;
   processingMs: number;
   realtimeFactor: number;
@@ -403,10 +410,12 @@ export async function transcribeChunk({
   ) => Promise<PipelineInvokeResult>;
 
   const supportsWordTimestamps = !PIPELINES_WITHOUT_CROSS.has(asr);
+  const enabledInSettings = useAsrStore.getState().enableWordTimestamps;
 
   const invokeOptions = {
     sampling_rate: sampleRate,
-    return_timestamps: supportsWordTimestamps ? "word" : false,
+    // only request word-level timestamps if the pipeline supports them and the setting is enabled
+    return_timestamps: supportsWordTimestamps && enabledInSettings ? "word" : false,
     chunk_length_s: chunk.end - chunk.start,
     stride_length_s: chunk.paddedStart < chunk.start ? chunk.start - chunk.paddedStart : 0,
     language: "fr",
@@ -432,6 +441,62 @@ export async function transcribeChunk({
     });
   }
 
+  // More thorough debug logs to inspect the raw pipeline output and discover where word timestamps may be
+  try {
+    console.info("ASR invoke options", invokeOptions);
+
+    const rawKeys = Object.keys(result ?? {});
+    const chunks = Array.isArray((result as any)?.chunks) ? (result as any).chunks : [];
+    const topWords = Array.isArray((result as any)?.words) ? (result as any).words : [];
+
+    console.info("ASR raw result keys", rawKeys);
+    console.info("ASR raw result summary", {
+      text: result?.text,
+      chunkCount: chunks.length,
+      topWordsCount: topWords.length,
+    });
+
+    if (chunks.length) {
+      const sample = chunks.slice(0, 5);
+      const chunkKeySet = new Set<string>();
+      sample.forEach((c: any) => Object.keys(c || {}).forEach((k) => chunkKeySet.add(k)));
+      console.info("ASR chunk keys (sample)", Array.from(chunkKeySet));
+
+      sample.forEach((c: any, i: number) => {
+        const info: Record<string, unknown> = {};
+        Object.keys(c || {}).forEach((k) => {
+          const v = c[k];
+          if (Array.isArray(v)) info[k] = `[array:${v.length}]`;
+          else if (v && typeof v === "object") info[k] = `[object keys: ${Object.keys(v).slice(0, 6).join(",")}]`;
+          else info[k] = typeof v;
+        });
+        info.textSample = String(c.text ?? "").slice(0, 200);
+        console.info(`ASR chunk[${i}] keys/types`, info);
+
+        if (Array.isArray(c.words) && c.words.length) {
+          console.info(`ASR chunk[${i}] words sample`, (c.words as any).slice(0, 10));
+        }
+      });
+    }
+
+    if (topWords.length) {
+      console.info("ASR top-level words sample", (topWords as any).slice(0, 20));
+    } else {
+      // look for alternative fields that might contain token/timestamp information
+      const interesting = new Set<string>();
+      const keyCandidates = ["tokens", "token_timestamps", "pieces", "word_timestamps", "timestamps", "timestamp_tokens"];
+      keyCandidates.forEach((k) => {
+        if (k in (result as any)) interesting.add(k);
+      });
+      chunks.forEach((c: any) => Object.keys(c || {}).forEach((k) => {
+        if (/token|piece|word|timestamp|time/i.test(k)) interesting.add(k);
+      }));
+      console.info("ASR alternative fields detected", Array.from(interesting));
+    }
+  } catch (err) {
+    console.warn("Failed to log ASR raw result safely", err);
+  }
+
   const cleanedText = cleanTranscriptText(result.text);
   console.info("ASR chunk transcript", {
     id: chunk.id,
@@ -449,11 +514,31 @@ export async function transcribeChunk({
           const rawStart = timestamp?.[0] ?? 0;
           const rawEnd = timestamp?.[1] ?? chunk.end - chunk.start;
           const sanitized = cleanTranscriptText(segment.text);
+
+          // map any word-level timestamps inside this chunk segment
+          const words: WordSegment[] | undefined = Array.isArray(segment.words)
+            ? segment.words
+                .map((w) => {
+                  const wStart = w.start ?? (Array.isArray(w.timestamp) ? w.timestamp[0] : undefined) ?? 0;
+                  const wEnd = w.end ?? (Array.isArray(w.timestamp) ? w.timestamp[1] : undefined) ?? wStart;
+                  const wordText = (w.word ?? (w as any).text ?? "").toString();
+                  const conf = w.probability ?? (w as any).score ?? undefined;
+                  return {
+                    word: wordText,
+                    start: chunk.start + wStart,
+                    end: chunk.start + wEnd,
+                    confidence: conf,
+                  } as WordSegment;
+                })
+                .filter((w) => w.word.length > 0)
+            : undefined;
+
           return {
             start: chunk.start + rawStart,
             end: chunk.start + rawEnd,
             text: sanitized,
             confidence: segment.probability,
+            words,
           };
         })
         .filter((segment) => segment.text.length > 0)
@@ -462,6 +547,23 @@ export async function transcribeChunk({
           start: chunk.start,
           end: chunk.end,
           text: cleanedText,
+          // if pipeline provided top-level words, map them
+          words: Array.isArray(result.words)
+            ? (result.words as Array<any>)
+                .map((w) => {
+                  const wStart = w.start ?? (Array.isArray(w.timestamp) ? w.timestamp[0] : undefined) ?? 0;
+                  const wEnd = w.end ?? (Array.isArray(w.timestamp) ? w.timestamp[1] : undefined) ?? wStart;
+                  const wordText = (w.word ?? (w as any).text ?? "").toString();
+                  const conf = w.probability ?? (w as any).score ?? undefined;
+                  return {
+                    word: wordText,
+                    start: chunk.start + wStart,
+                    end: chunk.start + wEnd,
+                    confidence: conf,
+                  } as WordSegment;
+                })
+                .filter((w) => w.word.length > 0)
+            : undefined,
         },
       ];
 
@@ -471,6 +573,7 @@ export async function transcribeChunk({
         start: chunk.start,
         end: chunk.end,
         text: cleanedText,
+        words: undefined,
       },
     ];
   }
