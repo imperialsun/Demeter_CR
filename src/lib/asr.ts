@@ -6,7 +6,8 @@ import {
 } from "@/store/asr-store";
 import type { ChunkDefinition } from "@/lib/chunking";
 import type { TelemetryCollector, TelemetryEventType } from "@/lib/telemetry";
-import { flagWasmSessionOptions } from "@/lib/ort-wasm";
+import { flagWasmSessionOptions, patchOrtWasmEnv } from "@/lib/ort-wasm";
+import { toast } from "@/components/ui/use-toast";
 import { loadTransformers } from "@/lib/transformers-loader";
 import type {
   AutomaticSpeechRecognitionPipeline,
@@ -95,11 +96,8 @@ async function forceSingleThreadedWasmEnv() {
   }
 
   try {
-    const ort = await import("onnxruntime-web");
-    const ortEnv = (ort as unknown as { env?: { wasm?: Record<string, unknown> } }).env;
-    if (ortEnv?.wasm && typeof ortEnv.wasm === "object") {
-      Object.assign(ortEnv.wasm, config);
-    }
+    // Use the shared patch helper to modify the runtime env where the ort module is statically imported
+    patchOrtWasmEnv(config);
   } catch (error) {
     console.warn("Unable to patch onnxruntime env for single-threaded WASM", error);
   }
@@ -304,7 +302,7 @@ export async function createAsrPipeline({
         if (attemptedThreads > 1) {
           console.warn("WASM multithread failed, falling back to single-threaded mode");
           if (telemetry?.recordAlert) telemetry.recordAlert("WASM_MULTITHREAD_UNAVAILABLE", { attemptedThreads, message: (error as Error).message });
-          try { const { toast } = await import("@/components/ui/use-toast"); toast("mode multithread indisponible sur cette plateforme"); } catch (err) { void err; }
+          try { toast("mode multithread indisponible sur cette plateforme"); } catch (err) { void err; }
           // Persist fallback so UI updates
           useAsrStore.getState().setForceSingleThread(true);
         }

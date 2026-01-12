@@ -1,19 +1,14 @@
 import type { AutomaticSpeechRecognitionPipeline, Pipeline as GenericPipeline } from "@huggingface/transformers";
-import type { InferenceSession } from "onnxruntime-web";
 import { setTransformersVersion } from "@/lib/telemetry";
 
-const FALLBACK_MARKER = Symbol("wasmFallback");
 
-type ExecutionProvider = string | { name?: string } | Record<string, unknown>;
-
-type SessionOptions = InferenceSession.SessionOptions & {
-  [FALLBACK_MARKER]?: boolean;
-};
 
 type TransformersModule = typeof import("@huggingface/transformers");
 
+import * as ort from "onnxruntime-web";
+
 let transformersPromise: Promise<TransformersModule> | null = null;
-let ortPromise: Promise<typeof import("onnxruntime-web")> | null = null;
+let ortPromise: Promise<typeof ort> | null = null;
 let environmentConfigured = false;
 
 async function ensureTransformersModule(): Promise<TransformersModule> {
@@ -30,33 +25,8 @@ async function ensureTransformersModule(): Promise<TransformersModule> {
 
 async function ensureOrtPatched() {
   if (!ortPromise) {
-    ortPromise = import("onnxruntime-web").then((ort) => {
-      const backend = (ort as { backend?: unknown }).backend as
-        | {
-            resolveBackendAndExecutionProviders?: (
-              options: SessionOptions
-            ) => Promise<[unknown, SessionOptions]>;
-          }
-        | undefined;
-
-      if (backend?.resolveBackendAndExecutionProviders) {
-        const originalResolve = backend.resolveBackendAndExecutionProviders.bind(backend);
-
-        backend.resolveBackendAndExecutionProviders = async (options: SessionOptions) => {
-          try {
-            return await originalResolve(options);
-          } catch (error) {
-            if (options?.[FALLBACK_MARKER]) {
-              throw error;
-            }
-            const fallbackOptions = withWasmPreference(options);
-            return originalResolve(fallbackOptions);
-          }
-        };
-      }
-
-      return ort;
-    });
+    // resolve promise immediately with already-imported ort module
+    ortPromise = Promise.resolve(ort as typeof ort);
   }
   return ortPromise;
 }
@@ -86,36 +56,7 @@ function configureEnvironment(module: TransformersModule) {
   environmentConfigured = true;
 }
 
-function withWasmPreference(options?: SessionOptions) {
-  const base: SessionOptions = { ...(options ?? {}) };
-  const executionProviders: ExecutionProvider[] = Array.isArray(base.executionProviders)
-    ? base.executionProviders.filter((provider): provider is ExecutionProvider => !!provider)
-    : [];
 
-  const sanitizedProviders = executionProviders.filter((provider) => {
-    if (typeof provider === "string") {
-      return provider !== "webgpu";
-    }
-    const name = (provider as { name?: string }).name;
-    return name !== "webgpu";
-  });
-
-  const hasWasm = sanitizedProviders.some((provider) => {
-    if (typeof provider === "string") {
-      return provider === "wasm";
-    }
-    const name = (provider as { name?: string }).name;
-    return name === "wasm";
-  });
-
-  if (!hasWasm) {
-    sanitizedProviders.unshift("wasm");
-  }
-
-  base.executionProviders = sanitizedProviders;
-  base[FALLBACK_MARKER] = true;
-  return base;
-}
 
 export async function loadTransformers() {
   return ensureTransformersModule();

@@ -62,3 +62,17 @@ export function flagWasmSessionOptions(options: Record<string, unknown>) {
   options[FORCE_WASM_FLAG] = true;
   ensurePatched();
 }
+
+// Apply a runtime patch to onnxruntime-web's WASM env settings when available.
+export function patchOrtWasmEnv(config: Record<string, unknown>) {
+  try {
+    const env = (ort as unknown as { env?: { wasm?: Record<string, unknown> } }).env;
+    if (env?.wasm && typeof env.wasm === "object") {
+      Object.assign(env.wasm, config);
+    }
+  } catch (error) {
+    console.warn("patchOrtWasmEnv failed", error);
+  }
+}
+
+
