@@ -41,7 +41,7 @@ interface PipelineInvokeResult {
 }
 
 export interface CreatePipelineOptions {
-  modelPreset: "fast" | "balanced" | "quality" | "custom";
+  modelPreset: "fast" | "balanced" | "medium" | "quality" | "custom";
   customModelId: string;
   backendPreference: BackendImplementation;
   telemetry?: TelemetryCollector;

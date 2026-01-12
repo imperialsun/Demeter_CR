@@ -3,7 +3,7 @@ import type { BackendImplementation } from "@/store/asr-store";
 const STORAGE_KEY = "demeter-asr-settings";
 
 export interface PersistedSettings {
-  activePreset: "fast" | "balanced" | "quality" | "custom";
+  activePreset: "fast" | "balanced" | "medium" | "quality" | "custom";
   customModelId: string;
   backendPreference: BackendImplementation;
   memoryMode: "full" | "progressive";

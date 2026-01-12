@@ -6,7 +6,7 @@ import type { ChunkDefinition } from "@/lib/chunking";
 import type { TranscriptionSegment } from "@/lib/export";
 import type { TelemetryCollector, ChunkTelemetry, TelemetrySummary } from "@/lib/telemetry";
 
-type PresetKey = "fast" | "balanced" | "quality" | "custom";
+type PresetKey = "fast" | "balanced" | "medium" | "quality" | "custom";
 
 export type BackendImplementation = "webgpu" | "wasm";
 
@@ -39,11 +39,17 @@ export const MODEL_PRESETS: Record<Exclude<PresetKey, "custom">, ModelPreset> = 
     modelId: "Xenova/whisper-base",
     description: "Bon compromis précision/temps pour la production quotidienne.",
   },
+  medium: {
+    key: "medium",
+    label: "Intermédiaire (whisper-small)",
+    modelId: "Xenova/whisper-small",
+    description: "Meilleure précision que l'option Équilibre (whisper-base), latence et mémoire modérées.",
+  },
   quality: {
     key: "quality",
-    label: "Qualité (whisper-small)",
-    modelId: "Xenova/whisper-small",
-    description: "Précision maximale avec coût temps/mémoire plus élevé.",
+    label: "Qualité (whisper-medium)",
+    modelId: "Xenova/whisper-medium",
+    description: "Précision supérieure à l'option Intermédiaire, au prix d'un temps de traitement et d'un usage mémoire plus élevés.",
   },
 };
 
