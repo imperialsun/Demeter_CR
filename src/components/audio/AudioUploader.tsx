@@ -22,7 +22,7 @@ export function AudioUploader({ onFileSelected, metadata, disabled }: AudioUploa
 
   const handleFiles = useCallback(
     (items: FileList | null) => {
-      console.info("AudioUploader.handleFiles called", { length: items?.length });
+      import("@/lib/logger").then(({ info }) => info("AudioUploader.handleFiles called", { length: items?.length }));
       if (!items || items.length === 0) return;
       const file = items[0]!;
       onFileSelected(file);
@@ -46,14 +46,14 @@ export function AudioUploader({ onFileSelected, metadata, disabled }: AudioUploa
 
   const pickFile = useCallback(() => {
     try {
-      console.info("AudioUploader.pickFile invoked", { inputRef: !!inputRef.current });
+      import("@/lib/logger").then(({ info }) => info("AudioUploader.pickFile invoked", { inputRef: !!inputRef.current }));
       const el = inputRef.current;
       if (el) {
         try {
           const visible = el instanceof HTMLElement ? (el as HTMLElement).offsetParent !== null : true;
-          console.info('Audio input pre-click state', { disabled: el.disabled, visible, accept: el.getAttribute('accept') });
+          import("@/lib/logger").then(({ info }) => info('Audio input pre-click state', { disabled: el.disabled, visible, accept: el.getAttribute('accept') }));
           if (!visible || el.disabled) {
-            console.warn('Audio input not visible or disabled; using fallback input');
+            import("@/lib/logger").then(({ warn }) => warn('Audio input not visible or disabled; using fallback input'));
             throw new Error('input not actionable');
           }
         } catch (err) { void err; }
@@ -63,13 +63,13 @@ export function AudioUploader({ onFileSelected, metadata, disabled }: AudioUploa
           (el as HTMLInputElement).value = "";
         } catch (err) { void err; }
         el.click();
-        console.info('Audio input click dispatched');
+        import("@/lib/logger").then(({ info }) => info('Audio input click dispatched'));
       } else {
-        console.warn('AudioUploader.pickFile: inputRef is null, falling back');
+        import("@/lib/logger").then(({ warn }) => warn('AudioUploader.pickFile: inputRef is null, falling back'));
         throw new Error('inputRef null');
       }
     } catch (err) {
-      console.error("AudioUploader.pickFile failed, using fallback input", err);
+      import("@/lib/logger").then(({ error }) => error("AudioUploader.pickFile failed, using fallback input", err));
       // Fallback: create a temporary input element and trigger it
       try {
         const tmp = document.createElement("input");
@@ -79,10 +79,10 @@ export function AudioUploader({ onFileSelected, metadata, disabled }: AudioUploa
         document.body.appendChild(tmp);
         tmp.addEventListener("change", () => handleFiles(tmp.files));
         tmp.click();
-        console.info('Fallback input click dispatched');
+        import("@/lib/logger").then(({ info }) => info('Fallback input click dispatched'));
         setTimeout(() => { try { document.body.removeChild(tmp); } catch (e) { void e; } }, 2000);
       } catch (err2) {
-        console.error("Fallback pick file creation failed", err2);
+        import("@/lib/logger").then(({ error }) => error("Fallback pick file creation failed", err2));
       }
     }
   }, [handleFiles]);
@@ -144,9 +144,9 @@ export function AudioUploader({ onFileSelected, metadata, disabled }: AudioUploa
             type="file"
             accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,audio/aac"
             className="sr-only absolute w-0 h-0 opacity-0"
-            onChange={(event) => { console.info('Audio input onChange', { files: event.target.files?.length }); handleFiles(event.target.files); }}
-            onClick={() => console.info('Audio input clicked')}
-            onFocus={() => console.info('Audio input focused')}
+            onChange={(event) => { import("@/lib/logger").then(({ info }) => info('Audio input onChange', { files: event.target.files?.length })); handleFiles(event.target.files); }}
+            onClick={() => import("@/lib/logger").then(({ info }) => info('Audio input clicked'))}
+            onFocus={() => import("@/lib/logger").then(({ info }) => info('Audio input focused'))}
             disabled={disabled}
           />
         </div>

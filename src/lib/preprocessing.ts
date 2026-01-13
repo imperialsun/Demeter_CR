@@ -25,11 +25,11 @@ export async function preprocessDecodedAudio(
   telemetry?: TelemetryCollector
 ): Promise<PreprocessResult> {
   const startedAt = performance.now();
-  console.info("[preprocess] start (full decode)", {
+  import("@/lib/logger").then(({ info }) => info("[preprocess] start (full decode)", {
     sampleRate: decoded.sampleRate,
     durationSec: decoded.metadata.durationSec,
     calibrationSeconds: params.calibrationSeconds ?? 1,
-  });
+  }));
   telemetry?.logEvent("PREPROCESS_START", {
     mode: "full",
     sampleRate: decoded.sampleRate,
@@ -39,15 +39,15 @@ export async function preprocessDecodedAudio(
   const tFilters = performance.now();
   const filtered = await applyFiltersAndCompressor(decoded.pcm, decoded.sampleRate);
   const filtersMs = performance.now() - tFilters;
-  console.info("[preprocess] filters + compressor done", { durationMs: Math.round(filtersMs) });
+  import("@/lib/logger").then(({ info }) => info("[preprocess] filters + compressor done", { durationMs: Math.round(filtersMs) }));
   telemetry?.logEvent("PREPROCESS_FILTERS", { durationMs: filtersMs, sampleRate: decoded.sampleRate });
 
   const peakBeforeNorm = getPeak(filtered);
   const normalized = safeNormalize(filtered, DEFAULT_TARGET_PEAK);
-  console.info("[preprocess] normalize", {
+  import("@/lib/logger").then(({ info }) => info("[preprocess] normalize", {
     peakIn: Number(peakBeforeNorm.toFixed(4)),
     targetPeak: DEFAULT_TARGET_PEAK,
-  });
+  }));
   telemetry?.logEvent("PREPROCESS_NORMALIZE", {
     peakIn: peakBeforeNorm,
     targetPeak: DEFAULT_TARGET_PEAK,
@@ -58,11 +58,11 @@ export async function preprocessDecodedAudio(
     params.noiseProfile && params.noiseProfile.length === DEFAULT_FFT_SIZE / 2 + 1
       ? { profile: params.noiseProfile, frames: 0 }
       : estimateNoiseProfile(normalized, decoded.sampleRate, calibrationSeconds);
-  console.info("[preprocess] noise profile ready", {
+  import("@/lib/logger").then(({ info }) => info("[preprocess] noise profile ready", {
     reused: noiseFrames === 0,
     frames: noiseFrames,
     calibrationSeconds,
-  });
+  }));
   telemetry?.logEvent("PREPROCESS_NOISE_PROFILE", {
     reused: noiseFrames === 0,
     frames: noiseFrames,
@@ -77,12 +77,12 @@ export async function preprocessDecodedAudio(
     smoothing: params.smoothing,
   });
   const gateMs = performance.now() - tGate;
-  console.info("[preprocess] spectral gate done", {
+  import("@/lib/logger").then(({ info }) => info("[preprocess] spectral gate done", {
     durationMs: Math.round(gateMs),
     noiseFloorDb: params.noiseFloorDb,
     reductionDb: params.reductionDb,
     smoothing: params.smoothing,
-  });
+  }));
   telemetry?.logEvent("PREPROCESS_GATE", {
     durationMs: gateMs,
     noiseFloorDb: params.noiseFloorDb,
@@ -92,10 +92,10 @@ export async function preprocessDecodedAudio(
 
   const peakAfterGate = getPeak(gated);
   const finalPcm = safeNormalize(gated, DEFAULT_TARGET_PEAK);
-  console.info("[preprocess] finalize normalize", {
+  import("@/lib/logger").then(({ info }) => info("[preprocess] finalize normalize", {
     peakIn: Number(peakAfterGate.toFixed(4)),
     targetPeak: DEFAULT_TARGET_PEAK,
-  });
+  }));
 
   const totalMs = performance.now() - startedAt;
   telemetry?.logEvent("PREPROCESS_DONE", {
@@ -103,7 +103,7 @@ export async function preprocessDecodedAudio(
     sampleRate: decoded.sampleRate,
     mode: "full",
   });
-  console.info("[preprocess] done", { durationMs: Math.round(totalMs) });
+  import("@/lib/logger").then(({ info }) => info("[preprocess] done", { durationMs: Math.round(totalMs) }));
 
   return {
     pcm: finalPcm,
@@ -119,11 +119,11 @@ export async function preprocessPcmChunk(
   telemetry?: TelemetryCollector
 ): Promise<PreprocessResult> {
   const startedAt = performance.now();
-  console.info("[preprocess] start (progressive chunk)", {
+  import("@/lib/logger").then(({ info }) => info("[preprocess] start (progressive chunk)", {
     length: pcm.length,
     sampleRate,
     calibrationSeconds: params.calibrationSeconds ?? 1,
-  });
+  }));
   telemetry?.logEvent("PREPROCESS_START", {
     mode: "chunk",
     sampleRate,
@@ -133,15 +133,15 @@ export async function preprocessPcmChunk(
   const tFilters = performance.now();
   const filtered = await applyFiltersAndCompressor(pcm, sampleRate);
   const filtersMs = performance.now() - tFilters;
-  console.info("[preprocess] filters + compressor done (chunk)", { durationMs: Math.round(filtersMs) });
+  import("@/lib/logger").then(({ info }) => info("[preprocess] filters + compressor done (chunk)", { durationMs: Math.round(filtersMs) }));
   telemetry?.logEvent("PREPROCESS_FILTERS", { durationMs: filtersMs, sampleRate });
 
   const peakBeforeNorm = getPeak(filtered);
   const normalized = safeNormalize(filtered, DEFAULT_TARGET_PEAK);
-  console.info("[preprocess] normalize (chunk)", {
+  import("@/lib/logger").then(({ info }) => info("[preprocess] normalize (chunk)", {
     peakIn: Number(peakBeforeNorm.toFixed(4)),
     targetPeak: DEFAULT_TARGET_PEAK,
-  });
+  }));
   telemetry?.logEvent("PREPROCESS_NORMALIZE", {
     peakIn: peakBeforeNorm,
     targetPeak: DEFAULT_TARGET_PEAK,
@@ -152,11 +152,11 @@ export async function preprocessPcmChunk(
     params.noiseProfile && params.noiseProfile.length === DEFAULT_FFT_SIZE / 2 + 1
       ? { profile: params.noiseProfile, frames: 0 }
       : estimateNoiseProfile(normalized, sampleRate, calibrationSeconds);
-  console.info("[preprocess] noise profile ready (chunk)", {
+  import("@/lib/logger").then(({ info }) => info("[preprocess] noise profile ready (chunk)", {
     reused: noiseFrames === 0,
     frames: noiseFrames,
     calibrationSeconds,
-  });
+  }));
   telemetry?.logEvent("PREPROCESS_NOISE_PROFILE", {
     reused: noiseFrames === 0,
     frames: noiseFrames,
@@ -171,12 +171,12 @@ export async function preprocessPcmChunk(
     smoothing: params.smoothing,
   });
   const gateMs = performance.now() - tGate;
-  console.info("[preprocess] spectral gate done (chunk)", {
+  import("@/lib/logger").then(({ info }) => info("[preprocess] spectral gate done (chunk)", {
     durationMs: Math.round(gateMs),
     noiseFloorDb: params.noiseFloorDb,
     reductionDb: params.reductionDb,
     smoothing: params.smoothing,
-  });
+  }));
   telemetry?.logEvent("PREPROCESS_GATE", {
     durationMs: gateMs,
     noiseFloorDb: params.noiseFloorDb,
@@ -186,10 +186,10 @@ export async function preprocessPcmChunk(
 
   const peakAfterGate = getPeak(gated);
   const finalPcm = safeNormalize(gated, DEFAULT_TARGET_PEAK);
-  console.info("[preprocess] finalize normalize (chunk)", {
+  import("@/lib/logger").then(({ info }) => info("[preprocess] finalize normalize (chunk)", {
     peakIn: Number(peakAfterGate.toFixed(4)),
     targetPeak: DEFAULT_TARGET_PEAK,
-  });
+  }));
 
   const totalMs = performance.now() - startedAt;
   telemetry?.logEvent("PREPROCESS_DONE", {
@@ -197,7 +197,7 @@ export async function preprocessPcmChunk(
     sampleRate,
     mode: "chunk",
   });
-  console.info("[preprocess] done (chunk)", { durationMs: Math.round(totalMs) });
+  import("@/lib/logger").then(({ info }) => info("[preprocess] done (chunk)", { durationMs: Math.round(totalMs) }));
 
   return {
     pcm: finalPcm,

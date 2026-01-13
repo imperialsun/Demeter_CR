@@ -105,9 +105,11 @@ interface AsrConfigState {
   uploadedFile: File | null;
   telemetrySummary: TelemetrySummary | null;
   transcriptionConfidence: number | null; // 0..1 overall transcript confidence or null if unavailable
+  transcriptionConfidenceSource?: 'model' | 'estimated' | null;
+  debugConfidence: boolean;
   isTranscribing: boolean;
   stopRequested: boolean;
-  progress: number;
+  progress: number; 
 
   // Performance options
   forceSingleThread: boolean; // when true, force single-threaded WASM
@@ -157,7 +159,9 @@ interface AsrConfigActions {
   pushChunkMetric: (metric: ChunkTelemetry) => void;
   setTelemetrySummary: (summary: TelemetrySummary | null) => void;
   setTranscriptionConfidence: (value: number | null) => void;
-  setIsTranscribing: (value: boolean) => void;
+  setTranscriptionConfidenceSource: (value: 'model' | 'estimated' | null) => void;
+  setDebugConfidence: (value: boolean) => void;
+  setIsTranscribing: (value: boolean) => void; 
   setProgress: (value: number) => void;
   requestStop: () => void;
   resetStopRequest: () => void;
@@ -233,6 +237,8 @@ const initialState: AsrConfigState = {
   showSegmentConfidence: false,
   // derived metrics
   transcriptionConfidence: null,
+  transcriptionConfidenceSource: null,
+  debugConfidence: false,
 };
 
 export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
@@ -329,7 +335,10 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
     set((state) => ({ chunkMetrics: [...state.chunkMetrics, metric] })),
   setTelemetrySummary: (summary) => set(() => ({ telemetrySummary: summary })),
   setTranscriptionConfidence: (value: number | null) => set(() => ({ transcriptionConfidence: value })),
+  setTranscriptionConfidenceSource: (value) => set(() => ({ transcriptionConfidenceSource: value })),
+  setDebugConfidence: (value) => set(() => ({ debugConfidence: value })),
   setUploadedFile: (file: File | null) => set(() => ({ uploadedFile: file })),
+
   setForceSingleThread: (value: boolean) => set(() => ({ forceSingleThread: value })),
   setWasmThreads: (value: number | null) => set(() => ({ wasmThreads: value })),
   setIsTranscribing: (value) => set(() => ({ isTranscribing: value })),
@@ -362,7 +371,11 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
       stopRequested: false,
       progress: 0,
       preprocessingStatus: "idle",
-      preprocessingProgress: 0,      transcriptionConfidence: null,    })),
+      preprocessingProgress: 0,
+      transcriptionConfidence: null,
+      transcriptionConfidenceSource: null,
+      debugConfidence: false,
+    })),
 
   resetApp: () =>
     set((state) => {
@@ -370,7 +383,8 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
       try {
         saveSettings(DEFAULT_SETTINGS);
       } catch (e) {
-        console.warn("resetApp: failed to persist default settings", e);
+        // Use logger so debug toggle controls this output
+        import("@/lib/logger").then(({ warn }) => warn("resetApp: failed to persist default settings", e));
       }
       return {
         ...initialState,
@@ -388,6 +402,7 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
         audioSource: null,
         telemetrySummary: null,
         transcriptionConfidence: null,
+        transcriptionConfidenceSource: null,
         isTranscribing: false,
         stopRequested: false,
         progress: 0,
@@ -395,6 +410,7 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
         preprocessingProgress: 0,
       };
     }),
+
   setWebGpuSupport: (supported) => set(() => ({ webGpuSupported: supported })),
   setWasmAvailable: (available) => set(() => ({ wasmAvailable: available })),
   setEnableWordTimestamps: (value: boolean) => set(() => ({ enableWordTimestamps: value })),

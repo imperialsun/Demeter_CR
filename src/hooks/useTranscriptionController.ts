@@ -3,6 +3,8 @@ import type { AutomaticSpeechRecognitionPipeline } from "@huggingface/transforme
 
 import { toast } from "@/components/ui/use-toast";
 import { createAsrPipeline, disposePipeline, transcribeChunk, isModelTooLargeError } from "@/lib/asr";
+import estimateConfidenceFromText, { scoreDetails } from "@/lib/textConfidence";
+import * as logger from "@/lib/logger";
 import { buildChunks } from "@/lib/chunking";
 import {
   decodeFileFully,
@@ -44,7 +46,7 @@ export function useTranscriptionController() {
       const state = useAsrStore.getState();
       teleportStateToReady();
 
-      console.info("[decode] full decode start", {
+      logger.info("[decode] full decode start", {
         fileName: file.name,
         mode: preprocessConfig ? "complete-preprocess" : "full-memory",
       });
@@ -55,7 +57,7 @@ export function useTranscriptionController() {
       let decoded = await decodeFileFully(file, telemetry);
       const pcmBytes = decoded.pcm.byteLength;
       const pcmMb = pcmBytes / (1024 * 1024);
-      console.info("[decode] full decode RAM footprint", {
+      logger.info("[decode] full decode RAM footprint", {
         samples: decoded.pcm.length,
         sampleRate: decoded.sampleRate,
         pcmBytes,
@@ -69,7 +71,7 @@ export function useTranscriptionController() {
         sampleRate: decoded.sampleRate,
       });
       if (preprocessConfig) {
-        console.info("[preprocess] applying full pipeline on decoded audio", preprocessConfig);
+        logger.info("[preprocess] applying full pipeline on decoded audio", preprocessConfig);
         // Derive a noise profile from the decoded audio (auto-calibration in full-preprocess mode).
         try {
           useAsrStore.getState().setPreprocessingStatus("calibrating");
@@ -91,11 +93,11 @@ export function useTranscriptionController() {
             // apply autotuned params to global settings so sliders reflect current autotune
             useAsrStore.getState().setDenoiseParams({ denoiseNoiseFloorDb: tune.noiseFloorDb, denoiseReductionDb: tune.reductionDb, denoiseSmoothing: tune.smoothing });
             useAsrStore.getState().setLastAutoTuneParams({ noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing });
-            console.info("[preprocess][autotune] full applied", { noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing, snrDb: tune.snrDb });
+            logger.info("[preprocess][autotune] full applied", { noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing, snrDb: tune.snrDb });
             telemetry.logEvent("PREPROCESS_AUTOTUNE", { source: "auto", snrDb: tune.snrDb, noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing });
           }
         } catch (err) {
-          console.warn("Calibration failed", err);
+          logger.warn("Calibration failed", err);
           telemetry.recordAlert("PREPROCESS_CALIBRATION_FAILED", { message: (err as Error).message });
         }
         useAsrStore.getState().setPreprocessingStatus("processing");
@@ -147,12 +149,42 @@ export function useTranscriptionController() {
           sampleRate: decoded.sampleRate,
           telemetry,
         });
+        logger.info("[decode] full decode start", { chunk: definition });
 
         const segments = normaliseSegments(result, state.segmentationMode, nextIndex, lastSegment);
         if (segments.length) {
           nextIndex += segments.length;
           lastSegment = segments[segments.length - 1];
           state.appendSegments(segments);
+
+          // Recompute overall confidence immediately after appending segments (full pipeline mode)
+          try {
+            const segs = useAsrStore.getState().segments;
+            const numericCount = segs.filter((s) => typeof s.confidence === "number").length;
+            logger.info("Overall confidence debug", { totalSegments: segs.length, numericConfidences: numericCount });
+            const { computeOverallConfidence, computeOverallConfidenceSource } = await import("@/lib/confidence");
+            let overall = computeOverallConfidence(segs);
+            // If no numeric segment confidences but the chunk has text, estimate from the chunk text
+            let fallbackUsed = false;
+            if (overall === null && typeof result?.text === "string" && result.text.trim().length) {
+              try {
+                const dur = Math.max(0.001, (definition.end ?? definition.start) - (definition.start ?? 0));
+                const est = estimateConfidenceFromText(result.text, dur);
+                overall = Math.max(0, Math.min(1, est));
+                fallbackUsed = true;
+                logger.info("Computed overall from chunk text (fallback)", { chunkIndex: definition.index, est, overall });
+              } catch (err) {
+                void err;
+              }
+            }
+            const source = computeOverallConfidenceSource(segs) ?? (fallbackUsed ? 'estimated' : null);
+            useAsrStore.getState().setTranscriptionConfidence(overall);
+            useAsrStore.getState().setTranscriptionConfidenceSource(source);
+            telemetry?.logEvent("PROGRESS_CONFIDENCE", { chunkIndex: definition.index, overall });
+            logger.info("Progressive transcript confidence (full)", { chunkIndex: definition.index, overall, source });
+          } catch (err) {
+            logger.warn("Failed to compute progressive transcript confidence (full)", err);
+          }
         }
 
         const metric = {
@@ -205,7 +237,7 @@ export function useTranscriptionController() {
       teleportStateToReady();
 
       if (preprocessConfig) {
-        console.info("[preprocess] progressive pipeline will preprocess chunks", preprocessConfig);
+            logger.info("[preprocess] progressive pipeline will preprocess chunks", preprocessConfig);
       }
 
       const duration = state.audioMetadata?.durationSec ?? 0;
@@ -284,7 +316,7 @@ export function useTranscriptionController() {
                   // apply autotuned params to global settings so sliders reflect current autotune
                   useAsrStore.getState().setDenoiseParams({ denoiseNoiseFloorDb: tune.noiseFloorDb, denoiseReductionDb: tune.reductionDb, denoiseSmoothing: tune.smoothing });
                   useAsrStore.getState().setLastAutoTuneParams({ noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing });
-                  console.info("[preprocess][autotune] chunk applied", { chunkIndex: chunk.index, noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing, snrDb: tune.snrDb });
+                  logger.info("[preprocess][autotune] chunk applied", { chunkIndex: chunk.index, noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing, snrDb: tune.snrDb });
                   telemetry.logEvent("PREPROCESS_AUTOTUNE", { source: "chunk", chunkIndex: chunk.index, snrDb: tune.snrDb, noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing });
                 }
 
@@ -300,7 +332,7 @@ export function useTranscriptionController() {
                   telemetry
                 );
               } catch (err) {
-                console.warn("Chunk calibration or processing failed, falling back to single-pass preprocess", err);
+                logger.warn("Chunk calibration or processing failed, falling back to single-pass preprocess", err);
                 telemetry.recordAlert("PREPROCESS_CALIBRATION_FAILED", { message: (err as Error).message });
                 // Fallback: let preprocessPcmChunk compute/estimate a noise profile itself
                 processed = await preprocessPcmChunk(
@@ -354,7 +386,32 @@ export function useTranscriptionController() {
             state.pushChunkMetric(metric);
 
             state.setProgress((chunk.index + 1) / denominator);
-
+            // Recompute overall confidence now that we've appended any new segments for this chunk
+            try {
+              const { computeOverallConfidence, computeOverallConfidenceSource } = await import("@/lib/confidence");
+              let overall = computeOverallConfidence(useAsrStore.getState().segments);
+              // fallback: if overall missing but chunk has text, estimate from chunk text
+              let fallbackUsed = false;
+              if (overall === null && typeof result?.text === "string" && result.text.trim().length) {
+                try {
+                  const dur = Math.max(0.001, (chunk.endSec ?? chunk.startSec) - (chunk.startSec ?? 0));
+                  const est = estimateConfidenceFromText(result.text, dur);
+                  overall = Math.max(0, Math.min(1, est));
+                  fallbackUsed = true;
+                  logger.info("Computed overall from chunk text (fallback)", { chunkIndex: chunk.index, est, overall });
+                } catch (err) {
+                  void err;
+                }
+              }
+              const source = computeOverallConfidenceSource(useAsrStore.getState().segments) ?? (fallbackUsed ? 'estimated' : null);
+              useAsrStore.getState().setTranscriptionConfidence(overall);
+              useAsrStore.getState().setTranscriptionConfidenceSource(source);
+              useAsrStore.getState().setTranscriptionConfidenceSource(source);
+              telemetry?.logEvent("PROGRESS_CONFIDENCE", { chunkIndex: chunk.index, overall });
+              logger.info("Progressive transcript confidence", { chunkIndex: chunk.index, overall, source });
+            } catch (err) {
+              logger.warn("Failed to compute progressive transcript confidence", err);
+            }
             // Memory snapshot for this chunk
             try {
               const bytes = (pcmToUse as Float32Array).byteLength ?? 0;
@@ -418,10 +475,10 @@ export function useTranscriptionController() {
         }
       : null;
     if (shouldPreprocess) {
-      console.info("[preprocess] full mode active", preprocessConfig);
+      logger.info("[preprocess] full mode active", preprocessConfig);
       state.clearNoiseCalibrationRequest();
       if (calibrationRequested) {
-        console.info("[preprocess] calibration requested (1s noise capture)");
+        logger.info("[preprocess] calibration requested (1s noise capture)");
         telemetry.logEvent("CALIBRATION_REQUESTED");
       }
     }
@@ -447,23 +504,15 @@ export function useTranscriptionController() {
 
       // Compute overall transcription confidence (duration-weighted average)
       try {
+        const { computeOverallConfidence, computeOverallConfidenceSource } = await import("@/lib/confidence");
         const segments = useAsrStore.getState().segments;
-        const computeTranscriptConfidence = (segs: TranscriptionSegment[]): number | null => {
-          const items = segs
-            .map((s) => ({ conf: s.confidence, dur: Math.max(0.001, s.end - s.start) }))
-            .filter((x) => typeof x.conf === "number" && !Number.isNaN(x.conf));
-          if (!items.length) return null;
-          const totalDur = items.reduce((acc, it) => acc + it.dur, 0);
-          if (totalDur <= 0) return items.reduce((acc, it) => acc + (it.conf ?? 0), 0) / items.length;
-          const weighted = items.reduce((acc, it) => acc + (it.conf ?? 0) * it.dur, 0) / totalDur;
-          // clamp
-          return Math.max(0, Math.min(1, weighted));
-        };
-        const overall = computeTranscriptConfidence(segments);
+        const overall = computeOverallConfidence(segments);
+        const source = computeOverallConfidenceSource(segments);
         useAsrStore.getState().setTranscriptionConfidence(overall);
-        console.info("Computed transcript confidence", { overall });
+        useAsrStore.getState().setTranscriptionConfidenceSource(source);
+        logger.info("Computed transcript confidence", { overall, source });
       } catch (err) {
-        console.warn("Failed to compute transcript confidence", err);
+        logger.warn("Failed to compute transcript confidence", err);
       }
 
       telemetry.logEvent("STOPPED");
@@ -472,7 +521,7 @@ export function useTranscriptionController() {
       toast("Transcription terminée.");
       state.setStatus("ready", "Prêt");
     } catch (error) {
-      console.error(error);
+      logger.error(error);
       const message = (error as Error)?.message ?? String(error ?? "Erreur inconnue");
       if (isModelTooLargeError(error)) {
         const friendly = "Erreur : modèle trop gros pour cette plateforme (mémoire insuffisante). Essayez un preset plus léger ou activez le mode single-thread.";
@@ -530,7 +579,7 @@ export function useTranscriptionController() {
   }
 }
 
-function normaliseSegments(
+export function normaliseSegments(
   result: Awaited<ReturnType<typeof transcribeChunk>>,
   segmentationMode: "chunks" | "silence",
   startIndex: number,
@@ -552,11 +601,12 @@ function normaliseSegments(
         : undefined;
 
       if (words && words.length) {
-        console.info("Attaching word timestamps to chunk segment", { chunkId: result.chunk.id, wordCount: words.length });
+        logger.info("Attaching word timestamps to chunk segment", { chunkId: result.chunk.id, wordCount: words.length });
       }
 
       // Compute aggregated confidence for this chunk segment from child segments' confidences when available
       let aggregateConf: number | undefined;
+      let usedModelConf = false;
       if (Array.isArray(result.segments) && result.segments.length) {
         const items = result.segments
           .map((s) => ({ conf: s.confidence, dur: Math.max(0.001, (s.end ?? s.start) - (s.start ?? 0)) }))
@@ -565,10 +615,22 @@ function normaliseSegments(
           const totalDur = items.reduce((acc, it) => acc + it.dur, 0);
           const weighted = items.reduce((acc, it) => acc + (it.conf ?? 0) * it.dur, 0) / totalDur;
           aggregateConf = Math.max(0, Math.min(1, weighted));
+          usedModelConf = true;
         }
       }
 
-      console.info("Chunk aggregate confidence", { chunkId: result.chunk.id, aggregateConf });
+      // If we couldn't get a numeric aggregate confidence from child segments, estimate from text
+      if (typeof aggregateConf !== "number" || Number.isNaN(aggregateConf)) {
+        try {
+          const dur = Math.max(0.001, (result.chunk.end ?? result.chunk.start) - (result.chunk.start ?? 0));
+          aggregateConf = estimateConfidenceFromText(text, dur);
+          logger.info("Computed chunk confidence from text", { chunkId: result.chunk.id, aggregateConf });
+        } catch (err) {
+          void err;
+        }
+      }
+
+      logger.info("Chunk aggregate confidence", { chunkId: result.chunk.id, aggregateConf });
 
       segments.push({
         index: startIndex,
@@ -578,8 +640,19 @@ function normaliseSegments(
         chunkId: result.chunk.id,
         strategy: "chunks",
         confidence: typeof aggregateConf === "number" ? aggregateConf : undefined,
+        confidenceSource: usedModelConf ? 'model' : 'estimated',
         words,
       });
+
+      // Optional detailed debug for chunk-level estimate
+      try {
+        if (useAsrStore.getState().debugConfidence && typeof aggregateConf === 'number') {
+          const details = scoreDetails(text, Math.max(0.001, (result.chunk.end ?? result.chunk.start) - (result.chunk.start ?? 0)));
+          logger.info("Chunk confidence details", { chunkId: result.chunk.id, source: usedModelConf ? 'model' : 'estimated', ...details });
+        }
+      } catch (err) {
+        void err;
+      }
     }
     return segments;
   }
@@ -602,6 +675,7 @@ function normaliseSegments(
       chunkId: result.chunk.id,
       strategy: "silence",
       confidence: segment.confidence,
+      confidenceSource: typeof segment.confidence === 'number' ? 'model' : undefined,
       words: segmentWords,
     };
 
@@ -614,10 +688,31 @@ function normaliseSegments(
         const tot = wordItems.reduce((a, b) => a + b.dur, 0);
         const weighted = wordItems.reduce((a, b) => a + (b.conf ?? 0) * b.dur, 0) / tot;
         item.confidence = Math.max(0, Math.min(1, weighted));
-        console.info("Computed segment confidence from words", { index: item.index, confidence: item.confidence });
+        item.confidenceSource = 'model';
+        logger.info("Computed segment confidence from words", { index: item.index, confidence: item.confidence });
       }
-    } else {
-      console.info("Segment confidence present", { index: item.index, confidence: item.confidence });
+    } else if (typeof item.confidence === 'number') {
+      // segment had a numeric confidence supplied by the pipeline
+      item.confidenceSource = 'model';
+      logger.info("Segment confidence present", { index: item.index, confidence: item.confidence });    }
+    if (typeof item.confidence !== "number" || Number.isNaN(item.confidence)) {
+      try {
+        const dur = Math.max(0.001, item.end - item.start);
+        item.confidence = estimateConfidenceFromText(item.text, dur);
+        item.confidenceSource = 'estimated';
+        logger.info("Computed segment confidence from text", { index: item.index, confidence: item.confidence });
+        // Detailed debug when requested
+        try {
+          if (useAsrStore.getState().debugConfidence) {
+            const details = scoreDetails(item.text, dur);
+            logger.info("Segment confidence details", { index: item.index, source: item.confidenceSource, ...details });
+          }
+        } catch (err) {
+          void err;
+        }
+      } catch (err) {
+        void err;
+      }
     }
 
     segments.push(item);

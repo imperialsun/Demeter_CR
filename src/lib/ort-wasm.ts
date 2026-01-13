@@ -71,7 +71,7 @@ export function patchOrtWasmEnv(config: Record<string, unknown>) {
       Object.assign(env.wasm, config);
     }
   } catch (error) {
-    console.warn("patchOrtWasmEnv failed", error);
+    import("@/lib/logger").then(({ warn }) => warn("patchOrtWasmEnv failed", error));
   }
 }
 

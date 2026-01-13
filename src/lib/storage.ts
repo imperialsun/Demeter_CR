@@ -40,7 +40,7 @@ export function loadSettings(): Partial<PersistedSettings> | null {
     if (!raw) return null;
     return JSON.parse(raw) as PersistedSettings;
   } catch (error) {
-    console.warn("Impossible de charger les paramètres depuis le stockage local", error);
+    import("@/lib/logger").then(({ warn }) => warn("Impossible de charger les paramètres depuis le stockage local", error));
     return null;
   }
 }
@@ -50,7 +50,7 @@ export function saveSettings(settings: PersistedSettings) {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
   } catch (error) {
-    console.warn("Impossible d'enregistrer les paramètres", error);
+    import("@/lib/logger").then(({ warn }) => warn("Impossible d'enregistrer les paramètres", error));
   }
 }
 

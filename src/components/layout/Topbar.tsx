@@ -38,6 +38,9 @@ export function Topbar() {
   const { abortTranscription } = useTranscriptionController();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
+  const debugConfidence = useAsrStore((s) => s.debugConfidence);
+  const setDebugConfidence = useAsrStore((s) => s.setDebugConfidence);
+
   const modelId = resolveModelId(activePreset, customModelId);
   const presetLabel =
     activePreset === "custom"
@@ -106,6 +109,18 @@ export function Topbar() {
             <RotateCw className="h-4 w-4" />
             Réinitialiser
           </Button>
+
+        {/* Dev-only debug toggle for confidence breakdown (placed in Topbar) */}
+        {process.env.NODE_ENV !== 'production' ? (
+          <Button
+            size="sm"
+            variant={debugConfidence ? 'destructive' : 'outline'}
+            onClick={() => setDebugConfidence(!debugConfidence)}
+            className="gap-2"
+          >
+            {debugConfidence ? 'Debug conf : ON' : 'Debug conf : OFF'}
+          </Button>
+        ) : null}
 
           <ConfirmDialog
             open={confirmOpen}

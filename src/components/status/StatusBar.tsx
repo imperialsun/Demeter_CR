@@ -124,6 +124,8 @@ export function StatusBar({ onStop, onStart, startDisabled }: StatusBarProps) {
               {stopRequested ? "Arrêt en cours…" : "Stop (fin du chunk)"}
             </Button>
           ) : null}
+
+
         </div>
       </CardContent>
     </Card>

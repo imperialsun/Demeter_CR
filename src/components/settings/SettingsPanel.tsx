@@ -271,7 +271,7 @@ export function SettingsPanel({
             }
           }
         } catch (err) {
-          console.warn("Failed to enumerate caches", err);
+          import("@/lib/logger").then(({ warn }) => warn("Failed to enumerate caches", err));
         }
       }
 
@@ -287,7 +287,7 @@ export function SettingsPanel({
                 const req = indexedDB.deleteDatabase(name);
                 req.onsuccess = () => resolve();
                 req.onerror = () => reject(req.error);
-                req.onblocked = () => console.warn("deleteDatabase blocked", name);
+                req.onblocked = () => import("@/lib/logger").then(({ warn }) => warn("deleteDatabase blocked", name));
               });
               results.dbsDeleted.push(name);
             } catch (err) {
@@ -295,7 +295,7 @@ export function SettingsPanel({
             }
           }
         } catch (err) {
-          console.warn("Failed to enumerate indexedDB databases", err);
+          import("@/lib/logger").then(({ warn }) => warn("Failed to enumerate indexedDB databases", err));
         }
       } else {
         // Can't enumerate DBs; attempt to delete common transformers DB names
@@ -319,7 +319,7 @@ export function SettingsPanel({
         if (typeof localStorage !== "undefined") localStorage.clear();
         if (typeof sessionStorage !== "undefined") sessionStorage.clear();
       } catch (err) {
-        console.warn("Failed to clear local/session storage", err);
+        import("@/lib/logger").then(({ warn }) => warn("Failed to clear local/session storage", err));
       }
 
       // Reset WebGPU detection cache and reinitialize backend support (like on startup)
@@ -334,10 +334,10 @@ export function SettingsPanel({
         dbsFailed: results.dbsFailed.length,
       });
 
-      console.info("[cache-clear] completed", results);
+      import("@/lib/logger").then(({ info }) => info("[cache-clear] completed", results));
       toast("Cache vidé. L'application a été réinitialisée en partie.");
     } catch (err) {
-      console.error("Failed to clear app cache", err);
+      import("@/lib/logger").then(({ error }) => error("Failed to clear app cache", err));
       toast("Échec lors du vidage du cache. Consultez la console pour détails.");
     } finally {
       setClearing(false);
@@ -359,7 +359,7 @@ export function SettingsPanel({
 
     // Snapshot memory before heavy work (light method still snapshots to track impact)
     if (telemetryCollector?.snapshotMemory) telemetryCollector.snapshotMemory('CACHE_STATS_START');
-    console.info("[cache-stats] start (light)");
+    import("@/lib/logger").then(({ info }) => info("[cache-stats] start (light)"));
     if (telemetryCollector?.logEvent) telemetryCollector.logEvent("CACHE_STATS_CALC_START", { mode: 'light' });
 
     const stats = {
@@ -383,7 +383,7 @@ export function SettingsPanel({
             if (typeof estimateAny.usage === 'number') {
               // we don't trust this as exact but store as a hint
               stats.localStorageBytes = stats.localStorageBytes || 0; // leave unchanged, show estimate separately in console below
-              console.info('[cache-stats] storage.estimate', estimate);
+              import("@/lib/logger").then(({ info }) => info('[cache-stats] storage.estimate', estimate));
             }
           } catch (err) {
             void err;
@@ -429,11 +429,11 @@ export function SettingsPanel({
               stats.cacheTotals.push({ name, size: estimatedSize, entries });
               stats.cacheTotalBytes += estimatedSize;
             } catch (err) {
-              console.warn('failed to inspect cache (light)', name, err);
+              import("@/lib/logger").then(({ warn }) => warn('failed to inspect cache (light)', name, err));
             }
           }
         } catch (err) {
-          console.warn('failed to enumerate caches (light)', err);
+          import("@/lib/logger").then(({ warn }) => warn('failed to enumerate caches (light)', err));
         }
       }
 
@@ -462,7 +462,7 @@ export function SettingsPanel({
               const db = await new Promise<IDBDatabase>((resolve, reject) => {
                 openReq.onsuccess = () => resolve(openReq.result);
                 openReq.onerror = () => reject(openReq.error);
-                openReq.onblocked = () => console.warn('opening indexeddb blocked', name);
+                openReq.onblocked = () => import("@/lib/logger").then(({ warn }) => warn('opening indexeddb blocked', name));
               });
 
               let dbSize = 0;
@@ -509,7 +509,7 @@ export function SettingsPanel({
                   const avg = sampled > 0 ? Math.round(sampledTotalBytes / sampled) : 1024; // 1KB default
                   dbSize += avg * count;
                 } catch (err) {
-                  console.warn('failed to inspect store (light)', name, storeName, err);
+                  import("@/lib/logger").then(({ warn }) => warn('failed to inspect store (light)', name, storeName, err));
                 }
               }
 
@@ -524,7 +524,7 @@ export function SettingsPanel({
             }
           }
         } catch (err) {
-          console.warn('failed to estimate indexeddb sizes (light)', err);
+          import("@/lib/logger").then(({ warn }) => warn('failed to estimate indexeddb sizes (light)', err));
         }
       }
 
@@ -541,7 +541,7 @@ export function SettingsPanel({
           stats.localStorageBytes = s;
         }
       } catch (err) {
-        console.warn('failed to inspect localStorage', err);
+        import("@/lib/logger").then(({ warn }) => warn('failed to inspect localStorage', err));
       }
 
       try {
@@ -556,13 +556,13 @@ export function SettingsPanel({
           stats.sessionStorageBytes = s;
         }
       } catch (err) {
-        console.warn('failed to inspect sessionStorage', err);
+        import("@/lib/logger").then(({ warn }) => warn('failed to inspect sessionStorage', err));
       }
 
       stats.totalBytes = stats.cacheTotalBytes + stats.indexedTotalBytes + stats.localStorageBytes + stats.sessionStorageBytes;
       // Snapshot memory after calculation
       if (telemetryCollector?.snapshotMemory) telemetryCollector.snapshotMemory('CACHE_STATS_END');
-      console.info('[cache-stats] done', stats);
+      import("@/lib/logger").then(({ info }) => info('[cache-stats] done', stats));
       if (telemetryCollector?.logEvent) telemetryCollector.logEvent('CACHE_STATS_CALC_DONE', {
         cacheTotalBytes: stats.cacheTotalBytes,
         indexedTotalBytes: stats.indexedTotalBytes,
@@ -575,7 +575,7 @@ export function SettingsPanel({
       });
       setCacheStats(stats);
     } catch (err) {
-      console.error('computeCacheStats failed', err);
+      import("@/lib/logger").then(({ error }) => error('computeCacheStats failed', err));
       if (telemetryCollector?.snapshotMemory) telemetryCollector.snapshotMemory('CACHE_STATS_ERROR');
       if (telemetryCollector?.logEvent) telemetryCollector.logEvent('CACHE_STATS_CALC_ERROR', { message: String(err) });
     } finally {

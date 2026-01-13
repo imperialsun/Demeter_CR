@@ -15,8 +15,9 @@ export interface TranscriptionSegment {
   chunkId: string;
   strategy: "chunks" | "silence";
   confidence?: number;
+  confidenceSource?: 'model' | 'estimated';
   words?: WordSegment[];
-}
+} 
 
 export function serializeVtt(segments: TranscriptionSegment[]): string {
   const header = "WEBVTT";

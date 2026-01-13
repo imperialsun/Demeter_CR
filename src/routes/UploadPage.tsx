@@ -31,19 +31,19 @@ function UploadPage() {
   const preprocessingMode = useAsrStore((state) => state.preprocessingMode);
   // Read transcription confidence unconditionally to respect Hooks rules
   const transcriptionConfidence = useAsrStore((s) => s.transcriptionConfidence);
+  const transcriptionConfidenceSource = useAsrStore((s) => s.transcriptionConfidenceSource);
   const { startUploadTranscription, stopTranscription, isTranscribing } = useTranscriptionController();
 
   const handleFileSelected = useCallback(
     (file: File) => {
-      console.info("handleFileSelected called", { fileName: file?.name });
+      import("@/lib/logger").then(({ info }) => info("handleFileSelected called", { fileName: file?.name }));
       // Reset session first, then store the uploaded file to ensure the file remains available
       try {
         resetSession();
         setUploadedFile(file);
         setStatus("idle", "Fichier chargé, prêt à lancer");
       } catch (error) {
-        console.error("Erreur lors de l'initialisation de la session pour le fichier", error);
-        toast("Erreur interne lors de la préparation du fichier");
+        import("@/lib/logger").then(({ error: logError }) => logError("Erreur lors de l'initialisation de la session pour le fichier", error));
         return;
       }
 
@@ -53,7 +53,7 @@ function UploadPage() {
           const source = { id: crypto.randomUUID(), label: file.name, type: "file" as const };
           registerAudioSource(source, metadata);
         } catch (error) {
-          console.error("Impossible de lire les métadonnées audio", error);
+          import("@/lib/logger").then(({ error: logError }) => logError("Impossible de lire les métadonnées audio", error));
           setStatus("error", "Impossible d'analyser le fichier audio");
         }
       })();
@@ -66,7 +66,7 @@ function UploadPage() {
     try {
       await startUploadTranscription(selectedFile);
     } catch (error) {
-      console.error("Erreur lors du démarrage manuel de la transcription", error);
+      import("@/lib/logger").then(({ error: logError }) => logError("Erreur lors du démarrage manuel de la transcription", error));
       toast((error as Error)?.message ?? "Erreur inconnue lors du démarrage de la transcription");
     }
   }, [selectedFile, startUploadTranscription]);
@@ -127,6 +127,7 @@ function UploadPage() {
                   <div className="flex items-center gap-2">
                     <div className="text-sm text-muted-foreground">Indice de confiance globale :</div>
                     <Badge variant={overallConfidenceVariant(transcriptionConfidence)}>{typeof transcriptionConfidence === 'number' ? `${Math.round((transcriptionConfidence ?? 0)*100)}%` : '—'}</Badge>
+                    {transcriptionConfidenceSource === 'estimated' ? <span className="text-xs text-muted-foreground ml-2">(estimée)</span> : null}
                   </div>
                 </div>
                 <ResultsTable segments={segments} />

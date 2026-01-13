@@ -99,7 +99,7 @@ async function forceSingleThreadedWasmEnv() {
     // Use the shared patch helper to modify the runtime env where the ort module is statically imported
     patchOrtWasmEnv(config);
   } catch (error) {
-    console.warn("Unable to patch onnxruntime env for single-threaded WASM", error);
+    import("@/lib/logger").then(({ warn }) => warn("Unable to patch onnxruntime env for single-threaded WASM", error));
   }
 
   return module;
@@ -120,7 +120,7 @@ export async function createAsrPipeline({
   const modelId = resolveModelId(modelPreset, customModelId);
   telemetry?.setRuntimeContext({ backend: backendPreference, modelId });
   onStatus?.("downloading", "Préparation du modèle");
-  console.info("ASR model load start", { modelId, backendPreference });
+  import("@/lib/logger").then(({ info }) => info("ASR model load start", { modelId, backendPreference }));
   telemetry?.logEvent("START_LOAD_MODEL", { modelId });
   telemetry?.startTimer("load_model_total");
 
@@ -175,16 +175,8 @@ export async function createAsrPipeline({
         sessionOptions.executionProviders = [ { name: "wasm", options: wasmOptions } ];
         flagWasmSessionOptions(sessionOptions);
       }
-      console.debug("ASR session options", {
-        backend,
-        sessionOptions,
-      });
-        console.info("ASR pipeline init", {
-          backend,
-          modelId,
-          device,
-          sessionOptions,
-        });
+      import("@/lib/logger").then(({ debug }) => debug("ASR session options", { backend, sessionOptions }));
+      import("@/lib/logger").then(({ info }) => info("ASR pipeline init", { backend, modelId, device, sessionOptions }));
       const { pipeline } = await loadTransformers();
       const createPipeline = pipeline as unknown as (
         task: string,
@@ -225,16 +217,16 @@ export async function createAsrPipeline({
                 const encodedBodySize = (entry as PerformanceResourceTiming).encodedBodySize ?? null;
                 const cached = typeof transferSize === "number" ? transferSize === 0 : undefined;
                 telemetry?.logEvent("MODEL_FETCH", { file: fileName, cached, transferSize, encodedBodySize });
-                console.info("[model-fetch]", { file: fileName, cached, transferSize, encodedBodySize });
+                import("@/lib/logger").then(({ info }) => info("[model-fetch]", { file: fileName, cached, transferSize, encodedBodySize }));
                 // record into summary map
                 modelFetchMap.set(fileName, { cached, transferSize, encodedBodySize });
               } else {
                 telemetry?.logEvent("MODEL_FETCH", { file: fileName, cached: undefined });
-                console.info("[model-fetch] resource timing not found for", { file: fileName });
+                import("@/lib/logger").then(({ info }) => info("[model-fetch] resource timing not found for", { file: fileName }));
                 modelFetchMap.set(fileName, { cached: undefined });
               }
             } catch (err) {
-              console.warn("[model-fetch] failed to inspect resource timing", err);
+              import("@/lib/logger").then(({ warn }) => warn("[model-fetch] failed to inspect resource timing", err));
             }
           }
         },
@@ -255,12 +247,12 @@ export async function createAsrPipeline({
       }
       const mem = readMemoryUsage();
       if (mem) {
-        console.info("[transformers] JS heap after pipeline init", { backend, ...mem });
+        import("@/lib/logger").then(({ info }) => info("[transformers] JS heap after pipeline init", { backend, ...mem }));
         telemetry?.logEvent("RAM_USAGE", { context: "transformers_worker", backend, ...mem });
       }
       const uaMem = await readTotalMemory();
       if (uaMem) {
-        console.info("[transformers] Total memory snapshot after init", { backend, ...uaMem });
+        import("@/lib/logger").then(({ info }) => info("[transformers] Total memory snapshot after init", { backend, ...uaMem }));
         telemetry?.logEvent("RAM_USAGE", { context: "total_memory_snapshot", backend, ...uaMem });
       }
 
@@ -269,24 +261,18 @@ export async function createAsrPipeline({
       if (fetches.length > 0) {
         const cachedCount = fetches.filter((f) => f.cached === true).length;
         const networkCount = fetches.filter((f) => f.cached === false).length;
-        console.info("[model-fetch-summary]", {
-          total: fetches.length,
-          downloaded: networkCount,
-          cached: cachedCount,
-          unknown: fetches.length - cachedCount - networkCount,
-          details: fetches,
-        });
+        import("@/lib/logger").then(({ info }) => info("[model-fetch-summary]", { total: fetches.length, downloaded: networkCount, cached: cachedCount, unknown: fetches.length - cachedCount - networkCount, details: fetches }));
         telemetry?.logEvent("MODEL_FETCH", { summary: true, total: fetches.length, downloaded: networkCount, cached: cachedCount });
       } else {
-        console.info("[model-fetch-summary] no resource timing entries were captured for model assets");
+        import("@/lib/logger").then(({ info }) => info("[model-fetch-summary] no resource timing entries were captured for model assets"));
       }
 
-      console.info("ASR model load success", { backend, modelId });
+      import("@/lib/logger").then(({ info }) => info("ASR model load success", { backend, modelId }));
       onStatus?.("ready", `Backend ${backend}`);
 
       return { pipeline: pipe, backend, modelId };
     } catch (error) {
-      console.warn(`Échec initialisation backend ${backend}`, error);
+      import("@/lib/logger").then(({ warn }) => warn(`Échec initialisation backend ${backend}`, error));
       lastError = error;
       telemetry?.logEvent("ERROR", { backend, message: (error as Error).message });
       const friendly = backend === "wasm"
@@ -300,7 +286,7 @@ export async function createAsrPipeline({
 
         // If we attempted multithread and it failed, log/telemetry/toast and persist fallback to single-thread
         if (attemptedThreads > 1) {
-          console.warn("WASM multithread failed, falling back to single-threaded mode");
+          import("@/lib/logger").then(({ warn }) => warn("WASM multithread failed, falling back to single-threaded mode"));
           if (telemetry?.recordAlert) telemetry.recordAlert("WASM_MULTITHREAD_UNAVAILABLE", { attemptedThreads, message: (error as Error).message });
           try { toast("mode multithread indisponible sur cette plateforme"); } catch (err) { void err; }
           // Persist fallback so UI updates
@@ -308,8 +294,7 @@ export async function createAsrPipeline({
         }
 
         try {
-          console.info("Retrying WASM backend with single-threaded fallback");
-          onStatus?.("loading", "Initialisation WASM (mode sans threads)");
+          import("@/lib/logger").then(({ info }) => info("Retrying WASM backend with single-threaded fallback"));
           telemetry?.logEvent("ERROR", { backend: "wasm", message: "Tentative de reprise sans threads" });
 
           const module = await forceSingleThreadedWasmEnv();
@@ -360,7 +345,7 @@ export async function createAsrPipeline({
 
           return { pipeline: pipe2, backend, modelId };
         } catch (err2) {
-          console.warn("Retry WASM single-thread failed", err2);
+          import("@/lib/logger").then(({ warn }) => warn("Retry WASM single-thread failed", err2));
           lastError = err2;
           telemetry?.logEvent("ERROR", { backend: "wasm-single-thread", message: (err2 as Error).message });
           onStatus?.("error", `Échec initialisation WASM en mode sans threads : ${(err2 as Error).message}`);
@@ -391,14 +376,14 @@ export async function transcribeChunk({
     start: chunk.start,
     end: chunk.end,
   });
-  console.info("ASR chunk start", {
+  import("@/lib/logger").then(({ info }) => info("ASR chunk start", {
     id: chunk.id,
     index: chunk.index,
     start: chunk.start,
     end: chunk.end,
     duration: chunk.end - chunk.start,
     pcmLength: pcm.length,
-  });
+  }));
   telemetry?.startTimer(`chunk_${chunk.index}`);
   const startTime = performance.now();
 
@@ -430,7 +415,7 @@ export async function transcribeChunk({
     }
     // Remember that this pipeline does not support cross-attention/word timestamps
     PIPELINES_WITHOUT_CROSS.add(asr);
-    console.warn("Model lacks cross attentions; will skip word timestamps for subsequent chunks");
+    import("@/lib/logger").then(({ warn }) => warn("Model lacks cross attentions; will skip word timestamps for subsequent chunks"));
     telemetry?.logEvent("WARN" as TelemetryEventType, { chunkId: chunk.id, reason: "no_cross_attention" });
     // Retry once without word timestamps for this chunk
     result = await invokeAsr(pcm, {
@@ -441,25 +426,25 @@ export async function transcribeChunk({
 
   // More thorough debug logs to inspect the raw pipeline output and discover where word timestamps may be
   try {
-    console.info("ASR invoke options", invokeOptions);
+    import("@/lib/logger").then(({ info }) => info("ASR invoke options", invokeOptions));
 
     const resultUnknown = result as unknown as Record<string, unknown>;
     const rawKeys = Object.keys(resultUnknown ?? {});
     const chunks = Array.isArray(resultUnknown?.chunks) ? (resultUnknown.chunks as Array<Record<string, unknown>>) : [];
     const topWords = Array.isArray(resultUnknown?.words) ? (resultUnknown.words as Array<Record<string, unknown>>) : [];
 
-    console.info("ASR raw result keys", rawKeys);
-    console.info("ASR raw result summary", {
+    import("@/lib/logger").then(({ info }) => info("ASR raw result keys", rawKeys));
+    import("@/lib/logger").then(({ info }) => info("ASR raw result summary", {
       text: result?.text,
       chunkCount: chunks.length,
       topWordsCount: topWords.length,
-    });
+    }));
 
     if (chunks.length) {
       const sample = chunks.slice(0, 5);
       const chunkKeySet = new Set<string>();
       sample.forEach((c) => Object.keys(c || {}).forEach((k) => chunkKeySet.add(k)));
-      console.info("ASR chunk keys (sample)", Array.from(chunkKeySet));
+      import("@/lib/logger").then(({ info }) => info("ASR chunk keys (sample)", Array.from(chunkKeySet)));
 
       sample.forEach((c, i: number) => {
         const info: Record<string, unknown> = {};
@@ -470,17 +455,17 @@ export async function transcribeChunk({
           else info[k] = typeof v;
         });
         info.textSample = String(c.text ?? "").slice(0, 200);
-        console.info(`ASR chunk[${i}] keys/types`, info);
+        import("@/lib/logger").then(({ info: logInfo }) => logInfo(`ASR chunk[${i}] keys/types`, info));
 
         const wordsField = c["words"];
         if (Array.isArray(wordsField) && (wordsField as unknown[]).length) {
-          console.info(`ASR chunk[${i}] words sample`, (wordsField as unknown[]).slice(0, 10));
+          import("@/lib/logger").then(({ info: logInfo }) => logInfo(`ASR chunk[${i}] words sample`, (wordsField as unknown[]).slice(0, 10)));
         }
       });
     }
 
     if (topWords.length) {
-      console.info("ASR top-level words sample", (topWords as unknown[]).slice(0, 20));
+      import("@/lib/logger").then(({ info }) => info("ASR top-level words sample", (topWords as unknown[]).slice(0, 20)));
     } else {
       // look for alternative fields that might contain token/timestamp information
       const interesting = new Set<string>();
@@ -491,18 +476,18 @@ export async function transcribeChunk({
       chunks.forEach((c) => Object.keys(c || {}).forEach((k) => {
         if (/token|piece|word|timestamp|time/i.test(k)) interesting.add(k);
       }));
-      console.info("ASR alternative fields detected", Array.from(interesting));
+      import("@/lib/logger").then(({ info }) => info("ASR alternative fields detected", Array.from(interesting)));
     }
   } catch (err) {
-    console.warn("Failed to log ASR raw result safely", err);
+      import("@/lib/logger").then(({ warn }) => warn("Failed to log ASR raw result safely", err));
   }
 
   const cleanedText = cleanTranscriptText(result.text);
-  console.info("ASR chunk transcript", {
+  import("@/lib/logger").then(({ info }) => info("ASR chunk transcript", {
     id: chunk.id,
     index: chunk.index,
     text: cleanedText,
-  });
+  }));
 
   const processingMs = performance.now() - startTime;
   telemetry?.stopTimer(`chunk_${chunk.index}`);
@@ -584,7 +569,7 @@ export async function transcribeChunk({
   const chunkDuration = Math.max(0.1, chunk.end - chunk.start);
   const realtimeFactor = processingMs / 1000 / chunkDuration;
 
-  console.info("ASR chunk done", {
+  import("@/lib/logger").then(({ info }) => info("ASR chunk done", {
     id: chunk.id,
     index: chunk.index,
     durationMs: processingMs,
@@ -592,7 +577,7 @@ export async function transcribeChunk({
     realtimeFactor,
     speed: `x${realtimeFactor.toFixed(2)}`,
     segments: outputSegments.length,
-  });
+  }));
 
   telemetry?.logEvent("END_CHUNK", {
     chunkId: chunk.id,
@@ -648,7 +633,7 @@ async function readTotalMemory() {
       breakdown,
     };
   } catch (error) {
-    console.warn("measureUserAgentSpecificMemory failed", error);
+    import("@/lib/logger").then(({ warn }) => warn("measureUserAgentSpecificMemory failed", error));
     try {
       const telemetry = useAsrStore.getState().telemetryCollector;
       if (telemetry?.logEvent) telemetry.logEvent("WASM_MEMORY_MEASURE_FAILED", { message: String(error) });
@@ -684,6 +669,6 @@ export async function disposePipeline(pipe: GenericPipeline | undefined) {
   try {
     await pipe.dispose?.();
   } catch (error) {
-    console.warn("Erreur lors de la libération du pipeline", error);
+    import("@/lib/logger").then(({ warn }) => warn("Erreur lors de la libération du pipeline", error));
   }
 }
