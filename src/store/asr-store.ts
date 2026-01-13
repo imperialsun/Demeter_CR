@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import logger from "@/lib/logger";
 import { loadSettings, saveSettings, type PersistedSettings, DEFAULT_SETTINGS } from "@/lib/storage";
 import type { AudioMetadata } from "@/lib/audio";
 import { computeDefaultOverlap } from "@/lib/chunking";
@@ -384,7 +385,7 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
         saveSettings(DEFAULT_SETTINGS);
       } catch (e) {
         // Use logger so debug toggle controls this output
-        import("@/lib/logger").then(({ warn }) => warn("resetApp: failed to persist default settings", e));
+        logger.warn("resetApp: failed to persist default settings", e);
       }
       return {
         ...initialState,

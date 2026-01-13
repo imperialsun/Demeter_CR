@@ -1,4 +1,5 @@
 import type { BackendImplementation } from "@/store/asr-store";
+import logger from "@/lib/logger";
 
 const STORAGE_KEY = "demeter-asr-settings";
 
@@ -40,7 +41,7 @@ export function loadSettings(): Partial<PersistedSettings> | null {
     if (!raw) return null;
     return JSON.parse(raw) as PersistedSettings;
   } catch (error) {
-    import("@/lib/logger").then(({ warn }) => warn("Impossible de charger les paramètres depuis le stockage local", error));
+    logger.warn("Impossible de charger les paramètres depuis le stockage local", error);
     return null;
   }
 }
@@ -50,7 +51,7 @@ export function saveSettings(settings: PersistedSettings) {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
   } catch (error) {
-    import("@/lib/logger").then(({ warn }) => warn("Impossible d'enregistrer les paramètres", error));
+    logger.warn("Impossible d'enregistrer les paramètres", error);
   }
 }
 

@@ -14,6 +14,7 @@ import { probeAudioMetadata } from "@/lib/audio";
 import { toast } from "@/components/ui/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { overallConfidenceVariant } from "@/lib/utils";
+import logger from "@/lib/logger";
 
 function UploadPage() {
   // Keep the selected file in the global store so pre-listen survives navigation
@@ -36,14 +37,14 @@ function UploadPage() {
 
   const handleFileSelected = useCallback(
     (file: File) => {
-      import("@/lib/logger").then(({ info }) => info("handleFileSelected called", { fileName: file?.name }));
+      logger.info("handleFileSelected called", { fileName: file?.name });
       // Reset session first, then store the uploaded file to ensure the file remains available
       try {
         resetSession();
         setUploadedFile(file);
         setStatus("idle", "Fichier chargé, prêt à lancer");
       } catch (error) {
-        import("@/lib/logger").then(({ error: logError }) => logError("Erreur lors de l'initialisation de la session pour le fichier", error));
+        logger.error("Erreur lors de l'initialisation de la session pour le fichier", error);
         return;
       }
 
@@ -53,7 +54,7 @@ function UploadPage() {
           const source = { id: crypto.randomUUID(), label: file.name, type: "file" as const };
           registerAudioSource(source, metadata);
         } catch (error) {
-          import("@/lib/logger").then(({ error: logError }) => logError("Impossible de lire les métadonnées audio", error));
+          logger.error("Impossible de lire les métadonnées audio", error);
           setStatus("error", "Impossible d'analyser le fichier audio");
         }
       })();
@@ -66,7 +67,7 @@ function UploadPage() {
     try {
       await startUploadTranscription(selectedFile);
     } catch (error) {
-      import("@/lib/logger").then(({ error: logError }) => logError("Erreur lors du démarrage manuel de la transcription", error));
+      logger.error("Erreur lors du démarrage manuel de la transcription", error);
       toast((error as Error)?.message ?? "Erreur inconnue lors du démarrage de la transcription");
     }
   }, [selectedFile, startUploadTranscription]);

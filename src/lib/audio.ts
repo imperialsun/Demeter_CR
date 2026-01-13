@@ -1,5 +1,6 @@
 import type { ChunkDefinition } from "@/lib/chunking";
 import { TelemetryCollector } from "@/lib/telemetry";
+import logger from "@/lib/logger";
 
 export interface AudioMetadata {
   name?: string;
@@ -58,47 +59,47 @@ export async function decodeFileFully(
     fileName: file.name,
   });
 
-  import("@/lib/logger").then(({ info }) => info("[decode-full] read file", {
+  logger.info("[decode-full] read file", {
     name: file.name,
     size: file.size,
     type: file.type,
     targetSampleRate,
-  }));
+  });
 
   const arrayBuffer = await file.arrayBuffer();
   const ctx = new AudioContext();
-  import("@/lib/logger").then(({ info }) => info("[decode-full] audio context created", { sampleRate: ctx.sampleRate }));
+  logger.info("[decode-full] audio context created", { sampleRate: ctx.sampleRate });
   const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
-  import("@/lib/logger").then(({ info }) => info("[decode-full] decoded buffer", {
+  logger.info("[decode-full] decoded buffer", {
     durationSec: audioBuffer.duration,
     sampleRate: audioBuffer.sampleRate,
     channels: audioBuffer.numberOfChannels,
     frames: audioBuffer.length,
-  }));
+  });
   // Snapshot memory and estimate decoded audio size
   telemetry?.snapshotMemory("FULL_DECODE_AFTER_AUDIOBUFFER");
-  import("@/lib/logger").then(({ info }) => info("[decode-full] memory estimate (audioBuffer)", {
+  logger.info("[decode-full] memory estimate (audioBuffer)", {
     frames: audioBuffer.length,
     channels: audioBuffer.numberOfChannels,
     estimatedBytes: audioBuffer.length * audioBuffer.numberOfChannels * 4,
-  }));
+  });
   const metadata = buildMetadata(file, audioBuffer);
   const mono = mixToMono(audioBuffer);
-  import("@/lib/logger").then(({ info }) => info("[decode-full] mixed to mono", { frames: mono.length }));
+  logger.info("[decode-full] mixed to mono", { frames: mono.length });
   const pcm = await resampleMono(mono, audioBuffer.sampleRate, targetSampleRate);
-  import("@/lib/logger").then(({ info }) => info("[decode-full] resampled", {
+  logger.info("[decode-full] resampled", {
     from: audioBuffer.sampleRate,
     to: targetSampleRate,
     frames: pcm.length,
     durationSec: pcm.length / targetSampleRate,
-  }));
+  });
   telemetry?.snapshotMemory("FULL_DECODE_AFTER_RESAMPLE");
-  import("@/lib/logger").then(({ info }) => info("[decode-full] memory estimate (pcm)", {
+  logger.info("[decode-full] memory estimate (pcm)", {
     frames: pcm.length,
     estimatedBytes: pcm.length * 4,
-  }));
+  });
   await ctx.close();
-  import("@/lib/logger").then(({ info }) => info("[decode-full] audio context closed"));
+  logger.info("[decode-full] audio context closed");
 
   // Final memory snapshot and summary for full decode
   telemetry?.snapshotMemory("FULL_DECODE_END");
@@ -148,19 +149,19 @@ export async function decodeFileProgressively(
   telemetry?.startTimer("decode_audio_total");
   telemetry?.logEvent("START_DECODE", { strategy: "progressive", fileName: file.name });
 
-  import("@/lib/logger").then(({ info }) => info("[progressive-decode] read file", {
+  logger.info("[progressive-decode] read file", {
     name: file.name,
     size: file.size,
     type: file.type,
     targetSampleRate,
-  }));
+  });
 
   await waitForEvent(audio, "loadedmetadata");
 
-  import("@/lib/logger").then(({ info }) => info("[progressive-decode] metadata", {
+  logger.info("[progressive-decode] metadata", {
     durationSec: audio.duration,
     readyState: audio.readyState,
-  }));
+  });
 
   const metadata: AudioMetadata = {
     name: file.name,
@@ -177,23 +178,23 @@ export async function decodeFileProgressively(
     throw new Error("captureStream n'est pas supporté dans ce navigateur.");
   }
 
-  import("@/lib/logger").then(({ info }) => info("[progressive-decode] captureStream obtained", {
+  logger.info("[progressive-decode] captureStream obtained", {
     tracks: stream.getAudioTracks().length,
-  }));
+  });
 
   const recorder = new MediaRecorder(stream, {
     mimeType: "audio/webm;codecs=opus",
     audioBitsPerSecond: 128_000,
   });
 
-  import("@/lib/logger").then(({ info }) => info("[progressive-decode] recorder created", {
+  logger.info("[progressive-decode] recorder created", {
     mimeType: recorder.mimeType,
     audioBitsPerSecond: 128_000,
-  }));
+  });
 
   // Baseline memory snapshot before starting progressive decode
   telemetry?.snapshotMemory("PROGRESSIVE_BEFORE_START");
-  import("@/lib/logger").then(({ info }) => info("[progressive-decode] memory baseline snapshot taken"));
+  logger.info("[progressive-decode] memory baseline snapshot taken");
 
   const decodeCtx = new DecodeContext();
   let processingQueue: Promise<void> = Promise.resolve();
@@ -243,7 +244,7 @@ export async function decodeFileProgressively(
       recorder.requestData();
     } catch (e) {
       // Some implementations can throw if recorder is not in a proper state
-      import("@/lib/logger").then(({ warn }) => warn("requestData failed", e));
+      logger.warn("requestData failed", e);
       requestPending = false;
       return;
     }
@@ -255,7 +256,7 @@ export async function decodeFileProgressively(
         try {
           recorder.requestData();
         } catch (e) {
-          import("@/lib/logger").then(({ warn }) => warn("requestData retry failed", e));
+          logger.warn("requestData retry failed", e);
         }
         requestTimeoutId = window.setTimeout(onRequestTimeout, REQUESTDATA_TIMEOUT_MS);
       } else {
@@ -268,14 +269,14 @@ export async function decodeFileProgressively(
           processedSamples: decodeCtx.getProcessedSamples?.() ?? undefined,
           headerSize: decodeCtx.getHeaderSize?.() ?? undefined,
         });
-        import("@/lib/logger").then(({ warn }) => warn("requestData timed out, falling back to timeslice mode"));
+        logger.warn("requestData timed out, falling back to timeslice mode");
         // start recorder in periodic mode if still recording
         try {
           if (recorder.state === "recording") {
             recorder.start(timesliceMs);
           }
         } catch (e) {
-          import("@/lib/logger").then(({ warn }) => warn("fallback recorder.start(timesliceMs) failed", e));
+          logger.warn("fallback recorder.start(timesliceMs) failed", e);
         }
         requestPending = false;
         requestTimeoutId = null;
@@ -302,17 +303,17 @@ export async function decodeFileProgressively(
     const end = plan?.end ?? Math.min(metadata.durationSec, start + planDuration(chunkPlan));
     chunkIndex += 1;
 
-    import("@/lib/logger").then(({ info }) => info("[progressive-decode] enqueue chunk", {
+    logger.info("[progressive-decode] enqueue chunk", {
       index: currentIndex,
       blobSize: event.data.size,
       plannedStart: plan?.start,
       plannedEnd: plan?.end,
-    }));
+    });
 
     // Backpressure: if too many chunks pending, skip this one to avoid memory blowup
     if (pendingQueueCount >= MAX_PENDING_CHUNKS) {
       telemetry?.logEvent("SKIP_CHUNK", { chunkIndex: currentIndex, reason: "queue_full" });
-      import("@/lib/logger").then(({ warn }) => warn("[progressive-decode] skip chunk (queue full)", { index: currentIndex, pendingQueueCount }));
+      logger.warn("[progressive-decode] skip chunk (queue full)", { index: currentIndex, pendingQueueCount });
       // Advance lastEnd/progress so UI doesn't stall on skipped slices
       lastEnd = end;
       const progress = end / metadata.durationSec;
@@ -335,19 +336,19 @@ export async function decodeFileProgressively(
 
       // Snapshot memory at the start of processing this chunk and log audio memory summary
       telemetry?.snapshotMemory("PROGRESSIVE_CHUNK_START");
-      import("@/lib/logger").then(({ info }) => info("[progressive-decode] chunk start memory", {
+      logger.info("[progressive-decode] chunk start memory", {
         chunkIndex: currentIndex,
         processedSamples: decodeCtx.getProcessedSamples(),
         estimatedProcessedBytes: decodeCtx.getProcessedSamples() * 4,
         headerSize: decodeCtx.getHeaderSize(),
         incomingBlobSize: event.data.size,
-      }));
+      });
 
       try {
         const { pcm, sampleRate } = await decodeCtx.decodeBlob(event.data, targetSampleRate);
         if (!pcm.length) {
           telemetry?.logEvent("SKIP_CHUNK", { chunkIndex: currentIndex, reason: "empty_pcm" });
-          import("@/lib/logger").then(({ info }) => info("[progressive-decode] skip chunk (empty pcm)", { index: currentIndex, start, end }));
+          logger.info("[progressive-decode] skip chunk (empty pcm)", { index: currentIndex, start, end });
           lastEnd = end;
           const progress = end / metadata.durationSec;
           options.onProgress?.(Math.min(1, progress));
@@ -356,13 +357,13 @@ export async function decodeFileProgressively(
 
         // Snapshot memory after a decoded chunk (progressive mode)
         telemetry?.snapshotMemory("PROGRESSIVE_AFTER_CHUNK");
-        import("@/lib/logger").then(({ info }) => info("[progressive-decode] memory snapshot after chunk", {
+        logger.info("[progressive-decode] memory snapshot after chunk", {
           chunkIndex: currentIndex,
           pcmFrames: pcm.length,
           estimatedPcmBytes: pcm.length * 4,
           blobSize: event.data.size,
           headerSize: decodeCtx.getHeaderSize(),
-        }));
+        });
 
         const chunk: ProgressiveChunkResult = {
           index: currentIndex,
@@ -371,13 +372,13 @@ export async function decodeFileProgressively(
           pcm,
           sampleRate,
         };
-        import("@/lib/logger").then(({ info }) => info("[progressive-decode] chunk decoded", {
+        logger.info("[progressive-decode] chunk decoded", {
           index: currentIndex,
           pcmFrames: pcm.length,
           sampleRate,
           start,
           end,
-        }));
+        });
         lastEnd = end;
         await options.onChunk(chunk);
         telemetry?.logEvent("END_CHUNK", {
@@ -389,7 +390,7 @@ export async function decodeFileProgressively(
         options.onProgress?.(Math.min(1, progress));
       } catch (error) {
           decodeError = error;
-          import("@/lib/logger").then(({ error: logErr }) => logErr("[progressive-decode] decodeBlob failed", error));
+          logger.error("[progressive-decode] decodeBlob failed", error);
           telemetry?.logEvent("ERROR", {
             scope: "progressive_decode",
             message: (error as Error)?.message,
@@ -438,7 +439,7 @@ export async function decodeFileProgressively(
   const timesliceMs = chunkPlan.length
     ? Math.max(500, (chunkPlan[0]!.end - chunkPlan[0]!.start) * 1000)
     : 10_000;
-  import("@/lib/logger").then(({ info }) => info("[progressive-decode] recorder start", { timesliceMs, manualRequestChunks }));
+  logger.info("[progressive-decode] recorder start", { timesliceMs, manualRequestChunks });
   if (manualRequestChunks) {
     // Start without timeslice and request first chunk manually
     recorder.start();
@@ -447,7 +448,7 @@ export async function decodeFileProgressively(
     recorder.start(timesliceMs);
   }
   await audio.play();
-  import("@/lib/logger").then(({ info }) => info("[progressive-decode] audio play triggered"));
+  logger.info("[progressive-decode] audio play triggered");
   audio.addEventListener(
     "ended",
     () => {
@@ -491,7 +492,7 @@ export async function probeAudioMetadata(file: File): Promise<AudioMetadata> {
       sampleRate = audioBuffer.sampleRate;
     } catch (err) {
       // Some formats may fail to decode here; ignore and continue with undefined sampleRate
-      import("@/lib/logger").then(({ warn }) => warn("probeAudioMetadata: decodeAudioData failed", err));
+      logger.warn("probeAudioMetadata: decodeAudioData failed", err);
     } finally {
       try {
         await ctx.close();
@@ -500,7 +501,7 @@ export async function probeAudioMetadata(file: File): Promise<AudioMetadata> {
       }
     }
   } catch (err) {
-    import("@/lib/logger").then(({ warn }) => warn("probeAudioMetadata: failed to read file for sample rate", err));
+    logger.warn("probeAudioMetadata: failed to read file for sample rate", err);
   }
 
   const metadata: AudioMetadata = {
@@ -602,7 +603,7 @@ class DecodeContext {
   private async ensureContext() {
     if (!this.ctx) {
       this.ctx = new AudioContext();
-      import("@/lib/logger").then(({ info }) => info("[progressive-decode] create decode context", { sampleRate: this.ctx?.sampleRate }));
+      logger.info("[progressive-decode] create decode context", { sampleRate: this.ctx.sampleRate });
     }
     return this.ctx;
   }
@@ -613,32 +614,32 @@ class DecodeContext {
     // always receives a decodable container.
     if (!this.headerBlob) {
       this.headerBlob = blob;
-      import("@/lib/logger").then(({ info }) => info("[progressive-decode] captured header blob", { size: blob.size, type: blob.type }));
+      logger.info("[progressive-decode] captured header blob", { size: blob.size, type: blob.type });
     }
 
     const containerBlob = blob === this.headerBlob ? blob : new Blob([this.headerBlob, blob], { type: blob.type });
-    import("@/lib/logger").then(({ info }) => info("[progressive-decode] decoding blob", {
+    logger.info("[progressive-decode] decoding blob", {
       inputSize: blob.size,
       containerSize: containerBlob.size,
-    }));
+    });
     const arrayBuffer = await containerBlob.arrayBuffer();
     const ctx = await this.ensureContext();
     const buffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
     const mono = mixToMono(buffer);
-    import("@/lib/logger").then(({ info }) => info("[progressive-decode] decoded buffer", {
+    logger.info("[progressive-decode] decoded buffer", {
       durationSec: buffer.duration,
       sampleRate: buffer.sampleRate,
       frames: buffer.length,
       monoFrames: mono.length,
-    }));
+    });
     const newSamples = mono.length - this.processedSamples;
     if (newSamples <= 0) {
-      import("@/lib/logger").then(({ info }) => info("[progressive-decode] no new samples", {
+      logger.info("[progressive-decode] no new samples", {
         processedSamples: this.processedSamples,
         monoFrames: mono.length,
         inputSize: blob.size,
         containerSize: containerBlob.size,
-      }));
+      });
       return { pcm: new Float32Array(0), sampleRate: targetSampleRate };
     }
 
@@ -649,16 +650,16 @@ class DecodeContext {
     // decodeAudioData receives increasing audio content rather than repeating
     // the same header + old delta.
     this.headerBlob = containerBlob;
-    import("@/lib/logger").then(({ info }) => info("[progressive-decode] updated header blob", { headerSize: this.headerBlob?.size }));
+    logger.info("[progressive-decode] updated header blob", { headerSize: this.headerBlob?.size });
 
     const pcm = await resampleMono(delta, buffer.sampleRate, targetSampleRate);
-    import("@/lib/logger").then(({ info }) => info("[progressive-decode] resampled delta", {
+    logger.info("[progressive-decode] resampled delta", {
       from: buffer.sampleRate,
       to: targetSampleRate,
       deltaFrames: delta.length,
       pcmFrames: pcm.length,
       durationSec: pcm.length / targetSampleRate,
-    }));
+    });
     return { pcm, sampleRate: targetSampleRate };
   }
 
@@ -675,9 +676,9 @@ class DecodeContext {
       await this.ctx.close();
       this.ctx = null;
     }
-    import("@/lib/logger").then(({ info }) => info("[progressive-decode] decode context closed", {
+    logger.info("[progressive-decode] decode context closed", {
       processedSamples: this.processedSamples,
-    }));
+    });
     this.headerBlob = null;
     this.processedSamples = 0;
   }

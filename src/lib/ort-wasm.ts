@@ -1,4 +1,5 @@
 import * as ort from "onnxruntime-web";
+import logger from "@/lib/logger";
 
 // Force ONNXRuntime to prefer WASM when WebGPU is unavailable.
 type ExecutionProviderEntry = string | { name: string } | Record<string, unknown>;
@@ -71,7 +72,7 @@ export function patchOrtWasmEnv(config: Record<string, unknown>) {
       Object.assign(env.wasm, config);
     }
   } catch (error) {
-    import("@/lib/logger").then(({ warn }) => warn("patchOrtWasmEnv failed", error));
+    logger.warn("patchOrtWasmEnv failed", error);
   }
 }
 
