@@ -662,11 +662,19 @@ async function readTotalMemory() {
 // Heuristic to detect errors that are likely caused by insufficient memory / model too large
 export function isModelTooLargeError(err: unknown): boolean {
   try {
-    const raw = err === undefined || err === null ? "" : (typeof err === "object" && "message" in (err as any) ? String((err as any).message) : String(err));
+    let raw = "";
+    if (err === undefined || err === null) {
+      raw = "";
+    } else if (typeof err === "object" && err !== null && "message" in err && typeof (err as { message?: unknown }).message === "string") {
+      raw = String((err as { message?: unknown }).message);
+    } else {
+      raw = String(err);
+    }
     const s = raw.toLowerCase();
     // include numeric error codes observed in the wild and common OOM messages
     return /1261431424|out of memory|oom|insufficient memory|memory limit|cannot allocate|js_out_of_memory|wasm memory/i.test(s);
-  } catch (_) {
+  } catch (e) {
+    void e;
     return false;
   }
 }
