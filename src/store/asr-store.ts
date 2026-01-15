@@ -313,8 +313,8 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
       showExportVtt: settings.showExportVtt ?? state.showExportVtt,
       showExportSrt: settings.showExportSrt ?? state.showExportSrt,
       showExportJson: settings.showExportJson ?? state.showExportJson,
-      showExportTelemetry: settings.showExportTelemetry ?? state.showExportTelemetry,
-      preprocessingMode: settings.preprocessingMode ?? state.preprocessingMode,
+      showExportTelemetry: settings.showExportTelemetry ?? state.showExportTelemetry,      // Persisted debug toggle
+      debugConfidence: settings.debugConfidence ?? state.debugConfidence,      preprocessingMode: settings.preprocessingMode ?? state.preprocessingMode,
       denoiseNoiseFloorDb: settings.denoiseNoiseFloorDb ?? state.denoiseNoiseFloorDb,
       denoiseReductionDb: settings.denoiseReductionDb ?? state.denoiseReductionDb,
       denoiseSmoothing: settings.denoiseSmoothing ?? state.denoiseSmoothing,
@@ -375,7 +375,8 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
       preprocessingProgress: 0,
       transcriptionConfidence: null,
       transcriptionConfidenceSource: null,
-      debugConfidence: false,
+      // Preserve debug toggle across session resets
+      debugConfidence: state.debugConfidence,
     })),
 
   resetApp: () =>
@@ -458,6 +459,8 @@ useAsrStore.subscribe((state) => {
     // whisper
     enableWordTimestamps: state.enableWordTimestamps,
     showSegmentConfidence: state.showSegmentConfidence,
+    // debug
+    debugConfidence: state.debugConfidence,
   };
   saveSettings(payload);
 });

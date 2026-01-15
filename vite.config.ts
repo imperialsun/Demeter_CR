@@ -43,8 +43,17 @@ export default defineConfig({
   // Make the dev server listen on all interfaces so it is reachable from other PCs on the LAN.
   server: {
     host: true, // allow access from other machines on the same network
+    port: 3000,
+    strictPort: true, // fail if the port is unavailable so Traefik mapping remains predictable
     // enable polling which can be more reliable when editing files over network mounts
     watch: { usePolling: true },
+    // Allow the host header used by Traefik so the dev server accepts proxied requests
+    allowedHosts: ["transcode.demeter-sante.fr"],
+    // When running behind TLS termination (Traefik), HMR should use wss and the public host
+    hmr: {
+      host: "transcode.demeter-sante.fr",
+      protocol: "wss",
+    },
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
@@ -52,6 +61,9 @@ export default defineConfig({
   },
   preview: {
     host: true,
+    port: 3000,
+    strictPort: true,
+    allowedHosts: ["transcode.demeter-sante.fr"],
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',

@@ -355,7 +355,21 @@ export async function createAsrPipeline({
     }
   }
   telemetry?.stopTimer("load_model_total");
-  throw lastError ?? new Error("Impossible de charger le pipeline ASR");
+
+  // Provide a clearer error for the common case where no runtime backend is available
+  const webGpuAvailableFinal = webGpuAvailable;
+  const wasmAvailableFinal = useAsrStore.getState().wasmAvailable;
+  let finalMessage = (lastError as Error)?.message ?? "Impossible de charger le pipeline ASR";
+  if (!webGpuAvailableFinal && !wasmAvailableFinal) {
+    finalMessage = "Aucun backend utilisable trouvé : WebGPU non supporté et fichiers WASM manquants ou inaccessibles (/onnx/). Vérifiez que les assets WASM ont bien été déployés et que les en-têtes COOP/COEP sont configurés pour permettre WASM multithread (SharedArrayBuffer).";
+  } else if (!webGpuAvailableFinal && wasmAvailableFinal && lastError && (lastError as Error).message.includes("WASM")) {
+    finalMessage = `Erreur d'initialisation WASM : ${(lastError as Error).message}. Vérifiez la disponibilité des assets et les en-têtes COOP/COEP.`;
+  }
+
+  logger.error("ASR backend selection failed", { webGpuAvailable: webGpuAvailableFinal, wasmAvailable: wasmAvailableFinal, lastError });
+  telemetry?.logEvent("ERROR", { stage: "select_backend", webGpuAvailable: webGpuAvailableFinal, wasmAvailable: wasmAvailableFinal, message: finalMessage });
+
+  throw new Error(finalMessage);
 }
 
 const PIPELINES_WITHOUT_CROSS = new WeakSet<object>();

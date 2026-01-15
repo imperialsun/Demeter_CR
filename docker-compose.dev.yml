@@ -1,0 +1,34 @@
+version: "3.8"
+
+services:
+  transcode-dev:
+    image: node:20
+    working_dir: /app
+    restart: unless-stopped
+    volumes:
+      - ./:/app:delegated
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - CHOKIDAR_USEPOLLING=true
+    ports:
+      - "3000:3000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.transcode.rule=Host(`transcode.demeter-sante.fr`)"
+      - "traefik.http.routers.transcode.entrypoints=websecure"
+      - "traefik.http.routers.transcode.tls=true"
+      - "traefik.http.routers.transcode.tls.certresolver=le"
+      - "traefik.http.services.transcode.loadbalancer.server.port=3000"
+      # Apply the same secure headers middleware so COOP/COEP are present in dev
+      - "traefik.http.middlewares.transcode-secure-headers.headers.customResponseHeaders.Cross-Origin-Opener-Policy=same-origin"
+      - "traefik.http.middlewares.transcode-secure-headers.headers.customResponseHeaders.Cross-Origin-Embedder-Policy=require-corp"
+      - "traefik.http.middlewares.transcode-secure-headers.headers.customResponseHeaders.Cross-Origin-Resource-Policy=same-origin"
+      - "traefik.http.routers.transcode.middlewares=transcode-secure-headers"
+    command: sh -c "npm ci --silent && npm run dev -- --host 0.0.0.0 --port 3000"
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true

@@ -1,0 +1,22 @@
+:3000 {
+    root * /srv
+    encode gzip zstd
+    file_server
+
+    # Security headers for cross-origin isolation (needed for WASM multithreading/SharedArrayBuffer)
+    header {
+        Cross-Origin-Opener-Policy "same-origin"
+        Cross-Origin-Embedder-Policy "require-corp"
+        Cross-Origin-Resource-Policy "same-origin"
+        Referrer-Policy "no-referrer-when-downgrade"
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    }
+
+    # Ensure correct MIME type for WASM (Caddy normally does this)
+    @wasm {
+        path *.wasm
+    }
+    header @wasm Content-Type application/wasm
+}

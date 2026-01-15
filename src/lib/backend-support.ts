@@ -38,14 +38,23 @@ async function checkWasmAssets(): Promise<boolean> {
   ];
   for (const url of candidates) {
     try {
+      // Diagnostic logging to help debug deployment and caching issues
+      console.debug("checkWasmAssets: testing", { url });
       const resp = await fetch(url, { method: "GET" });
-      if (resp && resp.ok) {
+      console.debug("checkWasmAssets: response", { url, ok: resp?.ok, status: resp?.status, type: resp?.type, contentType: resp?.headers?.get?.("content-type") });
+      // Treat only a successful non-opaque response as available
+      if (resp && resp.ok && resp.type !== 'opaque') {
+        console.info("checkWasmAssets: found wasm", { url });
         return true;
       }
+      if (resp && resp.ok && resp.type === 'opaque') {
+        console.warn("checkWasmAssets: wasm response is opaque (possible service worker or cross-origin issue)", { url });
+      }
     } catch (err) {
-      void err;
+      console.warn("checkWasmAssets: fetch failed", { url, err });
     }
   }
+  console.info("checkWasmAssets: no wasm asset found");
   return false;
 }
 

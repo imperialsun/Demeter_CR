@@ -10,11 +10,17 @@ export function setDebugProvider(provider: () => boolean) {
 }
 
 function enabled() {
-  if (IS_PROD) return false;
+  // Allow the runtime provider to enable debug logging even in production.
+  // Behavior:
+  // - If a provider is configured, its truthiness determines whether logs are enabled.
+  // - If no provider is configured, logs are enabled in non-prod environments only.
   try {
-    return Boolean(debugProvider ? debugProvider() : false);
+    if (typeof debugProvider === 'function') {
+      return Boolean(debugProvider());
+    }
+    return !IS_PROD;
   } catch {
-    return false;
+    return !IS_PROD;
   }
 }
 

@@ -742,6 +742,7 @@ export function SettingsPanel({
                 <p className="text-xs text-muted-foreground">Afficher l'indice de confiance calculé pour chaque segment.</p>
               </div>
               <Switch
+                aria-label="Afficher l'indice de confiance"
                 className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
                 checked={showSegmentConfidence}
                 onCheckedChange={(checked) => {

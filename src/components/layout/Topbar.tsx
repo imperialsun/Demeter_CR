@@ -110,17 +110,15 @@ export function Topbar() {
             Réinitialiser
           </Button>
 
-        {/* Dev-only debug toggle for confidence breakdown (placed in Topbar) */}
-        {process.env.NODE_ENV !== 'production' ? (
-          <Button
-            size="sm"
-            variant={debugConfidence ? 'destructive' : 'outline'}
-            onClick={() => setDebugConfidence(!debugConfidence)}
-            className="gap-2"
-          >
-            {debugConfidence ? 'Debug conf : ON' : 'Debug conf : OFF'}
-          </Button>
-        ) : null}
+        {/* Debug toggle for confidence breakdown (visible in all builds) */}
+        <Button
+          size="sm"
+          variant={debugConfidence ? 'destructive' : 'outline'}
+          onClick={() => setDebugConfidence(!debugConfidence)}
+          className="gap-2"
+        >
+          {debugConfidence ? 'Debug conf : ON' : 'Debug conf : OFF'}
+        </Button>
 
           <ConfirmDialog
             open={confirmOpen}

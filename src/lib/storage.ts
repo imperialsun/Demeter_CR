@@ -30,6 +30,8 @@ export interface PersistedSettings {
   // Whisper options
   enableWordTimestamps?: boolean;
   showSegmentConfidence?: boolean;
+  // Debug toggles
+  debugConfidence?: boolean;
   // performance
   forceSingleThread?: boolean;
 }
@@ -82,6 +84,8 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   // Whisper: enable word timestamps (disabled by default to save CPU/memory)
   enableWordTimestamps: false,
   showSegmentConfidence: false,
+  // Debug toggles
+  debugConfidence: false,
   // default performance settings
   forceSingleThread: false,
 };

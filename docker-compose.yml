@@ -1,0 +1,28 @@
+services:
+  transcode:
+    build: .
+    image: transcode:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.transcode.rule=Host(`transcode.demeter-sante.fr`)"
+      - "traefik.http.routers.transcode.entrypoints=websecure"
+      - "traefik.http.routers.transcode.tls=true"
+      - "traefik.http.routers.transcode.tls.certresolver=le"
+      - "traefik.http.services.transcode.loadbalancer.server.port=3000"
+      # Add secure headers as a Traefik middleware in case you prefer Traefik add them (redundant with Caddy headers)
+      - "traefik.http.middlewares.transcode-secure-headers.headers.customResponseHeaders.Cross-Origin-Opener-Policy=same-origin"
+      - "traefik.http.middlewares.transcode-secure-headers.headers.customResponseHeaders.Cross-Origin-Embedder-Policy=require-corp"
+      - "traefik.http.middlewares.transcode-secure-headers.headers.customResponseHeaders.Cross-Origin-Resource-Policy=same-origin"
+      - "traefik.http.routers.transcode.middlewares=transcode-secure-headers"
+    environment:
+      - NODE_ENV=production
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
+

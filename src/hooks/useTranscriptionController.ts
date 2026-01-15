@@ -447,7 +447,21 @@ export function useTranscriptionController() {
       return;
     }
 
-    state.resetSession();
+    // Preserve the debug toggle explicitly so that any transient resets inside the
+    // transcription flow do not change the UI state.
+    const previousDebug = state.debugConfidence;
+
+    // Prepare for a new transcription without resetting the entire app state.
+    // This avoids clearing UI toggles like `debugConfidence` and other persisted settings.
+    // If you need a full page reload on start, set Vite env var VITE_RELOAD_ON_START=1 at build time.
+    const _env = (import.meta as unknown as { env?: { VITE_RELOAD_ON_START?: string } }).env;
+    const reloadOnStart = _env?.VITE_RELOAD_ON_START === '1';
+    if (reloadOnStart && typeof window !== 'undefined') {
+      window.location.reload();
+      return;
+    }
+
+    // Minimal cleanup: clear progress, segments, chunk plan and telemetry summary.
     state.resetStopRequest();
     state.setProgress(0);
     state.setSegments([]);
@@ -535,6 +549,8 @@ export function useTranscriptionController() {
       if (activePipeline) {
         await disposePipeline(activePipeline);
       }
+      // Restore debug toggle to previous value in case any flow changed it
+      state.setDebugConfidence(previousDebug);
       state.setIsTranscribing(false);
       state.resetStopRequest();
       state.registerTelemetry(null);
