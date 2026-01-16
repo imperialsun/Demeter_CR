@@ -97,6 +97,7 @@ export function SettingsPanel({
     showExportSrt,
     showExportJson,
     showExportTelemetry,
+    progressiveSegmentDurationSec,
     denoiseNoiseFloorDb,
     denoiseReductionDb,
     denoiseSmoothing,
@@ -129,6 +130,7 @@ export function SettingsPanel({
     setDenoiseParams,
     requestNoiseCalibration,
     updateChunkParameters,
+    setProgressiveSegmentDurationSec,
     setForceSingleThread,
   } = useAsrStore(
     useShallow((state) => ({
@@ -144,6 +146,7 @@ export function SettingsPanel({
     showExportSrt: state.showExportSrt,
     showExportJson: state.showExportJson,
     showExportTelemetry: state.showExportTelemetry,
+    progressiveSegmentDurationSec: state.progressiveSegmentDurationSec,
     denoiseNoiseFloorDb: state.denoiseNoiseFloorDb,
     denoiseReductionDb: state.denoiseReductionDb,
     denoiseSmoothing: state.denoiseSmoothing,
@@ -172,6 +175,7 @@ export function SettingsPanel({
     setDenoiseParams: state.setDenoiseParams,
     requestNoiseCalibration: state.requestNoiseCalibration,
     updateChunkParameters: state.updateChunkParameters,
+    setProgressiveSegmentDurationSec: state.setProgressiveSegmentDurationSec,
     // performance
     forceSingleThread: state.forceSingleThread,
     enableWordTimestamps: state.enableWordTimestamps,
@@ -763,6 +767,30 @@ export function SettingsPanel({
                 checked={memoryMode === "progressive"}
                 onCheckedChange={(checked) => setMemoryMode(checked ? "progressive" : "full")}
               />
+            </div>
+            <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+              <div>
+                <p className="text-sm font-medium">Taille du segment progressif</p>
+                <p className="text-xs text-muted-foreground">
+                  Détermine la durée d'un segment traité en mémoire (par défaut : 10 minutes).
+                </p>
+              </div>
+              <Select
+                value={String(progressiveSegmentDurationSec)}
+                onValueChange={(value) => setProgressiveSegmentDurationSec(Number(value))}
+                disabled={memoryMode !== "progressive"}
+              >
+                <SelectTrigger className="w-36">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="300">5 minutes</SelectItem>
+                  <SelectItem value="600">10 minutes</SelectItem>
+                  <SelectItem value="900">15 minutes</SelectItem>
+                  <SelectItem value="1200">20 minutes</SelectItem>
+                  <SelectItem value="1800">30 minutes</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
 

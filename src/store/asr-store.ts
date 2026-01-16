@@ -74,6 +74,7 @@ interface AsrConfigState {
   segmentationMode: "chunks" | "silence";
   chunkDurationSec: number;
   overlapSec: number;
+  progressiveSegmentDurationSec: number;
   silenceThresholdDb: number;
   minSilenceMs: number;
   minChunkMs: number;
@@ -86,6 +87,8 @@ interface AsrConfigState {
   preprocessingMode: "quick" | "full";
   preprocessingStatus: "idle" | "calibrating" | "processing" | "done";
   preprocessingProgress: number;
+  segmentationStatus: "idle" | "segmenting" | "done" | "error";
+  segmentationProgress: number;
   denoiseNoiseFloorDb: number;
   denoiseReductionDb: number;
   denoiseSmoothing: number;
@@ -133,6 +136,7 @@ interface AsrConfigActions {
     minChunkMs: number;
     maxChunkMs: number;
   }>) => void;
+  setProgressiveSegmentDurationSec: (value: number) => void;
   setShowSegments: (value: boolean) => void;
   setShowExportVtt: (value: boolean) => void;
   setShowExportSrt: (value: boolean) => void;
@@ -141,6 +145,8 @@ interface AsrConfigActions {
   setPreprocessingMode: (mode: "quick" | "full") => void;
   setPreprocessingStatus: (status: "idle" | "calibrating" | "processing" | "done") => void;
   setPreprocessingProgress: (value: number) => void;
+  setSegmentationStatus: (status: "idle" | "segmenting" | "done" | "error") => void;
+  setSegmentationProgress: (value: number) => void;
   setDenoiseParams: (params: Partial<{
     denoiseNoiseFloorDb: number;
     denoiseReductionDb: number;
@@ -196,6 +202,7 @@ const initialState: AsrConfigState = {
   // Target chunk duration used when building chunks in 'silence' mode (seconds)
   chunkDurationSec: 15,
   overlapSec: 1.5,
+  progressiveSegmentDurationSec: 600,
   silenceThresholdDb: -35,
   minSilenceMs: 600,
   minChunkMs: 3000,
@@ -212,6 +219,8 @@ const initialState: AsrConfigState = {
   denoiseSmoothing: 0.8,
   denoiseCalibrationSeconds: 5,
   noiseCalibrationRequestedAt: null,
+  segmentationStatus: "idle",
+  segmentationProgress: 0,
   autoTunePreprocess: true,
   lastAutoTuneParams: null,
   telemetryCollector: null,
@@ -264,6 +273,7 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
   setMemoryMode: (mode) => set(() => ({ memoryMode: mode })),
   setChunkStrategy: (strategy) => set(() => ({ chunkStrategy: strategy })),
   setSegmentationMode: (mode) => set(() => ({ segmentationMode: mode })),
+  setProgressiveSegmentDurationSec: (value) => set(() => ({ progressiveSegmentDurationSec: value })),
   updateChunkParameters: (params) => set((state) => {
     const merged = { ...state, ...params } as AsrConfigState;
     // If user updated the target chunk duration but did not provide an explicit maxChunkMs,
@@ -305,6 +315,7 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
       segmentationMode: settings.segmentationMode,
       chunkDurationSec: settings.chunkDurationSec,
       overlapSec: settings.overlapSec,
+      progressiveSegmentDurationSec: settings.progressiveSegmentDurationSec ?? state.progressiveSegmentDurationSec,
       silenceThresholdDb: settings.silenceThresholdDb,
       minSilenceMs: settings.minSilenceMs,
       minChunkMs: settings.minChunkMs,
@@ -313,8 +324,10 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
       showExportVtt: settings.showExportVtt ?? state.showExportVtt,
       showExportSrt: settings.showExportSrt ?? state.showExportSrt,
       showExportJson: settings.showExportJson ?? state.showExportJson,
-      showExportTelemetry: settings.showExportTelemetry ?? state.showExportTelemetry,      // Persisted debug toggle
-      debugConfidence: settings.debugConfidence ?? state.debugConfidence,      preprocessingMode: settings.preprocessingMode ?? state.preprocessingMode,
+      showExportTelemetry: settings.showExportTelemetry ?? state.showExportTelemetry,
+      // Persisted debug toggle
+      debugConfidence: settings.debugConfidence ?? state.debugConfidence,
+      preprocessingMode: settings.preprocessingMode ?? state.preprocessingMode,
       denoiseNoiseFloorDb: settings.denoiseNoiseFloorDb ?? state.denoiseNoiseFloorDb,
       denoiseReductionDb: settings.denoiseReductionDb ?? state.denoiseReductionDb,
       denoiseSmoothing: settings.denoiseSmoothing ?? state.denoiseSmoothing,
@@ -349,6 +362,8 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
   setPreprocessingMode: (mode) => set(() => ({ preprocessingMode: mode })),
   setPreprocessingStatus: (status) => set(() => ({ preprocessingStatus: status })),
   setPreprocessingProgress: (value) => set(() => ({ preprocessingProgress: value })),
+  setSegmentationStatus: (status) => set(() => ({ segmentationStatus: status })),
+  setSegmentationProgress: (value) => set(() => ({ segmentationProgress: value })),
   setDenoiseParams: (params) => set((state) => ({ ...state, ...params })),
   setAutoTunePreprocess: (value: boolean) => set(() => ({ autoTunePreprocess: value })),
   setLastAutoTuneParams: (params) => set(() => ({ lastAutoTuneParams: params })),
@@ -373,6 +388,8 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
       progress: 0,
       preprocessingStatus: "idle",
       preprocessingProgress: 0,
+      segmentationStatus: "idle",
+      segmentationProgress: 0,
       transcriptionConfidence: null,
       transcriptionConfidenceSource: null,
       // Preserve debug toggle across session resets
@@ -410,6 +427,8 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
         progress: 0,
         preprocessingStatus: "idle",
         preprocessingProgress: 0,
+        segmentationStatus: "idle",
+        segmentationProgress: 0,
       };
     }),
 
@@ -440,6 +459,7 @@ useAsrStore.subscribe((state) => {
     segmentationMode: state.segmentationMode,
     chunkDurationSec: state.chunkDurationSec,
     overlapSec: state.overlapSec,
+    progressiveSegmentDurationSec: state.progressiveSegmentDurationSec,
     silenceThresholdDb: state.silenceThresholdDb,
     minSilenceMs: state.minSilenceMs,
     minChunkMs: state.minChunkMs,

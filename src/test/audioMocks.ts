@@ -79,12 +79,23 @@ export function mockDocumentAudio({ duration = 1, streamTracks = 1 } = {}) {
 
   function makeAudio() {
     const listeners: Record<string, ((...args: any[]) => void)[]> = {};
+    let currentTime = 0;
     return {
       preload: 'auto',
       muted: true,
       crossOrigin: 'anonymous',
       playbackRate: 1,
       duration,
+      get currentTime() {
+        return currentTime;
+      },
+      set currentTime(value: number) {
+        currentTime = value;
+        const seekListeners = listeners.seeked || [];
+        setTimeout(() => {
+          seekListeners.forEach((fn) => fn());
+        }, 0);
+      },
       readyState: 4,
       addEventListener(type: string, cb: (...args: any[]) => void, _opts?: any) {
         listeners[type] = listeners[type] || [];

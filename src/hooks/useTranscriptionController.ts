@@ -5,15 +5,16 @@ import { toast } from "@/components/ui/use-toast";
 import { createAsrPipeline, disposePipeline, transcribeChunk, isModelTooLargeError } from "@/lib/asr";
 import estimateConfidenceFromText, { scoreDetails } from "@/lib/textConfidence";
 import * as logger from "@/lib/logger";
-import { buildChunks } from "@/lib/chunking";
+import { buildChunks, buildFixedSegments, offsetChunks } from "@/lib/chunking";
 import {
   decodeFileFully,
-  decodeFileProgressively,
+  decodeCompressedBlobToPcm,
   extractChunkPcm,
   probeAudioMetadata,
-  type ProgressiveChunkResult,
 } from "@/lib/audio";
-import { preprocessDecodedAudio, preprocessPcmChunk, estimateNoiseProfile, computePreprocessParams } from "@/lib/preprocessing";
+import { preprocessDecodedAudio, estimateNoiseProfile, computePreprocessParams } from "@/lib/preprocessing";
+import { createSegmentCache } from "@/lib/segmenter";
+import { deleteSegment, deleteSessionSegments, getSegment } from "@/lib/segment-cache";
 import { TelemetryCollector } from "@/lib/telemetry";
 import type { TranscriptionSegment, WordSegment } from "@/lib/export";
 import { useAsrStore } from "@/store/asr-store";
@@ -260,133 +261,221 @@ export function useTranscriptionController() {
       const state = useAsrStore.getState();
       teleportStateToReady();
 
-      if (preprocessConfig) {
-            logger.info("[preprocess] progressive pipeline will preprocess chunks", preprocessConfig);
-      }
-
       const duration = state.audioMetadata?.durationSec ?? 0;
       useAsrStore.getState().registerAudioSource(source, state.audioMetadata);
-      const chunkPlan = buildChunks(
-        {
-          strategy: state.chunkStrategy,
-          chunkDurationSec: state.chunkDurationSec,
-          overlapSec: state.overlapSec,
-          durationSec: duration,
-          silence: {
-            silenceThresholdDb: state.silenceThresholdDb,
-            minSilenceMs: state.minSilenceMs,
-            minChunkMs: state.minChunkMs,
-            maxChunkMs: state.maxChunkMs,
-            sampleRate: undefined,
-          },
-        },
-        undefined,
-        undefined
-      );
+      const segmentDurationSec = Math.max(60, state.progressiveSegmentDurationSec);
+      const segmentOverlapSec = 5;
+      const segmentPlan = buildFixedSegments({
+        durationSec: duration,
+        segmentDurationSec,
+        overlapSec: segmentOverlapSec,
+      });
+      const segmentSessionId = crypto.randomUUID();
 
-      state.setChunkPlan(chunkPlan);
+      logger.info("[progressive-segment] plan", {
+        segments: segmentPlan.length,
+        segmentDurationSec,
+        overlapSec: segmentOverlapSec,
+        durationSec: duration,
+      });
+      telemetry.logEvent("PROGRESSIVE_SEGMENT_PLAN", {
+        segments: segmentPlan.length,
+        segmentDurationSec,
+        overlapSec: segmentOverlapSec,
+        durationSec: duration,
+      });
+
+      state.setChunkPlan([]);
       let nextIndex = state.segments.length;
       let lastSegment = state.segments.at(-1);
+      let globalChunkIndex = 0;
 
       const abortController = new AbortController();
       abortRef.current = abortController;
-      // We'll perform a per-chunk calibration (estimate a noise profile) and then a processing pass for each chunk.
-      // We'll also smooth profiles across chunks to avoid abrupt changes (ASR-friendly).
-      let sharedNoiseProfile: Float32Array | null = preprocessConfig?.noiseProfile ?? null;
+
+      const effectivePreprocessConfig = preprocessConfig ?? {
+        noiseFloorDb: state.denoiseNoiseFloorDb,
+        reductionDb: state.denoiseReductionDb,
+        smoothing: state.denoiseSmoothing,
+        calibrationSeconds: state.denoiseCalibrationSeconds,
+        noiseProfile: undefined as Float32Array | undefined,
+      };
+      logger.info("[preprocess] progressive segment mode", {
+        enabled: Boolean(effectivePreprocessConfig),
+        segmentDurationSec,
+      });
 
       try {
-        await decodeFileProgressively(file, {
-          chunkPlan,
-          targetSampleRate: 16000,
-          telemetry,
-          signal: abortController.signal,
-          onChunk: async (chunk) => {
-            const definition = chunkPlan.length
-              ? chunkPlan[Math.min(chunk.index, chunkPlan.length - 1)]
-              : undefined;
+        if (segmentPlan.length) {
+          state.setSegmentationStatus("segmenting");
+          state.setSegmentationProgress(0);
+          await createSegmentCache(file, {
+            sessionId: segmentSessionId,
+            segments: segmentPlan,
+            telemetry,
+            signal: abortController.signal,
+            onProgress: (completed, total) => {
+              const progress = total > 0 ? completed / total : 0;
+              state.setSegmentationProgress(progress);
+            },
+          });
+          state.setSegmentationStatus("done");
+        }
 
-            const denominator = chunkPlan.length || chunk.index + 1;
+        for (const segment of segmentPlan) {
+          if (shouldStopAfterChunk()) break;
 
-            let processed = null as Awaited<ReturnType<typeof preprocessPcmChunk>> | null;
+          telemetry.logEvent("PROGRESSIVE_SEGMENT_START", {
+            segmentIndex: segment.index,
+            startSec: segment.start,
+            endSec: segment.end,
+          });
+          logger.info("[progressive-segment] start", {
+            segmentIndex: segment.index,
+            startSec: segment.start,
+            endSec: segment.end,
+          });
 
-            if (preprocessConfig) {
-              useAsrStore.getState().setPreprocessingStatus("calibrating");
-              useAsrStore.getState().setPreprocessingProgress(chunk.index / denominator);
+          const cached = await getSegment(segmentSessionId, segment.index);
+          if (!cached) {
+            logger.warn("[progressive-segment] missing cached segment", { segmentIndex: segment.index });
+            continue;
+          }
 
-              try {
-                const { profile, frames } = estimateNoiseProfile(
-                  chunk.pcm,
-                  chunk.sampleRate,
-                  preprocessConfig.calibrationSeconds
+          let decoded: Awaited<ReturnType<typeof decodeCompressedBlobToPcm>> | null = null;
+          try {
+            decoded = await decodeCompressedBlobToPcm(cached.blob, telemetry, 16000);
+          } catch (error) {
+            if ((error as DOMException)?.name === "AbortError") {
+              break;
+            }
+            throw error;
+          } finally {
+            await deleteSegment(segmentSessionId, segment.index);
+          }
+
+          if (!decoded || !decoded.pcm.length) {
+            logger.warn("[progressive-segment] empty pcm", { segmentIndex: segment.index });
+            continue;
+          }
+
+          let segmentPcm = decoded.pcm;
+          let segmentSampleRate = decoded.sampleRate;
+          const segmentDuration = segmentPcm.length / segmentSampleRate;
+
+          if (effectivePreprocessConfig) {
+            useAsrStore.getState().setPreprocessingStatus("calibrating");
+            useAsrStore.getState().setPreprocessingProgress(segment.index / Math.max(1, segmentPlan.length));
+            try {
+              const { profile, frames } = estimateNoiseProfile(
+                segmentPcm,
+                segmentSampleRate,
+                effectivePreprocessConfig.calibrationSeconds
+              );
+              telemetry.logEvent("PREPROCESS_NOISE_PROFILE", { frames, source: "segment", segmentIndex: segment.index });
+              if (state.autoTunePreprocess) {
+                const tune = computePreprocessParams(
+                  profile,
+                  segmentPcm.subarray(0, Math.floor(effectivePreprocessConfig.calibrationSeconds * segmentSampleRate))
                 );
-                telemetry.logEvent("PREPROCESS_NOISE_PROFILE", { frames, source: "chunk" });
-
-                // Smooth the profile across chunks (exponential smoothing)
-                if (sharedNoiseProfile) {
-                  const alpha = 0.4;
-                  for (let i = 0; i < profile.length; i++) {
-                    sharedNoiseProfile[i] = alpha * profile[i] + (1 - alpha) * sharedNoiseProfile[i];
-                  }
-                } else {
-                  sharedNoiseProfile = profile;
-                }
-
-                // Auto-tune per-chunk params if enabled
-                if (state.autoTunePreprocess) {
-                  const tune = computePreprocessParams(sharedNoiseProfile, chunk.pcm.subarray(0, Math.floor(preprocessConfig.calibrationSeconds * chunk.sampleRate)));
-                  preprocessConfig.noiseFloorDb = tune.noiseFloorDb;
-                  preprocessConfig.reductionDb = tune.reductionDb;
-                  preprocessConfig.smoothing = tune.smoothing;
-                  // apply autotuned params to global settings so sliders reflect current autotune
-                  useAsrStore.getState().setDenoiseParams({ denoiseNoiseFloorDb: tune.noiseFloorDb, denoiseReductionDb: tune.reductionDb, denoiseSmoothing: tune.smoothing });
-                  useAsrStore.getState().setLastAutoTuneParams({ noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing });
-                  logger.info("[preprocess][autotune] chunk applied", { chunkIndex: chunk.index, noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing, snrDb: tune.snrDb });
-                  telemetry.logEvent("PREPROCESS_AUTOTUNE", { source: "chunk", chunkIndex: chunk.index, snrDb: tune.snrDb, noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing });
-                }
-
-                useAsrStore.getState().setPreprocessingStatus("processing");
-
-                processed = await preprocessPcmChunk(
-                  chunk.pcm,
-                  chunk.sampleRate,
-                  {
-                    ...preprocessConfig,
-                    noiseProfile: sharedNoiseProfile ?? undefined,
-                  },
-                  telemetry
-                );
-              } catch (err) {
-                logger.warn("Chunk calibration or processing failed, falling back to single-pass preprocess", err);
-                telemetry.recordAlert("PREPROCESS_CALIBRATION_FAILED", { message: (err as Error).message });
-                // Fallback: let preprocessPcmChunk compute/estimate a noise profile itself
-                processed = await preprocessPcmChunk(
-                  chunk.pcm,
-                  chunk.sampleRate,
-                  {
-                    ...preprocessConfig,
-                    noiseProfile: undefined,
-                  },
-                  telemetry
-                );
-                useAsrStore.getState().setPreprocessingStatus("processing");
+                effectivePreprocessConfig.noiseFloorDb = tune.noiseFloorDb;
+                effectivePreprocessConfig.reductionDb = tune.reductionDb;
+                effectivePreprocessConfig.smoothing = tune.smoothing;
+                useAsrStore.getState().setDenoiseParams({
+                  denoiseNoiseFloorDb: tune.noiseFloorDb,
+                  denoiseReductionDb: tune.reductionDb,
+                  denoiseSmoothing: tune.smoothing,
+                });
+                useAsrStore.getState().setLastAutoTuneParams({
+                  noiseFloorDb: tune.noiseFloorDb,
+                  reductionDb: tune.reductionDb,
+                  smoothing: tune.smoothing,
+                });
+                logger.info("[preprocess][autotune] segment applied", {
+                  segmentIndex: segment.index,
+                  noiseFloorDb: tune.noiseFloorDb,
+                  reductionDb: tune.reductionDb,
+                  smoothing: tune.smoothing,
+                  snrDb: tune.snrDb,
+                });
+                telemetry.logEvent("PREPROCESS_AUTOTUNE", {
+                  source: "segment",
+                  segmentIndex: segment.index,
+                  snrDb: tune.snrDb,
+                  noiseFloorDb: tune.noiseFloorDb,
+                  reductionDb: tune.reductionDb,
+                  smoothing: tune.smoothing,
+                });
               }
 
-              // update preprocessing progress (based on chunk index if we have a chunk plan)
-              useAsrStore.getState().setPreprocessingProgress((chunk.index + 1) / denominator);
+              useAsrStore.getState().setPreprocessingStatus("processing");
+              const processed = await preprocessDecodedAudio(
+                {
+                  metadata: { durationSec: segmentDuration },
+                  pcm: segmentPcm,
+                  sampleRate: segmentSampleRate,
+                },
+                {
+                  ...effectivePreprocessConfig,
+                  noiseProfile: profile,
+                },
+                telemetry
+              );
+              segmentPcm = processed.pcm;
+              segmentSampleRate = processed.sampleRate;
+            } catch (err) {
+              logger.warn("[preprocess] segment preprocess failed", err);
+              telemetry.recordAlert("PREPROCESS_CALIBRATION_FAILED", { message: (err as Error).message });
+            } finally {
+              useAsrStore.getState().setPreprocessingProgress((segment.index + 1) / Math.max(1, segmentPlan.length));
+              useAsrStore.getState().setPreprocessingStatus("done");
             }
+          }
 
-            const pcmToUse = processed?.pcm ?? chunk.pcm;
-            const sampleRateToUse = processed?.sampleRate ?? chunk.sampleRate;
+          try {
+            const bytes = segmentPcm.byteLength ?? 0;
+            telemetry.snapshotMemory(`SEGMENT_READY_${segment.index}`);
+            telemetry.logEvent("RAM_USAGE", {
+              context: "segment",
+              index: segment.index,
+              bytes,
+              mb: Number((bytes / (1024 * 1024)).toFixed(3)),
+            });
+          } catch (err) {
+            void err;
+          }
 
+          const segmentChunkPlan = buildChunks(
+            {
+              strategy: state.chunkStrategy,
+              chunkDurationSec: state.chunkDurationSec,
+              overlapSec: state.overlapSec,
+              durationSec: segmentPcm.length / segmentSampleRate,
+              silence: {
+                silenceThresholdDb: state.silenceThresholdDb,
+                minSilenceMs: state.minSilenceMs,
+                minChunkMs: state.minChunkMs,
+                maxChunkMs: state.maxChunkMs,
+                sampleRate: segmentSampleRate,
+              },
+            },
+            segmentPcm,
+            segmentSampleRate
+          );
+          const segmentChunkPlanGlobal = offsetChunks(segmentChunkPlan, segment.start, globalChunkIndex);
+          globalChunkIndex += segmentChunkPlanGlobal.length;
+          state.setChunkPlan([...useAsrStore.getState().chunkPlan, ...segmentChunkPlanGlobal]);
 
+          for (let i = 0; i < segmentChunkPlan.length; i += 1) {
+            if (shouldStopAfterChunk()) break;
+            const localChunk = segmentChunkPlan[i]!;
+            const globalChunk = segmentChunkPlanGlobal[i]!;
+            const chunkPcm = extractChunkPcm(segmentPcm, segmentSampleRate, localChunk);
             const result = await transcribeChunk({
               pipeline,
-              chunk: definition ?? {
-                ...createFallbackChunk(chunk),
-                index: chunk.index,
-              },
-              pcm: pcmToUse,
-              sampleRate: sampleRateToUse,
+              chunk: globalChunk,
+              pcm: chunkPcm,
+              sampleRate: segmentSampleRate,
               telemetry,
             });
 
@@ -398,10 +487,10 @@ export function useTranscriptionController() {
             }
 
             const metric = {
-              id: definition?.id ?? crypto.randomUUID(),
-              index: chunk.index,
-              startSec: chunk.startSec,
-              endSec: chunk.endSec,
+              id: globalChunk.id,
+              index: globalChunk.index,
+              startSec: globalChunk.start,
+              endSec: globalChunk.end,
               transcriptionMs: result.processingMs,
               realtimeFactor: result.realtimeFactor,
               text: result.text,
@@ -409,20 +498,20 @@ export function useTranscriptionController() {
             telemetry.pushChunkMetric(metric);
             state.pushChunkMetric(metric);
 
-            state.setProgress((chunk.index + 1) / denominator);
-            // Recompute overall confidence now that we've appended any new segments for this chunk
+            const progress = duration > 0 ? Math.min(1, Math.max(0, (globalChunk.end ?? segment.end) / duration)) : 0;
+            state.setProgress(progress);
+
             try {
               const { computeOverallConfidence, computeOverallConfidenceSource } = await import("@/lib/confidence");
               let overall = computeOverallConfidence(useAsrStore.getState().segments);
-              // fallback: if overall missing but chunk has text, estimate from chunk text
               let fallbackUsed = false;
               if (overall === null && typeof result?.text === "string" && result.text.trim().length) {
                 try {
-                  const dur = Math.max(0.001, (chunk.endSec ?? chunk.startSec) - (chunk.startSec ?? 0));
+                  const dur = Math.max(0.001, (globalChunk.end ?? globalChunk.start) - (globalChunk.start ?? 0));
                   const est = estimateConfidenceFromText(result.text, dur);
                   overall = Math.max(0, Math.min(1, est));
                   fallbackUsed = true;
-                  logger.info("Computed overall from chunk text (fallback)", { chunkIndex: chunk.index, est, overall });
+                  logger.info("Computed overall from chunk text (fallback)", { chunkIndex: globalChunk.index, est, overall });
                 } catch (err) {
                   void err;
                 }
@@ -430,35 +519,36 @@ export function useTranscriptionController() {
               const source = computeOverallConfidenceSource(useAsrStore.getState().segments) ?? (fallbackUsed ? 'estimated' : null);
               useAsrStore.getState().setTranscriptionConfidence(overall);
               useAsrStore.getState().setTranscriptionConfidenceSource(source);
-              useAsrStore.getState().setTranscriptionConfidenceSource(source);
-              telemetry?.logEvent("PROGRESS_CONFIDENCE", { chunkIndex: chunk.index, overall });
-              logger.info("Progressive transcript confidence", { chunkIndex: chunk.index, overall, source });
+              telemetry?.logEvent("PROGRESS_CONFIDENCE", { chunkIndex: globalChunk.index, overall });
+              logger.info("Progressive transcript confidence", { chunkIndex: globalChunk.index, overall, source });
             } catch (err) {
               logger.warn("Failed to compute progressive transcript confidence", err);
             }
-            // Memory snapshot for this chunk
+
             try {
-              const bytes = (pcmToUse as Float32Array).byteLength ?? 0;
-              telemetry.snapshotMemory(`CHUNK_AFTER_PROCESS_${chunk.index}`);
-              telemetry.logEvent("RAM_USAGE", { context: "chunk", index: chunk.index, bytes, mb: Number((bytes / (1024 * 1024)).toFixed(3)) });
+              const bytes = (chunkPcm as Float32Array).byteLength ?? 0;
+              telemetry.snapshotMemory(`CHUNK_AFTER_PROCESS_${globalChunk.index}`);
+              telemetry.logEvent("RAM_USAGE", { context: "chunk", index: globalChunk.index, bytes, mb: Number((bytes / (1024 * 1024)).toFixed(3)) });
             } catch (err) {
               void err;
             }
+          }
 
-            if (shouldStopAfterChunk()) {
-              abortController.abort();
-            }
-          },
-        });
+          telemetry.logEvent("PROGRESSIVE_SEGMENT_DONE", {
+            segmentIndex: segment.index,
+            startSec: segment.start,
+            endSec: segment.end,
+          });
+          logger.info("[progressive-segment] done", { segmentIndex: segment.index });
+          segmentPcm = new Float32Array(0);
+        }
       } catch (error) {
         if ((error as DOMException)?.name !== "AbortError") {
+          state.setSegmentationStatus("error");
           throw error;
         }
-      }
-      // mark preprocessing done for progressive mode
-      if (preprocessConfig) {
-        useAsrStore.getState().setPreprocessingProgress(1);
-        useAsrStore.getState().setPreprocessingStatus("done");
+      } finally {
+        await deleteSessionSegments(segmentSessionId);
       }
     },
     []
@@ -491,6 +581,8 @@ export function useTranscriptionController() {
     state.setSegments([]);
     state.setChunkPlan([]);
     state.setTelemetrySummary(null);
+    state.setSegmentationStatus("idle");
+    state.setSegmentationProgress(0);
 
     const metadata = await probeAudioMetadata(file);
     const source = { id: crypto.randomUUID(), label: file.name, type: "file" as const };
@@ -501,7 +593,7 @@ export function useTranscriptionController() {
     state.setStatus("downloading", "Chargement du pipeline");
     state.setIsTranscribing(true);
 
-    const shouldPreprocess = state.preprocessingMode === "full";
+    const shouldPreprocess = state.preprocessingMode === "full" || state.memoryMode === "progressive";
     const calibrationRequested = Boolean(state.noiseCalibrationRequestedAt);
     const preprocessConfig = shouldPreprocess
       ? {
@@ -513,7 +605,7 @@ export function useTranscriptionController() {
         }
       : null;
     if (shouldPreprocess) {
-      logger.info("[preprocess] full mode active", preprocessConfig);
+      logger.info("[preprocess] active", { ...preprocessConfig, memoryMode: state.memoryMode });
       state.clearNoiseCalibrationRequest();
       if (calibrationRequested) {
         logger.info("[preprocess] calibration requested (1s noise capture)");
@@ -858,16 +950,6 @@ export function normaliseSegments(
     idx += 1;
   }
   return segments;
-}
-
-function createFallbackChunk(chunk: ProgressiveChunkResult) {
-  return {
-    id: crypto.randomUUID(),
-    start: chunk.startSec,
-    end: chunk.endSec,
-    paddedStart: chunk.startSec,
-    paddedEnd: chunk.endSec,
-  } as const;
 }
 
 function trimChunkOverlap(previousText: string | undefined, currentText: string): string {

@@ -34,6 +34,10 @@ export function StatusBar({ onStop, onStart, startDisabled }: StatusBarProps) {
     segments,
     activeBackend,
     backendPreference,
+    chunkStrategy,
+    chunkDurationSec,
+    overlapSec,
+    audioMetadata,
   } = useAsrStore();
 
   const statusMeta = STATUS_LABELS[status] ?? STATUS_LABELS.idle;
@@ -41,7 +45,21 @@ export function StatusBar({ onStop, onStart, startDisabled }: StatusBarProps) {
   const doneChunks = useMemo(() => segments.length, [segments.length]);
   const lastChunkMetric = chunkMetrics.at(-1);
   const lastRealtimeFactor = lastChunkMetric?.realtimeFactor;
-  const totalChunks = chunkPlan.length;
+  const totalChunks = useMemo(() => {
+    const durationSec = audioMetadata?.durationSec ?? 0;
+    if (!Number.isFinite(durationSec) || durationSec <= 0 || chunkDurationSec <= 0) {
+      return chunkPlan.length;
+    }
+    const strategy = chunkStrategy === "silence" ? "overlap" : chunkStrategy;
+    const step = strategy === "sequential" ? chunkDurationSec : Math.max(0.5, chunkDurationSec - overlapSec);
+    let count = 0;
+    for (let start = 0; start < durationSec; start += step) {
+      const end = Math.min(start + chunkDurationSec, durationSec);
+      count += 1;
+      if (end >= durationSec) break;
+    }
+    return count;
+  }, [audioMetadata?.durationSec, chunkDurationSec, overlapSec, chunkStrategy, chunkPlan.length]);
   const backendDisplay = activeBackend ?? backendPreference;
   const backendBadgeVariant: "success" | "warning" = backendDisplay === "webgpu" ? "success" : "warning";
   const backendBadge = backendDisplay
@@ -52,7 +70,19 @@ export function StatusBar({ onStop, onStart, startDisabled }: StatusBarProps) {
     : null;
 
   const { totalChunkDuration, processedChunkDuration, averageRealtimeFactor } = useMemo(() => {
-    const totalChunkDuration = chunkPlan.reduce((acc, chunk) => acc + Math.max(0, chunk.end - chunk.start), 0);
+    let totalChunkDuration = 0;
+    const durationSec = audioMetadata?.durationSec ?? 0;
+    if (Number.isFinite(durationSec) && durationSec > 0 && chunkDurationSec > 0) {
+      const strategy = chunkStrategy === "silence" ? "overlap" : chunkStrategy;
+      const step = strategy === "sequential" ? chunkDurationSec : Math.max(0.5, chunkDurationSec - overlapSec);
+      for (let start = 0; start < durationSec; start += step) {
+        const end = Math.min(start + chunkDurationSec, durationSec);
+        totalChunkDuration += Math.max(0, end - start);
+        if (end >= durationSec) break;
+      }
+    } else {
+      totalChunkDuration = chunkPlan.reduce((acc, chunk) => acc + Math.max(0, chunk.end - chunk.start), 0);
+    }
     let processedChunkDuration = 0;
     let realtimeSum = 0;
     for (const metric of chunkMetrics) {
@@ -61,7 +91,7 @@ export function StatusBar({ onStop, onStart, startDisabled }: StatusBarProps) {
     }
     const averageRealtimeFactor = chunkMetrics.length > 0 ? realtimeSum / chunkMetrics.length : undefined;
     return { totalChunkDuration, processedChunkDuration, averageRealtimeFactor };
-  }, [chunkPlan, chunkMetrics]);
+  }, [audioMetadata?.durationSec, chunkDurationSec, overlapSec, chunkStrategy, chunkPlan, chunkMetrics]);
   const remainingChunkDuration = Math.max(0, totalChunkDuration - processedChunkDuration);
   const etaFactorPreference = lastRealtimeFactor ?? averageRealtimeFactor;
   const etaSeconds =

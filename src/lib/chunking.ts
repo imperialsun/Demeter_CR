@@ -19,6 +19,12 @@ export interface ChunkDefinition {
   paddedEnd: number;
 }
 
+export interface FixedSegmentConfig {
+  durationSec: number;
+  segmentDurationSec: number;
+  overlapSec: number;
+}
+
 export function buildChunks(
   config: ChunkingConfig,
   monoPcm?: Float32Array,
@@ -33,6 +39,44 @@ export function buildChunks(
     default:
       return buildSequentialChunks(config);
   }
+}
+
+export function buildFixedSegments(config: FixedSegmentConfig): ChunkDefinition[] {
+  const durationSec = Math.max(0, config.durationSec);
+  const segmentDurationSec = Math.max(1, config.segmentDurationSec);
+  const overlapSec = Math.min(Math.max(0, config.overlapSec), Math.max(0, segmentDurationSec - 1));
+  const step = Math.max(1, segmentDurationSec - overlapSec);
+  const segments: ChunkDefinition[] = [];
+  let index = 0;
+  for (let start = 0; start < durationSec; start += step) {
+    const end = Math.min(start + segmentDurationSec, durationSec);
+    segments.push({
+      id: crypto.randomUUID(),
+      index,
+      start,
+      end,
+      paddedStart: start,
+      paddedEnd: end,
+    });
+    index += 1;
+    if (end >= durationSec) break;
+  }
+  return segments;
+}
+
+export function offsetChunks(
+  chunks: ChunkDefinition[],
+  offsetSec: number,
+  startIndex: number
+): ChunkDefinition[] {
+  return chunks.map((chunk, idx) => ({
+    id: crypto.randomUUID(),
+    index: startIndex + idx,
+    start: chunk.start + offsetSec,
+    end: chunk.end + offsetSec,
+    paddedStart: chunk.paddedStart + offsetSec,
+    paddedEnd: chunk.paddedEnd + offsetSec,
+  }));
 }
 
 function buildSequentialChunks(config: ChunkingConfig): ChunkDefinition[] {

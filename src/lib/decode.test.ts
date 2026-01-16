@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { describe, it, expect } from 'vitest';
-import { decodeFileFully, decodeFileProgressively } from './audio';
-import { mockAudioContext, mockDocumentAudio, mockMediaRecorder } from '@/test/audioMocks';
+import { decodeCompressedBlobToPcm, decodeFileFully, decodeFileSegmentToPcm } from './audio';
+import { mockAudioContext, mockDocumentAudio, mockMediaRecorder, mockOfflineAudioContext } from '@/test/audioMocks';
 
 describe('decodeFileFully (with mocks)', () => {
   it('decodes a file and returns pcm and metadata', async () => {
@@ -36,9 +36,8 @@ describe('decodeFileFully (with mocks)', () => {
   });
 });
 
-describe('decodeFileProgressively (with mocks)', () => {
-  it('processes at least one chunk using MediaRecorder/requestData flow', async () => {
-    // set up mocks: AudioContext decodeAudioData will return fake buffer
+describe('decodeFileSegmentToPcm (with mocks)', () => {
+  it('decodes a single segment to pcm', async () => {
     const fakeBuffer = {
       sampleRate: 16000,
       length: 16000,
@@ -51,7 +50,6 @@ describe('decodeFileProgressively (with mocks)', () => {
     const restoreDocAudio = mockDocumentAudio({ duration: 1, streamTracks: 1 });
     const restoreMedia = mockMediaRecorder();
 
-    // polyfill URL.createObjectURL used by decodeFileProgressively
     const origCreate = (URL as any).createObjectURL;
     const origRevoke = (URL as any).revokeObjectURL;
     (URL as any).createObjectURL = (_: any) => 'blob://test';
@@ -64,21 +62,14 @@ describe('decodeFileProgressively (with mocks)', () => {
       lastModified: 0,
     } as unknown as File;
 
-    const chunks: any[] = [];
-    const chunkPlan = [{ start: 0, end: 1 }];
-
     try {
-      const meta = await decodeFileProgressively(fileLike, {
-        chunkPlan: chunkPlan as any,
-        targetSampleRate: 16000,
-        onChunk: async (c: any) => {
-          chunks.push(c);
-        },
-      } as any);
-
-      expect(meta.durationSec).toBeCloseTo(1, 2);
-      // allow the mock recorder to produce a chunk
-      expect(chunks.length).toBeGreaterThanOrEqual(1);
+      const result = await decodeFileSegmentToPcm(
+        fileLike,
+        { index: 0, startSec: 0, endSec: 1 },
+        { targetSampleRate: 16000 }
+      );
+      expect(result.pcm.length).toBeGreaterThan(0);
+      expect(result.sampleRate).toBe(16000);
     } finally {
       restoreAudioCtx();
       restoreDocAudio();
@@ -87,4 +78,29 @@ describe('decodeFileProgressively (with mocks)', () => {
       (URL as any).revokeObjectURL = origRevoke;
     }
   }, 10_000);
+});
+
+describe('decodeCompressedBlobToPcm (with mocks)', () => {
+  it('decodes a compressed blob to pcm', async () => {
+    const fakeBuffer = {
+      sampleRate: 16000,
+      length: 16000,
+      duration: 1,
+      numberOfChannels: 1,
+      getChannelData: (_: number) => new Float32Array(16000).fill(0.1),
+    } as unknown as AudioBuffer;
+
+    const restoreAudioCtx = mockAudioContext(fakeBuffer);
+    const restoreOffline = mockOfflineAudioContext(16000);
+    const blob = new Blob([new Uint8Array(8)], { type: 'audio/webm' });
+
+    try {
+      const result = await decodeCompressedBlobToPcm(blob, undefined, 16000);
+      expect(result.sampleRate).toBe(16000);
+      expect(result.pcm.length).toBeGreaterThan(0);
+    } finally {
+      restoreAudioCtx();
+      restoreOffline();
+    }
+  });
 });

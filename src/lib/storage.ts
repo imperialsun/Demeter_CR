@@ -13,6 +13,7 @@ export interface PersistedSettings {
   preprocessingMode: "quick" | "full";
   chunkDurationSec: number;
   overlapSec: number;
+  progressiveSegmentDurationSec: number;
   silenceThresholdDb: number;
   minSilenceMs: number;
   minChunkMs: number;
@@ -66,6 +67,7 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   segmentationMode: "chunks",
   chunkDurationSec: 15,
   overlapSec: 1.5,
+  progressiveSegmentDurationSec: 600,
   silenceThresholdDb: -35,
   minSilenceMs: 600,
   minChunkMs: 3000,

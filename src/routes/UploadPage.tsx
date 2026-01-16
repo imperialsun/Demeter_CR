@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { AudioUploader } from "@/components/audio/AudioUploader";
 import { AudioPlayer } from "@/components/audio/AudioPlayer";
 import { StatusBar } from "@/components/status/StatusBar";
+import { SegmentationStatusPanel } from "@/components/status/SegmentationStatusPanel";
 import { PreprocessingStatusPanel } from "@/components/status/PreprocessingStatusPanel";
 import { ResultsTable } from "@/components/results/ResultsTable";
 import { ExportButtons } from "@/components/results/ExportButtons";
@@ -30,6 +31,7 @@ function UploadPage() {
   const activePreset = useAsrStore((state) => state.activePreset);
   const setPreset = useAsrStore((state) => state.setPreset);
   const preprocessingMode = useAsrStore((state) => state.preprocessingMode);
+  const memoryMode = useAsrStore((state) => state.memoryMode);
   // Read transcription confidence unconditionally to respect Hooks rules
   const transcriptionConfidence = useAsrStore((s) => s.transcriptionConfidence);
   const transcriptionConfidenceSource = useAsrStore((s) => s.transcriptionConfidenceSource);
@@ -109,6 +111,7 @@ function UploadPage() {
 
       <div className="grid gap-6 xl:grid-cols-[360px,1fr]">
         <div className="space-y-4">
+          {memoryMode === "progressive" ? <SegmentationStatusPanel /> : null}
           {preprocessingMode === "full" ? <PreprocessingStatusPanel /> : null}
           <AudioUploader
             onFileSelected={handleFileSelected}

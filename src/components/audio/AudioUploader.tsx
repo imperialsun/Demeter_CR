@@ -75,7 +75,7 @@ export function AudioUploader({ onFileSelected, metadata, disabled }: AudioUploa
       try {
         const tmp = document.createElement("input");
         tmp.type = "file";
-        tmp.accept = "audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,audio/aac";
+        tmp.accept = "audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,audio/aac,audio/ogg,audio/webm";
         tmp.style.display = "none";
         document.body.appendChild(tmp);
         tmp.addEventListener("change", () => handleFiles(tmp.files));
@@ -138,12 +138,12 @@ export function AudioUploader({ onFileSelected, metadata, disabled }: AudioUploa
           <p className="text-sm text-muted-foreground">
             Déposez votre fichier ici ou <span className="text-primary">cliquez</span> pour parcourir.
           </p>
-          <p className="text-xs text-muted-foreground/80">Formats supportés : mp3, wav, m4a.</p>
+          <p className="text-xs text-muted-foreground/80">Formats supportés : mp3, wav, m4a, ogg, webm.</p>
           {/* keep the input in the DOM (not display:none) so programmatic click reliably opens the file picker across browsers */}
           <Input
             ref={inputRef}
             type="file"
-            accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,audio/aac"
+            accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,audio/aac,audio/ogg,audio/webm"
             className="sr-only absolute w-0 h-0 opacity-0"
             onChange={(event) => { logger.info('Audio input onChange', { files: event.target.files?.length }); handleFiles(event.target.files); }}
             onClick={() => logger.info('Audio input clicked')}

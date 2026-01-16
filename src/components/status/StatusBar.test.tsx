@@ -56,6 +56,20 @@ describe('StatusBar', () => {
     expect(screen.getByText(/2\/3 segments traités/i)).toBeTruthy();
   });
 
+  it('estimates total segments from full audio duration in progressive mode', () => {
+    useAsrStore.setState({
+      progress: 0.1,
+      chunkPlan: [],
+      segments: [{}],
+      chunkStrategy: 'overlap',
+      chunkDurationSec: 30,
+      overlapSec: 5,
+      audioMetadata: { durationSec: 120 },
+    } as any);
+    render(<StatusBar />);
+    expect(screen.getByText(/1\/5 segments traités/i)).toBeTruthy();
+  });
+
   it('shows realtime speed and ETA when metrics available', () => {
     useAsrStore.setState({
       chunkPlan: [{ start: 0, end: 10 }, { start: 10, end: 20 }],
