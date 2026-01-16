@@ -1,11 +1,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { screen, fireEvent } from '@testing-library/react';
 import { renderWithStore } from '@/test/utils';
 import { AudioPlayer } from './AudioPlayer';
 
 // Simple helpers to mock play/pause on HTMLMediaElement
 beforeEach(() => {
+  vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock');
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+
   // Replace paused getter with a configurable mock and mock play/pause to update internal state
   let _paused = true;
   Object.defineProperty(HTMLMediaElement.prototype, 'paused', {
@@ -24,9 +27,17 @@ beforeEach(() => {
   };
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+function createTestFile() {
+  return new File([new Blob(['test'], { type: 'audio/wav' })], 'foo.wav', { type: 'audio/wav' });
+}
+
 describe('AudioPlayer', () => {
   it('renders metadata and formatted duration', () => {
-    const file = { name: 'foo.wav', type: 'audio/wav' } as unknown as File;
+    const file = createTestFile();
     const metadata = { name: 'foo.wav', durationSec: 75, sampleRate: 16000 } as any;
     renderWithStore(<AudioPlayer file={file} metadata={metadata} />);
 
@@ -37,7 +48,7 @@ describe('AudioPlayer', () => {
   });
 
   it('play button triggers play and toggles to Pause', async () => {
-    const file = { name: 'foo.wav', type: 'audio/wav' } as unknown as File;
+    const file = createTestFile();
     renderWithStore(<AudioPlayer file={file} metadata={null} />);
 
     const playButton = screen.getByRole('button', { name: /Lecture/i });
@@ -49,7 +60,7 @@ describe('AudioPlayer', () => {
   });
 
   it('skip forward/back updates current time', () => {
-    const file = { name: 'foo.wav', type: 'audio/wav' } as unknown as File;
+    const file = createTestFile();
     renderWithStore(<AudioPlayer file={file} metadata={null} />);
 
     const audio = document.querySelector('audio') as HTMLAudioElement;
@@ -69,7 +80,7 @@ describe('AudioPlayer', () => {
   });
 
   it('prev/next segment navigates between segments using store', () => {
-    const file = { name: 'foo.wav', type: 'audio/wav' } as unknown as File;
+    const file = createTestFile();
     const segments = [
       { index: 0, start: 0, text: 'a' },
       { index: 1, start: 5, text: 'b' },
