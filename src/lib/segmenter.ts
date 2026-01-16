@@ -16,10 +16,16 @@ export interface SegmentingOptions {
 function getSegmentExtension(file: File): string {
   const name = file.name || "";
   const dot = name.lastIndexOf(".");
-  if (dot > -1 && dot < name.length - 1) {
-    return name.slice(dot + 1).toLowerCase();
+  const nameExt = dot > -1 && dot < name.length - 1 ? name.slice(dot + 1).toLowerCase() : undefined;
+  const mimeExt = getExtensionFromMime(file.type);
+  if (mimeExt && nameExt && mimeExt !== nameExt) {
+    logger.warn("[segmenter] extension mismatch", { nameExt, mimeExt, fileType: file.type });
   }
-  switch (file.type) {
+  return mimeExt ?? nameExt ?? "webm";
+}
+
+function getExtensionFromMime(type: string): string | undefined {
+  switch (type) {
     case "audio/mpeg":
       return "mp3";
     case "audio/mp4":
@@ -35,7 +41,7 @@ function getSegmentExtension(file: File): string {
     case "audio/ogg":
       return "ogg";
     default:
-      return "webm";
+      return undefined;
   }
 }
 
@@ -79,7 +85,10 @@ function getCopyFormat(ext: string): string | null {
   }
 }
 
-export async function createSegmentCache(file: File, options: SegmentingOptions): Promise<void> {
+export async function createSegmentCache(
+  file: File,
+  options: SegmentingOptions
+): Promise<{ completed: number; total: number; aborted: boolean }> {
   const { sessionId, segments, telemetry, signal, onProgress } = options;
   const ffmpeg = await getFfmpeg();
   const inputDir = "/input";
@@ -105,10 +114,13 @@ export async function createSegmentCache(file: File, options: SegmentingOptions)
   }
   await ffmpeg.mount(FFFSType.WORKERFS, { files: [file] }, inputDir);
 
+  let completed = 0;
+  let aborted = false;
   try {
     for (let i = 0; i < segments.length; i += 1) {
       if (signal?.aborted) {
         telemetry?.logEvent("STOP_REQUESTED");
+        aborted = true;
         break;
       }
       const segment = segments[i]!;
@@ -180,9 +192,16 @@ export async function createSegmentCache(file: File, options: SegmentingOptions)
         await ffmpeg.deleteFile(outputPath);
       }
 
-      const completed = i + 1;
+      completed = i + 1;
       onProgress?.(completed, segments.length);
       telemetry?.logEvent("SEGMENT_CACHE_PROGRESS", { completed, total: segments.length });
+    }
+  } catch (err) {
+    if (signal?.aborted) {
+      telemetry?.logEvent("STOP_REQUESTED");
+      aborted = true;
+    } else {
+      throw err;
     }
   } finally {
     try {
@@ -216,7 +235,8 @@ export async function createSegmentCache(file: File, options: SegmentingOptions)
     } catch (err) {
       logger.warn("[segmenter] ffmpeg terminate failed", err);
     }
-    telemetry?.logEvent("SEGMENT_CACHE_DONE", { segments: segments.length });
-    logger.info("[segmenter] done", { segments: segments.length });
+    telemetry?.logEvent("SEGMENT_CACHE_DONE", { segments: segments.length, completed, aborted });
+    logger.info("[segmenter] done", { segments: segments.length, completed, aborted });
   }
+  return { completed, total: segments.length, aborted };
 }

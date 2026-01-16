@@ -10,6 +10,7 @@ export function SegmentationStatusPanel() {
     idle: { label: "Inactif", variant: "secondary" },
     segmenting: { label: "Découpage…", variant: "violet" },
     done: { label: "Terminée", variant: "success" },
+    stopped: { label: "Interrompue", variant: "warning" },
     error: { label: "Erreur", variant: "warning" },
   };
   const meta = labelMap[segmentationStatus] ?? labelMap.idle;

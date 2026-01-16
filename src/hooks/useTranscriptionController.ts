@@ -305,11 +305,17 @@ export function useTranscriptionController() {
         segmentDurationSec,
       });
 
+      let preprocessingStopped = false;
+      if (effectivePreprocessConfig) {
+        useAsrStore.getState().setPreprocessingStatus("processing");
+        useAsrStore.getState().setPreprocessingProgress(0);
+      }
+
       try {
         if (segmentPlan.length) {
           state.setSegmentationStatus("segmenting");
           state.setSegmentationProgress(0);
-          await createSegmentCache(file, {
+          const segmenting = await createSegmentCache(file, {
             sessionId: segmentSessionId,
             segments: segmentPlan,
             telemetry,
@@ -319,11 +325,25 @@ export function useTranscriptionController() {
               state.setSegmentationProgress(progress);
             },
           });
+          if (segmenting.aborted) {
+            state.setSegmentationStatus("stopped");
+            logger.warn("[progressive-segment] segmentation stopped", {
+              completed: segmenting.completed,
+              total: segmenting.total,
+            });
+            if (effectivePreprocessConfig) {
+              useAsrStore.getState().setPreprocessingStatus("idle");
+            }
+            return;
+          }
           state.setSegmentationStatus("done");
         }
 
         for (const segment of segmentPlan) {
-          if (shouldStopAfterChunk()) break;
+          if (shouldStopAfterChunk()) {
+            preprocessingStopped = true;
+            break;
+          }
 
           telemetry.logEvent("PROGRESSIVE_SEGMENT_START", {
             segmentIndex: segment.index,
@@ -428,7 +448,7 @@ export function useTranscriptionController() {
               telemetry.recordAlert("PREPROCESS_CALIBRATION_FAILED", { message: (err as Error).message });
             } finally {
               useAsrStore.getState().setPreprocessingProgress((segment.index + 1) / Math.max(1, segmentPlan.length));
-              useAsrStore.getState().setPreprocessingStatus("done");
+              useAsrStore.getState().setPreprocessingStatus("processing");
             }
           }
 
@@ -467,7 +487,10 @@ export function useTranscriptionController() {
           state.setChunkPlan([...useAsrStore.getState().chunkPlan, ...segmentChunkPlanGlobal]);
 
           for (let i = 0; i < segmentChunkPlan.length; i += 1) {
-            if (shouldStopAfterChunk()) break;
+            if (shouldStopAfterChunk()) {
+              preprocessingStopped = true;
+              break;
+            }
             const localChunk = segmentChunkPlan[i]!;
             const globalChunk = segmentChunkPlanGlobal[i]!;
             const chunkPcm = extractChunkPcm(segmentPcm, segmentSampleRate, localChunk);
@@ -541,11 +564,25 @@ export function useTranscriptionController() {
           });
           logger.info("[progressive-segment] done", { segmentIndex: segment.index });
           segmentPcm = new Float32Array(0);
+          if (preprocessingStopped) {
+            break;
+          }
+        }
+        if (effectivePreprocessConfig) {
+          if (preprocessingStopped || shouldStopAfterChunk()) {
+            useAsrStore.getState().setPreprocessingStatus("idle");
+          } else {
+            useAsrStore.getState().setPreprocessingStatus("done");
+            useAsrStore.getState().setPreprocessingProgress(1);
+          }
         }
       } catch (error) {
         if ((error as DOMException)?.name !== "AbortError") {
           state.setSegmentationStatus("error");
           throw error;
+        }
+        if (effectivePreprocessConfig) {
+          useAsrStore.getState().setPreprocessingStatus("idle");
         }
       } finally {
         await deleteSessionSegments(segmentSessionId);

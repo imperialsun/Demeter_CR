@@ -6,10 +6,10 @@ let ffmpegPromise: Promise<FFmpeg> | null = null;
 const FFMPEG_ASSETS_BASE = "/ffmpeg";
 
 function resolveFfmpegAssetUrls() {
-  const base =
-    typeof window !== "undefined" && window.location?.origin
-      ? `${window.location.origin}${FFMPEG_ASSETS_BASE}`
-      : FFMPEG_ASSETS_BASE;
+  const base = FFMPEG_ASSETS_BASE;
+  if (typeof window === "undefined") {
+    logger.warn("[ffmpeg] resolve urls without window");
+  }
   return {
     coreURL: `${base}/ffmpeg-core.js`,
     wasmURL: `${base}/ffmpeg-core.wasm`,

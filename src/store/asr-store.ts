@@ -87,7 +87,7 @@ interface AsrConfigState {
   preprocessingMode: "quick" | "full";
   preprocessingStatus: "idle" | "calibrating" | "processing" | "done";
   preprocessingProgress: number;
-  segmentationStatus: "idle" | "segmenting" | "done" | "error";
+  segmentationStatus: "idle" | "segmenting" | "done" | "stopped" | "error";
   segmentationProgress: number;
   denoiseNoiseFloorDb: number;
   denoiseReductionDb: number;
@@ -145,7 +145,7 @@ interface AsrConfigActions {
   setPreprocessingMode: (mode: "quick" | "full") => void;
   setPreprocessingStatus: (status: "idle" | "calibrating" | "processing" | "done") => void;
   setPreprocessingProgress: (value: number) => void;
-  setSegmentationStatus: (status: "idle" | "segmenting" | "done" | "error") => void;
+  setSegmentationStatus: (status: "idle" | "segmenting" | "done" | "stopped" | "error") => void;
   setSegmentationProgress: (value: number) => void;
   setDenoiseParams: (params: Partial<{
     denoiseNoiseFloorDb: number;
