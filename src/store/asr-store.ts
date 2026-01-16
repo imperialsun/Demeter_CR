@@ -7,7 +7,7 @@ import type { ChunkDefinition } from "@/lib/chunking";
 import type { TranscriptionSegment } from "@/lib/export";
 import type { TelemetryCollector, ChunkTelemetry, TelemetrySummary } from "@/lib/telemetry";
 
-type PresetKey = "fast" | "balanced" | "medium" | "quality" | "custom";
+type PresetKey = "fast" | "balanced" | "medium" | "quality" | "french" | "custom";
 
 export type BackendImplementation = "webgpu" | "wasm";
 
@@ -51,6 +51,12 @@ export const MODEL_PRESETS: Record<Exclude<PresetKey, "custom">, ModelPreset> = 
     label: "Qualité (whisper-medium)",
     modelId: "Xenova/whisper-medium",
     description: "Précision supérieure à l'option Intermédiaire, au prix d'un temps de traitement et d'un usage mémoire plus élevés.",
+  },
+  french: {
+    key: "french",
+    label: "Français (whisper-small-cv11)",
+    modelId: "onnx-community/whisper-small-cv11-french-ONNX",
+    description: "Modèle spécialisé français pour une meilleure précision sur les contenus francophones.",
   },
 };
 

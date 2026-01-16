@@ -4,7 +4,7 @@ import logger from "@/lib/logger";
 const STORAGE_KEY = "demeter-asr-settings";
 
 export interface PersistedSettings {
-  activePreset: "fast" | "balanced" | "medium" | "quality" | "custom";
+  activePreset: "fast" | "balanced" | "medium" | "quality" | "french" | "custom";
   customModelId: string;
   backendPreference: BackendImplementation;
   memoryMode: "full" | "progressive";
