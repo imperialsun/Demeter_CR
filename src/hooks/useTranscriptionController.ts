@@ -30,6 +30,8 @@ export function useTranscriptionController() {
       pipeline,
       source,
       preprocessConfig,
+      preDecoded,
+      preprocessed,
     }: {
       file: File;
       telemetry: TelemetryCollector;
@@ -42,6 +44,8 @@ export function useTranscriptionController() {
         calibrationSeconds: number;
         noiseProfile?: Float32Array;
       } | null;
+      preDecoded?: import("@/lib/audio").DecodedAudio | null;
+      preprocessed?: boolean | null;
     }) => {
       const state = useAsrStore.getState();
       teleportStateToReady();
@@ -54,7 +58,9 @@ export function useTranscriptionController() {
         strategy: "full",
         reason: preprocessConfig ? "full_mode_with_preprocess" : "full_mode_no_preprocess",
       });
-      let decoded = await decodeFileFully(file, telemetry);
+
+      // Use provided decoded audio if preprocessing was performed prior to model init
+      let decoded = preDecoded ?? await decodeFileFully(file, telemetry);
       const pcmBytes = decoded.pcm.byteLength;
       const pcmMb = pcmBytes / (1024 * 1024);
       logger.info("[decode] full decode RAM footprint", {
@@ -72,44 +78,62 @@ export function useTranscriptionController() {
       });
       if (preprocessConfig) {
         logger.info("[preprocess] applying full pipeline on decoded audio", preprocessConfig);
-        // Derive a noise profile from the decoded audio (auto-calibration in full-preprocess mode).
-        try {
-          useAsrStore.getState().setPreprocessingStatus("calibrating");
-          useAsrStore.getState().setPreprocessingProgress(0);
-          const { profile, frames } = estimateNoiseProfile(
-            decoded.pcm,
-            decoded.sampleRate,
-            preprocessConfig.calibrationSeconds
-          );
-          preprocessConfig.noiseProfile = profile;
-          telemetry.logEvent("PREPROCESS_NOISE_PROFILE", { frames, source: "auto" });
 
-          // Auto-tune gate parameters if enabled
-          if (state.autoTunePreprocess) {
-            const tune = computePreprocessParams(profile, decoded.pcm.subarray(0, Math.floor(preprocessConfig.calibrationSeconds * decoded.sampleRate)));
-            preprocessConfig.noiseFloorDb = tune.noiseFloorDb;
-            preprocessConfig.reductionDb = tune.reductionDb;
-            preprocessConfig.smoothing = tune.smoothing;
-            // apply autotuned params to global settings so sliders reflect current autotune
-            useAsrStore.getState().setDenoiseParams({ denoiseNoiseFloorDb: tune.noiseFloorDb, denoiseReductionDb: tune.reductionDb, denoiseSmoothing: tune.smoothing });
-            useAsrStore.getState().setLastAutoTuneParams({ noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing });
-            logger.info("[preprocess][autotune] full applied", { noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing, snrDb: tune.snrDb });
-            telemetry.logEvent("PREPROCESS_AUTOTUNE", { source: "auto", snrDb: tune.snrDb, noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing });
+        // If preprocessed earlier (preDecoded contains preprocessed pcm), skip any calibration/apply steps
+        if (preprocessed) {
+          logger.info("[preprocess] skipped because preprocessing was done prior to model init");
+          useAsrStore.getState().setPreprocessingStatus("done");
+          useAsrStore.getState().setPreprocessingProgress(1);
+        } else {
+          // Try to reuse a pre-computed noise profile if available (from pre-model step)
+          const preModel = (telemetry as unknown as { __preprocessConfig?: unknown }).__preprocessConfig as { noiseProfile?: Float32Array } | undefined;
+          try {
+            if (!preprocessConfig.noiseProfile) {
+              if (preModel && preModel.noiseProfile) {
+                preprocessConfig.noiseProfile = preModel.noiseProfile;
+                telemetry.logEvent("PREPROCESS_NOISE_PROFILE", { frames: 0, source: "pre-model-reuse" });
+              } else {
+                useAsrStore.getState().setPreprocessingStatus("calibrating");
+                useAsrStore.getState().setPreprocessingProgress(0);
+                const { profile, frames } = estimateNoiseProfile(
+                  decoded.pcm,
+                  decoded.sampleRate,
+                  preprocessConfig.calibrationSeconds
+                );
+                preprocessConfig.noiseProfile = profile;
+                telemetry.logEvent("PREPROCESS_NOISE_PROFILE", { frames, source: "auto" });
+
+                // Auto-tune gate parameters if enabled
+                if (state.autoTunePreprocess) {
+                  const tune = computePreprocessParams(profile, decoded.pcm.subarray(0, Math.floor(preprocessConfig.calibrationSeconds * decoded.sampleRate)));
+                  preprocessConfig.noiseFloorDb = tune.noiseFloorDb;
+                  preprocessConfig.reductionDb = tune.reductionDb;
+                  preprocessConfig.smoothing = tune.smoothing;
+                  // apply autotuned params to global settings so sliders reflect current autotune
+                  useAsrStore.getState().setDenoiseParams({ denoiseNoiseFloorDb: tune.noiseFloorDb, denoiseReductionDb: tune.reductionDb, denoiseSmoothing: tune.smoothing });
+                  useAsrStore.getState().setLastAutoTuneParams({ noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing });
+                  logger.info("[preprocess][autotune] full applied", { noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing, snrDb: tune.snrDb });
+                  telemetry.logEvent("PREPROCESS_AUTOTUNE", { source: "auto", snrDb: tune.snrDb, noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing });
+                }
+              }
+            }
+          } catch (err) {
+            logger.warn("Calibration failed", err);
+            telemetry.recordAlert("PREPROCESS_CALIBRATION_FAILED", { message: (err as Error).message });
           }
-        } catch (err) {
-          logger.warn("Calibration failed", err);
-          telemetry.recordAlert("PREPROCESS_CALIBRATION_FAILED", { message: (err as Error).message });
+
+          // For full preprocessing mode, apply the heavy spectral gate now
+          useAsrStore.getState().setPreprocessingStatus("processing");
+          useAsrStore.getState().setPreprocessingProgress(0);
+          const processed = await preprocessDecodedAudio(decoded, preprocessConfig, telemetry);
+          decoded = {
+            metadata: decoded.metadata,
+            pcm: processed.pcm,
+            sampleRate: processed.sampleRate,
+          };
+          useAsrStore.getState().setPreprocessingProgress(1);
+          useAsrStore.getState().setPreprocessingStatus("done");
         }
-        useAsrStore.getState().setPreprocessingStatus("processing");
-        useAsrStore.getState().setPreprocessingProgress(0);
-        const processed = await preprocessDecodedAudio(decoded, preprocessConfig, telemetry);
-        decoded = {
-          metadata: decoded.metadata,
-          pcm: processed.pcm,
-          sampleRate: processed.sampleRate,
-        };
-        useAsrStore.getState().setPreprocessingProgress(1);
-        useAsrStore.getState().setPreprocessingStatus("done");
       }
       useAsrStore.getState().registerAudioSource(source, decoded.metadata);
 
@@ -499,6 +523,101 @@ export function useTranscriptionController() {
 
     let activePipeline: AutomaticSpeechRecognitionPipeline | null = null;
     try {
+      // If we're in full-memory mode and preprocessing (quick or full) is requested, perform
+      // decode + calibration (quick) or full preprocess **before** loading the model so that
+      // heavy preprocess work does not compete with model initialization.
+      let preDecoded: import("@/lib/audio").DecodedAudio | undefined;
+      let preApplied = false;
+      if (state.memoryMode === "full" && (state.preprocessingMode === "full" || state.preprocessingMode === "quick")) {
+        state.setPreprocessingStatus("calibrating");
+        state.setPreprocessingProgress(0);
+        // Full decode is required for both quick and full modes to derive a noise profile
+        try {
+          preDecoded = await decodeFileFully(file, telemetry);
+          const pcmBytes = preDecoded.pcm.byteLength;
+          const pcmMb = pcmBytes / (1024 * 1024);
+          logger.info("[decode] pre-model full decode RAM footprint", {
+            samples: preDecoded.pcm.length,
+            sampleRate: preDecoded.sampleRate,
+            pcmBytes,
+            pcmMb: Number(pcmMb.toFixed(2)),
+          });
+          telemetry.logEvent("RAM_USAGE", {
+            context: "pre_model_full_decode_pcm",
+            bytes: pcmBytes,
+            mb: Number(pcmMb.toFixed(3)),
+            samples: preDecoded.pcm.length,
+            sampleRate: preDecoded.sampleRate,
+          });
+
+          // Estimate noise profile (quick mode: only calibration; full mode: we will apply the full preprocessing)
+          try {
+            state.setPreprocessingStatus("calibrating");
+            state.setPreprocessingProgress(0);
+            const { profile, frames } = estimateNoiseProfile(
+              preDecoded.pcm,
+              preDecoded.sampleRate,
+              state.denoiseCalibrationSeconds
+            );
+            telemetry.logEvent("PREPROCESS_NOISE_PROFILE", { frames, source: "pre-model" });
+
+            // Auto-tune if enabled
+            if (state.autoTunePreprocess) {
+              const tune = computePreprocessParams(profile, preDecoded.pcm.subarray(0, Math.floor(state.denoiseCalibrationSeconds * preDecoded.sampleRate)));
+              state.setDenoiseParams({ denoiseNoiseFloorDb: tune.noiseFloorDb, denoiseReductionDb: tune.reductionDb, denoiseSmoothing: tune.smoothing, denoiseCalibrationSeconds: state.denoiseCalibrationSeconds });
+              state.setLastAutoTuneParams({ noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing });
+              logger.info("[preprocess][autotune] pre-model applied", { noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing, snrDb: tune.snrDb });
+              telemetry.logEvent("PREPROCESS_AUTOTUNE", { source: "pre-model", snrDb: tune.snrDb, noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing });
+            }
+
+            // Build preprocessConfig to pass into pipeline handlers. For full mode we will apply the heavy preprocessing now.
+            if (state.preprocessingMode === "full") {
+              state.setPreprocessingStatus("processing");
+              state.setPreprocessingProgress(0);
+              const processed = await preprocessDecodedAudio(preDecoded, {
+                noiseFloorDb: state.denoiseNoiseFloorDb,
+                reductionDb: state.denoiseReductionDb,
+                smoothing: state.denoiseSmoothing,
+                calibrationSeconds: state.denoiseCalibrationSeconds,
+                noiseProfile: profile,
+              }, telemetry);
+              // Replace preDecoded with processed pcm so downstream chunking uses preprocessed audio
+              preDecoded = {
+                metadata: preDecoded.metadata,
+                pcm: processed.pcm,
+                sampleRate: processed.sampleRate,
+              };
+              state.setPreprocessingProgress(1);
+              state.setPreprocessingStatus("done");
+              preApplied = true;
+            } else {
+              // quick mode: expose noiseProfile but do not apply the heavy gate; mark calibration done
+              state.setPreprocessingProgress(1);
+              state.setPreprocessingStatus("done");
+            }
+
+            // Prepare a preprocessConfig object to pass down for per-chunk behavior and confidence tuning
+            const preprocessConfigToPass = {
+              noiseFloorDb: state.denoiseNoiseFloorDb,
+              reductionDb: state.denoiseReductionDb,
+              smoothing: state.denoiseSmoothing,
+              calibrationSeconds: state.denoiseCalibrationSeconds,
+              // include the estimated noise profile so downstream flows (or progressive) can reuse it
+              noiseProfile: profile,
+            } as const;
+            // store on the local scope to pass later to handlers
+            (telemetry as unknown as { __preprocessConfig?: unknown }).__preprocessConfig = preprocessConfigToPass;
+          } catch (err) {
+            logger.warn("Pre-model calibration failed", err);
+            telemetry.recordAlert("PREPROCESS_CALIBRATION_FAILED", { message: (err as Error).message });
+            state.setPreprocessingStatus("idle");
+            state.setPreprocessingProgress(0);
+          }
+        } catch (err) {
+          logger.warn("Pre-model full decode failed", err);
+        }
+      }
+
       const { pipeline, backend, modelId } = await createAsrPipeline({
         modelPreset: state.activePreset,
         customModelId: state.customModelId,
@@ -511,7 +630,10 @@ export function useTranscriptionController() {
       telemetry.setRuntimeContext({ backend, modelId });
 
       if (state.memoryMode === "full") {
-        await handleFullPipeline({ file, telemetry, pipeline, source, preprocessConfig });
+        // If we precomputed decoded/preprocessed audio, pass it to avoid re-decoding and to ensure the preprocessed pcm is used
+        const preProc = (telemetry as unknown as { __preprocessConfig?: unknown }).__preprocessConfig as ({ noiseFloorDb: number; reductionDb: number; smoothing: number; calibrationSeconds: number; noiseProfile?: Float32Array } | undefined) | undefined;
+        const preprocessConfigArg: ({ noiseFloorDb: number; reductionDb: number; smoothing: number; calibrationSeconds: number; noiseProfile?: Float32Array } | null) = preprocessConfig ?? (preProc ?? null);
+        await handleFullPipeline({ file, telemetry, pipeline, source, preprocessConfig: preprocessConfigArg, preDecoded, preprocessed: preApplied });
       } else {
         await handleProgressivePipeline({ file, telemetry, pipeline, source, preprocessConfig });
       }
