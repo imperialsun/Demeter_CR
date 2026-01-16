@@ -27,6 +27,20 @@ export interface PersistedSettings {
   denoiseReductionDb: number;
   denoiseSmoothing: number;
   denoiseCalibrationSeconds: number;
+  preprocessEnableFilters: boolean;
+  preprocessHighpassHz: number;
+  preprocessLowpassHz: number;
+  preprocessEnableLufs: boolean;
+  preprocessTargetLufs: number;
+  preprocessLimiterEnabled: boolean;
+  preprocessLimiterThresholdDb: number;
+  preprocessLimiterSoftness: number;
+  preprocessVadEnabled: boolean;
+  preprocessVadThresholdDb: number;
+  preprocessVadMinSilenceMs: number;
+  preprocessOverlapAdd: boolean;
+  preprocessOverlapBlockSec: number;
+  preprocessOverlapSec: number;
   autoTunePreprocess?: boolean;
   // Whisper options
   enableWordTimestamps?: boolean;
@@ -78,10 +92,24 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   showExportJson: false,
   showExportTelemetry: false,
   preprocessingMode: "full",
-  denoiseNoiseFloorDb: -25,
-  denoiseReductionDb: 12,
-  denoiseSmoothing: 0.8,
-  denoiseCalibrationSeconds: 5,
+  denoiseNoiseFloorDb: -28,
+  denoiseReductionDb: 10,
+  denoiseSmoothing: 0.85,
+  denoiseCalibrationSeconds: 6,
+  preprocessEnableFilters: true,
+  preprocessHighpassHz: 90,
+  preprocessLowpassHz: 7500,
+  preprocessEnableLufs: true,
+  preprocessTargetLufs: -20,
+  preprocessLimiterEnabled: true,
+  preprocessLimiterThresholdDb: -1,
+  preprocessLimiterSoftness: 0.65,
+  preprocessVadEnabled: true,
+  preprocessVadThresholdDb: -42,
+  preprocessVadMinSilenceMs: 250,
+  preprocessOverlapAdd: true,
+  preprocessOverlapBlockSec: 1.4,
+  preprocessOverlapSec: 0.3,
   autoTunePreprocess: true,
   // Whisper: enable word timestamps (disabled by default to save CPU/memory)
   enableWordTimestamps: false,

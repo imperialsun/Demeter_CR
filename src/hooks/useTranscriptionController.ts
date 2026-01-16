@@ -12,7 +12,12 @@ import {
   extractChunkPcm,
   probeAudioMetadata,
 } from "@/lib/audio";
-import { preprocessDecodedAudio, estimateNoiseProfile, computePreprocessParams } from "@/lib/preprocessing";
+import {
+  preprocessDecodedAudio,
+  estimateNoiseProfileWithVad,
+  computePreprocessParams,
+  type SpectralGateParams,
+} from "@/lib/preprocessing";
 import { createSegmentCache } from "@/lib/segmenter";
 import { deleteSegment, deleteSessionSegments, getSegment } from "@/lib/segment-cache";
 import { TelemetryCollector } from "@/lib/telemetry";
@@ -38,13 +43,7 @@ export function useTranscriptionController() {
       telemetry: TelemetryCollector;
       pipeline: AutomaticSpeechRecognitionPipeline;
       source: { id: string; label: string; type: "file" };
-      preprocessConfig?: {
-        noiseFloorDb: number;
-        reductionDb: number;
-        smoothing: number;
-        calibrationSeconds: number;
-        noiseProfile?: Float32Array;
-      } | null;
+      preprocessConfig?: SpectralGateParams | null;
       preDecoded?: import("@/lib/audio").DecodedAudio | null;
       preprocessed?: boolean | null;
     }) => {
@@ -87,7 +86,7 @@ export function useTranscriptionController() {
           useAsrStore.getState().setPreprocessingProgress(1);
         } else {
           // Try to reuse a pre-computed noise profile if available (from pre-model step)
-          const preModel = (telemetry as unknown as { __preprocessConfig?: unknown }).__preprocessConfig as { noiseProfile?: Float32Array } | undefined;
+          const preModel = (telemetry as unknown as { __preprocessConfig?: unknown }).__preprocessConfig as SpectralGateParams | undefined;
           try {
             if (!preprocessConfig.noiseProfile) {
               if (preModel && preModel.noiseProfile) {
@@ -96,25 +95,92 @@ export function useTranscriptionController() {
               } else {
                 useAsrStore.getState().setPreprocessingStatus("calibrating");
                 useAsrStore.getState().setPreprocessingProgress(0);
-                const { profile, frames } = estimateNoiseProfile(
+                const { profile, frames, vadUsed, silenceRanges } = estimateNoiseProfileWithVad(
                   decoded.pcm,
                   decoded.sampleRate,
-                  preprocessConfig.calibrationSeconds
+                  preprocessConfig.calibrationSeconds ?? state.denoiseCalibrationSeconds,
+                  preprocessConfig.preprocessVadThresholdDb ?? state.preprocessVadThresholdDb,
+                  preprocessConfig.preprocessVadMinSilenceMs ?? state.preprocessVadMinSilenceMs
                 );
                 preprocessConfig.noiseProfile = profile;
-                telemetry.logEvent("PREPROCESS_NOISE_PROFILE", { frames, source: "auto" });
+                telemetry.logEvent("PREPROCESS_NOISE_PROFILE", { frames, source: "auto", vadUsed, silenceRanges });
 
                 // Auto-tune gate parameters if enabled
                 if (state.autoTunePreprocess) {
-                  const tune = computePreprocessParams(profile, decoded.pcm.subarray(0, Math.floor(preprocessConfig.calibrationSeconds * decoded.sampleRate)));
+                  const calibrationSeconds = preprocessConfig.calibrationSeconds ?? state.denoiseCalibrationSeconds;
+                  const tune = computePreprocessParams(
+                    profile,
+                    decoded.pcm.subarray(0, Math.floor(calibrationSeconds * decoded.sampleRate))
+                  );
                   preprocessConfig.noiseFloorDb = tune.noiseFloorDb;
                   preprocessConfig.reductionDb = tune.reductionDb;
                   preprocessConfig.smoothing = tune.smoothing;
+                  preprocessConfig.preprocessTargetLufs = tune.targetLufs;
+                  preprocessConfig.preprocessHighpassHz = tune.highpassHz;
+                  preprocessConfig.preprocessLowpassHz = tune.lowpassHz;
+                  preprocessConfig.preprocessLimiterThresholdDb = tune.limiterThresholdDb;
+                  preprocessConfig.preprocessLimiterSoftness = tune.limiterSoftness;
+                  preprocessConfig.preprocessVadThresholdDb = tune.vadThresholdDb;
+                  preprocessConfig.preprocessOverlapBlockSec = tune.overlapBlockSec;
+                  preprocessConfig.preprocessOverlapSec = tune.overlapSec;
                   // apply autotuned params to global settings so sliders reflect current autotune
-                  useAsrStore.getState().setDenoiseParams({ denoiseNoiseFloorDb: tune.noiseFloorDb, denoiseReductionDb: tune.reductionDb, denoiseSmoothing: tune.smoothing });
-                  useAsrStore.getState().setLastAutoTuneParams({ noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing });
-                  logger.info("[preprocess][autotune] full applied", { noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing, snrDb: tune.snrDb });
-                  telemetry.logEvent("PREPROCESS_AUTOTUNE", { source: "auto", snrDb: tune.snrDb, noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing });
+                  useAsrStore.getState().setDenoiseParams({
+                    denoiseNoiseFloorDb: tune.noiseFloorDb,
+                    denoiseReductionDb: tune.reductionDb,
+                    denoiseSmoothing: tune.smoothing,
+                  });
+                  useAsrStore.getState().setPreprocessParams({
+                    preprocessTargetLufs: tune.targetLufs,
+                    preprocessHighpassHz: tune.highpassHz,
+                    preprocessLowpassHz: tune.lowpassHz,
+                    preprocessLimiterThresholdDb: tune.limiterThresholdDb,
+                    preprocessLimiterSoftness: tune.limiterSoftness,
+                    preprocessVadThresholdDb: tune.vadThresholdDb,
+                    preprocessOverlapBlockSec: tune.overlapBlockSec,
+                    preprocessOverlapSec: tune.overlapSec,
+                  });
+                  useAsrStore.getState().setLastAutoTuneParams({
+                    noiseFloorDb: tune.noiseFloorDb,
+                    reductionDb: tune.reductionDb,
+                    smoothing: tune.smoothing,
+                    targetLufs: tune.targetLufs,
+                    highpassHz: tune.highpassHz,
+                    lowpassHz: tune.lowpassHz,
+                    limiterThresholdDb: tune.limiterThresholdDb,
+                    limiterSoftness: tune.limiterSoftness,
+                    vadThresholdDb: tune.vadThresholdDb,
+                    overlapBlockSec: tune.overlapBlockSec,
+                    overlapSec: tune.overlapSec,
+                  });
+                  logger.info("[preprocess][autotune] full applied", {
+                    noiseFloorDb: tune.noiseFloorDb,
+                    reductionDb: tune.reductionDb,
+                    smoothing: tune.smoothing,
+                    targetLufs: tune.targetLufs,
+                    highpassHz: tune.highpassHz,
+                    lowpassHz: tune.lowpassHz,
+                    limiterThresholdDb: tune.limiterThresholdDb,
+                    limiterSoftness: tune.limiterSoftness,
+                    vadThresholdDb: tune.vadThresholdDb,
+                    overlapBlockSec: tune.overlapBlockSec,
+                    overlapSec: tune.overlapSec,
+                    snrDb: tune.snrDb,
+                  });
+                  telemetry.logEvent("PREPROCESS_AUTOTUNE", {
+                    source: "auto",
+                    snrDb: tune.snrDb,
+                    noiseFloorDb: tune.noiseFloorDb,
+                    reductionDb: tune.reductionDb,
+                    smoothing: tune.smoothing,
+                    targetLufs: tune.targetLufs,
+                    highpassHz: tune.highpassHz,
+                    lowpassHz: tune.lowpassHz,
+                    limiterThresholdDb: tune.limiterThresholdDb,
+                    limiterSoftness: tune.limiterSoftness,
+                    vadThresholdDb: tune.vadThresholdDb,
+                    overlapBlockSec: tune.overlapBlockSec,
+                    overlapSec: tune.overlapSec,
+                  });
                 }
               }
             }
@@ -250,13 +316,7 @@ export function useTranscriptionController() {
       telemetry: TelemetryCollector;
       pipeline: AutomaticSpeechRecognitionPipeline;
       source: { id: string; label: string; type: "file" };
-      preprocessConfig?: {
-        noiseFloorDb: number;
-        reductionDb: number;
-        smoothing: number;
-        calibrationSeconds: number;
-        noiseProfile?: Float32Array;
-      } | null;
+      preprocessConfig?: SpectralGateParams | null;
     }) => {
       const state = useAsrStore.getState();
       teleportStateToReady();
@@ -299,6 +359,20 @@ export function useTranscriptionController() {
         smoothing: state.denoiseSmoothing,
         calibrationSeconds: state.denoiseCalibrationSeconds,
         noiseProfile: undefined as Float32Array | undefined,
+        preprocessEnableFilters: state.preprocessEnableFilters,
+        preprocessHighpassHz: state.preprocessHighpassHz,
+        preprocessLowpassHz: state.preprocessLowpassHz,
+        preprocessEnableLufs: state.preprocessEnableLufs,
+        preprocessTargetLufs: state.preprocessTargetLufs,
+        preprocessLimiterEnabled: state.preprocessLimiterEnabled,
+        preprocessLimiterThresholdDb: state.preprocessLimiterThresholdDb,
+        preprocessLimiterSoftness: state.preprocessLimiterSoftness,
+        preprocessVadEnabled: state.preprocessVadEnabled,
+        preprocessVadThresholdDb: state.preprocessVadThresholdDb,
+        preprocessVadMinSilenceMs: state.preprocessVadMinSilenceMs,
+        preprocessOverlapAdd: state.preprocessOverlapAdd,
+        preprocessOverlapBlockSec: state.preprocessOverlapBlockSec,
+        preprocessOverlapSec: state.preprocessOverlapSec,
       };
       logger.info("[preprocess] progressive segment mode", {
         enabled: Boolean(effectivePreprocessConfig),
@@ -387,35 +461,78 @@ export function useTranscriptionController() {
             useAsrStore.getState().setPreprocessingStatus("calibrating");
             useAsrStore.getState().setPreprocessingProgress(segment.index / Math.max(1, segmentPlan.length));
             try {
-              const { profile, frames } = estimateNoiseProfile(
+              const { profile, frames, vadUsed, silenceRanges } = estimateNoiseProfileWithVad(
                 segmentPcm,
                 segmentSampleRate,
-                effectivePreprocessConfig.calibrationSeconds
+                effectivePreprocessConfig.calibrationSeconds ?? state.denoiseCalibrationSeconds,
+                effectivePreprocessConfig.preprocessVadThresholdDb ?? state.preprocessVadThresholdDb,
+                effectivePreprocessConfig.preprocessVadMinSilenceMs ?? state.preprocessVadMinSilenceMs
               );
-              telemetry.logEvent("PREPROCESS_NOISE_PROFILE", { frames, source: "segment", segmentIndex: segment.index });
+              telemetry.logEvent("PREPROCESS_NOISE_PROFILE", {
+                frames,
+                source: "segment",
+                segmentIndex: segment.index,
+                vadUsed,
+                silenceRanges,
+              });
               if (state.autoTunePreprocess) {
+                const calibrationSeconds = effectivePreprocessConfig.calibrationSeconds ?? state.denoiseCalibrationSeconds;
                 const tune = computePreprocessParams(
                   profile,
-                  segmentPcm.subarray(0, Math.floor(effectivePreprocessConfig.calibrationSeconds * segmentSampleRate))
+                  segmentPcm.subarray(0, Math.floor(calibrationSeconds * segmentSampleRate))
                 );
                 effectivePreprocessConfig.noiseFloorDb = tune.noiseFloorDb;
                 effectivePreprocessConfig.reductionDb = tune.reductionDb;
                 effectivePreprocessConfig.smoothing = tune.smoothing;
+                effectivePreprocessConfig.preprocessTargetLufs = tune.targetLufs;
+                effectivePreprocessConfig.preprocessHighpassHz = tune.highpassHz;
+                effectivePreprocessConfig.preprocessLowpassHz = tune.lowpassHz;
+                effectivePreprocessConfig.preprocessLimiterThresholdDb = tune.limiterThresholdDb;
+                effectivePreprocessConfig.preprocessLimiterSoftness = tune.limiterSoftness;
+                effectivePreprocessConfig.preprocessVadThresholdDb = tune.vadThresholdDb;
+                effectivePreprocessConfig.preprocessOverlapBlockSec = tune.overlapBlockSec;
+                effectivePreprocessConfig.preprocessOverlapSec = tune.overlapSec;
                 useAsrStore.getState().setDenoiseParams({
                   denoiseNoiseFloorDb: tune.noiseFloorDb,
                   denoiseReductionDb: tune.reductionDb,
                   denoiseSmoothing: tune.smoothing,
                 });
+                useAsrStore.getState().setPreprocessParams({
+                  preprocessTargetLufs: tune.targetLufs,
+                  preprocessHighpassHz: tune.highpassHz,
+                  preprocessLowpassHz: tune.lowpassHz,
+                  preprocessLimiterThresholdDb: tune.limiterThresholdDb,
+                  preprocessLimiterSoftness: tune.limiterSoftness,
+                  preprocessVadThresholdDb: tune.vadThresholdDb,
+                  preprocessOverlapBlockSec: tune.overlapBlockSec,
+                  preprocessOverlapSec: tune.overlapSec,
+                });
                 useAsrStore.getState().setLastAutoTuneParams({
                   noiseFloorDb: tune.noiseFloorDb,
                   reductionDb: tune.reductionDb,
                   smoothing: tune.smoothing,
+                  targetLufs: tune.targetLufs,
+                  highpassHz: tune.highpassHz,
+                  lowpassHz: tune.lowpassHz,
+                  limiterThresholdDb: tune.limiterThresholdDb,
+                  limiterSoftness: tune.limiterSoftness,
+                  vadThresholdDb: tune.vadThresholdDb,
+                  overlapBlockSec: tune.overlapBlockSec,
+                  overlapSec: tune.overlapSec,
                 });
                 logger.info("[preprocess][autotune] segment applied", {
                   segmentIndex: segment.index,
                   noiseFloorDb: tune.noiseFloorDb,
                   reductionDb: tune.reductionDb,
                   smoothing: tune.smoothing,
+                  targetLufs: tune.targetLufs,
+                  highpassHz: tune.highpassHz,
+                  lowpassHz: tune.lowpassHz,
+                  limiterThresholdDb: tune.limiterThresholdDb,
+                  limiterSoftness: tune.limiterSoftness,
+                  vadThresholdDb: tune.vadThresholdDb,
+                  overlapBlockSec: tune.overlapBlockSec,
+                  overlapSec: tune.overlapSec,
                   snrDb: tune.snrDb,
                 });
                 telemetry.logEvent("PREPROCESS_AUTOTUNE", {
@@ -425,6 +542,14 @@ export function useTranscriptionController() {
                   noiseFloorDb: tune.noiseFloorDb,
                   reductionDb: tune.reductionDb,
                   smoothing: tune.smoothing,
+                  targetLufs: tune.targetLufs,
+                  highpassHz: tune.highpassHz,
+                  lowpassHz: tune.lowpassHz,
+                  limiterThresholdDb: tune.limiterThresholdDb,
+                  limiterSoftness: tune.limiterSoftness,
+                  vadThresholdDb: tune.vadThresholdDb,
+                  overlapBlockSec: tune.overlapBlockSec,
+                  overlapSec: tune.overlapSec,
                 });
               }
 
@@ -639,6 +764,20 @@ export function useTranscriptionController() {
           smoothing: state.denoiseSmoothing,
           calibrationSeconds: state.denoiseCalibrationSeconds,
           noiseProfile: undefined as Float32Array | undefined,
+          preprocessEnableFilters: state.preprocessEnableFilters,
+          preprocessHighpassHz: state.preprocessHighpassHz,
+          preprocessLowpassHz: state.preprocessLowpassHz,
+          preprocessEnableLufs: state.preprocessEnableLufs,
+          preprocessTargetLufs: state.preprocessTargetLufs,
+          preprocessLimiterEnabled: state.preprocessLimiterEnabled,
+          preprocessLimiterThresholdDb: state.preprocessLimiterThresholdDb,
+          preprocessLimiterSoftness: state.preprocessLimiterSoftness,
+          preprocessVadEnabled: state.preprocessVadEnabled,
+          preprocessVadThresholdDb: state.preprocessVadThresholdDb,
+          preprocessVadMinSilenceMs: state.preprocessVadMinSilenceMs,
+          preprocessOverlapAdd: state.preprocessOverlapAdd,
+          preprocessOverlapBlockSec: state.preprocessOverlapBlockSec,
+          preprocessOverlapSec: state.preprocessOverlapSec,
         }
       : null;
     if (shouldPreprocess) {
@@ -683,20 +822,76 @@ export function useTranscriptionController() {
           try {
             state.setPreprocessingStatus("calibrating");
             state.setPreprocessingProgress(0);
-            const { profile, frames } = estimateNoiseProfile(
+            const { profile, frames, vadUsed, silenceRanges } = estimateNoiseProfileWithVad(
               preDecoded.pcm,
               preDecoded.sampleRate,
-              state.denoiseCalibrationSeconds
+              state.denoiseCalibrationSeconds,
+              state.preprocessVadThresholdDb,
+              state.preprocessVadMinSilenceMs
             );
-            telemetry.logEvent("PREPROCESS_NOISE_PROFILE", { frames, source: "pre-model" });
+            telemetry.logEvent("PREPROCESS_NOISE_PROFILE", { frames, source: "pre-model", vadUsed, silenceRanges });
 
             // Auto-tune if enabled
             if (state.autoTunePreprocess) {
               const tune = computePreprocessParams(profile, preDecoded.pcm.subarray(0, Math.floor(state.denoiseCalibrationSeconds * preDecoded.sampleRate)));
-              state.setDenoiseParams({ denoiseNoiseFloorDb: tune.noiseFloorDb, denoiseReductionDb: tune.reductionDb, denoiseSmoothing: tune.smoothing, denoiseCalibrationSeconds: state.denoiseCalibrationSeconds });
-              state.setLastAutoTuneParams({ noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing });
-              logger.info("[preprocess][autotune] pre-model applied", { noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing, snrDb: tune.snrDb });
-              telemetry.logEvent("PREPROCESS_AUTOTUNE", { source: "pre-model", snrDb: tune.snrDb, noiseFloorDb: tune.noiseFloorDb, reductionDb: tune.reductionDb, smoothing: tune.smoothing });
+              state.setDenoiseParams({
+                denoiseNoiseFloorDb: tune.noiseFloorDb,
+                denoiseReductionDb: tune.reductionDb,
+                denoiseSmoothing: tune.smoothing,
+                denoiseCalibrationSeconds: state.denoiseCalibrationSeconds,
+              });
+              state.setPreprocessParams({
+                preprocessTargetLufs: tune.targetLufs,
+                preprocessHighpassHz: tune.highpassHz,
+                preprocessLowpassHz: tune.lowpassHz,
+                preprocessLimiterThresholdDb: tune.limiterThresholdDb,
+                preprocessLimiterSoftness: tune.limiterSoftness,
+                preprocessVadThresholdDb: tune.vadThresholdDb,
+                preprocessOverlapBlockSec: tune.overlapBlockSec,
+                preprocessOverlapSec: tune.overlapSec,
+              });
+              state.setLastAutoTuneParams({
+                noiseFloorDb: tune.noiseFloorDb,
+                reductionDb: tune.reductionDb,
+                smoothing: tune.smoothing,
+                targetLufs: tune.targetLufs,
+                highpassHz: tune.highpassHz,
+                lowpassHz: tune.lowpassHz,
+                limiterThresholdDb: tune.limiterThresholdDb,
+                limiterSoftness: tune.limiterSoftness,
+                vadThresholdDb: tune.vadThresholdDb,
+                overlapBlockSec: tune.overlapBlockSec,
+                overlapSec: tune.overlapSec,
+              });
+              logger.info("[preprocess][autotune] pre-model applied", {
+                noiseFloorDb: tune.noiseFloorDb,
+                reductionDb: tune.reductionDb,
+                smoothing: tune.smoothing,
+                targetLufs: tune.targetLufs,
+                highpassHz: tune.highpassHz,
+                lowpassHz: tune.lowpassHz,
+                limiterThresholdDb: tune.limiterThresholdDb,
+                limiterSoftness: tune.limiterSoftness,
+                vadThresholdDb: tune.vadThresholdDb,
+                overlapBlockSec: tune.overlapBlockSec,
+                overlapSec: tune.overlapSec,
+                snrDb: tune.snrDb,
+              });
+              telemetry.logEvent("PREPROCESS_AUTOTUNE", {
+                source: "pre-model",
+                snrDb: tune.snrDb,
+                noiseFloorDb: tune.noiseFloorDb,
+                reductionDb: tune.reductionDb,
+                smoothing: tune.smoothing,
+                targetLufs: tune.targetLufs,
+                highpassHz: tune.highpassHz,
+                lowpassHz: tune.lowpassHz,
+                limiterThresholdDb: tune.limiterThresholdDb,
+                limiterSoftness: tune.limiterSoftness,
+                vadThresholdDb: tune.vadThresholdDb,
+                overlapBlockSec: tune.overlapBlockSec,
+                overlapSec: tune.overlapSec,
+              });
             }
 
             // Build preprocessConfig to pass into pipeline handlers. For full mode we will apply the heavy preprocessing now.
@@ -709,6 +904,20 @@ export function useTranscriptionController() {
                 smoothing: state.denoiseSmoothing,
                 calibrationSeconds: state.denoiseCalibrationSeconds,
                 noiseProfile: profile,
+                preprocessEnableFilters: state.preprocessEnableFilters,
+                preprocessHighpassHz: state.preprocessHighpassHz,
+                preprocessLowpassHz: state.preprocessLowpassHz,
+                preprocessEnableLufs: state.preprocessEnableLufs,
+                preprocessTargetLufs: state.preprocessTargetLufs,
+                preprocessLimiterEnabled: state.preprocessLimiterEnabled,
+                preprocessLimiterThresholdDb: state.preprocessLimiterThresholdDb,
+                preprocessLimiterSoftness: state.preprocessLimiterSoftness,
+                preprocessVadEnabled: state.preprocessVadEnabled,
+                preprocessVadThresholdDb: state.preprocessVadThresholdDb,
+                preprocessVadMinSilenceMs: state.preprocessVadMinSilenceMs,
+                preprocessOverlapAdd: state.preprocessOverlapAdd,
+                preprocessOverlapBlockSec: state.preprocessOverlapBlockSec,
+                preprocessOverlapSec: state.preprocessOverlapSec,
               }, telemetry);
               // Replace preDecoded with processed pcm so downstream chunking uses preprocessed audio
               preDecoded = {
@@ -733,6 +942,20 @@ export function useTranscriptionController() {
               calibrationSeconds: state.denoiseCalibrationSeconds,
               // include the estimated noise profile so downstream flows (or progressive) can reuse it
               noiseProfile: profile,
+              preprocessEnableFilters: state.preprocessEnableFilters,
+              preprocessHighpassHz: state.preprocessHighpassHz,
+              preprocessLowpassHz: state.preprocessLowpassHz,
+              preprocessEnableLufs: state.preprocessEnableLufs,
+              preprocessTargetLufs: state.preprocessTargetLufs,
+              preprocessLimiterEnabled: state.preprocessLimiterEnabled,
+              preprocessLimiterThresholdDb: state.preprocessLimiterThresholdDb,
+              preprocessLimiterSoftness: state.preprocessLimiterSoftness,
+              preprocessVadEnabled: state.preprocessVadEnabled,
+              preprocessVadThresholdDb: state.preprocessVadThresholdDb,
+              preprocessVadMinSilenceMs: state.preprocessVadMinSilenceMs,
+              preprocessOverlapAdd: state.preprocessOverlapAdd,
+              preprocessOverlapBlockSec: state.preprocessOverlapBlockSec,
+              preprocessOverlapSec: state.preprocessOverlapSec,
             } as const;
             // store on the local scope to pass later to handlers
             (telemetry as unknown as { __preprocessConfig?: unknown }).__preprocessConfig = preprocessConfigToPass;
@@ -760,8 +983,8 @@ export function useTranscriptionController() {
 
       if (state.memoryMode === "full") {
         // If we precomputed decoded/preprocessed audio, pass it to avoid re-decoding and to ensure the preprocessed pcm is used
-        const preProc = (telemetry as unknown as { __preprocessConfig?: unknown }).__preprocessConfig as ({ noiseFloorDb: number; reductionDb: number; smoothing: number; calibrationSeconds: number; noiseProfile?: Float32Array } | undefined) | undefined;
-        const preprocessConfigArg: ({ noiseFloorDb: number; reductionDb: number; smoothing: number; calibrationSeconds: number; noiseProfile?: Float32Array } | null) = preprocessConfig ?? (preProc ?? null);
+        const preProc = (telemetry as unknown as { __preprocessConfig?: unknown }).__preprocessConfig as SpectralGateParams | undefined;
+        const preprocessConfigArg: SpectralGateParams | null = preprocessConfig ?? (preProc ?? null);
         await handleFullPipeline({ file, telemetry, pipeline, source, preprocessConfig: preprocessConfigArg, preDecoded, preprocessed: preApplied });
       } else {
         await handleProgressivePipeline({ file, telemetry, pipeline, source, preprocessConfig });

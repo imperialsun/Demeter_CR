@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { safeNormalize, estimateNoiseProfile, computePreprocessParams } from './preprocessing';
+import { safeNormalize, estimateNoiseProfile, estimateNoiseProfileWithVad, computePreprocessParams } from './preprocessing';
 
 function makeSine(length = 1024, value = 0.1) {
   const a = new Float32Array(length);
@@ -46,5 +46,18 @@ describe('preprocessing', () => {
     expect(res.noiseFloorDb).toBeGreaterThanOrEqual(-35);
     expect(res.reductionDb).toBeGreaterThanOrEqual(6);
     expect(res.smoothing).toBeGreaterThanOrEqual(0.6);
+    expect(res.targetLufs).toBeLessThanOrEqual(-18);
+    expect(res.highpassHz).toBeGreaterThanOrEqual(60);
+    expect(res.lowpassHz).toBeGreaterThanOrEqual(6500);
+    expect(res.overlapBlockSec).toBeGreaterThan(0);
+    expect(res.limiterSoftness).toBeGreaterThan(0);
+  });
+
+  it('estimateNoiseProfileWithVad uses silence ranges when possible', () => {
+    const pcm = new Float32Array(4096);
+    const res = estimateNoiseProfileWithVad(pcm, 16000, 1, -45, 200);
+    expect(res.frames).toBeGreaterThan(0);
+    expect(res.profile.length).toBe(1024 / 2 + 1);
+    expect(res.silenceRanges).toBeGreaterThan(0);
   });
 });

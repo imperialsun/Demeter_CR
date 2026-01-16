@@ -99,9 +99,35 @@ interface AsrConfigState {
   denoiseReductionDb: number;
   denoiseSmoothing: number;
   denoiseCalibrationSeconds: number;
+  preprocessEnableFilters: boolean;
+  preprocessHighpassHz: number;
+  preprocessLowpassHz: number;
+  preprocessEnableLufs: boolean;
+  preprocessTargetLufs: number;
+  preprocessLimiterEnabled: boolean;
+  preprocessLimiterThresholdDb: number;
+  preprocessLimiterSoftness: number;
+  preprocessVadEnabled: boolean;
+  preprocessVadThresholdDb: number;
+  preprocessVadMinSilenceMs: number;
+  preprocessOverlapAdd: boolean;
+  preprocessOverlapBlockSec: number;
+  preprocessOverlapSec: number;
   noiseCalibrationRequestedAt?: number | null;
   autoTunePreprocess: boolean;
-  lastAutoTuneParams?: { noiseFloorDb: number; reductionDb: number; smoothing: number } | null;
+  lastAutoTuneParams?: {
+    noiseFloorDb: number;
+    reductionDb: number;
+    smoothing: number;
+    targetLufs: number;
+    highpassHz: number;
+    lowpassHz: number;
+    limiterThresholdDb: number;
+    limiterSoftness: number;
+    vadThresholdDb: number;
+    overlapBlockSec: number;
+    overlapSec: number;
+  } | null;
   telemetryCollector: TelemetryCollector | null;
   // Whisper specific
   enableWordTimestamps: boolean;
@@ -159,8 +185,36 @@ interface AsrConfigActions {
     denoiseSmoothing: number;
     denoiseCalibrationSeconds: number;
   }>) => void;
+  setPreprocessParams: (params: Partial<{
+    preprocessEnableFilters: boolean;
+    preprocessHighpassHz: number;
+    preprocessLowpassHz: number;
+    preprocessEnableLufs: boolean;
+    preprocessTargetLufs: number;
+    preprocessLimiterEnabled: boolean;
+    preprocessLimiterThresholdDb: number;
+    preprocessLimiterSoftness: number;
+    preprocessVadEnabled: boolean;
+    preprocessVadThresholdDb: number;
+    preprocessVadMinSilenceMs: number;
+    preprocessOverlapAdd: boolean;
+    preprocessOverlapBlockSec: number;
+    preprocessOverlapSec: number;
+  }>) => void;
   setAutoTunePreprocess: (value: boolean) => void;
-  setLastAutoTuneParams: (params: { noiseFloorDb: number; reductionDb: number; smoothing: number } | null) => void;
+  setLastAutoTuneParams: (params: {
+    noiseFloorDb: number;
+    reductionDb: number;
+    smoothing: number;
+    targetLufs: number;
+    highpassHz: number;
+    lowpassHz: number;
+    limiterThresholdDb: number;
+    limiterSoftness: number;
+    vadThresholdDb: number;
+    overlapBlockSec: number;
+    overlapSec: number;
+  } | null) => void;
   requestNoiseCalibration: () => void;
   clearNoiseCalibrationRequest: () => void;
   hydrateFromStorage: () => void;
@@ -220,10 +274,24 @@ const initialState: AsrConfigState = {
   showExportJson: false,
   showExportTelemetry: false,
   preprocessingMode: "full",
-  denoiseNoiseFloorDb: -25,
-  denoiseReductionDb: 12,
-  denoiseSmoothing: 0.8,
-  denoiseCalibrationSeconds: 5,
+  denoiseNoiseFloorDb: -28,
+  denoiseReductionDb: 10,
+  denoiseSmoothing: 0.85,
+  denoiseCalibrationSeconds: 6,
+  preprocessEnableFilters: true,
+  preprocessHighpassHz: 90,
+  preprocessLowpassHz: 7500,
+  preprocessEnableLufs: true,
+  preprocessTargetLufs: -20,
+  preprocessLimiterEnabled: true,
+  preprocessLimiterThresholdDb: -1,
+  preprocessLimiterSoftness: 0.65,
+  preprocessVadEnabled: true,
+  preprocessVadThresholdDb: -42,
+  preprocessVadMinSilenceMs: 250,
+  preprocessOverlapAdd: true,
+  preprocessOverlapBlockSec: 1.4,
+  preprocessOverlapSec: 0.3,
   noiseCalibrationRequestedAt: null,
   segmentationStatus: "idle",
   segmentationProgress: 0,
@@ -338,6 +406,20 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
       denoiseReductionDb: settings.denoiseReductionDb ?? state.denoiseReductionDb,
       denoiseSmoothing: settings.denoiseSmoothing ?? state.denoiseSmoothing,
       denoiseCalibrationSeconds: settings.denoiseCalibrationSeconds ?? state.denoiseCalibrationSeconds,
+      preprocessEnableFilters: settings.preprocessEnableFilters ?? state.preprocessEnableFilters,
+      preprocessHighpassHz: settings.preprocessHighpassHz ?? state.preprocessHighpassHz,
+      preprocessLowpassHz: settings.preprocessLowpassHz ?? state.preprocessLowpassHz,
+      preprocessEnableLufs: settings.preprocessEnableLufs ?? state.preprocessEnableLufs,
+      preprocessTargetLufs: settings.preprocessTargetLufs ?? state.preprocessTargetLufs,
+      preprocessLimiterEnabled: settings.preprocessLimiterEnabled ?? state.preprocessLimiterEnabled,
+      preprocessLimiterThresholdDb: settings.preprocessLimiterThresholdDb ?? state.preprocessLimiterThresholdDb,
+      preprocessLimiterSoftness: settings.preprocessLimiterSoftness ?? state.preprocessLimiterSoftness,
+      preprocessVadEnabled: settings.preprocessVadEnabled ?? state.preprocessVadEnabled,
+      preprocessVadThresholdDb: settings.preprocessVadThresholdDb ?? state.preprocessVadThresholdDb,
+      preprocessVadMinSilenceMs: settings.preprocessVadMinSilenceMs ?? state.preprocessVadMinSilenceMs,
+      preprocessOverlapAdd: settings.preprocessOverlapAdd ?? state.preprocessOverlapAdd,
+      preprocessOverlapBlockSec: settings.preprocessOverlapBlockSec ?? state.preprocessOverlapBlockSec,
+      preprocessOverlapSec: settings.preprocessOverlapSec ?? state.preprocessOverlapSec,
       autoTunePreprocess: settings.autoTunePreprocess ?? state.autoTunePreprocess,
       forceSingleThread: settings.forceSingleThread ?? state.forceSingleThread,
       enableWordTimestamps: settings.enableWordTimestamps ?? state.enableWordTimestamps,
@@ -371,6 +453,7 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
   setSegmentationStatus: (status) => set(() => ({ segmentationStatus: status })),
   setSegmentationProgress: (value) => set(() => ({ segmentationProgress: value })),
   setDenoiseParams: (params) => set((state) => ({ ...state, ...params })),
+  setPreprocessParams: (params) => set((state) => ({ ...state, ...params })),
   setAutoTunePreprocess: (value: boolean) => set(() => ({ autoTunePreprocess: value })),
   setLastAutoTuneParams: (params) => set(() => ({ lastAutoTuneParams: params })),
   requestNoiseCalibration: () => set(() => ({ noiseCalibrationRequestedAt: Date.now() })),
@@ -480,6 +563,20 @@ useAsrStore.subscribe((state) => {
     denoiseReductionDb: state.denoiseReductionDb,
     denoiseSmoothing: state.denoiseSmoothing,
     denoiseCalibrationSeconds: state.denoiseCalibrationSeconds,
+    preprocessEnableFilters: state.preprocessEnableFilters,
+    preprocessHighpassHz: state.preprocessHighpassHz,
+    preprocessLowpassHz: state.preprocessLowpassHz,
+    preprocessEnableLufs: state.preprocessEnableLufs,
+    preprocessTargetLufs: state.preprocessTargetLufs,
+    preprocessLimiterEnabled: state.preprocessLimiterEnabled,
+    preprocessLimiterThresholdDb: state.preprocessLimiterThresholdDb,
+    preprocessLimiterSoftness: state.preprocessLimiterSoftness,
+    preprocessVadEnabled: state.preprocessVadEnabled,
+    preprocessVadThresholdDb: state.preprocessVadThresholdDb,
+    preprocessVadMinSilenceMs: state.preprocessVadMinSilenceMs,
+    preprocessOverlapAdd: state.preprocessOverlapAdd,
+    preprocessOverlapBlockSec: state.preprocessOverlapBlockSec,
+    preprocessOverlapSec: state.preprocessOverlapSec,
     // performance
     forceSingleThread: state.forceSingleThread,
     // whisper

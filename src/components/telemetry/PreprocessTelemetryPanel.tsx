@@ -16,6 +16,14 @@ export function PreprocessTelemetryPanel({ summary }: Props) {
   const reductionDb = useAsrStore((s) => s.denoiseReductionDb);
   const smoothing = useAsrStore((s) => s.denoiseSmoothing);
   const calibrationSeconds = useAsrStore((s) => s.denoiseCalibrationSeconds);
+  const targetLufs = useAsrStore((s) => s.preprocessTargetLufs);
+  const highpassHz = useAsrStore((s) => s.preprocessHighpassHz);
+  const lowpassHz = useAsrStore((s) => s.preprocessLowpassHz);
+  const limiterThresholdDb = useAsrStore((s) => s.preprocessLimiterThresholdDb);
+  const limiterSoftness = useAsrStore((s) => s.preprocessLimiterSoftness);
+  const vadThresholdDb = useAsrStore((s) => s.preprocessVadThresholdDb);
+  const overlapBlockSec = useAsrStore((s) => s.preprocessOverlapBlockSec);
+  const overlapSec = useAsrStore((s) => s.preprocessOverlapSec);
   const preprocessingStatus = useAsrStore((s) => s.preprocessingStatus);
   const preprocessingProgress = useAsrStore((s) => s.preprocessingProgress);
 
@@ -81,6 +89,26 @@ export function PreprocessTelemetryPanel({ summary }: Props) {
                 <span className="text-xs text-muted-foreground">Smoothing</span>
                 <span className="font-medium">{smoothing}</span>
               </div>
+              <div className="flex justify-between">
+                <span className="text-xs text-muted-foreground">Target LUFS</span>
+                <span className="font-medium">{targetLufs}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-xs text-muted-foreground">HPF / LPF</span>
+                <span className="font-medium">{highpassHz} / {lowpassHz} Hz</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-xs text-muted-foreground">Limiter</span>
+                <span className="font-medium">{limiterThresholdDb} dB ({limiterSoftness})</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-xs text-muted-foreground">VAD</span>
+                <span className="font-medium">{vadThresholdDb} dB</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-xs text-muted-foreground">Overlap</span>
+                <span className="font-medium">{overlapBlockSec}s / {overlapSec}s</span>
+              </div>
             </div>
           </div>
         </div>
@@ -100,6 +128,26 @@ export function PreprocessTelemetryPanel({ summary }: Props) {
               <div>
                 <div className="text-xs text-muted-foreground">Smoothing</div>
                 <div className="font-medium">{lastAutoTune.smoothing}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Target LUFS</div>
+                <div className="font-medium">{lastAutoTune.targetLufs}</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">HPF / LPF</div>
+                <div className="font-medium">{lastAutoTune.highpassHz} / {lastAutoTune.lowpassHz} Hz</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Limiter</div>
+                <div className="font-medium">{lastAutoTune.limiterThresholdDb} dB ({lastAutoTune.limiterSoftness})</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">VAD</div>
+                <div className="font-medium">{lastAutoTune.vadThresholdDb} dB</div>
+              </div>
+              <div>
+                <div className="text-xs text-muted-foreground">Overlap</div>
+                <div className="font-medium">{lastAutoTune.overlapBlockSec}s / {lastAutoTune.overlapSec}s</div>
               </div>
             </div>
           </div>

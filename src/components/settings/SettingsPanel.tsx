@@ -102,6 +102,20 @@ export function SettingsPanel({
     denoiseReductionDb,
     denoiseSmoothing,
     denoiseCalibrationSeconds,
+    preprocessEnableFilters,
+    preprocessHighpassHz,
+    preprocessLowpassHz,
+    preprocessEnableLufs,
+    preprocessTargetLufs,
+    preprocessLimiterEnabled,
+    preprocessLimiterThresholdDb,
+    preprocessLimiterSoftness,
+    preprocessVadEnabled,
+    preprocessVadThresholdDb,
+    preprocessVadMinSilenceMs,
+    preprocessOverlapAdd,
+    preprocessOverlapBlockSec,
+    preprocessOverlapSec,
     autoTunePreprocess,
     setAutoTunePreprocess,
     chunkDurationSec,
@@ -128,6 +142,7 @@ export function SettingsPanel({
     setShowExportTelemetry,
     setPreprocessingMode,
     setDenoiseParams,
+    setPreprocessParams,
     requestNoiseCalibration,
     updateChunkParameters,
     setProgressiveSegmentDurationSec,
@@ -151,6 +166,20 @@ export function SettingsPanel({
     denoiseReductionDb: state.denoiseReductionDb,
     denoiseSmoothing: state.denoiseSmoothing,
     denoiseCalibrationSeconds: state.denoiseCalibrationSeconds,
+    preprocessEnableFilters: state.preprocessEnableFilters,
+    preprocessHighpassHz: state.preprocessHighpassHz,
+    preprocessLowpassHz: state.preprocessLowpassHz,
+    preprocessEnableLufs: state.preprocessEnableLufs,
+    preprocessTargetLufs: state.preprocessTargetLufs,
+    preprocessLimiterEnabled: state.preprocessLimiterEnabled,
+    preprocessLimiterThresholdDb: state.preprocessLimiterThresholdDb,
+    preprocessLimiterSoftness: state.preprocessLimiterSoftness,
+    preprocessVadEnabled: state.preprocessVadEnabled,
+    preprocessVadThresholdDb: state.preprocessVadThresholdDb,
+    preprocessVadMinSilenceMs: state.preprocessVadMinSilenceMs,
+    preprocessOverlapAdd: state.preprocessOverlapAdd,
+    preprocessOverlapBlockSec: state.preprocessOverlapBlockSec,
+    preprocessOverlapSec: state.preprocessOverlapSec,
     autoTunePreprocess: state.autoTunePreprocess,
     setAutoTunePreprocess: state.setAutoTunePreprocess,
     chunkDurationSec: state.chunkDurationSec,
@@ -173,6 +202,7 @@ export function SettingsPanel({
     setShowExportTelemetry: state.setShowExportTelemetry,
     setPreprocessingMode: state.setPreprocessingMode,
     setDenoiseParams: state.setDenoiseParams,
+    setPreprocessParams: state.setPreprocessParams,
     requestNoiseCalibration: state.requestNoiseCalibration,
     updateChunkParameters: state.updateChunkParameters,
     setProgressiveSegmentDurationSec: state.setProgressiveSegmentDurationSec,
@@ -1193,7 +1223,7 @@ export function SettingsPanel({
           {preprocessingMode === "full" ? (
             <div className="mt-4 space-y-4 rounded-md border bg-muted/30 px-3 py-3">
               <p className="text-xs text-muted-foreground">
-                Le mode complet applique un filtrage passe-haut/passe-bas, compression douce, normalisation sécurisée, puis débruitage spectral (FFT 1024 / hop 256).
+                Le mode complet applique un filtrage passe-haut/passe-bas, compression douce, normalisation loudness, puis débruitage spectral (FFT 1024 / hop 256).
               </p>
               <div className="grid gap-3 md:grid-cols-3">
                 <SliderField
@@ -1231,6 +1261,168 @@ export function SettingsPanel({
                 />
               </div>
 
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">Filtres passe-haut / passe-bas</p>
+                    <p className="text-xs text-muted-foreground">Élimine les basses fréquences (rumble) et les aigus inutiles.</p>
+                  </div>
+                  <Switch
+                    className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                    checked={preprocessEnableFilters}
+                    onCheckedChange={(value) => setPreprocessParams({ preprocessEnableFilters: value })}
+                    disabled={autoTunePreprocess}
+                  />
+                </div>
+                <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">Normalisation loudness (LUFS)</p>
+                    <p className="text-xs text-muted-foreground">Stabilise la loudness perçue pour la transcription.</p>
+                  </div>
+                  <Switch
+                    className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                    checked={preprocessEnableLufs}
+                    onCheckedChange={(value) => setPreprocessParams({ preprocessEnableLufs: value })}
+                    disabled={autoTunePreprocess}
+                  />
+                </div>
+                <SliderField
+                  id="pre-highpass"
+                  label="Passe-haut (Hz)"
+                  min={40}
+                  max={200}
+                  step={5}
+                  value={preprocessHighpassHz}
+                  onChange={(value) => setPreprocessParams({ preprocessHighpassHz: value })}
+                  help="Coupe les basses fréquences (80 Hz par défaut)."
+                  disabled={!preprocessEnableFilters || autoTunePreprocess}
+                />
+                <SliderField
+                  id="pre-lowpass"
+                  label="Passe-bas (Hz)"
+                  min={4000}
+                  max={12000}
+                  step={250}
+                  value={preprocessLowpassHz}
+                  onChange={(value) => setPreprocessParams({ preprocessLowpassHz: value })}
+                  help="Coupe les aigus trop agressifs (8 kHz par défaut)."
+                  disabled={!preprocessEnableFilters || autoTunePreprocess}
+                />
+                <SliderField
+                  id="pre-lufs-target"
+                  label="Cible loudness (LUFS)"
+                  min={-30}
+                  max={-14}
+                  step={0.5}
+                  value={preprocessTargetLufs}
+                  onChange={(value) => setPreprocessParams({ preprocessTargetLufs: value })}
+                  help="Cible loudness moyenne (ex: -20 LUFS)."
+                  disabled={!preprocessEnableLufs || autoTunePreprocess}
+                />
+                <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">Limiteur doux</p>
+                    <p className="text-xs text-muted-foreground">Évite les saturations après normalisation.</p>
+                  </div>
+                  <Switch
+                    className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                    checked={preprocessLimiterEnabled}
+                    onCheckedChange={(value) => setPreprocessParams({ preprocessLimiterEnabled: value })}
+                    disabled={autoTunePreprocess}
+                  />
+                </div>
+                <SliderField
+                  id="pre-limiter-threshold"
+                  label="Seuil limiteur (dBFS)"
+                  min={-6}
+                  max={-0.1}
+                  step={0.1}
+                  value={preprocessLimiterThresholdDb}
+                  onChange={(value) => setPreprocessParams({ preprocessLimiterThresholdDb: value })}
+                  help="Seuil de limitation (par défaut -1 dBFS)."
+                  disabled={!preprocessLimiterEnabled || autoTunePreprocess}
+                />
+                <SliderField
+                  id="pre-limiter-softness"
+                  label="Douceur limiteur"
+                  min={0.1}
+                  max={1}
+                  step={0.05}
+                  value={preprocessLimiterSoftness}
+                  onChange={(value) => setPreprocessParams({ preprocessLimiterSoftness: value })}
+                  help="Plus élevé = limitation plus douce."
+                  disabled={!preprocessLimiterEnabled || autoTunePreprocess}
+                />
+                <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">Calibration VAD (silence)</p>
+                    <p className="text-xs text-muted-foreground">Calcule le profil de bruit sur des zones non parlées.</p>
+                  </div>
+                  <Switch
+                    className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                    checked={preprocessVadEnabled}
+                    onCheckedChange={(value) => setPreprocessParams({ preprocessVadEnabled: value })}
+                    disabled={autoTunePreprocess}
+                  />
+                </div>
+                <SliderField
+                  id="pre-vad-threshold"
+                  label="Seuil VAD (dB)"
+                  min={-60}
+                  max={-30}
+                  step={1}
+                  value={preprocessVadThresholdDb}
+                  onChange={(value) => setPreprocessParams({ preprocessVadThresholdDb: value })}
+                  help="Seuil d'énergie pour détecter la parole."
+                  disabled={!preprocessVadEnabled || autoTunePreprocess}
+                />
+                <SliderField
+                  id="pre-vad-min-silence"
+                  label="Silence min (ms)"
+                  min={50}
+                  max={1000}
+                  step={50}
+                  value={preprocessVadMinSilenceMs}
+                  onChange={(value) => setPreprocessParams({ preprocessVadMinSilenceMs: value })}
+                  help="Durée minimale d'un silence pour la calibration."
+                  disabled={!preprocessVadEnabled || autoTunePreprocess}
+                />
+                <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">Lissage overlap-add</p>
+                    <p className="text-xs text-muted-foreground">Réduit les artefacts aux frontières.</p>
+                  </div>
+                  <Switch
+                    className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                    checked={preprocessOverlapAdd}
+                    onCheckedChange={(value) => setPreprocessParams({ preprocessOverlapAdd: value })}
+                    disabled={autoTunePreprocess}
+                  />
+                </div>
+                <SliderField
+                  id="pre-overlap-block"
+                  label="Fenêtre overlap (s)"
+                  min={0.5}
+                  max={3}
+                  step={0.1}
+                  value={preprocessOverlapBlockSec}
+                  onChange={(value) => setPreprocessParams({ preprocessOverlapBlockSec: value })}
+                  help="Durée de fenêtre pour le lissage."
+                  disabled={!preprocessOverlapAdd || autoTunePreprocess}
+                />
+                <SliderField
+                  id="pre-overlap-sec"
+                  label="Recouvrement (s)"
+                  min={0.05}
+                  max={0.8}
+                  step={0.05}
+                  value={preprocessOverlapSec}
+                  onChange={(value) => setPreprocessParams({ preprocessOverlapSec: value })}
+                  help="Recouvrement entre fenêtres."
+                  disabled={!preprocessOverlapAdd || autoTunePreprocess}
+                />
+              </div>
+
               <div className="mt-3">
                 <SliderField
                   id="calibration-seconds"
@@ -1245,7 +1437,7 @@ export function SettingsPanel({
                 <div className="mt-3 flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium">Autotune prétraitement</p>
-                    <p className="text-xs text-muted-foreground">Autoriser l'ajustement automatique de noiseFloor/reduction/smoothing pour une lecture optimisée pour Whisper.</p>
+                    <p className="text-xs text-muted-foreground">Autoriser l'ajustement automatique des paramètres de gating, filtres, loudness et overlap pour une lecture optimisée pour Whisper.</p>
                   </div>
                   <div>
                     <Switch className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500" checked={autoTunePreprocess} onCheckedChange={(v) => setAutoTunePreprocess(v)} />
