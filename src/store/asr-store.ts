@@ -139,6 +139,7 @@ interface AsrConfigState {
   audioSource: SessionSource | null;
   // Persist the uploaded file in-memory so UI like pre-listen survives navigation
   uploadedFile: File | null;
+  previewUrl: string | null;
   telemetrySummary: TelemetrySummary | null;
   transcriptionConfidence: number | null; // 0..1 overall transcript confidence or null if unavailable
   transcriptionConfidenceSource?: 'model' | 'estimated' | null;
@@ -240,6 +241,7 @@ interface AsrConfigActions {
   setShowSegmentConfidence: (value: boolean) => void;
   // Keep the uploaded File in-memory so pre-listen persists across navigation
   setUploadedFile: (file: File | null) => void;
+  setPreviewUrl: (url: string | null) => void;
   // performance
   setForceSingleThread: (value: boolean) => void;
   setWasmThreads: (value: number | null) => void;
@@ -305,6 +307,7 @@ const initialState: AsrConfigState = {
   audioSource: null,
   // Persist uploaded file in-memory so pre-listen survives navigation
   uploadedFile: null,
+  previewUrl: null,
   telemetrySummary: null,
   isTranscribing: false,
   stopRequested: false,
@@ -440,6 +443,7 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
   setTranscriptionConfidenceSource: (value) => set(() => ({ transcriptionConfidenceSource: value })),
   setDebugConfidence: (value) => set(() => ({ debugConfidence: value })),
   setUploadedFile: (file: File | null) => set(() => ({ uploadedFile: file })),
+  setPreviewUrl: (url: string | null) => set(() => ({ previewUrl: url })),
 
   setForceSingleThread: (value: boolean) => set(() => ({ forceSingleThread: value })),
   setWasmThreads: (value: number | null) => set(() => ({ wasmThreads: value })),
@@ -483,6 +487,7 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
       transcriptionConfidenceSource: null,
       // Preserve debug toggle across session resets
       debugConfidence: state.debugConfidence,
+      previewUrl: state.previewUrl,
     })),
 
   resetApp: () =>

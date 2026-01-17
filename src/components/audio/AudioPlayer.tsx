@@ -9,13 +9,14 @@ import { Play, Pause, SkipBack, SkipForward, Repeat, Volume2, ChevronLeft, Chevr
 interface AudioPlayerProps {
   file?: File | null;
   metadata?: AudioMetadata | null;
+  previewUrl?: string | null;
 }
 
-export function AudioPlayer({ file, metadata }: AudioPlayerProps) {
+export function AudioPlayer({ file, metadata, previewUrl }: AudioPlayerProps) {
   const objectUrl = useMemo(() => {
-    if (!file) return undefined;
+    if (!file || previewUrl) return undefined;
     return URL.createObjectURL(file);
-  }, [file]);
+  }, [file, previewUrl]);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -102,6 +103,11 @@ export function AudioPlayer({ file, metadata }: AudioPlayerProps) {
     return null;
   }
 
+  const src = previewUrl ?? objectUrl;
+  if (!src) {
+    return null;
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -116,7 +122,7 @@ export function AudioPlayer({ file, metadata }: AudioPlayerProps) {
           onLoadedMetadata={onLoaded}
           onTimeUpdate={onTimeUpdate}
         >
-          <source src={objectUrl} type={file.type || "audio/mpeg"} />
+          <source src={src} type={file.type || "audio/mpeg"} />
           Votre navigateur ne supporte pas la balise audio.
         </audio>
 

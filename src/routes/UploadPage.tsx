@@ -20,7 +20,9 @@ import logger from "@/lib/logger";
 function UploadPage() {
   // Keep the selected file in the global store so pre-listen survives navigation
   const selectedFile = useAsrStore((state) => state.uploadedFile);
+  const previewUrl = useAsrStore((state) => state.previewUrl);
   const setUploadedFile = useAsrStore((state) => state.setUploadedFile);
+  const setPreviewUrl = useAsrStore((state) => state.setPreviewUrl);
   const segments = useAsrStore((state) => state.segments);
   const showSegments = useAsrStore((state) => state.showSegments);
   const telemetrySummary = useAsrStore((state) => state.telemetrySummary);
@@ -42,8 +44,17 @@ function UploadPage() {
       logger.info("handleFileSelected called", { fileName: file?.name });
       // Reset session first, then store the uploaded file to ensure the file remains available
       try {
+        if (previewUrl) {
+          try {
+            URL.revokeObjectURL(previewUrl);
+          } catch (err) {
+            void err;
+          }
+          setPreviewUrl(null);
+        }
         resetSession();
         setUploadedFile(file);
+        setPreviewUrl(URL.createObjectURL(file));
         setStatus("idle", "Fichier chargé, prêt à lancer");
       } catch (error) {
         logger.error("Erreur lors de l'initialisation de la session pour le fichier", error);
@@ -61,7 +72,7 @@ function UploadPage() {
         }
       })();
     },
-    [registerAudioSource, resetSession, setStatus, setUploadedFile]
+    [previewUrl, registerAudioSource, resetSession, setPreviewUrl, setStatus, setUploadedFile]
   );
 
   const handleManualStart = useCallback(async () => {
@@ -121,7 +132,7 @@ function UploadPage() {
         </div>
 
         <div className="space-y-4">
-          <AudioPlayer file={selectedFile} metadata={audioMetadata} />
+          <AudioPlayer file={selectedFile} metadata={audioMetadata} previewUrl={previewUrl} />
 
           {showSegments && (
             segments.length ? (

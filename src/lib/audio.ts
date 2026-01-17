@@ -421,27 +421,8 @@ export async function probeAudioMetadata(file: File): Promise<AudioMetadata> {
   audio.src = url;
   await waitForEvent(audio, "loadedmetadata");
 
-  // Try to decode the file to extract the sampleRate. If decoding fails, return metadata without sampleRate.
-  let sampleRate: number | undefined = undefined;
-  try {
-    const arrayBuffer = await file.arrayBuffer();
-    const ctx = new AudioContext();
-    try {
-      const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
-      sampleRate = audioBuffer.sampleRate;
-    } catch (err) {
-      // Some formats may fail to decode here; ignore and continue with undefined sampleRate
-      logger.warn("probeAudioMetadata: decodeAudioData failed", err);
-    } finally {
-      try {
-        await ctx.close();
-      } catch (err) {
-        void err;
-      }
-    }
-  } catch (err) {
-    logger.warn("probeAudioMetadata: failed to read file for sample rate", err);
-  }
+  // Avoid decoding full files here to prevent large memory spikes during import.
+  const sampleRate: number | undefined = undefined;
 
   const metadata: AudioMetadata = {
     name: file.name,

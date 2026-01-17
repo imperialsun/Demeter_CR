@@ -795,12 +795,24 @@ export function useTranscriptionController() {
     const source = { id: crypto.randomUUID(), label: file.name, type: "file" as const };
     state.registerAudioSource(source, metadata);
 
+    const autoProgressiveThresholdSec = 15 * 60;
+    let effectiveMemoryMode = state.memoryMode;
+    if (metadata.durationSec > autoProgressiveThresholdSec && state.memoryMode === "full") {
+      effectiveMemoryMode = "progressive";
+      state.setMemoryMode("progressive");
+      toast("Audio > 15 min : passage automatique en mode progressif.");
+      logger.info("[memory-mode] auto switched to progressive", {
+        durationSec: metadata.durationSec,
+        thresholdSec: autoProgressiveThresholdSec,
+      });
+    }
+
     const telemetry = new TelemetryCollector();
     state.registerTelemetry(telemetry);
     state.setStatus("downloading", "Chargement du pipeline");
     state.setIsTranscribing(true);
 
-    const shouldPreprocess = state.preprocessingMode === "full" || state.memoryMode === "progressive";
+    const shouldPreprocess = state.preprocessingMode === "full" || effectiveMemoryMode === "progressive";
     const calibrationRequested = Boolean(state.noiseCalibrationRequestedAt);
     const preprocessConfig = shouldPreprocess
       ? {
@@ -826,7 +838,7 @@ export function useTranscriptionController() {
         }
       : null;
     if (shouldPreprocess) {
-      logger.info("[preprocess] active", { ...preprocessConfig, memoryMode: state.memoryMode });
+      logger.info("[preprocess] active", { ...preprocessConfig, memoryMode: effectiveMemoryMode });
       state.clearNoiseCalibrationRequest();
       if (calibrationRequested) {
         logger.info("[preprocess] calibration requested (1s noise capture)");
@@ -841,7 +853,7 @@ export function useTranscriptionController() {
       // heavy preprocess work does not compete with model initialization.
       let preDecoded: import("@/lib/audio").DecodedAudio | undefined;
       let preApplied = false;
-      if (state.memoryMode === "full" && (state.preprocessingMode === "full" || state.preprocessingMode === "quick")) {
+      if (effectiveMemoryMode === "full" && (state.preprocessingMode === "full" || state.preprocessingMode === "quick")) {
         state.setPreprocessingStatus("calibrating");
         state.setPreprocessingProgress(0);
         // Full decode is required for both quick and full modes to derive a noise profile
@@ -1026,7 +1038,7 @@ export function useTranscriptionController() {
       state.setActiveBackend(backend);
       telemetry.setRuntimeContext({ backend, modelId });
 
-      if (state.memoryMode === "full") {
+      if (effectiveMemoryMode === "full") {
         // If we precomputed decoded/preprocessed audio, pass it to avoid re-decoding and to ensure the preprocessed pcm is used
         const preProc = (telemetry as unknown as { __preprocessConfig?: unknown }).__preprocessConfig as SpectralGateParams | undefined;
         const preprocessConfigArg: SpectralGateParams | null = preprocessConfig ?? (preProc ?? null);
