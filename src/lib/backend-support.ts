@@ -33,6 +33,7 @@ async function checkWasmAssets(): Promise<boolean> {
   const candidates = [
     "/onnx/ort-wasm-simd-threaded.jsep.wasm",
     "/onnx/ort-wasm-simd-threaded.wasm",
+    "/onnx/ort-wasm-simd-threaded.asyncify.wasm",
       "/onnx/ort-wasm-simd.jsep.wasm",
       "/onnx/ort-wasm-simd.wasm",
   ];
