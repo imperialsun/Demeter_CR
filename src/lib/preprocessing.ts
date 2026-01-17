@@ -10,7 +10,7 @@ const DEFAULT_LUFS_TARGET = -20;
 const DEFAULT_LIMITER_THRESHOLD_DB = -1;
 const DEFAULT_LIMITER_SOFTNESS = 0.6;
 const DEFAULT_HIGHPASS_HZ = 80;
-const DEFAULT_LOWPASS_HZ = 8000;
+const DEFAULT_LOWPASS_HZ = 7800;
 const DEFAULT_VAD_THRESHOLD_DB = -45;
 const DEFAULT_VAD_MIN_SILENCE_MS = 200;
 const DEFAULT_OVERLAP_BLOCK_SEC = 1.2;
@@ -729,7 +729,7 @@ export function computePreprocessParams(
   let lowpassHz = DEFAULT_LOWPASS_HZ;
   if (snrDb < 0) lowpassHz = 6500;
   else if (snrDb < 10) lowpassHz = 7200;
-  else if (snrDb >= 20) lowpassHz = 9000;
+  else if (snrDb >= 20) lowpassHz = 7800;
 
   const limiterThresholdDb = DEFAULT_LIMITER_THRESHOLD_DB;
   let limiterSoftness = DEFAULT_LIMITER_SOFTNESS;
@@ -817,8 +817,9 @@ async function applyFiltersAndCompressor(
   if (!params.enabled) {
     return pcm.slice();
   }
-  const highpassHz = Math.max(20, params.highpassHz);
-  const lowpassHz = Math.max(highpassHz + 100, params.lowpassHz);
+  const nyquist = sampleRate / 2;
+  const highpassHz = Math.min(Math.max(20, params.highpassHz), nyquist - 100);
+  const lowpassHz = Math.min(Math.max(highpassHz + 100, params.lowpassHz), nyquist);
   const offline = new OfflineAudioContext(1, pcm.length, sampleRate);
   const buffer = offline.createBuffer(1, pcm.length, sampleRate);
   buffer.copyToChannel(new Float32Array(pcm), 0);
