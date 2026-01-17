@@ -24,10 +24,97 @@ import { TelemetryCollector } from "@/lib/telemetry";
 import type { TranscriptionSegment, WordSegment } from "@/lib/export";
 import { useAsrStore } from "@/store/asr-store";
 
+function clamp01(value: number) {
+  return Math.max(0, Math.min(1, value));
+}
+
 export function useTranscriptionController() {
   const abortRef = useRef<AbortController | null>(null);
+  const confidenceAccumulatorRef = useRef({
+    totalDur: 0,
+    weightedSum: 0,
+    modelDur: 0,
+    estimatedDur: 0,
+  });
+  const progressThrottleRef = useRef(0);
+  const segmentationThrottleRef = useRef(0);
+  const preprocessThrottleRef = useRef(0);
+  const throttleMs = 120;
 
   const isTranscribing = useAsrStore((state) => state.isTranscribing);
+
+  const resetConfidenceAccumulator = () => {
+    confidenceAccumulatorRef.current = {
+      totalDur: 0,
+      weightedSum: 0,
+      modelDur: 0,
+      estimatedDur: 0,
+    };
+  };
+
+  const updateOverallConfidence = useCallback((
+    newSegments: TranscriptionSegment[],
+    telemetry: TelemetryCollector,
+    chunkIndex?: number,
+    fallbackText?: string,
+    fallbackDurationSec?: number
+  ) => {
+    const acc = confidenceAccumulatorRef.current;
+    for (const seg of newSegments) {
+      const conf = seg.confidence;
+      if (typeof conf !== "number" || Number.isNaN(conf)) continue;
+      const dur = Math.max(0.001, seg.end - seg.start);
+      acc.totalDur += dur;
+      acc.weightedSum += conf * dur;
+      if (seg.confidenceSource === "estimated") acc.estimatedDur += dur;
+      else if (seg.confidenceSource === "model") acc.modelDur += dur;
+    }
+
+    let overall: number | null = null;
+    let source: "model" | "estimated" | null = null;
+    if (acc.totalDur > 0) {
+      overall = clamp01(acc.weightedSum / acc.totalDur);
+      source = acc.estimatedDur > acc.modelDur ? "estimated" : "model";
+    } else if (fallbackText && fallbackText.trim().length) {
+      try {
+        const dur = Math.max(0.001, fallbackDurationSec ?? 0.001);
+        overall = clamp01(estimateConfidenceFromText(fallbackText, dur));
+        source = "estimated";
+        logger.info("Computed overall from chunk text (fallback)", { chunkIndex, overall });
+      } catch (err) {
+        void err;
+      }
+    }
+
+    useAsrStore.getState().setTranscriptionConfidence(overall);
+    useAsrStore.getState().setTranscriptionConfidenceSource(source);
+    telemetry?.logEvent("PROGRESS_CONFIDENCE", { chunkIndex, overall });
+    logger.info("Progressive transcript confidence", { chunkIndex, overall, source });
+  }, []);
+
+  const setProgressThrottled = (value: number, force = false) => {
+    const now = Date.now();
+    if (force || value <= 0 || value >= 1 || now - progressThrottleRef.current >= throttleMs) {
+      progressThrottleRef.current = now;
+      useAsrStore.getState().setProgress(value);
+    }
+  };
+
+  const setSegmentationProgressThrottled = (value: number, force = false) => {
+    const now = Date.now();
+    if (force || value <= 0 || value >= 1 || now - segmentationThrottleRef.current >= throttleMs) {
+      segmentationThrottleRef.current = now;
+      useAsrStore.getState().setSegmentationProgress(value);
+    }
+  };
+
+  const setPreprocessingProgressThrottled = (value: number, force = false) => {
+    const now = Date.now();
+    if (force || value <= 0 || value >= 1 || now - preprocessThrottleRef.current >= throttleMs) {
+      preprocessThrottleRef.current = now;
+      useAsrStore.getState().setPreprocessingProgress(value);
+    }
+  };
 
   const handleFullPipeline = useCallback(
     async ({
@@ -249,33 +336,8 @@ export function useTranscriptionController() {
           state.appendSegments(segments);
 
           // Recompute overall confidence immediately after appending segments (full pipeline mode)
-          try {
-            const segs = useAsrStore.getState().segments;
-            const numericCount = segs.filter((s) => typeof s.confidence === "number").length;
-            logger.info("Overall confidence debug", { totalSegments: segs.length, numericConfidences: numericCount });
-            const { computeOverallConfidence, computeOverallConfidenceSource } = await import("@/lib/confidence");
-            let overall = computeOverallConfidence(segs);
-            // If no numeric segment confidences but the chunk has text, estimate from the chunk text
-            let fallbackUsed = false;
-            if (overall === null && typeof result?.text === "string" && result.text.trim().length) {
-              try {
-                const dur = Math.max(0.001, (definition.end ?? definition.start) - (definition.start ?? 0));
-                const est = estimateConfidenceFromText(result.text, dur);
-                overall = Math.max(0, Math.min(1, est));
-                fallbackUsed = true;
-                logger.info("Computed overall from chunk text (fallback)", { chunkIndex: definition.index, est, overall });
-              } catch (err) {
-                void err;
-              }
-            }
-            const source = computeOverallConfidenceSource(segs) ?? (fallbackUsed ? 'estimated' : null);
-            useAsrStore.getState().setTranscriptionConfidence(overall);
-            useAsrStore.getState().setTranscriptionConfidenceSource(source);
-            telemetry?.logEvent("PROGRESS_CONFIDENCE", { chunkIndex: definition.index, overall });
-            logger.info("Progressive transcript confidence (full)", { chunkIndex: definition.index, overall, source });
-          } catch (err) {
-            logger.warn("Failed to compute progressive transcript confidence (full)", err);
-          }
+          const fallbackDuration = Math.max(0.001, (definition.end ?? definition.start) - (definition.start ?? 0));
+          updateOverallConfidence(segments, telemetry, definition.index, result?.text, fallbackDuration);
         }
 
         const metric = {
@@ -289,7 +351,7 @@ export function useTranscriptionController() {
         };
         telemetry.pushChunkMetric(metric);
         state.pushChunkMetric(metric);
-        state.setProgress((definition.index + 1) / totalChunks);
+        setProgressThrottled((definition.index + 1) / totalChunks);
 
         // Memory snapshot for this chunk (useful to track per-chunk heap usage)
         try {
@@ -301,7 +363,7 @@ export function useTranscriptionController() {
         }
       }
     },
-    []
+    [updateOverallConfidence]
   );
 
   const handleProgressivePipeline = useCallback(
@@ -382,13 +444,13 @@ export function useTranscriptionController() {
       let preprocessingStopped = false;
       if (effectivePreprocessConfig) {
         useAsrStore.getState().setPreprocessingStatus("processing");
-        useAsrStore.getState().setPreprocessingProgress(0);
+        setPreprocessingProgressThrottled(0, true);
       }
 
       try {
         if (segmentPlan.length) {
           state.setSegmentationStatus("segmenting");
-          state.setSegmentationProgress(0);
+              setSegmentationProgressThrottled(0, true);
           const segmenting = await createSegmentCache(file, {
             sessionId: segmentSessionId,
             segments: segmentPlan,
@@ -396,7 +458,7 @@ export function useTranscriptionController() {
             signal: abortController.signal,
             onProgress: (completed, total) => {
               const progress = total > 0 ? completed / total : 0;
-              state.setSegmentationProgress(progress);
+              setSegmentationProgressThrottled(progress);
             },
           });
           if (segmenting.aborted) {
@@ -459,7 +521,7 @@ export function useTranscriptionController() {
 
           if (effectivePreprocessConfig) {
             useAsrStore.getState().setPreprocessingStatus("calibrating");
-            useAsrStore.getState().setPreprocessingProgress(segment.index / Math.max(1, segmentPlan.length));
+            setPreprocessingProgressThrottled(segment.index / Math.max(1, segmentPlan.length));
             try {
               const { profile, frames, vadUsed, silenceRanges } = estimateNoiseProfileWithVad(
                 segmentPcm,
@@ -572,7 +634,7 @@ export function useTranscriptionController() {
               logger.warn("[preprocess] segment preprocess failed", err);
               telemetry.recordAlert("PREPROCESS_CALIBRATION_FAILED", { message: (err as Error).message });
             } finally {
-              useAsrStore.getState().setPreprocessingProgress((segment.index + 1) / Math.max(1, segmentPlan.length));
+              setPreprocessingProgressThrottled((segment.index + 1) / Math.max(1, segmentPlan.length));
               useAsrStore.getState().setPreprocessingStatus("processing");
             }
           }
@@ -647,31 +709,10 @@ export function useTranscriptionController() {
             state.pushChunkMetric(metric);
 
             const progress = duration > 0 ? Math.min(1, Math.max(0, (globalChunk.end ?? segment.end) / duration)) : 0;
-            state.setProgress(progress);
+            setProgressThrottled(progress);
 
-            try {
-              const { computeOverallConfidence, computeOverallConfidenceSource } = await import("@/lib/confidence");
-              let overall = computeOverallConfidence(useAsrStore.getState().segments);
-              let fallbackUsed = false;
-              if (overall === null && typeof result?.text === "string" && result.text.trim().length) {
-                try {
-                  const dur = Math.max(0.001, (globalChunk.end ?? globalChunk.start) - (globalChunk.start ?? 0));
-                  const est = estimateConfidenceFromText(result.text, dur);
-                  overall = Math.max(0, Math.min(1, est));
-                  fallbackUsed = true;
-                  logger.info("Computed overall from chunk text (fallback)", { chunkIndex: globalChunk.index, est, overall });
-                } catch (err) {
-                  void err;
-                }
-              }
-              const source = computeOverallConfidenceSource(useAsrStore.getState().segments) ?? (fallbackUsed ? 'estimated' : null);
-              useAsrStore.getState().setTranscriptionConfidence(overall);
-              useAsrStore.getState().setTranscriptionConfidenceSource(source);
-              telemetry?.logEvent("PROGRESS_CONFIDENCE", { chunkIndex: globalChunk.index, overall });
-              logger.info("Progressive transcript confidence", { chunkIndex: globalChunk.index, overall, source });
-            } catch (err) {
-              logger.warn("Failed to compute progressive transcript confidence", err);
-            }
+            const fallbackDuration = Math.max(0.001, (globalChunk.end ?? globalChunk.start) - (globalChunk.start ?? 0));
+            updateOverallConfidence(segments, telemetry, globalChunk.index, result?.text, fallbackDuration);
 
             try {
               const bytes = (chunkPcm as Float32Array).byteLength ?? 0;
@@ -713,7 +754,7 @@ export function useTranscriptionController() {
         await deleteSessionSegments(segmentSessionId);
       }
     },
-    []
+    [updateOverallConfidence]
   );
 
   const startUploadTranscription = useCallback(async (file: File) => {
@@ -745,6 +786,10 @@ export function useTranscriptionController() {
     state.setTelemetrySummary(null);
     state.setSegmentationStatus("idle");
     state.setSegmentationProgress(0);
+    resetConfidenceAccumulator();
+    progressThrottleRef.current = 0;
+    segmentationThrottleRef.current = 0;
+    preprocessThrottleRef.current = 0;
 
     const metadata = await probeAudioMetadata(file);
     const source = { id: crypto.randomUUID(), label: file.name, type: "file" as const };

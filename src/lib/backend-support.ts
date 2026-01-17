@@ -30,12 +30,16 @@ export function resetWebGpuSupportCache() {
 }
 
 async function checkWasmAssets(): Promise<boolean> {
+  if (typeof window === "undefined") {
+    console.info("checkWasmAssets: skipped (non-browser)");
+    return false;
+  }
   const candidates = [
     "/onnx/ort-wasm-simd-threaded.jsep.wasm",
     "/onnx/ort-wasm-simd-threaded.wasm",
     "/onnx/ort-wasm-simd-threaded.asyncify.wasm",
-      "/onnx/ort-wasm-simd.jsep.wasm",
-      "/onnx/ort-wasm-simd.wasm",
+    "/onnx/ort-wasm-simd.jsep.wasm",
+    "/onnx/ort-wasm-simd.wasm",
   ];
   for (const url of candidates) {
     try {
