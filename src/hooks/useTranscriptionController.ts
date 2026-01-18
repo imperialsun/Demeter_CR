@@ -137,9 +137,10 @@ export function useTranscriptionController() {
       const state = useAsrStore.getState();
       teleportStateToReady();
 
-      logger.info("[decode] full decode start", {
+      logger.info("[decode] full pipeline start", {
         fileName: file.name,
         mode: preprocessConfig ? "complete-preprocess" : "full-memory",
+        reusedPreDecoded: Boolean(preDecoded),
       });
       telemetry.logEvent("START_DECODE", {
         strategy: "full",
