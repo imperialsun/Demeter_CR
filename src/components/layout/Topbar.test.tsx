@@ -6,6 +6,7 @@ import { useAsrStore } from '@/store/asr-store';
 import * as backendSupport from '@/lib/backend-support';
 import * as toastMod from '@/components/ui/use-toast';
 import * as rr from 'react-router-dom';
+import * as logger from '@/lib/logger';
 
 // Mock react-router hooks used by the component
 const mockNavigate = vi.fn();
@@ -20,6 +21,10 @@ vi.mock('react-router-dom', async () => {
 
 vi.mock('@/hooks/useTranscriptionController', () => ({
   useTranscriptionController: () => ({ abortTranscription: vi.fn() }),
+}));
+
+vi.mock('@/lib/logger', () => ({
+  exportLogEntries: vi.fn(() => [{ timestamp: 't1', level: 'info', message: ['log'] }]),
 }));
 
 describe('Topbar', () => {
@@ -88,5 +93,21 @@ describe('Topbar', () => {
 
     fireEvent.click(debugBtn);
     expect(useAsrStore.getState().debugConfidence).toBe(true);
+  });
+
+  it('exports logs to clipboard', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    vi.spyOn(toastMod, 'toast').mockImplementation(() => 't-id' as any);
+
+    render(<Topbar />);
+    fireEvent.click(screen.getByText('Exporter logs'));
+
+    expect(writeText).toHaveBeenCalled();
+    const payload = JSON.parse(writeText.mock.calls[0]![0] as string) as { logs?: unknown[] };
+    expect(payload.logs).toEqual(logger.exportLogEntries());
   });
 });

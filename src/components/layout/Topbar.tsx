@@ -9,6 +9,7 @@ import { useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useTranscriptionController } from "@/hooks/useTranscriptionController";
 import { initializeBackendSupport, resetWebGpuSupportCache } from "@/lib/backend-support";
+import { exportLogEntries } from "@/lib/logger";
 
 const STATUS_LABELS: Record<string, string> = {
   idle: "Inactif",
@@ -100,6 +101,48 @@ export function Topbar() {
           )}
         </Button>
         <>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={async () => {
+              const snapshot = useAsrStore.getState();
+              const telemetry = snapshot.telemetryCollector?.exportSummary() ?? snapshot.telemetrySummary ?? null;
+              const payload = {
+                exportedAt: new Date().toISOString(),
+                session: {
+                  status: snapshot.status,
+                  statusDetail: snapshot.statusDetail,
+                  activePreset: snapshot.activePreset,
+                  customModelId: snapshot.customModelId,
+                  backendPreference: snapshot.backendPreference,
+                  activeBackend: snapshot.activeBackend,
+                  memoryMode: snapshot.memoryMode,
+                  segmentationMode: snapshot.segmentationMode,
+                  chunkStrategy: snapshot.chunkStrategy,
+                  preprocessingMode: snapshot.preprocessingMode,
+                  isTranscribing: snapshot.isTranscribing,
+                  progress: snapshot.progress,
+                  audioSource: snapshot.audioSource,
+                  audioMetadata: snapshot.audioMetadata,
+                },
+                telemetry,
+                logs: exportLogEntries(),
+              };
+              const text = JSON.stringify(payload, null, 2);
+              try {
+                await navigator.clipboard.writeText(text);
+                toast("Logs copiés dans le presse-papiers.");
+              } catch (error) {
+                void error;
+                if (typeof window !== "undefined") {
+                  window.prompt("Copiez les logs ci-dessous :", text);
+                }
+              }
+            }}
+          >
+            Exporter logs
+          </Button>
           <Button
             variant="destructive"
             size="sm"

@@ -7,6 +7,11 @@ import { useAsrStore } from '@/store/asr-store';
 import * as toastMod from '@/components/ui/use-toast';
 import { ThemeProvider } from '@/components/theme-provider';
 import { waitFor } from '@testing-library/react';
+
+vi.mock('@/lib/backend-support', () => ({
+  initializeBackendSupport: vi.fn(async () => true),
+  resetWebGpuSupportCache: vi.fn(),
+}));
 describe('SettingsPanel', () => {
   beforeEach(() => {
     // Reset store to defaults before each test

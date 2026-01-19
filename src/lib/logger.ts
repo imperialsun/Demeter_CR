@@ -4,6 +4,16 @@
 const IS_PROD = process.env.NODE_ENV === "production";
 
 let debugProvider: (() => boolean) | null = null;
+const LOG_BUFFER_LIMIT = 2000;
+const LOG_CACHE_KEY = "demeter-log-cache";
+
+type LogEntry = {
+  timestamp: string;
+  level: "info" | "debug" | "warn" | "error";
+  message: string[];
+};
+
+const logBuffer: LogEntry[] = [];
 
 export function setDebugProvider(provider: () => boolean) {
   debugProvider = provider;
@@ -24,19 +34,107 @@ function enabled() {
   }
 }
 
+function safeStringify(value: unknown) {
+  const seen = new WeakSet();
+  return JSON.stringify(value, (_key, val) => {
+    if (typeof val === "bigint") return val.toString();
+    if (val instanceof Error) {
+      return { name: val.name, message: val.message, stack: val.stack };
+    }
+    if (typeof val === "function") {
+      return `[Function ${val.name || "anonymous"}]`;
+    }
+    if (typeof val === "symbol") {
+      return val.toString();
+    }
+    if (val && typeof val === "object") {
+      if (seen.has(val)) return "[Circular]";
+      seen.add(val);
+    }
+    return val;
+  });
+}
+
+function formatArg(arg: unknown) {
+  if (typeof arg === "string") return arg;
+  const json = safeStringify(arg);
+  if (typeof json === "string") return json;
+  if (typeof arg === "undefined") return "undefined";
+  return String(arg);
+}
+
+function getStorage(): Storage | null {
+  if (typeof globalThis !== "undefined" && "localStorage" in globalThis && globalThis.localStorage) {
+    return globalThis.localStorage;
+  }
+  if (typeof window !== "undefined" && window.localStorage) {
+    return window.localStorage;
+  }
+  if (typeof localStorage !== "undefined") {
+    return localStorage;
+  }
+  return null;
+}
+
+function loadCachedLogs(): LogEntry[] {
+  const storage = getStorage();
+  if (!storage) return [];
+  try {
+    const raw = storage.getItem(LOG_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as LogEntry[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function appendCachedLogs(entries: LogEntry[]) {
+  const storage = getStorage();
+  if (!storage) return;
+  if (!entries.length) return;
+  try {
+    const existing = loadCachedLogs();
+    const merged = [...existing, ...entries];
+    storage.setItem(LOG_CACHE_KEY, JSON.stringify(merged));
+  } catch {
+    // ignore cache write failures (e.g. storage quota)
+  }
+}
+
+function pushLog(level: LogEntry["level"], args: unknown[]) {
+  logBuffer.push({
+    timestamp: new Date().toISOString(),
+    level,
+    message: args.map(formatArg),
+  });
+  if (logBuffer.length > LOG_BUFFER_LIMIT) {
+    const overflow = logBuffer.splice(0, logBuffer.length - LOG_BUFFER_LIMIT);
+    appendCachedLogs(overflow);
+  }
+}
+
+export function exportLogEntries() {
+  return [...loadCachedLogs(), ...logBuffer];
+}
+
 export function info(...args: unknown[]) {
+  pushLog("info", args);
   if (enabled()) console.info(...args);
 }
 
 export function debug(...args: unknown[]) {
+  pushLog("debug", args);
   if (enabled()) console.debug(...args);
 }
 
 export function warn(...args: unknown[]) {
+  pushLog("warn", args);
   if (enabled()) console.warn(...args);
 }
 
 export function error(...args: unknown[]) {
+  pushLog("error", args);
   if (enabled()) console.error(...args);
 }
 
