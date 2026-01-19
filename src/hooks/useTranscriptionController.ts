@@ -28,8 +28,10 @@ function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
 }
 
+const sharedAbortRef: { current: AbortController | null } = { current: null };
+const sharedRunIdRef: { current: number } = { current: 0 };
+
 export function useTranscriptionController() {
-  const abortRef = useRef<AbortController | null>(null);
   const confidenceAccumulatorRef = useRef({
     totalDur: 0,
     weightedSum: 0,
@@ -125,6 +127,7 @@ export function useTranscriptionController() {
       preprocessConfig,
       preDecoded,
       preprocessed,
+      runId,
     }: {
       file: File;
       telemetry: TelemetryCollector;
@@ -133,6 +136,7 @@ export function useTranscriptionController() {
       preprocessConfig?: SpectralGateParams | null;
       preDecoded?: import("@/lib/audio").DecodedAudio | null;
       preprocessed?: boolean | null;
+      runId: number;
     }) => {
       const state = useAsrStore.getState();
       teleportStateToReady();
@@ -317,7 +321,7 @@ export function useTranscriptionController() {
       const totalChunks = chunkPlan.length || 1;
 
       for (const definition of chunkPlan) {
-        if (shouldStopAfterChunk()) {
+        if (shouldStopAfterChunk(runId)) {
           break;
         }
         const chunkPcm = extractChunkPcm(decoded.pcm, decoded.sampleRate, definition);
@@ -329,6 +333,10 @@ export function useTranscriptionController() {
           telemetry,
         });
         logger.info("[decode] full decode start", { chunk: definition });
+
+        if (shouldStopAfterChunk(runId)) {
+          break;
+        }
 
         const segments = normaliseSegments(result, state.segmentationMode, nextIndex, lastSegment);
         if (segments.length) {
@@ -374,12 +382,14 @@ export function useTranscriptionController() {
       pipeline,
       source,
       preprocessConfig,
+      runId,
     }: {
       file: File;
       telemetry: TelemetryCollector;
       pipeline: AutomaticSpeechRecognitionPipeline;
       source: { id: string; label: string; type: "file" };
       preprocessConfig?: SpectralGateParams | null;
+      runId: number;
     }) => {
       const state = useAsrStore.getState();
       teleportStateToReady();
@@ -414,7 +424,7 @@ export function useTranscriptionController() {
       let globalChunkIndex = 0;
 
       const abortController = new AbortController();
-      abortRef.current = abortController;
+      sharedAbortRef.current = abortController;
 
       const effectivePreprocessConfig = preprocessConfig ?? {
         noiseFloorDb: state.denoiseNoiseFloorDb,
@@ -477,7 +487,7 @@ export function useTranscriptionController() {
         }
 
         for (const segment of segmentPlan) {
-          if (shouldStopAfterChunk()) {
+          if (shouldStopAfterChunk(runId)) {
             preprocessingStopped = true;
             break;
           }
@@ -675,7 +685,7 @@ export function useTranscriptionController() {
           state.setChunkPlan([...useAsrStore.getState().chunkPlan, ...segmentChunkPlanGlobal]);
 
           for (let i = 0; i < segmentChunkPlan.length; i += 1) {
-            if (shouldStopAfterChunk()) {
+            if (shouldStopAfterChunk(runId)) {
               preprocessingStopped = true;
               break;
             }
@@ -689,6 +699,11 @@ export function useTranscriptionController() {
               sampleRate: segmentSampleRate,
               telemetry,
             });
+
+            if (shouldStopAfterChunk(runId)) {
+              preprocessingStopped = true;
+              break;
+            }
 
             const segments = normaliseSegments(result, state.segmentationMode, nextIndex, lastSegment);
             if (segments.length) {
@@ -736,7 +751,7 @@ export function useTranscriptionController() {
           }
         }
         if (effectivePreprocessConfig) {
-          if (preprocessingStopped || shouldStopAfterChunk()) {
+          if (preprocessingStopped || shouldStopAfterChunk(runId)) {
             useAsrStore.getState().setPreprocessingStatus("idle");
           } else {
             useAsrStore.getState().setPreprocessingStatus("done");
@@ -764,6 +779,8 @@ export function useTranscriptionController() {
       toast("Une transcription est déjà en cours.");
       return;
     }
+    const runId = sharedRunIdRef.current + 1;
+    sharedRunIdRef.current = runId;
 
     // Preserve the debug toggle explicitly so that any transient resets inside the
     // transcription flow do not change the UI state.
@@ -1043,9 +1060,9 @@ export function useTranscriptionController() {
         // If we precomputed decoded/preprocessed audio, pass it to avoid re-decoding and to ensure the preprocessed pcm is used
         const preProc = (telemetry as unknown as { __preprocessConfig?: unknown }).__preprocessConfig as SpectralGateParams | undefined;
         const preprocessConfigArg: SpectralGateParams | null = preprocessConfig ?? (preProc ?? null);
-        await handleFullPipeline({ file, telemetry, pipeline, source, preprocessConfig: preprocessConfigArg, preDecoded, preprocessed: preApplied });
+        await handleFullPipeline({ file, telemetry, pipeline, source, preprocessConfig: preprocessConfigArg, preDecoded, preprocessed: preApplied, runId });
       } else {
-        await handleProgressivePipeline({ file, telemetry, pipeline, source, preprocessConfig });
+        await handleProgressivePipeline({ file, telemetry, pipeline, source, preprocessConfig, runId });
       }
 
       // Compute overall transcription confidence (duration-weighted average)
@@ -1086,7 +1103,7 @@ export function useTranscriptionController() {
       state.setIsTranscribing(false);
       state.resetStopRequest();
       state.registerTelemetry(null);
-      abortRef.current = null;
+      sharedAbortRef.current = null;
     }
   }, [handleFullPipeline, handleProgressivePipeline]);
 
@@ -1099,12 +1116,16 @@ export function useTranscriptionController() {
 
   // Immediately abort any in-progress transcription (used for reset/cleanup)
   const abortTranscription = useCallback(() => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-      const state = useAsrStore.getState();
-      state.setStatus("stopping", "Arrêt forcé");
-      // also mark stop requested to help existing flows terminate
-      state.requestStop();
+    sharedRunIdRef.current += 1;
+    const state = useAsrStore.getState();
+    if (!state.isTranscribing) {
+      return;
+    }
+    state.setStatus("stopping", "Arrêt forcé");
+    // also mark stop requested to help existing flows terminate
+    state.requestStop();
+    if (sharedAbortRef.current) {
+      sharedAbortRef.current.abort();
     }
   }, []);
 
@@ -1116,8 +1137,11 @@ export function useTranscriptionController() {
   };
 
 
-  function shouldStopAfterChunk() {
+  function shouldStopAfterChunk(runId?: number) {
     const snapshot = useAsrStore.getState();
+    if (typeof runId === "number" && runId !== sharedRunIdRef.current) {
+      return true;
+    }
     return snapshot.stopRequested;
   }
 

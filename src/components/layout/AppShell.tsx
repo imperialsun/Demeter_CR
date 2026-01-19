@@ -12,6 +12,7 @@ interface AppShellProps {
 export function AppShell({ children, className }: AppShellProps) {
   const isTranscribing = useAsrStore((state) => state.isTranscribing);
   const progress = useAsrStore((state) => state.progress);
+  const resetSession = useAsrStore((state) => state.resetSession);
 
   React.useEffect(() => {
     if (typeof document === "undefined") return;
@@ -23,6 +24,10 @@ export function AppShell({ children, className }: AppShellProps) {
       document.title = baseTitle;
     }
   }, [isTranscribing, progress]);
+
+  React.useEffect(() => {
+    resetSession();
+  }, [resetSession]);
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">
