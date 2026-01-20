@@ -4,7 +4,7 @@ interface ConfirmDialogProps {
   open: boolean;
   title?: string;
   description?: string;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   onCancel: () => void;
 }
 

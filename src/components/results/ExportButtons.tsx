@@ -15,9 +15,20 @@ import { useAsrStore } from "@/store/asr-store";
 interface ExportButtonsProps {
   segments: TranscriptionSegment[];
   telemetry?: TelemetrySummary;
+  showVtt?: boolean;
+  showSrt?: boolean;
+  showJson?: boolean;
+  showTelemetry?: boolean;
 }
 
-export function ExportButtons({ segments, telemetry }: ExportButtonsProps) {
+export function ExportButtons({
+  segments,
+  telemetry,
+  showVtt,
+  showSrt,
+  showJson,
+  showTelemetry,
+}: ExportButtonsProps) {
   const exportVtt = useCallback(() => {
     if (!segments.length) return;
     downloadBlob(serializeVtt(segments), buildFilename("transcription.vtt"), "text/vtt");
@@ -38,10 +49,14 @@ export function ExportButtons({ segments, telemetry }: ExportButtonsProps) {
     downloadBlob(serializeTelemetry(telemetry), buildFilename("telemetry.json"), "application/json");
   }, [telemetry]);
 
-  const showExportVtt = useAsrStore((s) => s.showExportVtt);
-  const showExportSrt = useAsrStore((s) => s.showExportSrt);
-  const showExportJson = useAsrStore((s) => s.showExportJson);
-  const showExportTelemetry = useAsrStore((s) => s.showExportTelemetry);
+  const storeShowVtt = useAsrStore((s) => s.showExportVtt);
+  const storeShowSrt = useAsrStore((s) => s.showExportSrt);
+  const storeShowJson = useAsrStore((s) => s.showExportJson);
+  const storeShowTelemetry = useAsrStore((s) => s.showExportTelemetry);
+  const showExportVtt = typeof showVtt === "boolean" ? showVtt : storeShowVtt;
+  const showExportSrt = typeof showSrt === "boolean" ? showSrt : storeShowSrt;
+  const showExportJson = typeof showJson === "boolean" ? showJson : storeShowJson;
+  const showExportTelemetry = typeof showTelemetry === "boolean" ? showTelemetry : storeShowTelemetry;
 
   return (
     <div className="flex flex-wrap gap-2">

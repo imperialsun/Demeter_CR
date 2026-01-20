@@ -59,4 +59,30 @@ describe('ExportButtons', () => {
     const vtt = screen.getByText('VTT').closest('button');
     expect(vtt).toBeDisabled();
   });
+
+  it('respects explicit show flags over store defaults', () => {
+    useAsrStore.setState({
+      showExportVtt: true,
+      showExportSrt: true,
+      showExportJson: true,
+      showExportTelemetry: true,
+    } as any);
+
+    const segments: any[] = [{ index: 0, start: 0, end: 1, text: 'a' }];
+    const telemetry = { sessionId: 's1' } as any;
+    render(
+      <ExportButtons
+        segments={segments}
+        telemetry={telemetry}
+        showVtt={false}
+        showJson={false}
+        showTelemetry={false}
+      />
+    );
+
+    expect(screen.queryByText('VTT')).toBeNull();
+    expect(screen.queryByText('JSON')).toBeNull();
+    expect(screen.queryByText('Telemetry')).toBeNull();
+    expect(screen.getByText('SRT')).toBeTruthy();
+  });
 });

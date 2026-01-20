@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { Topbar } from './Topbar';
 import { useAsrStore } from '@/store/asr-store';
 import * as backendSupport from '@/lib/backend-support';
@@ -80,8 +80,7 @@ describe('Topbar', () => {
     const confirm = await screen.findByText('Confirmer');
     fireEvent.click(confirm);
 
-    // resetApp should have been called
-    expect(resetSpy).toHaveBeenCalled();
+    await waitFor(() => expect(resetSpy).toHaveBeenCalled());
     expect(toastSpy).toHaveBeenCalled();
   });
 

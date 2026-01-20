@@ -31,6 +31,19 @@ function clamp01(value: number) {
 const sharedAbortRef: { current: AbortController | null } = { current: null };
 const sharedRunIdRef: { current: number } = { current: 0 };
 
+export function nextSharedRunId() {
+  sharedRunIdRef.current += 1;
+  return sharedRunIdRef.current;
+}
+
+export function getSharedRunId() {
+  return sharedRunIdRef.current;
+}
+
+export function setSharedAbortController(controller: AbortController | null) {
+  sharedAbortRef.current = controller;
+}
+
 export function useTranscriptionController() {
   const confidenceAccumulatorRef = useRef({
     totalDur: 0,
@@ -331,6 +344,8 @@ export function useTranscriptionController() {
           pcm: chunkPcm,
           sampleRate: decoded.sampleRate,
           telemetry,
+          enableWordTimestamps: state.enableWordTimestamps,
+          showSegmentConfidence: state.showSegmentConfidence,
         });
         logger.info("[decode] full decode start", { chunk: definition });
 
@@ -338,7 +353,9 @@ export function useTranscriptionController() {
           break;
         }
 
-        const segments = normaliseSegments(result, state.segmentationMode, nextIndex, lastSegment);
+        const segments = normaliseSegments(result, state.segmentationMode, nextIndex, lastSegment, {
+          enableWordTimestamps: state.enableWordTimestamps,
+        });
         if (segments.length) {
           nextIndex += segments.length;
           lastSegment = segments[segments.length - 1];
@@ -698,6 +715,8 @@ export function useTranscriptionController() {
               pcm: chunkPcm,
               sampleRate: segmentSampleRate,
               telemetry,
+              enableWordTimestamps: state.enableWordTimestamps,
+              showSegmentConfidence: state.showSegmentConfidence,
             });
 
             if (shouldStopAfterChunk(runId)) {
@@ -705,7 +724,9 @@ export function useTranscriptionController() {
               break;
             }
 
-            const segments = normaliseSegments(result, state.segmentationMode, nextIndex, lastSegment);
+            const segments = normaliseSegments(result, state.segmentationMode, nextIndex, lastSegment, {
+              enableWordTimestamps: state.enableWordTimestamps,
+            });
             if (segments.length) {
               nextIndex += segments.length;
               lastSegment = segments[segments.length - 1];
@@ -1049,6 +1070,7 @@ export function useTranscriptionController() {
         modelPreset: state.activePreset,
         customModelId: state.customModelId,
         backendPreference: state.backendPreference,
+        forceSingleThread: state.forceSingleThread,
         telemetry,
         onStatus: (status, detail) => state.setStatus(status, detail),
       });
@@ -1127,6 +1149,27 @@ export function useTranscriptionController() {
     if (sharedAbortRef.current) {
       sharedAbortRef.current.abort();
     }
+    const start = Date.now();
+    const timeoutMs = 15000;
+    return new Promise<void>((resolve) => {
+      const tick = () => {
+        const snapshot = useAsrStore.getState();
+        if (!snapshot.isTranscribing) {
+          resolve();
+          return;
+        }
+        if (!sharedAbortRef.current) {
+          resolve();
+          return;
+        }
+        if (Date.now() - start >= timeoutMs) {
+          resolve();
+          return;
+        }
+        setTimeout(tick, 50);
+      };
+      tick();
+    });
   }, []);
 
   return {
@@ -1155,13 +1198,17 @@ export function normaliseSegments(
   result: Awaited<ReturnType<typeof transcribeChunk>>,
   segmentationMode: "chunks" | "silence",
   startIndex: number,
-  previous?: TranscriptionSegment
+  previous?: TranscriptionSegment,
+  options?: { enableWordTimestamps?: boolean }
 ): TranscriptionSegment[] {
   const segments: TranscriptionSegment[] = [];
   if (segmentationMode === "chunks") {
     const text = trimChunkOverlap(previous?.text, result.text).trim();
     if (text.length) {
-      const enableWordTimestamps = useAsrStore.getState().enableWordTimestamps;
+      const enableWordTimestamps =
+        typeof options?.enableWordTimestamps === "boolean"
+          ? options.enableWordTimestamps
+          : useAsrStore.getState().enableWordTimestamps;
       // If the pipeline returned fine-grained segments inside this chunk, use them for words and for computing confidence
       const words: WordSegment[] | undefined = enableWordTimestamps && Array.isArray(result.segments)
         ? result.segments.map((s) => ({

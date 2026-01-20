@@ -82,4 +82,15 @@ describe('StatusBar', () => {
     // ETA estimation line should be present
     expect(screen.getByText(/Estimation restante/)).toBeTruthy();
   });
+
+  it('uses chunk counts in mic mode', () => {
+    useAsrStore.setState({
+      progress: 0.5,
+      chunkPlan: [{ start: 0, end: 10 }, { start: 10, end: 20 }, { start: 20, end: 30 }],
+      chunkMetrics: [{ startSec: 0, endSec: 10, realtimeFactor: 1 }],
+      segments: [{}, {}, {}, {}],
+    } as any);
+    render(<StatusBar mode="mic" />);
+    expect(screen.getByText(/1\/3 chunks traités/i)).toBeTruthy();
+  });
 });

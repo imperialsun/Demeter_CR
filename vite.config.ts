@@ -47,13 +47,16 @@ export default defineConfig({
     strictPort: true, // fail if the port is unavailable so Traefik mapping remains predictable
     // enable polling which can be more reliable when editing files over network mounts
     watch: { usePolling: true },
-    // Allow the host header used by Traefik so the dev server accepts proxied requests
-    allowedHosts: ["transcode.demeter-sante.fr"],
-    // When running behind TLS termination (Traefik), HMR should use wss and the public host
-    hmr: {
-      host: "transcode.demeter-sante.fr",
-      protocol: "wss",
-    },
+    // Allow common host headers (local + Traefik).
+    // Note: forcing HMR host/protocol breaks local dev (it will try to connect to the public host).
+    allowedHosts: ["transcode.demeter-sante.fr", "localhost", "127.0.0.1"],
+    // Only force HMR settings when explicitly requested (e.g. behind TLS termination).
+    hmr: process.env.VITE_HMR_HOST
+      ? {
+          host: process.env.VITE_HMR_HOST,
+          protocol: process.env.VITE_HMR_PROTOCOL ?? "wss",
+        }
+      : undefined,
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
@@ -63,7 +66,7 @@ export default defineConfig({
     host: true,
     port: 3000,
     strictPort: true,
-    allowedHosts: ["transcode.demeter-sante.fr"],
+    allowedHosts: ["transcode.demeter-sante.fr", "localhost", "127.0.0.1"],
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',

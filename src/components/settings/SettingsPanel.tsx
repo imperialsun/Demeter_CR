@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ChevronDown } from "lucide-react";
 
@@ -24,6 +24,7 @@ import { SliderField } from "@/components/ui/SliderField";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTheme, type Theme } from "@/components/theme-context";
 import { computeDefaultOverlap } from "@/lib/chunking";
 import { cn } from "@/lib/utils";
@@ -218,6 +219,116 @@ export function SettingsPanel({
     }))
   );
 
+  const {
+    micActivePreset,
+    micCustomModelId,
+    micBackendPreference,
+    micPreprocessingMode,
+    micSegmentationMode,
+    micSilenceThresholdDb,
+    micNoiseCalibrationMarginDb,
+    micMinSilenceMs,
+    micMinChunkMs,
+    micMaxChunkMs,
+    micShowExportVtt,
+    micShowExportSrt,
+    micShowExportJson,
+    micShowExportTelemetry,
+    micDenoiseNoiseFloorDb,
+    micDenoiseReductionDb,
+    micDenoiseSmoothing,
+    micDenoiseCalibrationSeconds,
+    micPreprocessEnableFilters,
+    micPreprocessHighpassHz,
+    micPreprocessLowpassHz,
+    micPreprocessEnableLufs,
+    micPreprocessTargetLufs,
+    micPreprocessLimiterEnabled,
+    micPreprocessLimiterThresholdDb,
+    micPreprocessLimiterSoftness,
+    micPreprocessVadEnabled,
+    micPreprocessVadThresholdDb,
+    micPreprocessVadMinSilenceMs,
+    micPreprocessOverlapAdd,
+    micPreprocessOverlapBlockSec,
+    micPreprocessOverlapSec,
+    micAutoTunePreprocess,
+    micEnableWordTimestamps,
+    micShowSegmentConfidence,
+    micForceSingleThread,
+    setMicPreset,
+    setMicBackendPreference,
+    setMicPreprocessingMode,
+    setMicSegmentationMode,
+    setMicNoiseCalibrationMarginDb,
+    setMicSilenceParams,
+    setMicShowExportVtt,
+    setMicShowExportSrt,
+    setMicShowExportJson,
+    setMicShowExportTelemetry,
+    setMicDenoiseParams,
+    setMicPreprocessParams,
+    setMicAutoTunePreprocess,
+    setMicEnableWordTimestamps,
+    setMicShowSegmentConfidence,
+    setMicForceSingleThread,
+  } = useAsrStore(
+    useShallow((state) => ({
+      micActivePreset: state.micActivePreset,
+      micCustomModelId: state.micCustomModelId,
+      micBackendPreference: state.micBackendPreference,
+      micPreprocessingMode: state.micPreprocessingMode,
+      micSegmentationMode: state.micSegmentationMode,
+      micSilenceThresholdDb: state.micSilenceThresholdDb,
+      micNoiseCalibrationMarginDb: state.micNoiseCalibrationMarginDb,
+      micMinSilenceMs: state.micMinSilenceMs,
+      micMinChunkMs: state.micMinChunkMs,
+      micMaxChunkMs: state.micMaxChunkMs,
+      micShowExportVtt: state.micShowExportVtt,
+      micShowExportSrt: state.micShowExportSrt,
+      micShowExportJson: state.micShowExportJson,
+      micShowExportTelemetry: state.micShowExportTelemetry,
+      micDenoiseNoiseFloorDb: state.micDenoiseNoiseFloorDb,
+      micDenoiseReductionDb: state.micDenoiseReductionDb,
+      micDenoiseSmoothing: state.micDenoiseSmoothing,
+      micDenoiseCalibrationSeconds: state.micDenoiseCalibrationSeconds,
+      micPreprocessEnableFilters: state.micPreprocessEnableFilters,
+      micPreprocessHighpassHz: state.micPreprocessHighpassHz,
+      micPreprocessLowpassHz: state.micPreprocessLowpassHz,
+      micPreprocessEnableLufs: state.micPreprocessEnableLufs,
+      micPreprocessTargetLufs: state.micPreprocessTargetLufs,
+      micPreprocessLimiterEnabled: state.micPreprocessLimiterEnabled,
+      micPreprocessLimiterThresholdDb: state.micPreprocessLimiterThresholdDb,
+      micPreprocessLimiterSoftness: state.micPreprocessLimiterSoftness,
+      micPreprocessVadEnabled: state.micPreprocessVadEnabled,
+      micPreprocessVadThresholdDb: state.micPreprocessVadThresholdDb,
+      micPreprocessVadMinSilenceMs: state.micPreprocessVadMinSilenceMs,
+      micPreprocessOverlapAdd: state.micPreprocessOverlapAdd,
+      micPreprocessOverlapBlockSec: state.micPreprocessOverlapBlockSec,
+      micPreprocessOverlapSec: state.micPreprocessOverlapSec,
+      micAutoTunePreprocess: state.micAutoTunePreprocess,
+      micEnableWordTimestamps: state.micEnableWordTimestamps,
+      micShowSegmentConfidence: state.micShowSegmentConfidence,
+      micForceSingleThread: state.micForceSingleThread,
+      setMicPreset: state.setMicPreset,
+      setMicBackendPreference: state.setMicBackendPreference,
+      setMicPreprocessingMode: state.setMicPreprocessingMode,
+      setMicSegmentationMode: state.setMicSegmentationMode,
+      setMicNoiseCalibrationMarginDb: state.setMicNoiseCalibrationMarginDb,
+      setMicSilenceParams: state.setMicSilenceParams,
+      setMicShowExportVtt: state.setMicShowExportVtt,
+      setMicShowExportSrt: state.setMicShowExportSrt,
+      setMicShowExportJson: state.setMicShowExportJson,
+      setMicShowExportTelemetry: state.setMicShowExportTelemetry,
+      setMicDenoiseParams: state.setMicDenoiseParams,
+      setMicPreprocessParams: state.setMicPreprocessParams,
+      setMicAutoTunePreprocess: state.setMicAutoTunePreprocess,
+      setMicEnableWordTimestamps: state.setMicEnableWordTimestamps,
+      setMicShowSegmentConfidence: state.setMicShowSegmentConfidence,
+      setMicForceSingleThread: state.setMicForceSingleThread,
+    }))
+  );
+
   const backendOptions = useMemo<BackendOption[]>(() => {
     return BACKENDS.map((backend) => {
       if (backend.value === "webgpu") {
@@ -261,6 +372,12 @@ export function SettingsPanel({
   } | null>(null);
 
   const [testingMultithread, setTestingMultithread] = useState(false);
+
+  useEffect(() => {
+    if (!webGpuSupported && micBackendPreference === "webgpu") {
+      setMicBackendPreference("wasm");
+    }
+  }, [micBackendPreference, setMicBackendPreference, webGpuSupported]);
 
   // Confirm dialog handler
   const onConfirmClear = async () => {
@@ -645,12 +762,27 @@ export function SettingsPanel({
     value === "webgpu"
       ? "data-[state=checked]:bg-emerald-500 data-[state=checked]:text-white"
       : "data-[state=checked]:bg-amber-400 data-[state=checked]:text-amber-950";
+  const isMicCustom = micActivePreset === "custom";
+  const micBackendTriggerTone = micBackendPreference === "webgpu"
+    ? "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-500/90 focus:ring-emerald-500/40"
+    : "border-amber-400 bg-amber-400 text-amber-950 hover:bg-amber-400/90 focus:ring-amber-400/40";
+  const micBackendItemTone = (value: BackendImplementation) =>
+    value === "webgpu"
+      ? "data-[state=checked]:bg-emerald-500 data-[state=checked]:text-white"
+      : "data-[state=checked]:bg-amber-400 data-[state=checked]:text-amber-950";
 
   type PresetKey = Parameters<typeof setPreset>[0];
+  type MicPresetKey = Parameters<typeof setMicPreset>[0];
   type ChunkStrategyValue = Parameters<typeof setChunkStrategy>[0];
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <Tabs defaultValue="file" className="space-y-6">
+      <TabsList>
+        <TabsTrigger value="file">Fichier</TabsTrigger>
+        <TabsTrigger value="mic">Enregistrement</TabsTrigger>
+      </TabsList>
+      <TabsContent value="file">
+        <div className="grid gap-4 lg:grid-cols-2">
       {showReminders ? (
         <Card className="lg:col-span-2">
           <CardHeader>
@@ -1532,6 +1664,516 @@ export function SettingsPanel({
         </CardContent>
       </Card>
     </div>
+  </TabsContent>
+  <TabsContent value="mic">
+    <div className="grid gap-4 lg:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <CardTitle>Modèle Whisper (micro)</CardTitle>
+          <CardDescription>
+            Choisissez le preset et le backend utilisés pour l&apos;enregistrement.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Preset</Label>
+            <Select value={micActivePreset} onValueChange={(value) => setMicPreset(value as MicPresetKey)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Sélectionnez un preset" />
+              </SelectTrigger>
+              <SelectContent>
+                {presetOptions.map((preset) => (
+                  <SelectItem key={preset.key} value={preset.key}>
+                    <div className="flex flex-col">
+                      <span className="font-medium">{preset.label}</span>
+                      <span className="text-xs text-muted-foreground">{preset.description}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+                <SelectItem value="custom">
+                  <div className="flex flex-col">
+                    <span className="font-medium">Custom</span>
+                    <span className="text-xs text-muted-foreground">Renseignez un repo Hugging Face compatible.</span>
+                  </div>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {isMicCustom ? (
+            <div className="space-y-2">
+              <Label htmlFor="mic-custom-model">ModelId Hugging Face</Label>
+              <Input
+                id="mic-custom-model"
+                placeholder="ex: MonOrganisation/whisper-finetune"
+                value={micCustomModelId}
+                onChange={(event) => setMicPreset("custom" as MicPresetKey, event.target.value)}
+              />
+            </div>
+          ) : null}
+          <div className="space-y-2">
+            <Label>Backend</Label>
+            <Select
+              value={micBackendPreference}
+              onValueChange={(value) => setMicBackendPreference(value as BackendImplementation)}
+            >
+              <SelectTrigger className={cn("capitalize", micBackendTriggerTone)}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {backendOptions.map((backend) => (
+                  <SelectItem
+                    key={backend.value}
+                    value={backend.value}
+                    disabled={backend.disabled}
+                    className={cn("capitalize", micBackendItemTone(backend.value))}
+                  >
+                    <div className="flex flex-col">
+                      <span className="font-medium">{backend.label}</span>
+                      <span className={cn("text-xs", backend.value === "wasm" ? "text-black" : "text-muted-foreground")}>{backend.description}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {!webGpuSupported ? (
+              <p className="text-xs text-muted-foreground">
+                WebGPU n&apos;est pas disponible sur ce périphérique. Le mode WASM est appliqué automatiquement.
+              </p>
+            ) : null}
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">Timestamps par mot</p>
+              <p className="text-xs text-muted-foreground">Activer les timestamps au niveau des mots (coûteux en CPU/mémoire).</p>
+            </div>
+            <Switch
+              className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+              checked={micEnableWordTimestamps}
+              onCheckedChange={(checked) => setMicEnableWordTimestamps(checked ? true : false)}
+            />
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">Afficher l&apos;indice de confiance</p>
+              <p className="text-xs text-muted-foreground">Afficher l&apos;indice de confiance calculé pour chaque segment.</p>
+            </div>
+            <Switch
+              aria-label="Afficher l'indice de confiance (micro)"
+              className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+              checked={micShowSegmentConfidence}
+              onCheckedChange={(checked) => {
+                setMicShowSegmentConfidence(checked ? true : false);
+                setMicEnableWordTimestamps(checked ? true : false);
+              }}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Segmentation micro</CardTitle>
+          <CardDescription>
+            Paramètres de découpe basés sur les silences.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">Micro segment</p>
+              <p className="text-xs text-muted-foreground">
+                On : coupe aux silences. Off : un segment par chunk.
+              </p>
+            </div>
+            <Switch
+              className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+              checked={micSegmentationMode === "silence"}
+              onCheckedChange={(checked) => setMicSegmentationMode(checked ? "silence" : "chunks")}
+            />
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <NumberField
+              id="mic-silence-threshold"
+              label="Seuil silence (dB)"
+              value={micSilenceThresholdDb}
+              min={-80}
+              max={-5}
+              step={1}
+              onChange={(value) => setMicSilenceParams({ silenceThresholdDb: value })}
+            />
+            <NumberField
+              id="mic-noise-margin-db"
+              label="Marge calibration bruit (dB)"
+              value={micNoiseCalibrationMarginDb}
+              min={0}
+              max={30}
+              step={0.5}
+              onChange={(value) => setMicNoiseCalibrationMarginDb(value)}
+            />
+            <NumberField
+              id="mic-min-silence"
+              label="Silence min (ms)"
+              value={micMinSilenceMs}
+              min={200}
+              max={5000}
+              step={100}
+              onChange={(value) => setMicSilenceParams({ minSilenceMs: value })}
+            />
+            <NumberField
+              id="mic-min-chunk"
+              label="Chunk min (ms)"
+              value={micMinChunkMs}
+              min={500}
+              max={30000}
+              step={100}
+              onChange={(value) => setMicSilenceParams({ minChunkMs: value })}
+            />
+            <NumberField
+              id="mic-max-chunk"
+              label="Chunk max (ms)"
+              value={micMaxChunkMs}
+              min={5000}
+              max={120000}
+              step={1000}
+              onChange={(value) => setMicSilenceParams({ maxChunkMs: value })}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="lg:col-span-2">
+        <CardHeader>
+          <div>
+            <CardTitle>Pré-traitement micro</CardTitle>
+            <CardDescription>
+              Choisissez le mode de pré-traitement appliqué aux chunks micro avant la transcription.
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">Mode de pré-traitement</p>
+              <p className="text-xs text-muted-foreground">Sélectionnez "Rapide" pour un prétraitement léger chunk par chunk, ou "Complet" pour effectuer un prétraitement complet avant la transcription.</p>
+            </div>
+            <Select value={micPreprocessingMode} onValueChange={(v) => setMicPreprocessingMode(v as "quick" | "full") }>
+              <SelectTrigger className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="quick">Rapide</SelectItem>
+                <SelectItem value="full">Complet</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {micPreprocessingMode === "full" ? (
+            <div className="mt-4 space-y-4 rounded-md border bg-muted/30 px-3 py-3">
+              <p className="text-xs text-muted-foreground">
+                Le mode complet applique un filtrage passe-haut/passe-bas, compression douce, normalisation loudness, puis débruitage spectral (FFT 1024 / hop 256).
+              </p>
+              <div className="grid gap-3 md:grid-cols-3">
+                <SliderField
+                  id="mic-noise-floor"
+                  label="Noise floor (dB)"
+                  min={-50}
+                  max={-5}
+                  step={1}
+                  value={micDenoiseNoiseFloorDb}
+                  onChange={(value) => setMicDenoiseParams({ denoiseNoiseFloorDb: value })}
+                  help="Décalage du seuil par rapport au profil de bruit. Valeur plus basse = gating plus prudent."
+                  disabled={micAutoTunePreprocess}
+                />
+                <SliderField
+                  id="mic-reduction-db"
+                  label="Réduction (dB)"
+                  min={0}
+                  max={24}
+                  step={1}
+                  value={micDenoiseReductionDb}
+                  onChange={(value) => setMicDenoiseParams({ denoiseReductionDb: value })}
+                  help="Atténuation max dans les bandes bruyantes (soft-knee)."
+                  disabled={micAutoTunePreprocess}
+                />
+                <SliderField
+                  id="mic-smoothing"
+                  label="Lissage"
+                  min={0}
+                  max={0.99}
+                  step={0.01}
+                  value={micDenoiseSmoothing}
+                  onChange={(value) => setMicDenoiseParams({ denoiseSmoothing: value })}
+                  help="0 = réactif, 0.8 par défaut = transitions douces."
+                  disabled={micAutoTunePreprocess}
+                />
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">Filtres passe-haut / passe-bas</p>
+                    <p className="text-xs text-muted-foreground">Élimine les basses fréquences (rumble) et les aigus inutiles.</p>
+                  </div>
+                  <Switch
+                    className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                    checked={micPreprocessEnableFilters}
+                    onCheckedChange={(value) => setMicPreprocessParams({ preprocessEnableFilters: value })}
+                    disabled={micAutoTunePreprocess}
+                  />
+                </div>
+                <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">Normalisation loudness (LUFS)</p>
+                    <p className="text-xs text-muted-foreground">Stabilise la loudness perçue pour la transcription.</p>
+                  </div>
+                  <Switch
+                    className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                    checked={micPreprocessEnableLufs}
+                    onCheckedChange={(value) => setMicPreprocessParams({ preprocessEnableLufs: value })}
+                    disabled={micAutoTunePreprocess}
+                  />
+                </div>
+                <SliderField
+                  id="mic-pre-highpass"
+                  label="Passe-haut (Hz)"
+                  min={40}
+                  max={200}
+                  step={5}
+                  value={micPreprocessHighpassHz}
+                  onChange={(value) => setMicPreprocessParams({ preprocessHighpassHz: value })}
+                  help="Coupe les basses fréquences (80 Hz par défaut)."
+                  disabled={!micPreprocessEnableFilters || micAutoTunePreprocess}
+                />
+                <SliderField
+                  id="mic-pre-lowpass"
+                  label="Passe-bas (Hz)"
+                  min={4000}
+                  max={12000}
+                  step={250}
+                  value={micPreprocessLowpassHz}
+                  onChange={(value) => setMicPreprocessParams({ preprocessLowpassHz: value })}
+                  help="Coupe les aigus trop agressifs (8 kHz par défaut)."
+                  disabled={!micPreprocessEnableFilters || micAutoTunePreprocess}
+                />
+                <SliderField
+                  id="mic-pre-lufs-target"
+                  label="Cible loudness (LUFS)"
+                  min={-30}
+                  max={-14}
+                  step={0.5}
+                  value={micPreprocessTargetLufs}
+                  onChange={(value) => setMicPreprocessParams({ preprocessTargetLufs: value })}
+                  help="Cible loudness moyenne (ex: -20 LUFS)."
+                  disabled={!micPreprocessEnableLufs || micAutoTunePreprocess}
+                />
+                <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">Limiteur doux</p>
+                    <p className="text-xs text-muted-foreground">Évite les saturations après normalisation.</p>
+                  </div>
+                  <Switch
+                    className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                    checked={micPreprocessLimiterEnabled}
+                    onCheckedChange={(value) => setMicPreprocessParams({ preprocessLimiterEnabled: value })}
+                    disabled={micAutoTunePreprocess}
+                  />
+                </div>
+                <SliderField
+                  id="mic-pre-limiter-threshold"
+                  label="Seuil limiteur (dBFS)"
+                  min={-6}
+                  max={-0.1}
+                  step={0.1}
+                  value={micPreprocessLimiterThresholdDb}
+                  onChange={(value) => setMicPreprocessParams({ preprocessLimiterThresholdDb: value })}
+                  help="Seuil de limitation (par défaut -1 dBFS)."
+                  disabled={!micPreprocessLimiterEnabled || micAutoTunePreprocess}
+                />
+                <SliderField
+                  id="mic-pre-limiter-softness"
+                  label="Douceur limiteur"
+                  min={0.1}
+                  max={1}
+                  step={0.05}
+                  value={micPreprocessLimiterSoftness}
+                  onChange={(value) => setMicPreprocessParams({ preprocessLimiterSoftness: value })}
+                  help="Plus élevé = limitation plus douce."
+                  disabled={!micPreprocessLimiterEnabled || micAutoTunePreprocess}
+                />
+                <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">Calibration VAD (silence)</p>
+                    <p className="text-xs text-muted-foreground">Calcule le profil de bruit sur des zones non parlées.</p>
+                  </div>
+                  <Switch
+                    className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                    checked={micPreprocessVadEnabled}
+                    onCheckedChange={(value) => setMicPreprocessParams({ preprocessVadEnabled: value })}
+                    disabled={micAutoTunePreprocess}
+                  />
+                </div>
+                <SliderField
+                  id="mic-pre-vad-threshold"
+                  label="Seuil VAD (dB)"
+                  min={-60}
+                  max={-30}
+                  step={1}
+                  value={micPreprocessVadThresholdDb}
+                  onChange={(value) => setMicPreprocessParams({ preprocessVadThresholdDb: value })}
+                  help="Seuil d'énergie pour détecter la parole."
+                  disabled={!micPreprocessVadEnabled || micAutoTunePreprocess}
+                />
+                <SliderField
+                  id="mic-pre-vad-min-silence"
+                  label="Silence min (ms)"
+                  min={50}
+                  max={1000}
+                  step={50}
+                  value={micPreprocessVadMinSilenceMs}
+                  onChange={(value) => setMicPreprocessParams({ preprocessVadMinSilenceMs: value })}
+                  help="Durée minimale d'un silence pour la calibration."
+                  disabled={!micPreprocessVadEnabled || micAutoTunePreprocess}
+                />
+                <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">Lissage overlap-add</p>
+                    <p className="text-xs text-muted-foreground">Réduit les artefacts aux frontières.</p>
+                  </div>
+                  <Switch
+                    className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                    checked={micPreprocessOverlapAdd}
+                    onCheckedChange={(value) => setMicPreprocessParams({ preprocessOverlapAdd: value })}
+                    disabled={micAutoTunePreprocess}
+                  />
+                </div>
+                <SliderField
+                  id="mic-pre-overlap-block"
+                  label="Fenêtre overlap (s)"
+                  min={0.5}
+                  max={3}
+                  step={0.1}
+                  value={micPreprocessOverlapBlockSec}
+                  onChange={(value) => setMicPreprocessParams({ preprocessOverlapBlockSec: value })}
+                  help="Durée de fenêtre pour le lissage."
+                  disabled={!micPreprocessOverlapAdd || micAutoTunePreprocess}
+                />
+                <SliderField
+                  id="mic-pre-overlap-sec"
+                  label="Recouvrement (s)"
+                  min={0.05}
+                  max={0.8}
+                  step={0.05}
+                  value={micPreprocessOverlapSec}
+                  onChange={(value) => setMicPreprocessParams({ preprocessOverlapSec: value })}
+                  help="Recouvrement entre fenêtres."
+                  disabled={!micPreprocessOverlapAdd || micAutoTunePreprocess}
+                />
+              </div>
+
+              <div className="mt-3">
+                <SliderField
+                  id="mic-calibration-seconds"
+                  label="Durée calibration (s)"
+                  min={0.25}
+                  max={5}
+                  step={0.25}
+                  value={micDenoiseCalibrationSeconds}
+                  onChange={(value) => setMicDenoiseParams({ denoiseCalibrationSeconds: value })}
+                  help="Durée (en secondes) utilisée pour estimer le profil de bruit pendant la calibration."
+                />
+                <div className="mt-3 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Autotune prétraitement (micro)</p>
+                    <p className="text-xs text-muted-foreground">
+                      Calibre sur le premier chunk et conserve les réglages pendant l&apos;enregistrement.
+                    </p>
+                  </div>
+                  <div>
+                    <Switch
+                      aria-label="Autotune prétraitement (micro)"
+                      className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                      checked={micAutoTunePreprocess}
+                      onCheckedChange={(v) => setMicAutoTunePreprocess(v)}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card className="lg:col-span-2">
+        <CardHeader>
+          <div>
+            <CardTitle>Performance micro</CardTitle>
+            <CardDescription>
+              Réglages relatifs aux performances pour la transcription micro.
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Forcer single-thread</p>
+              <p className="text-xs text-muted-foreground">Désactive le multithreading WASM pour /mic.</p>
+            </div>
+            <Switch
+              className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+              checked={micForceSingleThread}
+              onCheckedChange={(v) => setMicForceSingleThread(v)}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="lg:col-span-2">
+        <CardHeader>
+          <div>
+            <CardTitle>Exports micro</CardTitle>
+            <CardDescription>
+              Contrôlez quels boutons d&apos;export apparaissent sur la page Micro.
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-2">
+          <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">VTT</p>
+              <p className="text-xs text-muted-foreground">Affiche le bouton d&apos;export VTT sur /mic.</p>
+            </div>
+            <Switch className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500" checked={micShowExportVtt} onCheckedChange={(v) => setMicShowExportVtt(v)} />
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">SRT</p>
+              <p className="text-xs text-muted-foreground">Affiche le bouton d&apos;export SRT sur /mic.</p>
+            </div>
+            <Switch className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500" checked={micShowExportSrt} onCheckedChange={(v) => setMicShowExportSrt(v)} />
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">JSON segments</p>
+              <p className="text-xs text-muted-foreground">Affiche le bouton d&apos;export JSON (segments).</p>
+            </div>
+            <Switch className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500" checked={micShowExportJson} onCheckedChange={(v) => setMicShowExportJson(v)} />
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">Telemetry</p>
+              <p className="text-xs text-muted-foreground">Affiche le bouton d&apos;export telemetry.json.</p>
+            </div>
+            <Switch className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500" checked={micShowExportTelemetry} onCheckedChange={(v) => setMicShowExportTelemetry(v)} />
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  </TabsContent>
+    </Tabs>
   );
 }
 

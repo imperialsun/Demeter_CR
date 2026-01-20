@@ -49,6 +49,43 @@ export interface PersistedSettings {
   debugConfidence?: boolean;
   // performance
   forceSingleThread?: boolean;
+  // Mic-specific settings
+  micActivePreset?: "fast" | "balanced" | "medium" | "quality" | "french" | "custom";
+  micCustomModelId?: string;
+  micBackendPreference?: BackendImplementation;
+  micPreprocessingMode?: "quick" | "full";
+  micSegmentationMode?: "chunks" | "silence";
+  micSilenceThresholdDb?: number;
+  micNoiseCalibrationMarginDb?: number;
+  micMinSilenceMs?: number;
+  micMinChunkMs?: number;
+  micMaxChunkMs?: number;
+  micShowExportVtt?: boolean;
+  micShowExportSrt?: boolean;
+  micShowExportJson?: boolean;
+  micShowExportTelemetry?: boolean;
+  micDenoiseNoiseFloorDb?: number;
+  micDenoiseReductionDb?: number;
+  micDenoiseSmoothing?: number;
+  micDenoiseCalibrationSeconds?: number;
+  micPreprocessEnableFilters?: boolean;
+  micPreprocessHighpassHz?: number;
+  micPreprocessLowpassHz?: number;
+  micPreprocessEnableLufs?: boolean;
+  micPreprocessTargetLufs?: number;
+  micPreprocessLimiterEnabled?: boolean;
+  micPreprocessLimiterThresholdDb?: number;
+  micPreprocessLimiterSoftness?: number;
+  micPreprocessVadEnabled?: boolean;
+  micPreprocessVadThresholdDb?: number;
+  micPreprocessVadMinSilenceMs?: number;
+  micPreprocessOverlapAdd?: boolean;
+  micPreprocessOverlapBlockSec?: number;
+  micPreprocessOverlapSec?: number;
+  micAutoTunePreprocess?: boolean;
+  micEnableWordTimestamps?: boolean;
+  micShowSegmentConfidence?: boolean;
+  micForceSingleThread?: boolean;
 }
 
 export function loadSettings(): Partial<PersistedSettings> | null {
@@ -118,4 +155,41 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   debugConfidence: false,
   // default performance settings
   forceSingleThread: false,
+  // mic defaults
+  micActivePreset: "fast",
+  micCustomModelId: "",
+  micBackendPreference: "webgpu",
+  micPreprocessingMode: "full",
+  micSegmentationMode: "silence",
+  micSilenceThresholdDb: -35,
+  micNoiseCalibrationMarginDb: 6,
+  micMinSilenceMs: 300,
+  micMinChunkMs: 10000,
+  micMaxChunkMs: 20000,
+  micShowExportVtt: false,
+  micShowExportSrt: false,
+  micShowExportJson: false,
+  micShowExportTelemetry: false,
+  micDenoiseNoiseFloorDb: -28,
+  micDenoiseReductionDb: 10,
+  micDenoiseSmoothing: 0.85,
+  micDenoiseCalibrationSeconds: 6,
+  micPreprocessEnableFilters: true,
+  micPreprocessHighpassHz: 90,
+  micPreprocessLowpassHz: 7500,
+  micPreprocessEnableLufs: true,
+  micPreprocessTargetLufs: -20,
+  micPreprocessLimiterEnabled: true,
+  micPreprocessLimiterThresholdDb: -1,
+  micPreprocessLimiterSoftness: 0.65,
+  micPreprocessVadEnabled: true,
+  micPreprocessVadThresholdDb: -42,
+  micPreprocessVadMinSilenceMs: 250,
+  micPreprocessOverlapAdd: true,
+  micPreprocessOverlapBlockSec: 1.4,
+  micPreprocessOverlapSec: 0.3,
+  micAutoTunePreprocess: true,
+  micEnableWordTimestamps: false,
+  micShowSegmentConfidence: false,
+  micForceSingleThread: false,
 };

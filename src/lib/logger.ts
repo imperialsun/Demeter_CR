@@ -2,6 +2,7 @@
 // This avoids importing the Zustand store here and causing circular imports or dynamic-import churn.
 
 const IS_PROD = process.env.NODE_ENV === "production";
+const IS_TEST = process.env.NODE_ENV === "test";
 
 let debugProvider: (() => boolean) | null = null;
 const LOG_BUFFER_LIMIT = 2000;
@@ -14,6 +15,9 @@ type LogEntry = {
 };
 
 const logBuffer: LogEntry[] = [];
+let cachedLogsMemo: LogEntry[] | null = null;
+let cachePending: LogEntry[] = [];
+let cacheFlushScheduled = false;
 
 export function setDebugProvider(provider: () => boolean) {
   debugProvider = provider;
@@ -28,9 +32,9 @@ function enabled() {
     if (typeof debugProvider === 'function') {
       return Boolean(debugProvider());
     }
-    return !IS_PROD;
+    return !IS_PROD && !IS_TEST;
   } catch {
-    return !IS_PROD;
+    return !IS_PROD && !IS_TEST;
   }
 }
 
@@ -89,14 +93,56 @@ function loadCachedLogs(): LogEntry[] {
   }
 }
 
+function ensureCachedMemoLoaded() {
+  if (cachedLogsMemo) return cachedLogsMemo;
+  cachedLogsMemo = loadCachedLogs();
+  return cachedLogsMemo;
+}
+
+function flushCachedLogs() {
+  const storage = getStorage();
+  if (!storage) return;
+  if (!cachedLogsMemo) return;
+  if (!cachePending.length) return;
+  try {
+    storage.setItem(LOG_CACHE_KEY, JSON.stringify(cachedLogsMemo));
+  } catch {
+    // ignore cache write failures (e.g. storage quota)
+  } finally {
+    cachePending = [];
+    cacheFlushScheduled = false;
+  }
+}
+
+function scheduleCacheFlush() {
+  if (cacheFlushScheduled) return;
+  cacheFlushScheduled = true;
+  try {
+    if (typeof queueMicrotask === "function") {
+      queueMicrotask(() => flushCachedLogs());
+      return;
+    }
+  } catch {
+    // ignore
+  }
+  try {
+    if (typeof setTimeout === "function") {
+      setTimeout(() => flushCachedLogs(), 0);
+    }
+  } catch {
+    // ignore
+  }
+}
+
 function appendCachedLogs(entries: LogEntry[]) {
   const storage = getStorage();
   if (!storage) return;
   if (!entries.length) return;
   try {
-    const existing = loadCachedLogs();
-    const merged = [...existing, ...entries];
-    storage.setItem(LOG_CACHE_KEY, JSON.stringify(merged));
+    const memo = ensureCachedMemoLoaded();
+    memo.push(...entries);
+    cachePending.push(...entries);
+    scheduleCacheFlush();
   } catch {
     // ignore cache write failures (e.g. storage quota)
   }
@@ -115,7 +161,9 @@ function pushLog(level: LogEntry["level"], args: unknown[]) {
 }
 
 export function exportLogEntries() {
-  return [...loadCachedLogs(), ...logBuffer];
+  // Ensure any scheduled cache spill is persisted before exporting.
+  flushCachedLogs();
+  return [...ensureCachedMemoLoaded(), ...logBuffer];
 }
 
 export function info(...args: unknown[]) {

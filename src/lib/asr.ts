@@ -45,6 +45,7 @@ export interface CreatePipelineOptions {
   modelPreset: "fast" | "balanced" | "medium" | "quality" | "french" | "custom";
   customModelId: string;
   backendPreference: BackendImplementation;
+  forceSingleThread?: boolean;
   telemetry?: TelemetryCollector;
   onStatus?: (status: PipelineStatus, detail?: string) => void;
   onProgress?: (progress: number, status: string) => void;
@@ -71,6 +72,8 @@ export interface TranscribeChunkOptions {
   sampleRate: number;
   telemetry?: TelemetryCollector;
   abortSignal?: AbortSignal;
+  enableWordTimestamps?: boolean;
+  showSegmentConfidence?: boolean;
 }
 
 const BACKEND_SEQUENCE: Record<BackendImplementation, BackendImplementation[]> = {
@@ -110,6 +113,7 @@ export async function createAsrPipeline({
   modelPreset,
   customModelId,
   backendPreference,
+  forceSingleThread,
   telemetry,
   onStatus,
   onProgress,
@@ -138,7 +142,7 @@ export async function createAsrPipeline({
   let triedWasmNoThreads = false;
 
   function computeWasmOptions() {
-    const forceSingle = useAsrStore.getState().forceSingleThread;
+    const forceSingle = typeof forceSingleThread === "boolean" ? forceSingleThread : useAsrStore.getState().forceSingleThread;
     const crossIsolated = typeof window !== "undefined" && ((window as unknown) as { crossOriginIsolated?: boolean }).crossOriginIsolated === true;
     let numThreads = 1;
     if (!forceSingle && crossIsolated && typeof navigator !== "undefined") {
@@ -381,6 +385,8 @@ export async function transcribeChunk({
   sampleRate,
   telemetry,
   abortSignal,
+  enableWordTimestamps,
+  showSegmentConfidence,
 }: TranscribeChunkOptions): Promise<ChunkTranscriptionResult> {
   if (abortSignal?.aborted) {
     throw new Error("Transcription annulée");
@@ -408,7 +414,11 @@ export async function transcribeChunk({
   ) => Promise<PipelineInvokeResult>;
 
   const supportsWordTimestamps = !PIPELINES_WITHOUT_CROSS.has(asr);
-  const enabledInSettings = useAsrStore.getState().enableWordTimestamps || useAsrStore.getState().showSegmentConfidence;
+  const enableWordTimestampsFlag =
+    typeof enableWordTimestamps === "boolean" ? enableWordTimestamps : useAsrStore.getState().enableWordTimestamps;
+  const showSegmentConfidenceFlag =
+    typeof showSegmentConfidence === "boolean" ? showSegmentConfidence : useAsrStore.getState().showSegmentConfidence;
+  const enabledInSettings = enableWordTimestampsFlag || showSegmentConfidenceFlag;
 
   const invokeOptions = {
     sampling_rate: sampleRate,

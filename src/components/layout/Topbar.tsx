@@ -53,7 +53,7 @@ export function Topbar() {
   const showPreferenceBadge = activeBackend && activeBackend !== backendPreference;
 
   return (
-    <header className="flex h-16 items-center justify-between border-b px-4">
+    <header className="flex min-h-16 items-center justify-between border-b px-4 py-3">
       <div className="space-y-1">
         <p className="text-sm font-medium text-muted-foreground">Backend</p>
         <div className="flex flex-wrap items-center gap-2">
@@ -168,10 +168,10 @@ export function Topbar() {
             title="Réinitialiser l'application"
             description="Êtes-vous sûr ? Cette action réinitialisera l'application aux paramètres par défaut et supprimera la session en cours."
             onCancel={() => setConfirmOpen(false)}
-            onConfirm={() => {
+            onConfirm={async () => {
               setConfirmOpen(false);
               // abort transcription if it's running
-              abortTranscription();
+              await Promise.resolve(abortTranscription());
               const reset = useAsrStore.getState().resetApp;
               if (typeof reset === "function") {
                 reset();

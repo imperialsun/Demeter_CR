@@ -119,9 +119,9 @@ describe("useTranscriptionController abort", () => {
 
   it("ignores late chunks after abort to avoid leaking segments between runs", async () => {
     let startUpload: ((file: File) => Promise<void>) | null = null;
-    let abortRun: (() => void) | null = null;
+    let abortRun: (() => void | Promise<void>) | null = null;
 
-    function TestComp({ onReady }: { onReady: (startFn: (file: File) => Promise<void>, abortFn: () => void) => void }) {
+    function TestComp({ onReady }: { onReady: (startFn: (file: File) => Promise<void>, abortFn: () => void | Promise<void>) => void }) {
       const controller = useTranscriptionController();
       onReady(controller.startUploadTranscription, controller.abortTranscription);
       return null;
@@ -143,7 +143,7 @@ describe("useTranscriptionController abort", () => {
     });
 
     await act(async () => {
-      abortRun!();
+      await Promise.resolve(abortRun!());
     });
 
     await act(async () => {

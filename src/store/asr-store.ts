@@ -113,6 +113,43 @@ interface AsrConfigState {
   preprocessOverlapAdd: boolean;
   preprocessOverlapBlockSec: number;
   preprocessOverlapSec: number;
+  // Mic-specific settings
+  micActivePreset: PresetKey;
+  micCustomModelId: string;
+  micBackendPreference: BackendImplementation;
+  micPreprocessingMode: "quick" | "full";
+  micSegmentationMode: "chunks" | "silence";
+  micSilenceThresholdDb: number;
+  micNoiseCalibrationMarginDb: number;
+  micMinSilenceMs: number;
+  micMinChunkMs: number;
+  micMaxChunkMs: number;
+  micShowExportVtt: boolean;
+  micShowExportSrt: boolean;
+  micShowExportJson: boolean;
+  micShowExportTelemetry: boolean;
+  micDenoiseNoiseFloorDb: number;
+  micDenoiseReductionDb: number;
+  micDenoiseSmoothing: number;
+  micDenoiseCalibrationSeconds: number;
+  micPreprocessEnableFilters: boolean;
+  micPreprocessHighpassHz: number;
+  micPreprocessLowpassHz: number;
+  micPreprocessEnableLufs: boolean;
+  micPreprocessTargetLufs: number;
+  micPreprocessLimiterEnabled: boolean;
+  micPreprocessLimiterThresholdDb: number;
+  micPreprocessLimiterSoftness: number;
+  micPreprocessVadEnabled: boolean;
+  micPreprocessVadThresholdDb: number;
+  micPreprocessVadMinSilenceMs: number;
+  micPreprocessOverlapAdd: boolean;
+  micPreprocessOverlapBlockSec: number;
+  micPreprocessOverlapSec: number;
+  micAutoTunePreprocess: boolean;
+  micEnableWordTimestamps: boolean;
+  micShowSegmentConfidence: boolean;
+  micForceSingleThread: boolean;
   noiseCalibrationRequestedAt?: number | null;
   autoTunePreprocess: boolean;
   lastAutoTuneParams?: {
@@ -147,6 +184,7 @@ interface AsrConfigState {
   isTranscribing: boolean;
   stopRequested: boolean;
   progress: number; 
+  resetCounter: number;
 
   // Performance options
   forceSingleThread: boolean; // when true, force single-threaded WASM
@@ -202,6 +240,48 @@ interface AsrConfigActions {
     preprocessOverlapBlockSec: number;
     preprocessOverlapSec: number;
   }>) => void;
+  // Mic-specific actions
+  setMicPreset: (preset: PresetKey, customModelId?: string) => void;
+  setMicBackendPreference: (backend: BackendImplementation) => void;
+  setMicPreprocessingMode: (mode: "quick" | "full") => void;
+  setMicSegmentationMode: (mode: "chunks" | "silence") => void;
+  setMicNoiseCalibrationMarginDb: (value: number) => void;
+  setMicSilenceParams: (params: Partial<{
+    silenceThresholdDb: number;
+    minSilenceMs: number;
+    minChunkMs: number;
+    maxChunkMs: number;
+  }>) => void;
+  setMicShowExportVtt: (value: boolean) => void;
+  setMicShowExportSrt: (value: boolean) => void;
+  setMicShowExportJson: (value: boolean) => void;
+  setMicShowExportTelemetry: (value: boolean) => void;
+  setMicDenoiseParams: (params: Partial<{
+    denoiseNoiseFloorDb: number;
+    denoiseReductionDb: number;
+    denoiseSmoothing: number;
+    denoiseCalibrationSeconds: number;
+  }>) => void;
+  setMicPreprocessParams: (params: Partial<{
+    preprocessEnableFilters: boolean;
+    preprocessHighpassHz: number;
+    preprocessLowpassHz: number;
+    preprocessEnableLufs: boolean;
+    preprocessTargetLufs: number;
+    preprocessLimiterEnabled: boolean;
+    preprocessLimiterThresholdDb: number;
+    preprocessLimiterSoftness: number;
+    preprocessVadEnabled: boolean;
+    preprocessVadThresholdDb: number;
+    preprocessVadMinSilenceMs: number;
+    preprocessOverlapAdd: boolean;
+    preprocessOverlapBlockSec: number;
+    preprocessOverlapSec: number;
+  }>) => void;
+  setMicAutoTunePreprocess: (value: boolean) => void;
+  setMicEnableWordTimestamps: (value: boolean) => void;
+  setMicShowSegmentConfidence: (value: boolean) => void;
+  setMicForceSingleThread: (value: boolean) => void;
   setAutoTunePreprocess: (value: boolean) => void;
   setLastAutoTuneParams: (params: {
     noiseFloorDb: number;
@@ -294,6 +374,43 @@ const initialState: AsrConfigState = {
   preprocessOverlapAdd: true,
   preprocessOverlapBlockSec: 1.4,
   preprocessOverlapSec: 0.3,
+  // Mic defaults
+  micActivePreset: "fast",
+  micCustomModelId: "",
+  micBackendPreference: "webgpu",
+  micPreprocessingMode: "full",
+  micSegmentationMode: "silence",
+  micSilenceThresholdDb: -35,
+  micNoiseCalibrationMarginDb: 6,
+  micMinSilenceMs: 500,
+  micMinChunkMs: 10000,
+  micMaxChunkMs: 20000,
+  micShowExportVtt: false,
+  micShowExportSrt: false,
+  micShowExportJson: false,
+  micShowExportTelemetry: false,
+  micDenoiseNoiseFloorDb: -28,
+  micDenoiseReductionDb: 10,
+  micDenoiseSmoothing: 0.85,
+  micDenoiseCalibrationSeconds: 6,
+  micPreprocessEnableFilters: true,
+  micPreprocessHighpassHz: 90,
+  micPreprocessLowpassHz: 7500,
+  micPreprocessEnableLufs: true,
+  micPreprocessTargetLufs: -20,
+  micPreprocessLimiterEnabled: true,
+  micPreprocessLimiterThresholdDb: -1,
+  micPreprocessLimiterSoftness: 0.65,
+  micPreprocessVadEnabled: true,
+  micPreprocessVadThresholdDb: -42,
+  micPreprocessVadMinSilenceMs: 250,
+  micPreprocessOverlapAdd: true,
+  micPreprocessOverlapBlockSec: 1.4,
+  micPreprocessOverlapSec: 0.3,
+  micAutoTunePreprocess: true,
+  micEnableWordTimestamps: false,
+  micShowSegmentConfidence: false,
+  micForceSingleThread: false,
   noiseCalibrationRequestedAt: null,
   segmentationStatus: "idle",
   segmentationProgress: 0,
@@ -312,6 +429,7 @@ const initialState: AsrConfigState = {
   isTranscribing: false,
   stopRequested: false,
   progress: 0,
+  resetCounter: 0,
   // preprocessing status
   preprocessingStatus: "idle",
   preprocessingProgress: 0,
@@ -387,6 +505,14 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
           : state.webGpuSupported
             ? "webgpu"
             : "wasm",
+      micActivePreset: settings.micActivePreset ?? state.micActivePreset,
+      micCustomModelId: settings.micCustomModelId ?? state.micCustomModelId,
+      micBackendPreference:
+        settings.micBackendPreference === "wasm" || settings.micBackendPreference === "webgpu"
+          ? settings.micBackendPreference
+          : state.webGpuSupported
+            ? "webgpu"
+            : "wasm",
       memoryMode: settings.memoryMode,
       chunkStrategy: settings.chunkStrategy,
       segmentationMode: settings.segmentationMode,
@@ -423,6 +549,42 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
       preprocessOverlapAdd: settings.preprocessOverlapAdd ?? state.preprocessOverlapAdd,
       preprocessOverlapBlockSec: settings.preprocessOverlapBlockSec ?? state.preprocessOverlapBlockSec,
       preprocessOverlapSec: settings.preprocessOverlapSec ?? state.preprocessOverlapSec,
+      micPreprocessingMode: settings.micPreprocessingMode ?? state.micPreprocessingMode,
+      micSegmentationMode: settings.micSegmentationMode ?? state.micSegmentationMode,
+      micSilenceThresholdDb: settings.micSilenceThresholdDb ?? state.micSilenceThresholdDb,
+      micNoiseCalibrationMarginDb:
+        typeof settings.micNoiseCalibrationMarginDb === "number"
+          ? settings.micNoiseCalibrationMarginDb
+          : state.micNoiseCalibrationMarginDb,
+      micMinSilenceMs: settings.micMinSilenceMs ?? state.micMinSilenceMs,
+      micMinChunkMs: settings.micMinChunkMs ?? state.micMinChunkMs,
+      micMaxChunkMs: settings.micMaxChunkMs ?? state.micMaxChunkMs,
+      micShowExportVtt: settings.micShowExportVtt ?? state.micShowExportVtt,
+      micShowExportSrt: settings.micShowExportSrt ?? state.micShowExportSrt,
+      micShowExportJson: settings.micShowExportJson ?? state.micShowExportJson,
+      micShowExportTelemetry: settings.micShowExportTelemetry ?? state.micShowExportTelemetry,
+      micDenoiseNoiseFloorDb: settings.micDenoiseNoiseFloorDb ?? state.micDenoiseNoiseFloorDb,
+      micDenoiseReductionDb: settings.micDenoiseReductionDb ?? state.micDenoiseReductionDb,
+      micDenoiseSmoothing: settings.micDenoiseSmoothing ?? state.micDenoiseSmoothing,
+      micDenoiseCalibrationSeconds: settings.micDenoiseCalibrationSeconds ?? state.micDenoiseCalibrationSeconds,
+      micPreprocessEnableFilters: settings.micPreprocessEnableFilters ?? state.micPreprocessEnableFilters,
+      micPreprocessHighpassHz: settings.micPreprocessHighpassHz ?? state.micPreprocessHighpassHz,
+      micPreprocessLowpassHz: settings.micPreprocessLowpassHz ?? state.micPreprocessLowpassHz,
+      micPreprocessEnableLufs: settings.micPreprocessEnableLufs ?? state.micPreprocessEnableLufs,
+      micPreprocessTargetLufs: settings.micPreprocessTargetLufs ?? state.micPreprocessTargetLufs,
+      micPreprocessLimiterEnabled: settings.micPreprocessLimiterEnabled ?? state.micPreprocessLimiterEnabled,
+      micPreprocessLimiterThresholdDb: settings.micPreprocessLimiterThresholdDb ?? state.micPreprocessLimiterThresholdDb,
+      micPreprocessLimiterSoftness: settings.micPreprocessLimiterSoftness ?? state.micPreprocessLimiterSoftness,
+      micPreprocessVadEnabled: settings.micPreprocessVadEnabled ?? state.micPreprocessVadEnabled,
+      micPreprocessVadThresholdDb: settings.micPreprocessVadThresholdDb ?? state.micPreprocessVadThresholdDb,
+      micPreprocessVadMinSilenceMs: settings.micPreprocessVadMinSilenceMs ?? state.micPreprocessVadMinSilenceMs,
+      micPreprocessOverlapAdd: settings.micPreprocessOverlapAdd ?? state.micPreprocessOverlapAdd,
+      micPreprocessOverlapBlockSec: settings.micPreprocessOverlapBlockSec ?? state.micPreprocessOverlapBlockSec,
+      micPreprocessOverlapSec: settings.micPreprocessOverlapSec ?? state.micPreprocessOverlapSec,
+      micAutoTunePreprocess: settings.micAutoTunePreprocess ?? state.micAutoTunePreprocess,
+      micEnableWordTimestamps: settings.micEnableWordTimestamps ?? state.micEnableWordTimestamps,
+      micShowSegmentConfidence: settings.micShowSegmentConfidence ?? state.micShowSegmentConfidence,
+      micForceSingleThread: settings.micForceSingleThread ?? state.micForceSingleThread,
       autoTunePreprocess: settings.autoTunePreprocess ?? state.autoTunePreprocess,
       forceSingleThread: settings.forceSingleThread ?? state.forceSingleThread,
       enableWordTimestamps: settings.enableWordTimestamps ?? state.enableWordTimestamps,
@@ -458,6 +620,66 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
   setSegmentationProgress: (value) => set(() => ({ segmentationProgress: value })),
   setDenoiseParams: (params) => set((state) => ({ ...state, ...params })),
   setPreprocessParams: (params) => set((state) => ({ ...state, ...params })),
+  setMicPreset: (preset, customId) =>
+    set(() => ({
+      micActivePreset: preset,
+      micCustomModelId: customId ?? "",
+    })),
+  setMicBackendPreference: (backend) =>
+    set((state) => {
+      if (backend === "webgpu" && !state.webGpuSupported) {
+        if (state.micBackendPreference === "wasm") {
+          return {};
+        }
+        return { micBackendPreference: "wasm" };
+      }
+      return { micBackendPreference: backend };
+    }),
+  setMicPreprocessingMode: (mode) => set(() => ({ micPreprocessingMode: mode })),
+  setMicSegmentationMode: (mode) => set(() => ({ micSegmentationMode: mode })),
+  setMicNoiseCalibrationMarginDb: (value) =>
+    set(() => ({
+      micNoiseCalibrationMarginDb: Number.isFinite(value) ? value : initialState.micNoiseCalibrationMarginDb,
+    })),
+  setMicSilenceParams: (params) =>
+    set((state) => ({
+      micSilenceThresholdDb: params.silenceThresholdDb ?? state.micSilenceThresholdDb,
+      micMinSilenceMs: params.minSilenceMs ?? state.micMinSilenceMs,
+      micMinChunkMs: params.minChunkMs ?? state.micMinChunkMs,
+      micMaxChunkMs: params.maxChunkMs ?? state.micMaxChunkMs,
+    })),
+  setMicShowExportVtt: (value) => set(() => ({ micShowExportVtt: value })),
+  setMicShowExportSrt: (value) => set(() => ({ micShowExportSrt: value })),
+  setMicShowExportJson: (value) => set(() => ({ micShowExportJson: value })),
+  setMicShowExportTelemetry: (value) => set(() => ({ micShowExportTelemetry: value })),
+  setMicDenoiseParams: (params) =>
+    set((state) => ({
+      micDenoiseNoiseFloorDb: params.denoiseNoiseFloorDb ?? state.micDenoiseNoiseFloorDb,
+      micDenoiseReductionDb: params.denoiseReductionDb ?? state.micDenoiseReductionDb,
+      micDenoiseSmoothing: params.denoiseSmoothing ?? state.micDenoiseSmoothing,
+      micDenoiseCalibrationSeconds: params.denoiseCalibrationSeconds ?? state.micDenoiseCalibrationSeconds,
+    })),
+  setMicPreprocessParams: (params) =>
+    set((state) => ({
+      micPreprocessEnableFilters: params.preprocessEnableFilters ?? state.micPreprocessEnableFilters,
+      micPreprocessHighpassHz: params.preprocessHighpassHz ?? state.micPreprocessHighpassHz,
+      micPreprocessLowpassHz: params.preprocessLowpassHz ?? state.micPreprocessLowpassHz,
+      micPreprocessEnableLufs: params.preprocessEnableLufs ?? state.micPreprocessEnableLufs,
+      micPreprocessTargetLufs: params.preprocessTargetLufs ?? state.micPreprocessTargetLufs,
+      micPreprocessLimiterEnabled: params.preprocessLimiterEnabled ?? state.micPreprocessLimiterEnabled,
+      micPreprocessLimiterThresholdDb: params.preprocessLimiterThresholdDb ?? state.micPreprocessLimiterThresholdDb,
+      micPreprocessLimiterSoftness: params.preprocessLimiterSoftness ?? state.micPreprocessLimiterSoftness,
+      micPreprocessVadEnabled: params.preprocessVadEnabled ?? state.micPreprocessVadEnabled,
+      micPreprocessVadThresholdDb: params.preprocessVadThresholdDb ?? state.micPreprocessVadThresholdDb,
+      micPreprocessVadMinSilenceMs: params.preprocessVadMinSilenceMs ?? state.micPreprocessVadMinSilenceMs,
+      micPreprocessOverlapAdd: params.preprocessOverlapAdd ?? state.micPreprocessOverlapAdd,
+      micPreprocessOverlapBlockSec: params.preprocessOverlapBlockSec ?? state.micPreprocessOverlapBlockSec,
+      micPreprocessOverlapSec: params.preprocessOverlapSec ?? state.micPreprocessOverlapSec,
+    })),
+  setMicAutoTunePreprocess: (value) => set(() => ({ micAutoTunePreprocess: value })),
+  setMicEnableWordTimestamps: (value) => set(() => ({ micEnableWordTimestamps: value })),
+  setMicShowSegmentConfidence: (value) => set(() => ({ micShowSegmentConfidence: value })),
+  setMicForceSingleThread: (value) => set(() => ({ micForceSingleThread: value })),
   setAutoTunePreprocess: (value: boolean) => set(() => ({ autoTunePreprocess: value })),
   setLastAutoTuneParams: (params) => set(() => ({ lastAutoTuneParams: params })),
   requestNoiseCalibration: () => set(() => ({ noiseCalibrationRequestedAt: Date.now() })),
@@ -467,6 +689,7 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
   resetSession: () =>
     set((state) => ({
       ...state,
+      resetCounter: state.resetCounter + 1,
       status: "idle",
       statusDetail: undefined,
       activeBackend: undefined,
@@ -501,6 +724,7 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
       }
       return {
         ...initialState,
+        resetCounter: state.resetCounter + 1,
         // Preserve runtime capability detection
         webGpuSupported: state.webGpuSupported,
         wasmAvailable: state.wasmAvailable,
@@ -548,6 +772,9 @@ useAsrStore.subscribe((state) => {
     activePreset: state.activePreset,
     customModelId: state.customModelId,
     backendPreference: state.backendPreference,
+    micActivePreset: state.micActivePreset,
+    micCustomModelId: state.micCustomModelId,
+    micBackendPreference: state.micBackendPreference,
     memoryMode: state.memoryMode,
     chunkStrategy: state.chunkStrategy,
     segmentationMode: state.segmentationMode,
@@ -582,11 +809,44 @@ useAsrStore.subscribe((state) => {
     preprocessOverlapAdd: state.preprocessOverlapAdd,
     preprocessOverlapBlockSec: state.preprocessOverlapBlockSec,
     preprocessOverlapSec: state.preprocessOverlapSec,
+    micPreprocessingMode: state.micPreprocessingMode,
+    micSegmentationMode: state.micSegmentationMode,
+    micSilenceThresholdDb: state.micSilenceThresholdDb,
+    micNoiseCalibrationMarginDb: state.micNoiseCalibrationMarginDb,
+    micMinSilenceMs: state.micMinSilenceMs,
+    micMinChunkMs: state.micMinChunkMs,
+    micMaxChunkMs: state.micMaxChunkMs,
+    micShowExportVtt: state.micShowExportVtt,
+    micShowExportSrt: state.micShowExportSrt,
+    micShowExportJson: state.micShowExportJson,
+    micShowExportTelemetry: state.micShowExportTelemetry,
+    micDenoiseNoiseFloorDb: state.micDenoiseNoiseFloorDb,
+    micDenoiseReductionDb: state.micDenoiseReductionDb,
+    micDenoiseSmoothing: state.micDenoiseSmoothing,
+    micDenoiseCalibrationSeconds: state.micDenoiseCalibrationSeconds,
+    micPreprocessEnableFilters: state.micPreprocessEnableFilters,
+    micPreprocessHighpassHz: state.micPreprocessHighpassHz,
+    micPreprocessLowpassHz: state.micPreprocessLowpassHz,
+    micPreprocessEnableLufs: state.micPreprocessEnableLufs,
+    micPreprocessTargetLufs: state.micPreprocessTargetLufs,
+    micPreprocessLimiterEnabled: state.micPreprocessLimiterEnabled,
+    micPreprocessLimiterThresholdDb: state.micPreprocessLimiterThresholdDb,
+    micPreprocessLimiterSoftness: state.micPreprocessLimiterSoftness,
+    micPreprocessVadEnabled: state.micPreprocessVadEnabled,
+    micPreprocessVadThresholdDb: state.micPreprocessVadThresholdDb,
+    micPreprocessVadMinSilenceMs: state.micPreprocessVadMinSilenceMs,
+    micPreprocessOverlapAdd: state.micPreprocessOverlapAdd,
+    micPreprocessOverlapBlockSec: state.micPreprocessOverlapBlockSec,
+    micPreprocessOverlapSec: state.micPreprocessOverlapSec,
+    micAutoTunePreprocess: state.micAutoTunePreprocess,
     // performance
     forceSingleThread: state.forceSingleThread,
+    micForceSingleThread: state.micForceSingleThread,
     // whisper
     enableWordTimestamps: state.enableWordTimestamps,
     showSegmentConfidence: state.showSegmentConfidence,
+    micEnableWordTimestamps: state.micEnableWordTimestamps,
+    micShowSegmentConfidence: state.micShowSegmentConfidence,
     // debug
     debugConfidence: state.debugConfidence,
   };

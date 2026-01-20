@@ -419,13 +419,16 @@ export async function preprocessPcmChunk(
   pcm: Float32Array,
   sampleRate: number,
   params: SpectralGateParams,
-  telemetry?: TelemetryCollector
+  telemetry?: TelemetryCollector,
+  options?: { mode?: "quick" | "full" }
 ): Promise<PreprocessResult> {
   const startedAt = performance.now();
+  const mode = options?.mode ?? "full";
   logger.info("[preprocess] start (progressive chunk)", {
     length: pcm.length,
     sampleRate,
     calibrationSeconds: params.calibrationSeconds ?? 1,
+    mode,
   });
   telemetry?.logEvent("PREPROCESS_START", {
     mode: "chunk",
@@ -474,6 +477,45 @@ export async function preprocessPcmChunk(
       peakIn: peakBeforeNorm,
       targetPeak: DEFAULT_TARGET_PEAK,
     });
+  }
+
+  if (mode === "quick") {
+    const peakAfterNorm = getPeak(normalized);
+    const peakNormalized = safeNormalize(normalized, DEFAULT_TARGET_PEAK);
+    logger.info("[preprocess] finalize normalize (chunk)", {
+      peakIn: Number(peakAfterNorm.toFixed(4)),
+      targetPeak: DEFAULT_TARGET_PEAK,
+    });
+    telemetry?.logEvent("PREPROCESS_NORMALIZE", {
+      peakIn: peakAfterNorm,
+      targetPeak: DEFAULT_TARGET_PEAK,
+    });
+
+    const limiterEnabled = params.preprocessLimiterEnabled ?? true;
+    const limiterThresholdDb = params.preprocessLimiterThresholdDb ?? DEFAULT_LIMITER_THRESHOLD_DB;
+    const limiterSoftness = params.preprocessLimiterSoftness ?? DEFAULT_LIMITER_SOFTNESS;
+    const finalPcm = limiterEnabled ? applyLimiter(peakNormalized, limiterThresholdDb, limiterSoftness) : peakNormalized;
+    if (limiterEnabled) {
+      logger.info("[preprocess] limiter applied (chunk)", {
+        thresholdDb: limiterThresholdDb,
+        softness: limiterSoftness,
+      });
+      telemetry?.logEvent("PREPROCESS_LIMITER", { thresholdDb: limiterThresholdDb, softness: limiterSoftness });
+    }
+
+    const totalMs = performance.now() - startedAt;
+    telemetry?.logEvent("PREPROCESS_DONE", {
+      durationMs: totalMs,
+      sampleRate,
+      mode: "quick",
+    });
+    logger.info("[preprocess] done (chunk)", { durationMs: Math.round(totalMs), mode: "quick" });
+
+    return {
+      pcm: finalPcm,
+      sampleRate,
+      noiseProfile: params.noiseProfile ?? new Float32Array(0),
+    };
   }
 
   const calibrationSeconds = params.calibrationSeconds ?? 1;

@@ -457,6 +457,23 @@ export async function resampleMono(
   if (fromSampleRate === toSampleRate) {
     return mono;
   }
+  // In some environments (tests, older browsers) OfflineAudioContext may be missing.
+  // Fall back to a simple linear resampler rather than crashing.
+  if (typeof (globalThis as unknown as { OfflineAudioContext?: unknown }).OfflineAudioContext !== "function") {
+    const ratio = toSampleRate / fromSampleRate;
+    const newLength = Math.max(0, Math.round(mono.length * ratio));
+    const out = new Float32Array(newLength);
+    for (let i = 0; i < newLength; i += 1) {
+      const src = i / ratio;
+      const i0 = Math.floor(src);
+      const i1 = Math.min(mono.length - 1, i0 + 1);
+      const frac = src - i0;
+      const s0 = mono[i0] ?? 0;
+      const s1 = mono[i1] ?? s0;
+      out[i] = s0 + (s1 - s0) * frac;
+    }
+    return out;
+  }
   const durationSec = mono.length / fromSampleRate;
   const frameCount = Math.ceil(durationSec * toSampleRate);
   const offline = new OfflineAudioContext(1, frameCount, toSampleRate);

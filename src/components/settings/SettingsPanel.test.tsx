@@ -7,6 +7,7 @@ import { useAsrStore } from '@/store/asr-store';
 import * as toastMod from '@/components/ui/use-toast';
 import { ThemeProvider } from '@/components/theme-provider';
 import { waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 vi.mock('@/lib/backend-support', () => ({
   initializeBackendSupport: vi.fn(async () => true),
@@ -38,19 +39,12 @@ describe('SettingsPanel', () => {
 
     // Ensure the model section is visible; if it's collapsed, click the toggle button to expand it.
     const showBtn = headerContainer?.parentElement?.querySelector('button');
-    const labelQuery = () => screen.queryByText((_, node) => !!node?.textContent?.includes("Afficher l'indice de confiance"));
-    if (!labelQuery()) {
-      expect(showBtn).toBeTruthy();
-      fireEvent.click(showBtn!);
+    expect(showBtn).toBeTruthy();
+    if (showBtn?.textContent?.includes("Afficher")) {
+      fireEvent.click(showBtn);
     }
 
-    // Try to find the switch directly by its accessible name; open the model section if needed
-    let segSwitch = screen.queryByRole('switch', { name: "Afficher l'indice de confiance" });
-    if (!segSwitch) {
-      expect(showBtn).toBeTruthy();
-      fireEvent.click(showBtn!);
-      segSwitch = await screen.findByRole('switch', { name: "Afficher l'indice de confiance" });
-    }
+    const segSwitch = await screen.findByRole('switch', { name: "Afficher l'indice de confiance" });
     expect(segSwitch).toBeTruthy();
     fireEvent.click(segSwitch!);
 
@@ -81,5 +75,64 @@ describe('SettingsPanel', () => {
     await waitFor(() => expect(keysSpy).toHaveBeenCalled());
     expect(deleteSpy).toHaveBeenCalledWith('test-cache');
     expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('Cache vidé'));
+  });
+
+  it("toggles mic confidence and enables mic word timestamps", async () => {
+    useAsrStore.setState({ micShowSegmentConfidence: false, micEnableWordTimestamps: false } as any);
+
+    render(<ThemeProvider defaultTheme="dark" storageKey="demeter-theme"><SettingsPanel /></ThemeProvider>);
+
+    const micTab = screen.getByText('Enregistrement');
+    await userEvent.click(micTab);
+
+    const micSwitch = await screen.findByRole('switch', { name: "Afficher l'indice de confiance (micro)" });
+    fireEvent.click(micSwitch);
+
+    expect(useAsrStore.getState().micShowSegmentConfidence).toBe(true);
+    expect(useAsrStore.getState().micEnableWordTimestamps).toBe(true);
+  });
+
+  it("forces mic backend to wasm when WebGPU is unavailable", async () => {
+    useAsrStore.setState({ webGpuSupported: false, micBackendPreference: "webgpu" } as any);
+
+    render(<ThemeProvider defaultTheme="dark" storageKey="demeter-theme"><SettingsPanel /></ThemeProvider>);
+
+    await waitFor(() => {
+      expect(useAsrStore.getState().micBackendPreference).toBe("wasm");
+    });
+  });
+
+  it("toggles mic autotune and enables mic controls", async () => {
+    useAsrStore.setState({ micAutoTunePreprocess: true, micPreprocessingMode: "full" } as any);
+
+    render(<ThemeProvider defaultTheme="dark" storageKey="demeter-theme"><SettingsPanel /></ThemeProvider>);
+
+    const micTab = screen.getByText('Enregistrement');
+    await userEvent.click(micTab);
+
+    const slider = screen.getByLabelText("Noise floor (dB)", { selector: "input#mic-noise-floor" });
+    expect(slider).toBeDisabled();
+
+    const autoTuneSwitch = await screen.findByRole('switch', { name: "Autotune prétraitement (micro)" });
+    await userEvent.click(autoTuneSwitch);
+
+    await waitFor(() => {
+      expect(useAsrStore.getState().micAutoTunePreprocess).toBe(false);
+      expect(slider).not.toBeDisabled();
+    });
+  });
+
+  it("updates mic noise calibration margin", async () => {
+    useAsrStore.setState({ micNoiseCalibrationMarginDb: 6 } as any);
+
+    render(<ThemeProvider defaultTheme="dark" storageKey="demeter-theme"><SettingsPanel /></ThemeProvider>);
+
+    const micTab = screen.getByText('Enregistrement');
+    await userEvent.click(micTab);
+
+    const input = screen.getByLabelText("Marge calibration bruit (dB)", { selector: "input#mic-noise-margin-db" });
+    fireEvent.change(input, { target: { value: "10" } });
+
+    expect(useAsrStore.getState().micNoiseCalibrationMarginDb).toBe(10);
   });
 });

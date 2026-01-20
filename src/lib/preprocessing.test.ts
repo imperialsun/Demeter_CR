@@ -1,5 +1,12 @@
-import { describe, it, expect } from 'vitest';
-import { safeNormalize, estimateNoiseProfile, estimateNoiseProfileWithVad, computePreprocessParams } from './preprocessing';
+import { describe, it, expect, vi, beforeAll } from 'vitest';
+import {
+  safeNormalize,
+  estimateNoiseProfile,
+  estimateNoiseProfileWithVad,
+  computePreprocessParams,
+  preprocessPcmChunk,
+} from './preprocessing';
+import { TelemetryCollector } from './telemetry';
 
 function makeSine(length = 1024, value = 0.1) {
   const a = new Float32Array(length);
@@ -8,6 +15,16 @@ function makeSine(length = 1024, value = 0.1) {
 }
 
 describe('preprocessing', () => {
+  beforeAll(() => {
+    type GlobalWithOfflineAudio = typeof globalThis & {
+      OfflineAudioContext?: typeof OfflineAudioContext;
+    };
+    const globalWithOffline = globalThis as GlobalWithOfflineAudio;
+    if (typeof globalWithOffline.OfflineAudioContext === 'undefined') {
+      globalWithOffline.OfflineAudioContext = class {} as unknown as typeof OfflineAudioContext;
+    }
+  });
+
   it('safeNormalize handles near-zero signals', () => {
     const z = new Float32Array(10);
     const out = safeNormalize(z, 0.9);
@@ -59,5 +76,32 @@ describe('preprocessing', () => {
     expect(res.frames).toBeGreaterThan(0);
     expect(res.profile.length).toBe(1024 / 2 + 1);
     expect(res.silenceRanges).toBeGreaterThan(0);
+  });
+
+  it('preprocessPcmChunk quick mode skips noise profile and gating', async () => {
+    const telemetry = new TelemetryCollector('test-session');
+    const logEventSpy = vi.spyOn(telemetry, 'logEvent');
+    const pcm = new Float32Array(512).fill(0.01);
+    const result = await preprocessPcmChunk(
+      pcm,
+      16000,
+      {
+        noiseFloorDb: -28,
+        reductionDb: 10,
+        smoothing: 0.85,
+        preprocessEnableFilters: false,
+        preprocessEnableLufs: false,
+        preprocessLimiterEnabled: false,
+      },
+      telemetry,
+      { mode: 'quick' }
+    );
+    const events = logEventSpy.mock.calls.map((call) => call[0]);
+    expect(events).toContain('PREPROCESS_START');
+    expect(events).toContain('PREPROCESS_DONE');
+    expect(events).not.toContain('PREPROCESS_NOISE_PROFILE');
+    expect(events).not.toContain('PREPROCESS_GATE');
+    expect(result.noiseProfile.length).toBe(0);
+    expect(result.sampleRate).toBe(16000);
   });
 });
