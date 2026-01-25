@@ -27,6 +27,7 @@ dist-ssr/
 .eslintcache
 coverage/
 .nyc_output/
+transcriptions/
 
 # TypeScript
 *.tsbuildinfo

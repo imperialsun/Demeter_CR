@@ -14,7 +14,6 @@ EXCLUDES=(
   --exclude '.git' 
   --exclude 'node_modules' 
   --exclude 'dist' 
-  --exclude '.env' 
   --exclude '*.log' 
   --exclude 'coverage' 
   --exclude '.DS_Store' 

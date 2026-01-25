@@ -2,7 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAsrStore, resolveModelId, MODEL_PRESETS } from "@/store/asr-store";
 import { cn } from "@/lib/utils";
-import { ActivitySquare, Cog, RotateCw } from "lucide-react";
+import { ActivitySquare, Cog, LogOut, RotateCw } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "@/components/ui/use-toast";
 import { useState } from "react";
@@ -10,6 +10,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useTranscriptionController } from "@/hooks/useTranscriptionController";
 import { initializeBackendSupport, resetWebGpuSupportCache } from "@/lib/backend-support";
 import { exportLogEntries } from "@/lib/logger";
+import { setAuthenticated } from "@/lib/auth";
 
 const STATUS_LABELS: Record<string, string> = {
   idle: "Inactif",
@@ -142,6 +143,19 @@ export function Topbar() {
             }}
           >
             Exporter logs
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => {
+              setAuthenticated(false);
+              toast("Déconnecté.");
+              navigate("/login", { replace: true });
+            }}
+          >
+            <LogOut className="h-4 w-4" />
+            Déconnexion
           </Button>
           <Button
             variant="destructive"
