@@ -9,7 +9,7 @@ function SettingsPage() {
           Ajustez les modèles, les modes mémoire et les paramètres de segmentation avant vos transcriptions.
         </p>
       </header>
-      <SettingsPanel showReminders={false} initialModelOpen initialChunkingOpen />
+      <SettingsPanel showReminders={false} showMicSettings={false} initialModelOpen initialChunkingOpen />
     </div>
   );
 }

@@ -135,4 +135,14 @@ describe('SettingsPanel', () => {
 
     expect(useAsrStore.getState().micNoiseCalibrationMarginDb).toBe(10);
   });
+
+  it("hides the mic settings tab when disabled", () => {
+    render(
+      <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">
+        <SettingsPanel showMicSettings={false} />
+      </ThemeProvider>
+    );
+
+    expect(screen.queryByText('Enregistrement')).toBeNull();
+  });
 });

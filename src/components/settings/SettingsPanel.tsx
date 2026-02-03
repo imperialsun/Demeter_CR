@@ -55,6 +55,7 @@ const BACKENDS: BackendOption[] = [
 interface SettingsPanelProps {
   showMicroReminder?: boolean;
   showReminders?: boolean;
+  showMicSettings?: boolean;
   initialModelOpen?: boolean;
   initialChunkingOpen?: boolean;
 }
@@ -81,6 +82,7 @@ function ThemeToggle() {
 export function SettingsPanel({
   showMicroReminder = true,
   showReminders = true,
+  showMicSettings = true,
   initialModelOpen = false,
   initialChunkingOpen = false,
 }: SettingsPanelProps) {
@@ -384,6 +386,7 @@ export function SettingsPanel({
 
   const [testingMultithread, setTestingMultithread] = useState(false);
   const telemetryCollector = useAsrStore((state) => state.telemetryCollector);
+  const showMicroReminderResolved = showMicroReminder && showMicSettings;
 
   useEffect(() => {
     if (!webGpuSupported && micBackendPreference === "webgpu") {
@@ -395,6 +398,11 @@ export function SettingsPanel({
     console.info("Settings panel view", { section: "settings" });
     telemetryCollector?.logEvent?.("SETTINGS_PANEL_VIEW", { section: "settings" });
   }, [telemetryCollector]);
+
+  useEffect(() => {
+    console.info("Settings mic section visibility", { visible: showMicSettings });
+    telemetryCollector?.logEvent?.("SETTINGS_MIC_SECTION_VISIBILITY", { visible: showMicSettings });
+  }, [showMicSettings, telemetryCollector]);
 
   // Confirm dialog handler
   const onConfirmClear = async () => {
@@ -761,7 +769,7 @@ export function SettingsPanel({
       title: "Transcription locale",
       description: "Importez un fichier audio. Tout est traité localement sur ce poste, rien n'est envoyé dans le cloud.",
     },
-    ...(showMicroReminder
+    ...(showMicroReminderResolved
       ? [
           {
             title: "Micro",
@@ -800,7 +808,7 @@ export function SettingsPanel({
     <Tabs defaultValue="file" className="space-y-6">
       <TabsList>
         <TabsTrigger value="file">Fichier</TabsTrigger>
-        <TabsTrigger value="mic">Enregistrement</TabsTrigger>
+        {showMicSettings ? <TabsTrigger value="mic">Enregistrement</TabsTrigger> : null}
       </TabsList>
       <TabsContent value="file">
         <div className="grid gap-4 lg:grid-cols-2">
@@ -1735,9 +1743,10 @@ export function SettingsPanel({
         </CardContent>
       </Card>
     </div>
-  </TabsContent>
-  <TabsContent value="mic">
-    <div className="grid gap-4 lg:grid-cols-2">
+      </TabsContent>
+      {showMicSettings ? (
+        <TabsContent value="mic">
+          <div className="grid gap-4 lg:grid-cols-2">
       <Card>
         <CardHeader>
           <CardTitle>Modèle Whisper (micro)</CardTitle>
@@ -2248,8 +2257,9 @@ export function SettingsPanel({
           </div>
         </CardContent>
       </Card>
-    </div>
-  </TabsContent>
+          </div>
+        </TabsContent>
+      ) : null}
     </Tabs>
   );
 }
