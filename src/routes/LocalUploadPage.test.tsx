@@ -2,11 +2,19 @@
 import { describe, it, expect } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithStore } from '@/test/utils';
-import UploadPage from './UploadPage';
+import LocalUploadPage from './LocalUploadPage';
 
 // Render helper sets store state directly for tests
 
-describe('UploadPage', () => {
+describe('LocalUploadPage', () => {
+  it('shows local transcription privacy notice', () => {
+    renderWithStore(<LocalUploadPage />);
+    expect(screen.getByText('Transcription locale')).toBeInTheDocument();
+    expect(
+      screen.getByText(/aucun fichier audio ni transcription n'est transmis au cloud/i)
+    ).toBeInTheDocument();
+  });
+
   it("shows overall confidence badge and '(estimée)' when source is estimated", () => {
     const storeOverrides = {
       segments: [{ index: 0, text: 'hello', confidence: 0.7, confidenceSource: 'estimated' }],
@@ -15,7 +23,7 @@ describe('UploadPage', () => {
       transcriptionConfidenceSource: 'estimated',
     } as any;
 
-    renderWithStore(<UploadPage />, storeOverrides);
+    renderWithStore(<LocalUploadPage />, storeOverrides);
 
     expect(screen.getByText(/Indice de confiance globale/i)).toBeInTheDocument();
     // transcriptionConfidence 0.7 should render as '70%'
@@ -29,7 +37,7 @@ describe('UploadPage', () => {
       showSegments: true,
       transcriptionConfidence: null,
     } as any;
-    renderWithStore(<UploadPage />, storeOverrides);
+    renderWithStore(<LocalUploadPage />, storeOverrides);
     expect(screen.getByText(/Les segments apparaîtront ici/)).toBeInTheDocument();
   });
 });

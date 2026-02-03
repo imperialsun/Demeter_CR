@@ -19,7 +19,7 @@ export default function LoginPage() {
 
   const redirectTo = useMemo(() => {
     const state = location.state as LocationState | null;
-    return state?.from?.pathname ?? "/upload";
+    return state?.from?.pathname ?? "/localupload";
   }, [location.state]);
 
   if (isAuthenticated()) {

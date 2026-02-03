@@ -112,7 +112,7 @@ export function Topbar() {
           variant="ghost"
           size="icon"
           aria-label="Aller aux paramètres"
-          onClick={() => navigate(location.pathname === "/settings" ? "/upload" : "/settings")}
+          onClick={() => navigate(location.pathname === "/settings" ? "/localupload" : "/settings")}
         >
           {location.pathname === "/settings" ? (
             <ActivitySquare className="h-4 w-4" />

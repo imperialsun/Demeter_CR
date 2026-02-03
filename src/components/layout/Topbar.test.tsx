@@ -15,7 +15,7 @@ vi.mock('react-router-dom', async () => {
   return {
     ...mod,
     useNavigate: () => mockNavigate,
-    useLocation: () => ({ pathname: '/upload' }),
+    useLocation: () => ({ pathname: '/localupload' }),
   };
 });
 
@@ -56,13 +56,13 @@ describe('Topbar', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/settings');
   });
 
-  it('navigates to /upload when on settings', () => {
+  it('navigates to /localupload when on settings', () => {
     // override useLocation to simulate being on /settings
     vi.spyOn(rr, 'useLocation').mockReturnValue({ pathname: '/settings', search: '', state: null, hash: '', key: '' } as any);
     render(<Topbar />);
     const btn = screen.getByLabelText('Aller aux paramètres');
     fireEvent.click(btn);
-    expect(mockNavigate).toHaveBeenCalledWith('/upload');
+    expect(mockNavigate).toHaveBeenCalledWith('/localupload');
   });
 
   it('opens confirm and calls resetApp on confirm', async () => {

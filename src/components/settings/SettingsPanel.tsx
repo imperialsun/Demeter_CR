@@ -383,12 +383,18 @@ export function SettingsPanel({
   } | null>(null);
 
   const [testingMultithread, setTestingMultithread] = useState(false);
+  const telemetryCollector = useAsrStore((state) => state.telemetryCollector);
 
   useEffect(() => {
     if (!webGpuSupported && micBackendPreference === "webgpu") {
       setMicBackendPreference("wasm");
     }
   }, [micBackendPreference, setMicBackendPreference, webGpuSupported]);
+
+  useEffect(() => {
+    console.info("Settings panel view", { section: "settings" });
+    telemetryCollector?.logEvent?.("SETTINGS_PANEL_VIEW", { section: "settings" });
+  }, [telemetryCollector]);
 
   // Confirm dialog handler
   const onConfirmClear = async () => {
@@ -752,8 +758,8 @@ export function SettingsPanel({
 
   const reminders = [
     {
-      title: "Upload",
-      description: "Glissez un fichier audio. Choisissez Full RAM ou Progressif selon la durée.",
+      title: "Transcription locale",
+      description: "Importez un fichier audio. Tout est traité localement sur ce poste, rien n'est envoyé dans le cloud.",
     },
     ...(showMicroReminder
       ? [
@@ -1663,7 +1669,7 @@ export function SettingsPanel({
           <div>
             <CardTitle>Segments</CardTitle>
             <CardDescription>
-              Choisissez si le tableau des segments s'affiche sur la page Upload. Cette option est
+              Choisissez si le tableau des segments s'affiche sur la page Transcription locale. Cette option est
               désactivée par défaut pour alléger l&apos;interface.
             </CardDescription>
           </div>
@@ -1673,7 +1679,7 @@ export function SettingsPanel({
             <div>
               <p className="text-sm font-medium">Afficher le tableau des segments</p>
               <p className="text-xs text-muted-foreground">
-                Les segments sont masqués sur /upload lorsque l&apos;option est désactivée.
+                Les segments sont masqués sur /localupload lorsque l&apos;option est désactivée.
               </p>
             </div>
             <Switch
@@ -1690,7 +1696,7 @@ export function SettingsPanel({
           <div>
             <CardTitle>Exports</CardTitle>
             <CardDescription>
-              Contrôlez quels boutons d'export apparaissent sur la page Upload.
+              Contrôlez quels boutons d'export apparaissent sur la page Transcription locale.
             </CardDescription>
           </div>
         </CardHeader>
@@ -1698,7 +1704,7 @@ export function SettingsPanel({
           <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
             <div>
               <p className="text-sm font-medium">VTT</p>
-              <p className="text-xs text-muted-foreground">Affiche le bouton d'export VTT sur /upload.</p>
+              <p className="text-xs text-muted-foreground">Affiche le bouton d'export VTT sur /localupload.</p>
             </div>
             <Switch className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500" checked={showExportVtt} onCheckedChange={(v) => setShowExportVtt(v)} />
           </div>
@@ -1706,7 +1712,7 @@ export function SettingsPanel({
           <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
             <div>
               <p className="text-sm font-medium">SRT</p>
-              <p className="text-xs text-muted-foreground">Affiche le bouton d'export SRT sur /upload.</p>
+              <p className="text-xs text-muted-foreground">Affiche le bouton d'export SRT sur /localupload.</p>
             </div>
             <Switch className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500" checked={showExportSrt} onCheckedChange={(v) => setShowExportSrt(v)} />
           </div>

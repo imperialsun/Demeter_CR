@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
-import UploadPage from "@/routes/UploadPage";
+import LocalUploadPage from "@/routes/LocalUploadPage";
 import SettingsPage from "@/routes/SettingsPage";
 import TelemetryPage from "@/routes/TelemetryPage";
 import LoginPage from "@/routes/LoginPage";
@@ -32,9 +32,10 @@ function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route element={<ProtectedLayout />}>
-        <Route path="/" element={<Navigate to="/upload" replace />} />
-        <Route path="/upload" element={<UploadPage />} />
-        <Route path="/mic" element={<Navigate to="/upload" replace />} />
+        <Route path="/" element={<Navigate to="/localupload" replace />} />
+        <Route path="/localupload" element={<LocalUploadPage />} />
+        <Route path="/upload" element={<Navigate to="/localupload" replace />} />
+        <Route path="/mic" element={<Navigate to="/localupload" replace />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/telemetry" element={<TelemetryPage />} />
       </Route>

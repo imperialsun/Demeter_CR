@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { AudioUploader } from "@/components/audio/AudioUploader";
 import { AudioPlayer } from "@/components/audio/AudioPlayer";
 import { StatusBar } from "@/components/status/StatusBar";
@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { overallConfidenceVariant } from "@/lib/utils";
 import logger from "@/lib/logger";
 
-function UploadPage() {
+function LocalUploadPage() {
   // Keep the selected file in the global store so pre-listen survives navigation
   const selectedFile = useAsrStore((state) => state.uploadedFile);
   const previewUrl = useAsrStore((state) => state.previewUrl);
@@ -35,12 +35,18 @@ function UploadPage() {
   const blockedPresets = useAsrStore((state) => state.blockedPresets);
   const preprocessingMode = useAsrStore((state) => state.preprocessingMode);
   const memoryMode = useAsrStore((state) => state.memoryMode);
+  const telemetry = useAsrStore((state) => state.telemetryCollector);
   // Read transcription confidence unconditionally to respect Hooks rules
   const transcriptionConfidence = useAsrStore((s) => s.transcriptionConfidence);
   const transcriptionConfidenceSource = useAsrStore((s) => s.transcriptionConfidenceSource);
   const { startUploadTranscription, stopTranscription, isTranscribing } = useTranscriptionController();
   const presetOptions = Object.values(MODEL_PRESETS).filter((preset) => preset.key !== "french");
   const blockedPresetSet = new Set(blockedPresets);
+
+  useEffect(() => {
+    console.info("Local upload page view", { route: "/localupload", mode: "local" });
+    telemetry?.logEvent?.("LOCAL_UPLOAD_PAGE_VIEW", { route: "/localupload", mode: "local" });
+  }, [telemetry]);
 
   const handleFileSelected = useCallback(
     (file: File) => {
@@ -91,9 +97,12 @@ function UploadPage() {
   return (
     <div className="space-y-8">
       <header className="space-y-2">
-        <h2 className="text-2xl font-semibold">Upload</h2>
+        <h2 className="text-2xl font-semibold">Transcription locale</h2>
         <p className="text-muted-foreground">
           Importez un fichier audio, ajustez Whisper et suivez la transcription chunk par chunk sans quitter Chrome.
+        </p>
+        <p className="text-sm font-medium text-emerald-600">
+          Traitement 100% local sur ce poste : aucun fichier audio ni transcription n&apos;est transmis au cloud.
         </p>
       </header>
 
@@ -171,4 +180,4 @@ function UploadPage() {
   );
 }
 
-export default UploadPage;
+export default LocalUploadPage;

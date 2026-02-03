@@ -1,9 +1,9 @@
 import { NavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { Activity, Settings, UploadCloud } from "lucide-react";
+import { Activity, Monitor, Settings } from "lucide-react";
 
 const NAV_ITEMS = [
-  { to: "/upload", label: "Upload", icon: UploadCloud },
+  { to: "/localupload", label: "Transcription locale", icon: Monitor },
   { to: "/settings", label: "Paramètres", icon: Settings },
   { to: "/telemetry", label: "Télémetrie", icon: Activity },
 ];
