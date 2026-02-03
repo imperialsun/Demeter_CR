@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useAsrStore, resolveModelId, MODEL_PRESETS } from "@/store/asr-store";
+import { useAsrStore, MODEL_PRESETS } from "@/store/asr-store";
 import { cn } from "@/lib/utils";
 import { ActivitySquare, Cog, LogOut, RotateCw } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -27,7 +27,6 @@ export function Topbar() {
   const location = useLocation();
   const {
     activePreset,
-    customModelId,
     backendPreference,
     activeBackend,
     status,
@@ -43,7 +42,6 @@ export function Topbar() {
   const debugConfidence = useAsrStore((s) => s.debugConfidence);
   const setDebugConfidence = useAsrStore((s) => s.setDebugConfidence);
 
-  const modelId = resolveModelId(activePreset, customModelId);
   const presetLabel =
     activePreset === "custom"
       ? "Modèle personnalisé"
