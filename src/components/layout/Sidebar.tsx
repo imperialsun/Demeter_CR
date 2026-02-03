@@ -1,9 +1,10 @@
 import { NavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { Activity, Monitor, Settings } from "lucide-react";
+import { Activity, Cloud, Monitor, Settings } from "lucide-react";
 
 const NAV_ITEMS = [
   { to: "/localupload", label: "Transcription locale", icon: Monitor },
+  { to: "/cloudupload", label: "Transcription cloud", icon: Cloud },
   { to: "/settings", label: "Paramètres", icon: Settings },
   { to: "/telemetry", label: "Télémetrie", icon: Activity },
 ];

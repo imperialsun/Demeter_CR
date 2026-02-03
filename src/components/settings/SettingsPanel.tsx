@@ -56,6 +56,7 @@ interface SettingsPanelProps {
   showMicroReminder?: boolean;
   showReminders?: boolean;
   showMicSettings?: boolean;
+  showCloudSettings?: boolean;
   initialModelOpen?: boolean;
   initialChunkingOpen?: boolean;
 }
@@ -83,6 +84,7 @@ export function SettingsPanel({
   showMicroReminder = true,
   showReminders = true,
   showMicSettings = true,
+  showCloudSettings = true,
   initialModelOpen = false,
   initialChunkingOpen = false,
 }: SettingsPanelProps) {
@@ -387,6 +389,7 @@ export function SettingsPanel({
   const [testingMultithread, setTestingMultithread] = useState(false);
   const telemetryCollector = useAsrStore((state) => state.telemetryCollector);
   const showMicroReminderResolved = showMicroReminder && showMicSettings;
+  const showCloudSettingsResolved = showCloudSettings;
 
   useEffect(() => {
     if (!webGpuSupported && micBackendPreference === "webgpu") {
@@ -403,6 +406,13 @@ export function SettingsPanel({
     console.info("Settings mic section visibility", { visible: showMicSettings });
     telemetryCollector?.logEvent?.("SETTINGS_MIC_SECTION_VISIBILITY", { visible: showMicSettings });
   }, [showMicSettings, telemetryCollector]);
+
+  useEffect(() => {
+    console.info("Settings cloud section visibility", { visible: showCloudSettingsResolved });
+    telemetryCollector?.logEvent?.("SETTINGS_CLOUD_SECTION_VISIBILITY", {
+      visible: showCloudSettingsResolved,
+    });
+  }, [showCloudSettingsResolved, telemetryCollector]);
 
   // Confirm dialog handler
   const onConfirmClear = async () => {
@@ -805,12 +815,13 @@ export function SettingsPanel({
   type ChunkStrategyValue = Parameters<typeof setChunkStrategy>[0];
 
   return (
-    <Tabs defaultValue="file" className="space-y-6">
+    <Tabs defaultValue="local" className="space-y-6">
       <TabsList>
-        <TabsTrigger value="file">Fichier</TabsTrigger>
+        <TabsTrigger value="local">Local</TabsTrigger>
         {showMicSettings ? <TabsTrigger value="mic">Enregistrement</TabsTrigger> : null}
+        {showCloudSettingsResolved ? <TabsTrigger value="cloud">Cloud</TabsTrigger> : null}
       </TabsList>
-      <TabsContent value="file">
+      <TabsContent value="local">
         <div className="grid gap-4 lg:grid-cols-2">
       {showReminders ? (
         <Card className="lg:col-span-2">
@@ -2257,6 +2268,21 @@ export function SettingsPanel({
           </div>
         </CardContent>
       </Card>
+          </div>
+        </TabsContent>
+      ) : null}
+      {showCloudSettingsResolved ? (
+        <TabsContent value="cloud">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle>Transcription cloud</CardTitle>
+                <CardDescription>Parametres cloud a venir.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">Cette section est vide pour le moment.</p>
+              </CardContent>
+            </Card>
           </div>
         </TabsContent>
       ) : null}

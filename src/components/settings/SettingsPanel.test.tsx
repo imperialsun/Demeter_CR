@@ -145,4 +145,14 @@ describe('SettingsPanel', () => {
 
     expect(screen.queryByText('Enregistrement')).toBeNull();
   });
+
+  it("shows the cloud settings tab by default", () => {
+    render(
+      <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">
+        <SettingsPanel />
+      </ThemeProvider>
+    );
+
+    expect(screen.getByText('Cloud')).toBeTruthy();
+  });
 });
