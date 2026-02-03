@@ -77,7 +77,7 @@ export function Topbar() {
             {preprocessingMode === 'full' ? 'Complet' : 'Rapide'}
           </Badge>
           <Badge variant="secondary">{presetLabel}</Badge>
-          <Badge variant="default">{modelId}</Badge>
+          {/* model badge removed per request */}
         </div>
       </div>
       <div className="flex items-center gap-3">

@@ -7,19 +7,20 @@ export function cleanTranscriptText(input: string | undefined | null): string {
     return "";
   }
   const tokens = normalized.split(" ");
-  if (tokens.length < 6) {
-    return restorePunctuation(tokens);
-  }
+  const pairs = tokens.map((raw) => ({ raw, norm: normalizeToken(raw) }));
 
-  const collapsed = collapseRepeatedPhrases(tokens);
-  const limitedRuns = limitSingleTokenRuns(collapsed, 2);
-  return restorePunctuation(limitedRuns);
+  const collapsed = collapseRepeatedPhrases(pairs);
+  const deduped = removeAdjacentDuplicateTokens(collapsed);
+  const limitedRuns = limitSingleTokenRuns(deduped, 2);
+  return restorePunctuation(limitedRuns.map((pair) => pair.raw));
 }
 
-function collapseRepeatedPhrases(tokens: string[]): string[] {
-  const result: string[] = [];
+type TokenPair = { raw: string; norm: string };
+
+function collapseRepeatedPhrases(tokens: TokenPair[]): TokenPair[] {
+  const result: TokenPair[] = [];
   const maxPattern = Math.min(24, Math.floor(tokens.length / 2));
-  const minPattern = 4;
+  const minPattern = 2;
   let index = 0;
 
   while (index < tokens.length) {
@@ -58,39 +59,72 @@ function collapseRepeatedPhrases(tokens: string[]): string[] {
 }
 
 function segmentsEqual(
-  tokens: string[],
+  tokens: TokenPair[],
   start: number,
   length: number,
   otherStart?: number
 ): boolean {
   const compareStart = otherStart ?? start + length;
   for (let i = 0; i < length; i += 1) {
-    if (tokens[start + i] !== tokens[compareStart + i]) {
+    if (tokens[start + i]!.norm !== tokens[compareStart + i]!.norm) {
       return false;
     }
   }
   return true;
 }
 
-function limitSingleTokenRuns(tokens: string[], maxRepeat: number): string[] {
+function removeAdjacentDuplicateTokens(tokens: TokenPair[]): TokenPair[] {
+  if (!tokens.length) {
+    return tokens;
+  }
+  const result: TokenPair[] = [];
+  for (const pair of tokens) {
+    const last = result[result.length - 1];
+    if (last && last.norm === pair.norm && shouldCollapseDuplicate(last.raw, pair.raw, pair.norm)) {
+      if (hasSentenceBoundary(last.raw)) {
+        last.raw = stripTrailingBoundary(last.raw);
+      }
+      continue;
+    }
+    result.push(pair);
+  }
+  return result;
+}
+
+function shouldCollapseDuplicate(prevRaw: string, currRaw: string, norm: string): boolean {
+  if (!norm) return false;
+  if (norm.length >= 6) return true;
+  if (hasSentenceBoundary(prevRaw) || hasSentenceBoundary(currRaw)) return true;
+  return false;
+}
+
+function hasSentenceBoundary(token: string): boolean {
+  return /[.!?;:,]$/.test(token);
+}
+
+function stripTrailingBoundary(token: string): string {
+  return token.replace(/[.!?;:,]+$/, "");
+}
+
+function limitSingleTokenRuns(tokens: TokenPair[], maxRepeat: number): TokenPair[] {
   if (tokens.length === 0) {
     return tokens;
   }
-  const result: string[] = [];
+  const result: TokenPair[] = [];
   let lastToken = "";
   let runLength = 0;
 
-  for (const token of tokens) {
-    if (token === lastToken) {
+  for (const pair of tokens) {
+    if (pair.norm === lastToken) {
       runLength += 1;
       if (runLength >= maxRepeat) {
         continue;
       }
     } else {
-      lastToken = token;
+      lastToken = pair.norm;
       runLength = 0;
     }
-    result.push(token);
+    result.push(pair);
   }
 
   return result;
@@ -102,4 +136,16 @@ function restorePunctuation(tokens: string[]): string {
   }
   const joined = tokens.join(" ");
   return joined.replace(/\s+([.,!?;:])/g, "$1").trim();
+}
+
+function normalizeToken(token: string): string {
+  try {
+    return token
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[^\p{L}\p{N}]+/gu, "");
+  } catch (err) {
+    void err;
+    return token.toLowerCase().replace(/[^a-z0-9]+/gi, "");
+  }
 }

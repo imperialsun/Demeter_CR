@@ -48,8 +48,8 @@ describe('ExportButtons', () => {
     fireEvent.click(json);
     fireEvent.click(tele);
 
-    expect((exportLib.serializeVtt as any)).toHaveBeenCalledWith(segments);
-    expect((exportLib.serializeTelemetry as any)).toHaveBeenCalledWith(telemetry);
+    expect((exportLib.serializeVtt as any)).toHaveBeenCalledWith(segments, expect.any(Object));
+    expect((exportLib.serializeTelemetry as any)).toHaveBeenCalledWith(telemetry, expect.any(Object));
   });
 
   it('disables export buttons when there is no data', () => {

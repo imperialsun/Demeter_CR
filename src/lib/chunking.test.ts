@@ -3,9 +3,11 @@ import { describe, it, expect } from 'vitest';
 import { buildChunks, buildFixedSegments, computeDefaultOverlap, offsetChunks } from './chunking';
 
 describe('chunking', () => {
-  it('computeDefaultOverlap uses 10% but clamps at 0.5', () => {
-    expect(computeDefaultOverlap(3)).toBe(0.5); // 10% => 0.3 -> clamp to 0.5
-    expect(computeDefaultOverlap(10)).toBe(1); // 10% => 1
+  it('computeDefaultOverlap clamps to 0.2..0.9', () => {
+    expect(computeDefaultOverlap(3)).toBe(0.2);
+    expect(computeDefaultOverlap(5)).toBe(0.3);
+    expect(computeDefaultOverlap(10)).toBe(0.6);
+    expect(computeDefaultOverlap(20)).toBe(0.9);
   });
 
   it('builds sequential chunks', () => {
@@ -31,6 +33,22 @@ describe('chunking', () => {
     expect(segments[0].start).toBe(0);
     expect(segments[0].end).toBe(600);
     expect(segments[1].start).toBe(595);
+  });
+
+  it('does not pad silence-based chunks', () => {
+    const sampleRate = 1000;
+    const pcm = new Float32Array(sampleRate * 2).fill(0.2);
+    const cfg = {
+      chunkDurationSec: 2,
+      overlapSec: 1,
+      strategy: 'silence',
+      durationSec: 2,
+      silence: { silenceThresholdDb: -40, minSilenceMs: 200, minChunkMs: 100, maxChunkMs: 5000, sampleRate },
+    } as any;
+    const chunks = buildChunks(cfg, pcm, sampleRate);
+    expect(chunks.length).toBe(1);
+    expect(chunks[0].paddedStart).toBe(chunks[0].start);
+    expect(chunks[0].paddedEnd).toBe(chunks[0].end);
   });
 
   it('offsets chunks with a global start index', () => {

@@ -127,7 +127,8 @@ function buildSilenceAwareChunks(
   for (const range of ranges) {
     const start = range.startSec;
     const end = range.endSec;
-    chunks.push(toChunkDefinition(index++, start, end, config.overlapSec));
+    // Silence-based segments are already boundary-aligned; avoid extra overlap padding.
+    chunks.push(toChunkDefinition(index++, start, end, 0));
   }
 
   return chunks;
@@ -153,9 +154,9 @@ function toChunkDefinition(
 // deduplicateOverlaps removed: overlaps are preserved to honor chunking settings.
 
 // Compute the default overlap for a given chunk duration.
-// Business rule: overlap = max(0.5s, 10% of chunk duration), rounded to 2 decimals.
+// Business rule: overlap = clamp(6% of duration, 0.2s..0.9s), rounded to 2 decimals.
 export function computeDefaultOverlap(durationSec: number) {
-  const raw = durationSec * 0.1;
-  const clamped = Math.max(0.5, raw);
+  const raw = durationSec * 0.06;
+  const clamped = Math.min(0.9, Math.max(0.2, raw));
   return Math.round(clamped * 100) / 100;
 }

@@ -54,6 +54,7 @@ vi.mock('@/lib/asr', async () => {
 
 vi.mock('@/lib/chunking', async () => ({
   buildChunks: vi.fn(() => [{ id: 'c1', start: 0, end: 1, paddedStart: 0, paddedEnd: 1, index: 0 }]),
+  computeDefaultOverlap: vi.fn(() => 1),
 }));
 
 // Import the hook under test after mocks

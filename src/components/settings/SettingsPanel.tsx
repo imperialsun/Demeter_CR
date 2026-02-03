@@ -6,6 +6,7 @@ import {
   MODEL_PRESETS,
   useAsrStore,
   type BackendImplementation,
+  type DedupeMode,
 } from "@/store/asr-store";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
@@ -92,6 +93,8 @@ export function SettingsPanel({
     memoryMode,
     chunkStrategy,
     segmentationMode,
+    dedupeMode,
+    cleanIntraChunk,
     preprocessingMode,
     showSegments,
     showExportVtt,
@@ -136,6 +139,8 @@ export function SettingsPanel({
     setMemoryMode,
     setChunkStrategy,
     setSegmentationMode,
+    setDedupeMode,
+    setCleanIntraChunk,
     setShowSegments,
     setShowExportVtt,
     setShowExportSrt,
@@ -156,6 +161,8 @@ export function SettingsPanel({
     memoryMode: state.memoryMode,
     chunkStrategy: state.chunkStrategy,
     segmentationMode: state.segmentationMode,
+    dedupeMode: state.dedupeMode,
+    cleanIntraChunk: state.cleanIntraChunk,
     preprocessingMode: state.preprocessingMode,
     showSegments: state.showSegments,
     showExportVtt: state.showExportVtt,
@@ -196,6 +203,8 @@ export function SettingsPanel({
     setMemoryMode: state.setMemoryMode,
     setChunkStrategy: state.setChunkStrategy,
     setSegmentationMode: state.setSegmentationMode,
+    setDedupeMode: state.setDedupeMode,
+    setCleanIntraChunk: state.setCleanIntraChunk,
     setShowSegments: state.setShowSegments,
     setShowExportVtt: state.setShowExportVtt,
     setShowExportSrt: state.setShowExportSrt,
@@ -1002,9 +1011,9 @@ export function SettingsPanel({
             </div>
             <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
               <div>
-                <p className="text-sm font-medium">Micro segment</p>
+                <p className="text-sm font-medium">Segmentation fichier</p>
                 <p className="text-xs text-muted-foreground">
-                  On : coupe aux silences. Off : un segment par chunk.
+                  On : segments basés sur les silences. Off : un segment par chunk.
                 </p>
               </div>
               <Switch
@@ -1120,6 +1129,50 @@ export function SettingsPanel({
             ) : null}
           </CardContent>
         ) : null}
+      </Card>
+
+      <Card className="lg:col-span-2">
+        <CardHeader className="space-y-0">
+          <div>
+            <CardTitle>Doublonnage</CardTitle>
+            <CardDescription>
+              Choisissez la méthode de dédoublonnage des segments quand des overlaps sont utilisés.
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Méthode</p>
+              <p className="text-xs text-muted-foreground">
+                Normal : exact sur tokens normalisés. Fuzzy : tolère des variations (utile si le modèle hésite).
+              </p>
+            </div>
+            <Select value={dedupeMode} onValueChange={(value) => setDedupeMode(value as DedupeMode)}>
+              <SelectTrigger className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="normal">Normal (exact)</SelectItem>
+                <SelectItem value="fuzzy">Fuzzy (tolérant)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+            <div>
+              <p className="text-sm font-medium">Nettoyage intra-chunk</p>
+              <p className="text-xs text-muted-foreground">
+                Supprime les répétitions dans un même segment (ex: &quot;politique. politique&quot;).
+              </p>
+            </div>
+            <Switch
+              aria-label="Nettoyage intra-chunk"
+              className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+              checked={cleanIntraChunk}
+              onCheckedChange={(checked) => setCleanIntraChunk(checked ? true : false)}
+            />
+          </div>
+        </CardContent>
       </Card>
 
       <Card className="lg:col-span-2">

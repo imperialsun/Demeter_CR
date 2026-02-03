@@ -19,8 +19,19 @@ export interface TranscriptionSegment {
   words?: WordSegment[];
 } 
 
-export function serializeVtt(segments: TranscriptionSegment[]): string {
-  const header = "WEBVTT";
+export interface ExportHeader {
+  exportedAt: string;
+  mode: "upload" | "mic";
+  settings: {
+    file: Record<string, unknown>;
+    mic: Record<string, unknown>;
+  };
+  runtime?: Record<string, unknown>;
+}
+
+export function serializeVtt(segments: TranscriptionSegment[], header?: ExportHeader): string {
+  const headerLine = "WEBVTT";
+  const headerBlock = header ? formatHeaderBlock(headerLine, header, "vtt") : headerLine;
   const body = segments
     .map((segment) => {
       const start = formatTimestamp(segment.start, "vtt");
@@ -28,32 +39,37 @@ export function serializeVtt(segments: TranscriptionSegment[]): string {
       return `${segment.index}\n${start} --> ${end}\n${segment.text.trim()}\n`;
     })
     .join("\n");
-  return `${header}\n\n${body}`;
+  return `${headerBlock}\n\n${body}`;
 }
 
-export function serializeSrt(segments: TranscriptionSegment[]): string {
-  return segments
+export function serializeSrt(segments: TranscriptionSegment[], header?: ExportHeader): string {
+  const headerBlock = header ? formatHeaderBlock("NOTE SETTINGS", header, "srt") + "\n\n" : "";
+  const body = segments
     .map((segment) => {
       const start = formatTimestamp(segment.start, "srt");
       const end = formatTimestamp(segment.end, "srt");
       return `${segment.index}\n${start} --> ${end}\n${segment.text.trim()}\n`;
     })
     .join("\n");
+  return `${headerBlock}${body}`;
 }
 
-export function serializeSegmentsJson(segments: TranscriptionSegment[]): string {
+export function serializeSegmentsJson(segments: TranscriptionSegment[], header?: ExportHeader): string {
   return JSON.stringify(
-    segments.map((segment) => ({
-      ...segment,
-      text: segment.text.trim(),
-    })),
+    {
+      header,
+      segments: segments.map((segment) => ({
+        ...segment,
+        text: segment.text.trim(),
+      })),
+    },
     null,
     2
   );
 }
 
-export function serializeTelemetry(summary: TelemetrySummary): string {
-  return JSON.stringify(summary, null, 2);
+export function serializeTelemetry(summary: TelemetrySummary, header?: ExportHeader): string {
+  return JSON.stringify({ header, telemetry: summary }, null, 2);
 }
 
 export function downloadBlob(content: string, filename: string, type: string) {
@@ -81,4 +97,12 @@ function formatTimestamp(seconds: number, format: Format) {
 
 function pad(value: number) {
   return value.toString().padStart(2, "0");
+}
+
+function formatHeaderBlock(label: string, header: ExportHeader, format: Format | "srt" | "vtt") {
+  const json = JSON.stringify(header, null, 2);
+  if (format === "vtt") {
+    return `${label}\nNOTE SETTINGS\n${json}`;
+  }
+  return `${label}\n${json}`;
 }

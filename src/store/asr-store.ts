@@ -10,6 +10,7 @@ import type { TelemetryCollector, ChunkTelemetry, TelemetrySummary } from "@/lib
 type PresetKey = "fast" | "balanced" | "medium" | "quality" | "french" | "custom";
 
 export type BackendImplementation = "webgpu" | "wasm";
+export type DedupeMode = "normal" | "fuzzy";
 
 export type PipelineStatus =
   | "idle"
@@ -78,6 +79,8 @@ interface AsrConfigState {
   memoryMode: "full" | "progressive";
   chunkStrategy: "sequential" | "overlap" | "silence";
   segmentationMode: "chunks" | "silence";
+  dedupeMode: DedupeMode;
+  cleanIntraChunk: boolean;
   chunkDurationSec: number;
   overlapSec: number;
   progressiveSegmentDurationSec: number;
@@ -199,6 +202,8 @@ interface AsrConfigActions {
   setMemoryMode: (mode: "full" | "progressive") => void;
   setChunkStrategy: (strategy: "sequential" | "overlap" | "silence") => void;
   setSegmentationMode: (mode: "chunks" | "silence") => void;
+  setDedupeMode: (mode: DedupeMode) => void;
+  setCleanIntraChunk: (value: boolean) => void;
   updateChunkParameters: (params: Partial<{
     chunkDurationSec: number;
     overlapSec: number;
@@ -340,14 +345,16 @@ const initialState: AsrConfigState = {
   activeBackend: undefined,
   memoryMode: "full",
   chunkStrategy: "overlap",
-  segmentationMode: "chunks",
+  segmentationMode: "silence",
+  dedupeMode: "fuzzy",
+  cleanIntraChunk: true,
   // Target chunk duration used when building chunks in 'silence' mode (seconds)
   chunkDurationSec: 15,
-  overlapSec: 1.5,
+  overlapSec: computeDefaultOverlap(15),
   progressiveSegmentDurationSec: 600,
-  silenceThresholdDb: -35,
-  minSilenceMs: 600,
-  minChunkMs: 3000,
+  silenceThresholdDb: -32,
+  minSilenceMs: 800,
+  minChunkMs: 4000,
   // Max chunk size default is target + 5s (automatically recalculated when target changes)
   maxChunkMs: (15 + 5) * 1000,
   showSegments: true,
@@ -369,8 +376,8 @@ const initialState: AsrConfigState = {
   preprocessLimiterThresholdDb: -1,
   preprocessLimiterSoftness: 0.65,
   preprocessVadEnabled: true,
-  preprocessVadThresholdDb: -42,
-  preprocessVadMinSilenceMs: 250,
+  preprocessVadThresholdDb: -38,
+  preprocessVadMinSilenceMs: 300,
   preprocessOverlapAdd: true,
   preprocessOverlapBlockSec: 1.4,
   preprocessOverlapSec: 0.3,
@@ -380,10 +387,10 @@ const initialState: AsrConfigState = {
   micBackendPreference: "webgpu",
   micPreprocessingMode: "full",
   micSegmentationMode: "silence",
-  micSilenceThresholdDb: -35,
+  micSilenceThresholdDb: -32,
   micNoiseCalibrationMarginDb: 6,
-  micMinSilenceMs: 500,
-  micMinChunkMs: 10000,
+  micMinSilenceMs: 700,
+  micMinChunkMs: 12000,
   micMaxChunkMs: 20000,
   micShowExportVtt: false,
   micShowExportSrt: false,
@@ -402,8 +409,8 @@ const initialState: AsrConfigState = {
   micPreprocessLimiterThresholdDb: -1,
   micPreprocessLimiterSoftness: 0.65,
   micPreprocessVadEnabled: true,
-  micPreprocessVadThresholdDb: -42,
-  micPreprocessVadMinSilenceMs: 250,
+  micPreprocessVadThresholdDb: -38,
+  micPreprocessVadMinSilenceMs: 300,
   micPreprocessOverlapAdd: true,
   micPreprocessOverlapBlockSec: 1.4,
   micPreprocessOverlapSec: 0.3,
@@ -468,6 +475,8 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
   setMemoryMode: (mode) => set(() => ({ memoryMode: mode })),
   setChunkStrategy: (strategy) => set(() => ({ chunkStrategy: strategy })),
   setSegmentationMode: (mode) => set(() => ({ segmentationMode: mode })),
+  setDedupeMode: (mode) => set(() => ({ dedupeMode: mode })),
+  setCleanIntraChunk: (value) => set(() => ({ cleanIntraChunk: value })),
   setProgressiveSegmentDurationSec: (value) => set(() => ({ progressiveSegmentDurationSec: value })),
   updateChunkParameters: (params) => set((state) => {
     const merged = { ...state, ...params } as AsrConfigState;
@@ -516,6 +525,12 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
       memoryMode: settings.memoryMode,
       chunkStrategy: settings.chunkStrategy,
       segmentationMode: settings.segmentationMode,
+      dedupeMode:
+        settings.dedupeMode === "normal" || settings.dedupeMode === "fuzzy"
+          ? settings.dedupeMode
+          : state.dedupeMode,
+      cleanIntraChunk:
+        typeof settings.cleanIntraChunk === "boolean" ? settings.cleanIntraChunk : state.cleanIntraChunk,
       chunkDurationSec: settings.chunkDurationSec,
       overlapSec: settings.overlapSec,
       progressiveSegmentDurationSec: settings.progressiveSegmentDurationSec ?? state.progressiveSegmentDurationSec,
@@ -778,6 +793,8 @@ useAsrStore.subscribe((state) => {
     memoryMode: state.memoryMode,
     chunkStrategy: state.chunkStrategy,
     segmentationMode: state.segmentationMode,
+    dedupeMode: state.dedupeMode,
+    cleanIntraChunk: state.cleanIntraChunk,
     chunkDurationSec: state.chunkDurationSec,
     overlapSec: state.overlapSec,
     progressiveSegmentDurationSec: state.progressiveSegmentDurationSec,

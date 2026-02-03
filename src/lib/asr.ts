@@ -507,7 +507,10 @@ export async function transcribeChunk({
       logger.warn("Failed to log ASR raw result safely", err);
   }
 
-  const cleanedText = cleanTranscriptText(result.text);
+  const normalizeWhitespace = (value: string | undefined | null) =>
+    typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+  const cleanIntraChunk = useAsrStore.getState().cleanIntraChunk;
+  const cleanedText = cleanIntraChunk ? cleanTranscriptText(result.text) : normalizeWhitespace(result.text);
   logger.info("ASR chunk transcript", {
     id: chunk.id,
     index: chunk.index,
@@ -523,7 +526,7 @@ export async function transcribeChunk({
           const timestamp = Array.isArray(segment.timestamp) ? segment.timestamp : undefined;
           const rawStart = timestamp?.[0] ?? 0;
           const rawEnd = timestamp?.[1] ?? chunk.end - chunk.start;
-          const sanitized = cleanTranscriptText(segment.text);
+          const sanitized = cleanIntraChunk ? cleanTranscriptText(segment.text) : normalizeWhitespace(segment.text);
 
           // map any word-level timestamps inside this chunk segment
           const rawWordsField = (segment as unknown as Record<string, unknown>)["words"];

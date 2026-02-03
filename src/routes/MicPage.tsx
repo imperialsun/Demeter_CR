@@ -332,6 +332,7 @@ function MicPage() {
               showSrt={micShowExportSrt}
               showJson={micShowExportJson}
               showTelemetry={micShowExportTelemetry}
+              mode="mic"
             />
           ) : null}
         </div>

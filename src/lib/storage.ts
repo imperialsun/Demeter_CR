@@ -1,4 +1,4 @@
-import type { BackendImplementation } from "@/store/asr-store";
+import type { BackendImplementation, DedupeMode } from "@/store/asr-store";
 import logger from "@/lib/logger";
 
 const STORAGE_KEY = "demeter-asr-settings";
@@ -10,6 +10,8 @@ export interface PersistedSettings {
   memoryMode: "full" | "progressive";
   chunkStrategy: "sequential" | "overlap" | "silence";
   segmentationMode: "chunks" | "silence";
+  dedupeMode?: DedupeMode;
+  cleanIntraChunk?: boolean;
   preprocessingMode: "quick" | "full";
   chunkDurationSec: number;
   overlapSec: number;
@@ -116,6 +118,8 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   memoryMode: "full",
   chunkStrategy: "overlap",
   segmentationMode: "chunks",
+  dedupeMode: "fuzzy",
+  cleanIntraChunk: true,
   chunkDurationSec: 15,
   overlapSec: 1.5,
   progressiveSegmentDurationSec: 600,

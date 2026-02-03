@@ -719,7 +719,7 @@ export function useMicTranscription() {
         state.micSegmentationMode,
         nextSegmentIndexRef.current,
         lastSegmentRef.current,
-        { enableWordTimestamps: state.micEnableWordTimestamps }
+        { enableWordTimestamps: state.micEnableWordTimestamps, dedupeMode: state.dedupeMode }
       );
 
       if (segments.length) {

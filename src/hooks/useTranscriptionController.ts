@@ -22,7 +22,7 @@ import { createSegmentCache } from "@/lib/segmenter";
 import { deleteSegment, deleteSessionSegments, getSegment } from "@/lib/segment-cache";
 import { TelemetryCollector } from "@/lib/telemetry";
 import type { TranscriptionSegment, WordSegment } from "@/lib/export";
-import { useAsrStore } from "@/store/asr-store";
+import { useAsrStore, type DedupeMode } from "@/store/asr-store";
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
@@ -327,6 +327,30 @@ export function useTranscriptionController() {
         decoded.sampleRate
       );
 
+      logger.info("[chunk-plan] full", {
+        chunks: chunkPlan.length,
+        strategy: state.chunkStrategy,
+        chunkDurationSec: state.chunkDurationSec,
+        overlapSec: state.overlapSec,
+        silence: {
+          silenceThresholdDb: state.silenceThresholdDb,
+          minSilenceMs: state.minSilenceMs,
+          minChunkMs: state.minChunkMs,
+          maxChunkMs: state.maxChunkMs,
+        },
+      });
+      telemetry.logEvent("CHUNK_PLAN", {
+        mode: "full",
+        chunks: chunkPlan.length,
+        strategy: state.chunkStrategy,
+        chunkDurationSec: state.chunkDurationSec,
+        overlapSec: state.overlapSec,
+        silenceThresholdDb: state.silenceThresholdDb,
+        minSilenceMs: state.minSilenceMs,
+        minChunkMs: state.minChunkMs,
+        maxChunkMs: state.maxChunkMs,
+      });
+
       state.setChunkPlan(chunkPlan);
 
       let nextIndex = state.segments.length;
@@ -355,6 +379,7 @@ export function useTranscriptionController() {
 
         const segments = normaliseSegments(result, state.segmentationMode, nextIndex, lastSegment, {
           enableWordTimestamps: state.enableWordTimestamps,
+          dedupeMode: state.dedupeMode,
         });
         if (segments.length) {
           nextIndex += segments.length;
@@ -697,6 +722,31 @@ export function useTranscriptionController() {
             segmentPcm,
             segmentSampleRate
           );
+          logger.info("[chunk-plan] segment", {
+            segmentIndex: segment.index,
+            chunks: segmentChunkPlan.length,
+            strategy: state.chunkStrategy,
+            chunkDurationSec: state.chunkDurationSec,
+            overlapSec: state.overlapSec,
+            silence: {
+              silenceThresholdDb: state.silenceThresholdDb,
+              minSilenceMs: state.minSilenceMs,
+              minChunkMs: state.minChunkMs,
+              maxChunkMs: state.maxChunkMs,
+            },
+          });
+          telemetry.logEvent("CHUNK_PLAN", {
+            mode: "segment",
+            segmentIndex: segment.index,
+            chunks: segmentChunkPlan.length,
+            strategy: state.chunkStrategy,
+            chunkDurationSec: state.chunkDurationSec,
+            overlapSec: state.overlapSec,
+            silenceThresholdDb: state.silenceThresholdDb,
+            minSilenceMs: state.minSilenceMs,
+            minChunkMs: state.minChunkMs,
+            maxChunkMs: state.maxChunkMs,
+          });
           const segmentChunkPlanGlobal = offsetChunks(segmentChunkPlan, segment.start, globalChunkIndex);
           globalChunkIndex += segmentChunkPlanGlobal.length;
           state.setChunkPlan([...useAsrStore.getState().chunkPlan, ...segmentChunkPlanGlobal]);
@@ -726,6 +776,7 @@ export function useTranscriptionController() {
 
             const segments = normaliseSegments(result, state.segmentationMode, nextIndex, lastSegment, {
               enableWordTimestamps: state.enableWordTimestamps,
+              dedupeMode: state.dedupeMode,
             });
             if (segments.length) {
               nextIndex += segments.length;
@@ -1199,11 +1250,22 @@ export function normaliseSegments(
   segmentationMode: "chunks" | "silence",
   startIndex: number,
   previous?: TranscriptionSegment,
-  options?: { enableWordTimestamps?: boolean }
+  options?: { enableWordTimestamps?: boolean; dedupeMode?: DedupeMode }
 ): TranscriptionSegment[] {
   const segments: TranscriptionSegment[] = [];
+  const dedupeMode = options?.dedupeMode ?? useAsrStore.getState().dedupeMode;
   if (segmentationMode === "chunks") {
-    const text = trimChunkOverlap(previous?.text, result.text).trim();
+    const trimmed = trimChunkOverlap(previous?.text, result.text, dedupeMode);
+    const text = trimmed.text.trim();
+    if (trimmed.overlapWords > 0) {
+      logger.info("Trimmed chunk overlap", { overlapWords: trimmed.overlapWords, chunkId: result.chunk.id });
+      try {
+        const telemetry = useAsrStore.getState().telemetryCollector;
+        telemetry?.logEvent("SEGMENT_DEDUP", { overlapWords: trimmed.overlapWords, mode: "chunks", dedupeMode });
+      } catch (err) {
+        void err;
+      }
+    }
     if (text.length) {
       const enableWordTimestamps =
         typeof options?.enableWordTimestamps === "boolean"
@@ -1279,17 +1341,58 @@ export function normaliseSegments(
   let idx = startIndex;
   let last = previous;
   for (const segment of result.segments) {
-    const text = segment.text.trim();
+    let text = segment.text.trim();
     if (!text.length) continue;
-    if (last && text === last.text && segment.start - last.end < 1) {
-      continue;
+    let start = segment.start;
+    const end = segment.end;
+    let segmentWords = (segment as unknown as Record<string, unknown>).words as WordSegment[] | undefined;
+    const gap = last ? start - last.end : Number.POSITIVE_INFINITY;
+    if (last && gap < 1) {
+      if (text === last.text) {
+        continue;
+      }
+      const trimmed = trimChunkOverlap(last.text, text, dedupeMode);
+      if (trimmed.overlapWords > 0) {
+        try {
+          const telemetry = useAsrStore.getState().telemetryCollector;
+          telemetry?.logEvent("SEGMENT_DEDUP", { overlapWords: trimmed.overlapWords, mode: "silence", dedupeMode });
+        } catch (err) {
+          void err;
+        }
+        text = trimmed.text.trim();
+        if (!text.length) {
+          continue;
+        }
+        if (Array.isArray(segmentWords) && segmentWords.length) {
+          const cutCount = Math.min(segmentWords.length, Math.max(trimmed.removedTokens, trimmed.overlapWords));
+          segmentWords = segmentWords.slice(cutCount);
+          if (segmentWords.length) {
+            start = segmentWords[0]!.start;
+          }
+        }
+      }
     }
-    const segmentWords = (segment as unknown as Record<string, unknown>).words as WordSegment[] | undefined;
+    if (last && gap < 1) {
+      const debris = trimDebrisPrefix(last.text, text);
+      if (debris.removedTokens > 0) {
+        text = debris.text.trim();
+        if (!text.length) {
+          continue;
+        }
+        if (Array.isArray(segmentWords) && segmentWords.length) {
+          const cutCount = Math.min(segmentWords.length, debris.removedTokens);
+          segmentWords = segmentWords.slice(cutCount);
+          if (segmentWords.length) {
+            start = segmentWords[0]!.start;
+          }
+        }
+      }
+    }
 
     const item: TranscriptionSegment = {
       index: idx,
-      start: segment.start,
-      end: segment.end,
+      start,
+      end,
       text,
       chunkId: result.chunk.id,
       strategy: "silence",
@@ -1341,29 +1444,301 @@ export function normaliseSegments(
   return segments;
 }
 
-function trimChunkOverlap(previousText: string | undefined, currentText: string): string {
+function trimChunkOverlap(
+  previousText: string | undefined,
+  currentText: string,
+  mode: DedupeMode
+): { text: string; overlapWords: number; removedTokens: number } {
+  if (mode === "fuzzy") {
+    return trimChunkOverlapFuzzy(previousText, currentText);
+  }
+  return trimChunkOverlapExact(previousText, currentText);
+}
+
+const MAX_OVERLAP_TOKENS = 30;
+const MIN_OVERLAP_TOKENS = 2;
+const MAX_PREFIX_OFFSET = 2;
+const FUZZY_TOKEN_THRESHOLD = 0.75;
+const FUZZY_CHAR_THRESHOLD = 0.78;
+const MAX_DEBRIS_PREFIX_TOKENS = 3;
+const MIN_DEBRIS_REMAINING_TOKENS = 2;
+const CONTINUATION_TOKENS = new Set([
+  "de",
+  "du",
+  "des",
+  "d",
+  "l",
+  "la",
+  "le",
+  "les",
+  "que",
+  "qui",
+  "pour",
+  "avec",
+  "dans",
+  "sur",
+  "en",
+  "au",
+  "aux",
+]);
+const VERB_LIKE_TOKENS = new Set([
+  "est",
+  "sont",
+  "ete",
+  "etaient",
+  "etait",
+  "a",
+  "ont",
+  "avait",
+  "avaient",
+  "sera",
+  "seront",
+  "etre",
+  "avoir",
+  "fait",
+  "font",
+  "faisait",
+  "faisaient",
+  "dit",
+  "disent",
+  "peut",
+  "peuvent",
+  "doit",
+  "doivent",
+  "va",
+  "vont",
+  "allait",
+  "allaient",
+]);
+
+function trimChunkOverlapExact(previousText: string | undefined, currentText: string): { text: string; overlapWords: number; removedTokens: number } {
   const candidate = currentText.trim();
   if (!candidate.length) {
-    return "";
+    return { text: "", overlapWords: 0, removedTokens: 0 };
   }
   if (!previousText) {
-    return candidate;
-  }
-  if (candidate === previousText.trim()) {
-    return "";
+    return { text: candidate, overlapWords: 0, removedTokens: 0 };
   }
 
-  const prevTokens = previousText.split(/\s+/);
-  const currentTokens = candidate.split(/\s+/);
-  const maxOverlap = Math.min(prevTokens.length, currentTokens.length, 30);
+  const prevTrimmed = previousText.trim();
+  if (!prevTrimmed.length) {
+    return { text: candidate, overlapWords: 0, removedTokens: 0 };
+  }
+  if (candidate === prevTrimmed) {
+    const count = candidate.split(/\s+/).length;
+    return { text: "", overlapWords: count, removedTokens: count };
+  }
 
-  for (let size = maxOverlap; size >= 3; size -= 1) {
-    const prevSlice = prevTokens.slice(prevTokens.length - size).join(" ");
-    const currentSlice = currentTokens.slice(0, size).join(" ");
-    if (prevSlice === currentSlice) {
-      return currentTokens.slice(size).join(" ");
+  const prevRawTokens = prevTrimmed.split(/\s+/);
+  const currentRawTokens = candidate.split(/\s+/);
+  const prevTokens = prevRawTokens.map((token) => normalizeToken(token));
+  const currentTokens = currentRawTokens.map((token) => normalizeToken(token));
+  const prevFiltered = prevTokens
+    .map((token, index) => ({ token, index }))
+    .filter((item) => item.token.length);
+  const currentFiltered = currentTokens
+    .map((token, index) => ({ token, index }))
+    .filter((item) => item.token.length);
+  const overlap = findOverlap(prevFiltered, currentFiltered, "exact");
+  if (overlap) {
+    return {
+      text: currentRawTokens.slice(overlap.lastOverlapIndex + 1).join(" "),
+      overlapWords: overlap.overlapWords,
+      removedTokens: overlap.removedTokens,
+    };
+  }
+
+  return { text: candidate, overlapWords: 0, removedTokens: 0 };
+}
+
+function trimChunkOverlapFuzzy(previousText: string | undefined, currentText: string): { text: string; overlapWords: number; removedTokens: number } {
+  const candidate = currentText.trim();
+  if (!candidate.length) {
+    return { text: "", overlapWords: 0, removedTokens: 0 };
+  }
+  if (!previousText) {
+    return { text: candidate, overlapWords: 0, removedTokens: 0 };
+  }
+
+  const prevTrimmed = previousText.trim();
+  if (!prevTrimmed.length) {
+    return { text: candidate, overlapWords: 0, removedTokens: 0 };
+  }
+  if (candidate === prevTrimmed) {
+    const count = candidate.split(/\s+/).length;
+    return { text: "", overlapWords: count, removedTokens: count };
+  }
+
+  const prevRawTokens = prevTrimmed.split(/\s+/);
+  const currentRawTokens = candidate.split(/\s+/);
+  const prevTokens = prevRawTokens.map((token) => normalizeToken(token));
+  const currentTokens = currentRawTokens.map((token) => normalizeToken(token));
+  const prevFiltered = prevTokens
+    .map((token, index) => ({ token, index }))
+    .filter((item) => item.token.length);
+  const currentFiltered = currentTokens
+    .map((token, index) => ({ token, index }))
+    .filter((item) => item.token.length);
+  const overlap = findOverlap(prevFiltered, currentFiltered, "fuzzy");
+  if (overlap) {
+    return {
+      text: currentRawTokens.slice(overlap.lastOverlapIndex + 1).join(" "),
+      overlapWords: overlap.overlapWords,
+      removedTokens: overlap.removedTokens,
+    };
+  }
+
+  return { text: candidate, overlapWords: 0, removedTokens: 0 };
+}
+
+type FilteredToken = { token: string; index: number };
+
+function findOverlap(prevFiltered: FilteredToken[], currentFiltered: FilteredToken[], mode: "exact" | "fuzzy") {
+  const maxOverlap = Math.min(prevFiltered.length, currentFiltered.length, MAX_OVERLAP_TOKENS);
+  for (let size = maxOverlap; size >= MIN_OVERLAP_TOKENS; size -= 1) {
+    const prevSlice = prevFiltered.slice(prevFiltered.length - size);
+    const maxOffset = Math.min(MAX_PREFIX_OFFSET, currentFiltered.length - size);
+    for (let offset = 0; offset <= maxOffset; offset += 1) {
+      const currentSlice = currentFiltered.slice(offset, offset + size);
+      if (!currentSlice.length) continue;
+      if (!slicesMatch(prevSlice, currentSlice, mode)) continue;
+      const lastOverlapIndex = currentSlice[size - 1]!.index;
+      return {
+        overlapWords: size,
+        lastOverlapIndex,
+        removedTokens: lastOverlapIndex + 1,
+      };
     }
   }
+  return null;
+}
 
-  return candidate;
+function slicesMatch(prevSlice: FilteredToken[], currentSlice: FilteredToken[], mode: "exact" | "fuzzy"): boolean {
+  if (mode === "exact") {
+    for (let i = 0; i < prevSlice.length; i += 1) {
+      if (prevSlice[i]!.token !== currentSlice[i]!.token) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  let matches = 0;
+  for (let i = 0; i < prevSlice.length; i += 1) {
+    if (areTokensSimilar(prevSlice[i]!.token, currentSlice[i]!.token)) {
+      matches += 1;
+    }
+  }
+  const similarity = matches / prevSlice.length;
+  if (similarity >= FUZZY_TOKEN_THRESHOLD) {
+    return true;
+  }
+
+  const prevStr = prevSlice.map((item) => item.token).join(" ");
+  const currentStr = currentSlice.map((item) => item.token).join(" ");
+  return diceCoefficient(prevStr, currentStr) >= FUZZY_CHAR_THRESHOLD;
+}
+
+function normalizeToken(token: string): string {
+  try {
+    return token
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[^\p{L}\p{N}]+/gu, "");
+  } catch (err) {
+    void err;
+    return token.toLowerCase().replace(/[^a-z0-9]+/gi, "");
+  }
+}
+
+function trimDebrisPrefix(previousText: string | undefined, currentText: string): { text: string; removedTokens: number } {
+  const candidate = currentText.trim();
+  if (!candidate.length || !previousText) {
+    return { text: candidate, removedTokens: 0 };
+  }
+  if (endsWithTerminalPunctuation(previousText)) {
+    return { text: candidate, removedTokens: 0 };
+  }
+  if (!endsWithContinuation(previousText)) {
+    return { text: candidate, removedTokens: 0 };
+  }
+
+  const rawTokens = candidate.split(/\s+/);
+  if (rawTokens.length <= MAX_DEBRIS_PREFIX_TOKENS) {
+    return { text: candidate, removedTokens: 0 };
+  }
+
+  const firstToken = rawTokens[0] ?? "";
+  if (startsWithUppercase(firstToken)) {
+    return { text: candidate, removedTokens: 0 };
+  }
+
+  const prefixTokens = rawTokens.slice(0, MAX_DEBRIS_PREFIX_TOKENS);
+  const normalizedPrefix = prefixTokens.map((token) => normalizeToken(token)).filter((token) => token.length);
+  if (normalizedPrefix.some((token) => isVerbLike(token))) {
+    return { text: candidate, removedTokens: 0 };
+  }
+
+  if (rawTokens.length - prefixTokens.length < MIN_DEBRIS_REMAINING_TOKENS) {
+    return { text: candidate, removedTokens: 0 };
+  }
+
+  return { text: rawTokens.slice(prefixTokens.length).join(" "), removedTokens: prefixTokens.length };
+}
+
+function endsWithTerminalPunctuation(text: string): boolean {
+  return /[.!?…]$/.test(text.trim());
+}
+
+function endsWithContinuation(text: string): boolean {
+  const trimmed = text.trim().toLowerCase();
+  if (!trimmed) return false;
+  if (/(?:d|l|qu|s)['’]$/.test(trimmed)) {
+    return true;
+  }
+  const lastRaw = trimmed.split(/\s+/).pop() ?? "";
+  const normalized = normalizeToken(lastRaw);
+  return CONTINUATION_TOKENS.has(normalized);
+}
+
+function startsWithUppercase(token: string): boolean {
+  return /^[A-ZÀ-ÖØ-Ý]/.test(token);
+}
+
+function isVerbLike(token: string): boolean {
+  if (!token) return false;
+  if (VERB_LIKE_TOKENS.has(token)) return true;
+  return token.endsWith("er") || token.endsWith("ir") || token.endsWith("re");
+}
+
+function areTokensSimilar(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.length <= 3 || b.length <= 3) return false;
+  if (a.startsWith(b) || b.startsWith(a)) return true;
+  return diceCoefficient(a, b) >= 0.72;
+}
+
+function diceCoefficient(a: string, b: string): number {
+  if (a.length < 2 || b.length < 2) return 0;
+  const aBigrams = new Map<string, number>();
+  for (let i = 0; i < a.length - 1; i += 1) {
+    const gram = a.slice(i, i + 2);
+    aBigrams.set(gram, (aBigrams.get(gram) ?? 0) + 1);
+  }
+  let intersection = 0;
+  for (let i = 0; i < b.length - 1; i += 1) {
+    const gram = b.slice(i, i + 2);
+    const count = aBigrams.get(gram);
+    if (count) {
+      intersection += 1;
+      if (count === 1) {
+        aBigrams.delete(gram);
+      } else {
+        aBigrams.set(gram, count - 1);
+      }
+    }
+  }
+  const total = (a.length - 1) + (b.length - 1);
+  return total > 0 ? (2 * intersection) / total : 0;
 }
