@@ -1,15 +1,9 @@
 import { NavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import {
-  Activity,
-  Mic,
-  Settings,
-  UploadCloud,
-} from "lucide-react";
+import { Activity, Settings, UploadCloud } from "lucide-react";
 
 const NAV_ITEMS = [
   { to: "/upload", label: "Upload", icon: UploadCloud },
-  { to: "/mic", label: "Micro", icon: Mic },
   { to: "/settings", label: "Paramètres", icon: Settings },
   { to: "/telemetry", label: "Télémetrie", icon: Activity },
 ];
