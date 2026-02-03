@@ -1,10 +1,23 @@
 /* @vitest-environment jsdom */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+const originalConsole = {
+  log: console.log,
+  info: console.info,
+  warn: console.warn,
+  debug: console.debug,
+  error: console.error,
+};
+
 const LOG_CACHE_KEY = "demeter-log-cache";
 
 describe("logger", () => {
   beforeEach(() => {
+    console.log = originalConsole.log;
+    console.info = originalConsole.info;
+    console.warn = originalConsole.warn;
+    console.debug = originalConsole.debug;
+    console.error = originalConsole.error;
     const store = new Map<string, string>();
     const mockStorage = {
       getItem: (key: string) => store.get(key) ?? null,
@@ -21,6 +34,38 @@ describe("logger", () => {
     vi.stubGlobal("localStorage", mockStorage);
     localStorage.clear();
     vi.resetModules();
+  });
+
+  it("suppresses console output when debug is disabled but always logs errors", async () => {
+    const { installConsoleGuard, setDebugProvider } = await import("./logger");
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    setDebugProvider(() => false);
+    installConsoleGuard();
+
+    console.info("info");
+    console.warn("warn");
+    console.debug("debug");
+    console.error("error");
+
+    expect(infoSpy).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(debugSpy).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalled();
+  });
+
+  it("allows console output when debug is enabled", async () => {
+    const { installConsoleGuard, setDebugProvider } = await import("./logger");
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+
+    setDebugProvider(() => true);
+    installConsoleGuard();
+
+    console.info("visible");
+    expect(infoSpy).toHaveBeenCalled();
   });
 
   it("keeps last 2000 entries in memory and spills older logs to cache", async () => {

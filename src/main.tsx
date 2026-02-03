@@ -5,14 +5,25 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/toaster";
 import { toast } from "@/components/ui/use-toast";
 import { initializeBackendSupport } from "@/lib/backend-support";
-import logger from "@/lib/logger";
+import logger, { installConsoleGuard, setDebugProvider } from "@/lib/logger";
 import "./index.css";
 import App from "./App";
 
 // Configure logger provider after store is available so logger.enabled() can read runtime flag
-import { setDebugProvider } from "@/lib/logger";
 import { useAsrStore } from "@/store/asr-store";
 setDebugProvider(() => useAsrStore.getState().debugConfidence);
+installConsoleGuard();
+
+try {
+  useAsrStore
+    .getState()
+    .telemetryCollector
+    ?.logEvent?.("CONSOLE_GUARD_INSTALLED", {
+      debugEnabled: useAsrStore.getState().debugConfidence,
+    });
+} catch (err) {
+  void err;
+}
 
 await initializeBackendSupport();
 useAsrStore.getState().hydrateFromStorage();

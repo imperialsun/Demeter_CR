@@ -7,6 +7,7 @@ import * as backendSupport from '@/lib/backend-support';
 import * as toastMod from '@/components/ui/use-toast';
 import * as rr from 'react-router-dom';
 import * as logger from '@/lib/logger';
+import { isProdEnv } from '@/lib/env';
 
 // Mock react-router hooks used by the component
 const mockNavigate = vi.fn();
@@ -27,9 +28,15 @@ vi.mock('@/lib/logger', () => ({
   exportLogEntries: vi.fn(() => [{ timestamp: 't1', level: 'info', message: ['log'] }]),
 }));
 
+vi.mock('@/lib/env', () => ({
+  isProdEnv: vi.fn(() => false),
+  getEnvMode: vi.fn(() => 'test'),
+}));
+
 describe('Topbar', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.mocked(isProdEnv).mockReturnValue(false);
     // reset store defaults used by Topbar
     useAsrStore.setState({
       activePreset: 'fast',
@@ -108,5 +115,12 @@ describe('Topbar', () => {
     expect(writeText).toHaveBeenCalled();
     const payload = JSON.parse(writeText.mock.calls[0]![0] as string) as { logs?: unknown[] };
     expect(payload.logs).toEqual(logger.exportLogEntries());
+  });
+
+  it('hides debug controls in production', () => {
+    vi.mocked(isProdEnv).mockReturnValue(true);
+    render(<Topbar />);
+    expect(screen.queryByText('Exporter logs')).toBeNull();
+    expect(screen.queryByText(/Debug conf/i)).toBeNull();
   });
 });

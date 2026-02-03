@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, fireEvent } from '@testing-library/react';
 import { renderWithStore } from '@/test/utils';
 import LocalUploadPage from './LocalUploadPage';
 
@@ -13,6 +13,14 @@ describe('LocalUploadPage', () => {
     expect(
       screen.getByText(/aucun fichier audio ni transcription n'est transmis au cloud/i)
     ).toBeInTheDocument();
+  });
+
+  it('expands the privacy note when clicked', () => {
+    renderWithStore(<LocalUploadPage />);
+    const toggle = screen.getByText('Note de confidentialité');
+    expect(screen.queryByText(/fichiers audio/i)).toBeNull();
+    fireEvent.click(toggle);
+    expect(screen.getByText(/fichiers audio/i)).toBeInTheDocument();
   });
 
   it("shows overall confidence badge and '(estimée)' when source is estimated", () => {

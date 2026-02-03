@@ -6,13 +6,14 @@ import { cn } from "@/lib/utils";
 import { ActivitySquare, Cog, Loader2, LogOut, RotateCw } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "@/components/ui/use-toast";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useTranscriptionController } from "@/hooks/useTranscriptionController";
 import { initializeBackendSupport, resetWebGpuSupportCache } from "@/lib/backend-support";
 import { exportLogEntries } from "@/lib/logger";
 import { setAuthenticated } from "@/lib/auth";
 import { useModelCompatibilityTest, type ModelTestStatus } from "@/hooks/useModelCompatibilityTest";
+import { getEnvMode, isProdEnv } from "@/lib/env";
 
 const STATUS_LABELS: Record<string, string> = {
   idle: "Inactif",
@@ -45,6 +46,7 @@ export function Topbar() {
     statusDetail,
     wasmThreads,
     preprocessingMode,
+    telemetryCollector,
   } =
     useAsrStore();
 
@@ -70,6 +72,16 @@ export function Topbar() {
       ? Math.round(Math.max(0, Math.min(1, modelTestState.progress)) * 100)
       : 0;
   const backendKeys = ["webgpu", "wasm"] as const;
+  const showDebugActions = !isProdEnv();
+  const envMode = getEnvMode();
+
+  useEffect(() => {
+    console.info("Topbar debug controls visibility", { showDebugActions, mode: envMode });
+    telemetryCollector?.logEvent?.("TOPBAR_DEBUG_CONTROLS_VISIBILITY", {
+      showDebugActions,
+      mode: envMode,
+    });
+  }, [envMode, showDebugActions, telemetryCollector]);
 
   return (
     <>
@@ -121,48 +133,50 @@ export function Topbar() {
           )}
         </Button>
         <>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            onClick={async () => {
-              const snapshot = useAsrStore.getState();
-              const telemetry = snapshot.telemetryCollector?.exportSummary() ?? snapshot.telemetrySummary ?? null;
-              const payload = {
-                exportedAt: new Date().toISOString(),
-                session: {
-                  status: snapshot.status,
-                  statusDetail: snapshot.statusDetail,
-                  activePreset: snapshot.activePreset,
-                  customModelId: snapshot.customModelId,
-                  backendPreference: snapshot.backendPreference,
-                  activeBackend: snapshot.activeBackend,
-                  memoryMode: snapshot.memoryMode,
-                  segmentationMode: snapshot.segmentationMode,
-                  chunkStrategy: snapshot.chunkStrategy,
-                  preprocessingMode: snapshot.preprocessingMode,
-                  isTranscribing: snapshot.isTranscribing,
-                  progress: snapshot.progress,
-                  audioSource: snapshot.audioSource,
-                  audioMetadata: snapshot.audioMetadata,
-                },
-                telemetry,
-                logs: exportLogEntries(),
-              };
-              const text = JSON.stringify(payload, null, 2);
-              try {
-                await navigator.clipboard.writeText(text);
-                toast("Logs copiés dans le presse-papiers.");
-              } catch (error) {
-                void error;
-                if (typeof window !== "undefined") {
-                  window.prompt("Copiez les logs ci-dessous :", text);
+          {showDebugActions ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={async () => {
+                const snapshot = useAsrStore.getState();
+                const telemetry = snapshot.telemetryCollector?.exportSummary() ?? snapshot.telemetrySummary ?? null;
+                const payload = {
+                  exportedAt: new Date().toISOString(),
+                  session: {
+                    status: snapshot.status,
+                    statusDetail: snapshot.statusDetail,
+                    activePreset: snapshot.activePreset,
+                    customModelId: snapshot.customModelId,
+                    backendPreference: snapshot.backendPreference,
+                    activeBackend: snapshot.activeBackend,
+                    memoryMode: snapshot.memoryMode,
+                    segmentationMode: snapshot.segmentationMode,
+                    chunkStrategy: snapshot.chunkStrategy,
+                    preprocessingMode: snapshot.preprocessingMode,
+                    isTranscribing: snapshot.isTranscribing,
+                    progress: snapshot.progress,
+                    audioSource: snapshot.audioSource,
+                    audioMetadata: snapshot.audioMetadata,
+                  },
+                  telemetry,
+                  logs: exportLogEntries(),
+                };
+                const text = JSON.stringify(payload, null, 2);
+                try {
+                  await navigator.clipboard.writeText(text);
+                  toast("Logs copiés dans le presse-papiers.");
+                } catch (error) {
+                  void error;
+                  if (typeof window !== "undefined") {
+                    window.prompt("Copiez les logs ci-dessous :", text);
+                  }
                 }
-              }
-            }}
-          >
-            Exporter logs
-          </Button>
+              }}
+            >
+              Exporter logs
+            </Button>
+          ) : null}
           <Button
             variant="outline"
             size="sm"
@@ -198,15 +212,19 @@ export function Topbar() {
             Réinitialiser
           </Button>
 
-        {/* Debug toggle for confidence breakdown (visible in all builds) */}
-        <Button
-          size="sm"
-          variant={debugConfidence ? 'destructive' : 'outline'}
-          onClick={() => setDebugConfidence(!debugConfidence)}
-          className="gap-2"
-        >
-          {debugConfidence ? 'Debug conf : ON' : 'Debug conf : OFF'}
-        </Button>
+        {showDebugActions ? (
+          <>
+            {/* Debug toggle for confidence breakdown (hidden in production) */}
+            <Button
+              size="sm"
+              variant={debugConfidence ? 'destructive' : 'outline'}
+              onClick={() => setDebugConfidence(!debugConfidence)}
+              className="gap-2"
+            >
+              {debugConfidence ? 'Debug conf : ON' : 'Debug conf : OFF'}
+            </Button>
+          </>
+        ) : null}
 
           <ConfirmDialog
             open={confirmOpen}

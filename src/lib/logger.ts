@@ -1,9 +1,6 @@
 // Lightweight logger that defers the "debugEnabled" decision to a runtime provider.
 // This avoids importing the Zustand store here and causing circular imports or dynamic-import churn.
 
-const IS_PROD = process.env.NODE_ENV === "production";
-const IS_TEST = process.env.NODE_ENV === "test";
-
 let debugProvider: (() => boolean) | null = null;
 const LOG_BUFFER_LIMIT = 2000;
 const LOG_CACHE_KEY = "demeter-log-cache";
@@ -27,15 +24,44 @@ function enabled() {
   // Allow the runtime provider to enable debug logging even in production.
   // Behavior:
   // - If a provider is configured, its truthiness determines whether logs are enabled.
-  // - If no provider is configured, logs are enabled in non-prod environments only.
+  // - If no provider is configured, logs are disabled by default.
   try {
     if (typeof debugProvider === 'function') {
       return Boolean(debugProvider());
     }
-    return !IS_PROD && !IS_TEST;
+    return false;
   } catch {
-    return !IS_PROD && !IS_TEST;
+    return false;
   }
+}
+
+let consoleGuardInstalled = false;
+
+export function installConsoleGuard() {
+  if (consoleGuardInstalled) return;
+  consoleGuardInstalled = true;
+
+  const baseConsole = {
+    log: console.log.bind(console),
+    info: console.info.bind(console),
+    debug: console.debug.bind(console),
+    warn: console.warn.bind(console),
+    error: console.error.bind(console),
+  };
+
+  const guarded =
+    (method: keyof typeof baseConsole, always = false) =>
+    (...args: unknown[]) => {
+      if (always || enabled()) {
+        baseConsole[method](...args);
+      }
+    };
+
+  console.log = guarded("log");
+  console.info = guarded("info");
+  console.debug = guarded("debug");
+  console.warn = guarded("warn");
+  console.error = guarded("error", true);
 }
 
 function safeStringify(value: unknown) {
@@ -183,7 +209,7 @@ export function warn(...args: unknown[]) {
 
 export function error(...args: unknown[]) {
   pushLog("error", args);
-  if (enabled()) console.error(...args);
+  console.error(...args);
 }
 
 export default {

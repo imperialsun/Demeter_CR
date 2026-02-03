@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AudioUploader } from "@/components/audio/AudioUploader";
 import { AudioPlayer } from "@/components/audio/AudioPlayer";
 import { StatusBar } from "@/components/status/StatusBar";
@@ -16,6 +16,7 @@ import { toast } from "@/components/ui/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { overallConfidenceVariant } from "@/lib/utils";
 import logger from "@/lib/logger";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 function LocalUploadPage() {
   // Keep the selected file in the global store so pre-listen survives navigation
@@ -42,10 +43,20 @@ function LocalUploadPage() {
   const { startUploadTranscription, stopTranscription, isTranscribing } = useTranscriptionController();
   const presetOptions = Object.values(MODEL_PRESETS).filter((preset) => preset.key !== "french");
   const blockedPresetSet = new Set(blockedPresets);
+  const [privacyNoteOpen, setPrivacyNoteOpen] = useState(false);
 
   useEffect(() => {
     console.info("Local upload page view", { route: "/localupload", mode: "local" });
     telemetry?.logEvent?.("LOCAL_UPLOAD_PAGE_VIEW", { route: "/localupload", mode: "local" });
+  }, [telemetry]);
+
+  const togglePrivacyNote = useCallback(() => {
+    setPrivacyNoteOpen((value) => {
+      const next = !value;
+      console.info("Local upload privacy note toggled", { open: next });
+      telemetry?.logEvent?.("LOCAL_UPLOAD_PRIVACY_NOTE_TOGGLE", { open: next });
+      return next;
+    });
   }, [telemetry]);
 
   const handleFileSelected = useCallback(
@@ -99,11 +110,35 @@ function LocalUploadPage() {
       <header className="space-y-2">
         <h2 className="text-2xl font-semibold">Transcription locale</h2>
         <p className="text-muted-foreground">
-          Importez un fichier audio, ajustez Whisper et suivez la transcription chunk par chunk sans quitter Chrome.
+          Importez un fichier audio, ajustez Whisper et suivez la transcription morceau par morceau sans quitter Chrome.
         </p>
         <p className="text-sm font-medium text-emerald-600">
           Traitement 100% local sur ce poste : aucun fichier audio ni transcription n&apos;est transmis au cloud.
         </p>
+        <div className="pt-2">
+          <button
+            type="button"
+            className="flex w-full items-center justify-between rounded-md border bg-muted/20 px-3 py-2 text-sm"
+            onClick={togglePrivacyNote}
+            aria-expanded={privacyNoteOpen}
+          >
+            <span className="font-medium">Note de confidentialité</span>
+            {privacyNoteOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+          {privacyNoteOpen ? (
+            <div className="mt-3 space-y-2 rounded-md border bg-background/60 px-3 py-3 text-sm text-muted-foreground">
+              <p>
+                Cette partie fonctionne entièrement dans votre navigateur. Les fichiers audio et les transcriptions
+                restent sur ce poste et ne sont jamais envoyés vers un serveur externe.
+              </p>
+              <p>
+                Les seuls accès réseau concernent le téléchargement des modèles Whisper (si absents du cache). Une fois
+                chargés, les traitements se font localement en mémoire, ce qui garantit le niveau de confidentialité le
+                plus élevé possible.
+              </p>
+            </div>
+          ) : null}
+        </div>
       </header>
 
         <div className="space-y-3">
