@@ -45,6 +45,7 @@ export interface CreatePipelineOptions {
   modelPreset: "fast" | "balanced" | "medium" | "quality" | "french" | "custom";
   customModelId: string;
   backendPreference: BackendImplementation;
+  forceBackend?: BackendImplementation;
   forceSingleThread?: boolean;
   telemetry?: TelemetryCollector;
   onStatus?: (status: PipelineStatus, detail?: string) => void;
@@ -113,6 +114,7 @@ export async function createAsrPipeline({
   modelPreset,
   customModelId,
   backendPreference,
+  forceBackend,
   forceSingleThread,
   telemetry,
   onStatus,
@@ -129,7 +131,7 @@ export async function createAsrPipeline({
   telemetry?.logEvent("START_LOAD_MODEL", { modelId });
   telemetry?.startTimer("load_model_total");
 
-  const backends = BACKEND_SEQUENCE[backendPreference];
+  const backends = forceBackend ? [forceBackend] : BACKEND_SEQUENCE[backendPreference];
   let lastError: unknown;
 
   // Track per-file fetch/cache diagnostics reported during model bootstrap

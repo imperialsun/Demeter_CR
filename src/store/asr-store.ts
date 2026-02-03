@@ -7,7 +7,7 @@ import type { ChunkDefinition } from "@/lib/chunking";
 import type { TranscriptionSegment } from "@/lib/export";
 import type { TelemetryCollector, ChunkTelemetry, TelemetrySummary } from "@/lib/telemetry";
 
-type PresetKey = "fast" | "balanced" | "medium" | "quality" | "french" | "custom";
+export type PresetKey = "fast" | "balanced" | "medium" | "quality" | "french" | "custom";
 
 export type BackendImplementation = "webgpu" | "wasm";
 export type DedupeMode = "normal" | "fuzzy";
@@ -61,6 +61,32 @@ export const MODEL_PRESETS: Record<Exclude<PresetKey, "custom">, ModelPreset> = 
   },
 };
 
+const FALLBACK_PRESET: PresetKey = "balanced";
+const sanitizePreset = (preset: PresetKey | undefined) =>
+  preset && preset !== "french" ? preset : FALLBACK_PRESET;
+
+const allowedBlockedPresets = new Set<Exclude<PresetKey, "custom">>(
+  Object.keys(MODEL_PRESETS) as Array<Exclude<PresetKey, "custom">>
+);
+
+const sanitizeBlockedPresets = (presets: PresetKey[] | undefined, fallback: PresetKey[] = []) => {
+  if (!Array.isArray(presets)) return fallback;
+  const filtered = presets.filter((preset) => allowedBlockedPresets.has(preset as Exclude<PresetKey, "custom">));
+  return filtered.length ? filtered : [];
+};
+
+const resolveBackendPreference = (
+  stored: BackendImplementation | undefined,
+  supports: { webGpuSupported: boolean; wasmAvailable: boolean },
+  fallback: BackendImplementation
+): BackendImplementation => {
+  if (stored === "webgpu" && supports.webGpuSupported) return "webgpu";
+  if (stored === "wasm" && supports.wasmAvailable) return "wasm";
+  if (supports.webGpuSupported) return "webgpu";
+  if (supports.wasmAvailable) return "wasm";
+  return fallback;
+};
+
 type SessionSource = {
   id: string;
   label: string;
@@ -68,8 +94,10 @@ type SessionSource = {
 };
 
 interface AsrConfigState {
+  hasHydrated: boolean;
   activePreset: PresetKey;
   customModelId: string;
+  blockedPresets: PresetKey[];
   backendPreference: BackendImplementation;
   webGpuSupported: boolean;
   wasmAvailable: boolean;
@@ -196,6 +224,7 @@ interface AsrConfigState {
 
 interface AsrConfigActions {
   setPreset: (preset: PresetKey, customModelId?: string) => void;
+  setBlockedPresets: (presets: PresetKey[]) => void;
   setBackendPreference: (backend: BackendImplementation) => void;
   setStatus: (status: PipelineStatus, detail?: string) => void;
   setActiveBackend: (backend: BackendImplementation | undefined) => void;
@@ -335,8 +364,10 @@ interface AsrConfigActions {
 export type AsrConfigStore = AsrConfigState & AsrConfigActions;
 
 const initialState: AsrConfigState = {
+  hasHydrated: false,
   activePreset: "fast",
   customModelId: "",
+  blockedPresets: [],
   backendPreference: "webgpu",
   webGpuSupported: true,
   wasmAvailable: true,
@@ -453,13 +484,18 @@ const initialState: AsrConfigState = {
   debugConfidence: false,
 };
 
-export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
+export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => ({
   ...initialState,
   setPreset: (preset, customId) =>
     set(() => ({
-      activePreset: preset,
+      activePreset: sanitizePreset(preset),
       customModelId: customId ?? "",
     })),
+  setBlockedPresets: (presets) => {
+    const sanitized = sanitizeBlockedPresets(presets);
+    console.info("[asr-store] blocked presets updated", { blocked: sanitized });
+    set(() => ({ blockedPresets: sanitized }));
+  },
   setBackendPreference: (backend) =>
     set((state) => {
       if (backend === "webgpu" && !state.webGpuSupported) {
@@ -503,25 +539,49 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
   setShowExportTelemetry: (value) => set(() => ({ showExportTelemetry: value })),
   hydrateFromStorage: () => {
     const settings = loadSettings();
-    if (!settings) return;
+    if (!settings) {
+      set(() => ({ hasHydrated: true }));
+      return;
+    }
+    const blockedPresets = sanitizeBlockedPresets(settings.blockedPresets, get().blockedPresets);
+    const support = { webGpuSupported: get().webGpuSupported, wasmAvailable: get().wasmAvailable };
+    const resolvedBackendPreference = resolveBackendPreference(
+      settings.backendPreference,
+      support,
+      get().backendPreference
+    );
+    const resolvedMicBackendPreference = resolveBackendPreference(
+      settings.micBackendPreference,
+      support,
+      get().micBackendPreference
+    );
+    if (blockedPresets.length > 0) {
+      console.info("[asr-store] hydrated blocked presets", { blocked: blockedPresets });
+    }
+    if (settings.backendPreference && resolvedBackendPreference !== settings.backendPreference) {
+      console.info("[asr-store] backend preference adjusted", {
+        stored: settings.backendPreference,
+        resolved: resolvedBackendPreference,
+        ...support,
+      });
+    }
+    if (settings.micBackendPreference && resolvedMicBackendPreference !== settings.micBackendPreference) {
+      console.info("[asr-store] mic backend preference adjusted", {
+        stored: settings.micBackendPreference,
+        resolved: resolvedMicBackendPreference,
+        ...support,
+      });
+    }
     set((state) => ({
       ...state,
-      activePreset: settings.activePreset,
+      hasHydrated: true,
+      activePreset: sanitizePreset(settings.activePreset ?? state.activePreset),
       customModelId: settings.customModelId,
-      backendPreference:
-        settings.backendPreference === "wasm" || settings.backendPreference === "webgpu"
-          ? settings.backendPreference
-          : state.webGpuSupported
-            ? "webgpu"
-            : "wasm",
-      micActivePreset: settings.micActivePreset ?? state.micActivePreset,
+      blockedPresets,
+      backendPreference: resolvedBackendPreference,
+      micActivePreset: settings.micActivePreset ? sanitizePreset(settings.micActivePreset) : state.micActivePreset,
       micCustomModelId: settings.micCustomModelId ?? state.micCustomModelId,
-      micBackendPreference:
-        settings.micBackendPreference === "wasm" || settings.micBackendPreference === "webgpu"
-          ? settings.micBackendPreference
-          : state.webGpuSupported
-            ? "webgpu"
-            : "wasm",
+      micBackendPreference: resolvedMicBackendPreference,
       memoryMode: settings.memoryMode,
       chunkStrategy: settings.chunkStrategy,
       segmentationMode: settings.segmentationMode,
@@ -637,7 +697,7 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
   setPreprocessParams: (params) => set((state) => ({ ...state, ...params })),
   setMicPreset: (preset, customId) =>
     set(() => ({
-      micActivePreset: preset,
+      micActivePreset: sanitizePreset(preset),
       micCustomModelId: customId ?? "",
     })),
   setMicBackendPreference: (backend) =>
@@ -739,6 +799,7 @@ export const useAsrStore = create<AsrConfigStore>((set): AsrConfigStore => ({
       }
       return {
         ...initialState,
+        hasHydrated: true,
         resetCounter: state.resetCounter + 1,
         // Preserve runtime capability detection
         webGpuSupported: state.webGpuSupported,
@@ -783,10 +844,14 @@ export function resolveModelId(activePreset: PresetKey, customModelId: string) {
 }
 
 useAsrStore.subscribe((state) => {
+  if (!state.hasHydrated) {
+    return;
+  }
   const payload: PersistedSettings = {
-    activePreset: state.activePreset,
-    customModelId: state.customModelId,
-    backendPreference: state.backendPreference,
+      activePreset: state.activePreset,
+      customModelId: state.customModelId,
+      blockedPresets: state.blockedPresets,
+      backendPreference: state.backendPreference,
     micActivePreset: state.micActivePreset,
     micCustomModelId: state.micCustomModelId,
     micBackendPreference: state.micBackendPreference,

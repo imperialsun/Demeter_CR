@@ -15,6 +15,10 @@ import { useAsrStore } from "@/store/asr-store";
 setDebugProvider(() => useAsrStore.getState().debugConfidence);
 
 await initializeBackendSupport();
+useAsrStore.getState().hydrateFromStorage();
+console.info("[app] settings hydrated from storage", {
+  blockedPresets: useAsrStore.getState().blockedPresets,
+});
 
 // Check runtime support and notify the user if no backend is available
 {

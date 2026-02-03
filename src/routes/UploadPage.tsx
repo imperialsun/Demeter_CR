@@ -32,12 +32,15 @@ function UploadPage() {
   const setStatus = useAsrStore((state) => state.setStatus);
   const activePreset = useAsrStore((state) => state.activePreset);
   const setPreset = useAsrStore((state) => state.setPreset);
+  const blockedPresets = useAsrStore((state) => state.blockedPresets);
   const preprocessingMode = useAsrStore((state) => state.preprocessingMode);
   const memoryMode = useAsrStore((state) => state.memoryMode);
   // Read transcription confidence unconditionally to respect Hooks rules
   const transcriptionConfidence = useAsrStore((s) => s.transcriptionConfidence);
   const transcriptionConfidenceSource = useAsrStore((s) => s.transcriptionConfidenceSource);
   const { startUploadTranscription, stopTranscription, isTranscribing } = useTranscriptionController();
+  const presetOptions = Object.values(MODEL_PRESETS).filter((preset) => preset.key !== "french");
+  const blockedPresetSet = new Set(blockedPresets);
 
   const handleFileSelected = useCallback(
     (file: File) => {
@@ -102,14 +105,20 @@ function UploadPage() {
                 <SelectValue placeholder="Choisir un modèle" />
               </SelectTrigger>
               <SelectContent>
-                {Object.values(MODEL_PRESETS).map((preset) => (
-                  <SelectItem key={preset.key} value={preset.key}>
-                    <div className="flex flex-col">
-                      <span className="font-medium">{preset.label}</span>
-                      <span className="text-xs text-muted-foreground">{preset.description}</span>
-                    </div>
-                  </SelectItem>
-                ))}
+                {presetOptions.map((preset) => {
+                  const isBlocked = blockedPresetSet.has(preset.key);
+                  return (
+                    <SelectItem key={preset.key} value={preset.key} disabled={isBlocked}>
+                      <div className="flex flex-col">
+                        <span className="font-medium">{preset.label}</span>
+                        <span className="text-xs text-muted-foreground">{preset.description}</span>
+                        {isBlocked ? (
+                          <span className="text-xs text-destructive">Trop lourd pour ce poste (test)</span>
+                        ) : null}
+                      </div>
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           </div>

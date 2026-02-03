@@ -1,4 +1,4 @@
-import type { BackendImplementation, DedupeMode } from "@/store/asr-store";
+import type { BackendImplementation, DedupeMode, PresetKey } from "@/store/asr-store";
 import logger from "@/lib/logger";
 
 const STORAGE_KEY = "demeter-asr-settings";
@@ -6,6 +6,7 @@ const STORAGE_KEY = "demeter-asr-settings";
 export interface PersistedSettings {
   activePreset: "fast" | "balanced" | "medium" | "quality" | "french" | "custom";
   customModelId: string;
+  blockedPresets?: PresetKey[];
   backendPreference: BackendImplementation;
   memoryMode: "full" | "progressive";
   chunkStrategy: "sequential" | "overlap" | "silence";
@@ -114,6 +115,7 @@ export function saveSettings(settings: PersistedSettings) {
 export const DEFAULT_SETTINGS: PersistedSettings = {
   activePreset: "fast",
   customModelId: "",
+  blockedPresets: [],
   backendPreference: "webgpu",
   memoryMode: "full",
   chunkStrategy: "overlap",

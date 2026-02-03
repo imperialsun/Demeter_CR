@@ -153,6 +153,7 @@ export function SettingsPanel({
     updateChunkParameters,
     setProgressiveSegmentDurationSec,
     setForceSingleThread,
+    blockedPresets,
   } = useAsrStore(
     useShallow((state) => ({
     activePreset: state.activePreset,
@@ -218,6 +219,7 @@ export function SettingsPanel({
     setProgressiveSegmentDurationSec: state.setProgressiveSegmentDurationSec,
     // performance
     forceSingleThread: state.forceSingleThread,
+    blockedPresets: state.blockedPresets,
     enableWordTimestamps: state.enableWordTimestamps,
     setEnableWordTimestamps: state.setEnableWordTimestamps,
     showSegmentConfidence: state.showSegmentConfidence,
@@ -405,7 +407,11 @@ export function SettingsPanel({
     });
   };
 
-  const presetOptions = useMemo(() => Object.values(MODEL_PRESETS), []);
+  const presetOptions = useMemo(
+    () => Object.values(MODEL_PRESETS).filter((preset) => preset.key !== "french"),
+    []
+  );
+  const blockedPresetSet = useMemo(() => new Set(blockedPresets), [blockedPresets]);
 
   async function clearAppCache() {
     setClearing(true);
@@ -839,14 +845,20 @@ export function SettingsPanel({
                   <SelectValue placeholder="Sélectionnez un preset" />
                 </SelectTrigger>
                 <SelectContent>
-                  {presetOptions.map((preset) => (
-                    <SelectItem key={preset.key} value={preset.key}>
+                {presetOptions.map((preset) => {
+                  const isBlocked = blockedPresetSet.has(preset.key);
+                  return (
+                    <SelectItem key={preset.key} value={preset.key} disabled={isBlocked}>
                       <div className="flex flex-col">
                         <span className="font-medium">{preset.label}</span>
                         <span className="text-xs text-muted-foreground">{preset.description}</span>
+                        {isBlocked ? (
+                          <span className="text-xs text-destructive">Trop lourd pour ce poste (test)</span>
+                        ) : null}
                       </div>
                     </SelectItem>
-                  ))}
+                  );
+                })}
                   <SelectItem value="custom">
                     <div className="flex flex-col">
                       <span className="font-medium">Custom</span>
@@ -1735,14 +1747,20 @@ export function SettingsPanel({
                 <SelectValue placeholder="Sélectionnez un preset" />
               </SelectTrigger>
               <SelectContent>
-                {presetOptions.map((preset) => (
-                  <SelectItem key={preset.key} value={preset.key}>
-                    <div className="flex flex-col">
-                      <span className="font-medium">{preset.label}</span>
-                      <span className="text-xs text-muted-foreground">{preset.description}</span>
-                    </div>
-                  </SelectItem>
-                ))}
+                {presetOptions.map((preset) => {
+                  const isBlocked = blockedPresetSet.has(preset.key);
+                  return (
+                    <SelectItem key={preset.key} value={preset.key} disabled={isBlocked}>
+                      <div className="flex flex-col">
+                        <span className="font-medium">{preset.label}</span>
+                        <span className="text-xs text-muted-foreground">{preset.description}</span>
+                        {isBlocked ? (
+                          <span className="text-xs text-destructive">Trop lourd pour ce poste (test)</span>
+                        ) : null}
+                      </div>
+                    </SelectItem>
+                  );
+                })}
                 <SelectItem value="custom">
                   <div className="flex flex-col">
                     <span className="font-medium">Custom</span>

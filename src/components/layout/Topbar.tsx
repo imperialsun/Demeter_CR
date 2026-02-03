@@ -1,8 +1,9 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { useAsrStore, MODEL_PRESETS } from "@/store/asr-store";
 import { cn } from "@/lib/utils";
-import { ActivitySquare, Cog, LogOut, RotateCw } from "lucide-react";
+import { ActivitySquare, Cog, Loader2, LogOut, RotateCw } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "@/components/ui/use-toast";
 import { useState } from "react";
@@ -11,6 +12,7 @@ import { useTranscriptionController } from "@/hooks/useTranscriptionController";
 import { initializeBackendSupport, resetWebGpuSupportCache } from "@/lib/backend-support";
 import { exportLogEntries } from "@/lib/logger";
 import { setAuthenticated } from "@/lib/auth";
+import { useModelCompatibilityTest, type ModelTestStatus } from "@/hooks/useModelCompatibilityTest";
 
 const STATUS_LABELS: Record<string, string> = {
   idle: "Inactif",
@@ -20,6 +22,16 @@ const STATUS_LABELS: Record<string, string> = {
   transcribing: "Transcription en cours",
   stopping: "Arrêt en cours…",
   error: "Erreur",
+};
+
+const MODEL_TEST_STATUS_META: Record<ModelTestStatus, { label: string; variant: "default" | "secondary" | "destructive" | "success" | "warning" }> = {
+  pending: { label: "En attente", variant: "secondary" },
+  testing: { label: "En cours", variant: "warning" },
+  ok: { label: "OK", variant: "success" },
+  too_large: { label: "Trop gros", variant: "destructive" },
+  error: { label: "Erreur", variant: "destructive" },
+  skipped: { label: "Non teste", variant: "secondary" },
+  unavailable: { label: "Non disponible", variant: "warning" },
 };
 
 export function Topbar() {
@@ -50,8 +62,17 @@ export function Topbar() {
   const backendBadgeVariant: "success" | "warning" = backendDisplay === "webgpu" ? "success" : "warning";
   const backendBadgeLabel = backendDisplay === "webgpu" ? "WebGPU" : "WASM";
   const showPreferenceBadge = activeBackend && activeBackend !== backendPreference;
+  const { state: modelTestState, runTest, stopTest, closeSummary, summary } = useModelCompatibilityTest();
+  const currentModelLabel = modelTestState.currentPreset ? MODEL_PRESETS[modelTestState.currentPreset].label : null;
+  const currentBackendLabel = modelTestState.currentBackend ? modelTestState.currentBackend.toUpperCase() : null;
+  const progressPercent =
+    typeof modelTestState.progress === "number"
+      ? Math.round(Math.max(0, Math.min(1, modelTestState.progress)) * 100)
+      : 0;
+  const backendKeys = ["webgpu", "wasm"] as const;
 
   return (
+    <>
     <header className="flex min-h-16 items-center justify-between border-b px-4 py-3">
       <div className="space-y-1">
         <p className="text-sm font-medium text-muted-foreground">Backend</p>
@@ -146,6 +167,18 @@ export function Topbar() {
             variant="outline"
             size="sm"
             className="gap-2"
+            onClick={() => runTest()}
+            disabled={modelTestState.running}
+          >
+            {modelTestState.running ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : null}
+            Tester les modèles
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
             onClick={() => {
               setAuthenticated(false);
               toast("Déconnecté.");
@@ -207,5 +240,117 @@ export function Topbar() {
         </>
       </div>
     </header>
+      {modelTestState.running || modelTestState.summaryOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm">
+          <div className="absolute inset-0 opacity-30">
+            <div className="absolute left-0 top-0 h-full w-full animate-pulse bg-gradient-to-br from-emerald-500/20 via-sky-500/10 to-amber-400/20" />
+          </div>
+          <div className="relative mx-4 w-full max-w-4xl rounded-xl border bg-card/95 p-6 shadow-xl">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full border bg-muted/60">
+                  {modelTestState.running ? (
+                    <Loader2 className="h-6 w-6 animate-spin" />
+                  ) : (
+                    <Loader2 className="h-6 w-6" />
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold">
+                    {modelTestState.running ? "Test de compatibilité des modèles" : "Récapitulatif du test"}
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    {currentModelLabel
+                      ? `Etape ${modelTestState.step}/${modelTestState.total} — ${currentModelLabel}${currentBackendLabel ? ` (${currentBackendLabel})` : ""}`
+                      : modelTestState.running
+                        ? "Initialisation du test"
+                        : "Test terminé — veuillez valider pour fermer"}
+                  </p>
+                  {modelTestState.progressLabel ? (
+                    <p className="text-xs text-muted-foreground">{modelTestState.progressLabel}</p>
+                  ) : null}
+                  {!modelTestState.running ? (
+                    <p className="text-xs text-muted-foreground">
+                      OK: {summary.ok} • Bloqués: {summary.blockedCount} • Erreurs: {summary.errors}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+              <div className="flex flex-col items-end text-right text-xs text-muted-foreground">
+                <span>Progression globale</span>
+                <span className="text-lg font-semibold text-foreground">{progressPercent}%</span>
+                {modelTestState.running ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    onClick={stopTest}
+                    disabled={modelTestState.stopRequested}
+                  >
+                    {modelTestState.stopRequested ? "Arrêt demandé" : "Stopper le test"}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-2"
+                    onClick={closeSummary}
+                  >
+                    Valider et fermer
+                  </Button>
+                )}
+              </div>
+            </div>
+            <div className="mt-4">
+              <Progress value={progressPercent} className="h-2" />
+            </div>
+            <div className="mt-4 grid gap-2 md:grid-cols-2">
+              {modelTestState.results.map((result) => (
+                <div
+                  key={result.preset}
+                  className="flex items-center justify-between gap-3 rounded-lg border bg-background/70 px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">{result.label}</p>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {backendKeys.map((backend, index) => {
+                        const entry = result.backends[backend];
+                        const meta = MODEL_TEST_STATUS_META[entry.status];
+                        const detailParts = [
+                          meta.label,
+                          typeof entry.durationMs === "number" ? `${(entry.durationMs / 1000).toFixed(1)}s` : null,
+                          entry.message ?? null,
+                        ]
+                          .filter(Boolean)
+                          .join(" • ");
+                        return (
+                          <span key={backend} className={index === 0 ? "mr-2" : ""}>
+                            {backend.toUpperCase()}: {detailParts}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {backendKeys.map((backend) => {
+                      const entry = result.backends[backend];
+                      const meta = MODEL_TEST_STATUS_META[entry.status];
+                      return (
+                        <Badge key={backend} variant={meta.variant} className="uppercase text-[10px]">
+                          {backend}:{meta.label}
+                        </Badge>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="mt-4 text-xs text-muted-foreground">
+              Le test charge chaque modèle et lance une mini transcription. Les modèles trop lourds sont bloqués dans le menu.
+            </p>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
