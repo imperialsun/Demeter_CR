@@ -45,6 +45,8 @@ describe('Topbar', () => {
       activeBackend: undefined,
       status: 'idle',
       statusDetail: undefined,
+      cloudStatus: 'idle',
+      cloudStatusDetail: undefined,
       wasmThreads: 1,
       preprocessingMode: 'fast',
       debugConfidence: false,
@@ -115,6 +117,17 @@ describe('Topbar', () => {
     expect(writeText).toHaveBeenCalled();
     const payload = JSON.parse(writeText.mock.calls[0]![0] as string) as { logs?: unknown[] };
     expect(payload.logs).toEqual(logger.exportLogEntries());
+  });
+
+  it('hides backend info and shows cloud status badges on /cloudupload', () => {
+    vi.spyOn(rr, 'useLocation').mockReturnValue({ pathname: '/cloudupload', search: '', state: null, hash: '', key: '' } as any);
+    useAsrStore.setState({ cloudStatus: 'transcribing', cloudStatusDetail: 'Envoi cloud' } as any);
+
+    render(<Topbar />);
+
+    expect(screen.queryByText('Backend')).toBeNull();
+    expect(screen.getAllByText('Cloud').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Transcription').length).toBeGreaterThan(0);
   });
 
   it('hides debug controls in production', () => {

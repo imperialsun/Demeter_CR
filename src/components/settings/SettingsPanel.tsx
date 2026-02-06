@@ -26,6 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { useTheme, type Theme } from "@/components/theme-context";
 import { computeDefaultOverlap } from "@/lib/chunking";
 import { cn } from "@/lib/utils";
@@ -231,6 +232,116 @@ export function SettingsPanel({
     wasmThreads: state.wasmThreads,
     setForceSingleThread: state.setForceSingleThread,
     setWasmThreads: state.setWasmThreads,
+    }))
+  );
+
+  const {
+    cloudApiUrl,
+    cloudMaxTokens,
+    cloudTemperature,
+    cloudTopP,
+    cloudDoSample,
+    cloudContextPreset,
+    cloudShowSegments,
+    cloudShowExportVtt,
+    cloudShowExportSrt,
+    cloudShowExportJson,
+    cloudShowExportTelemetry,
+    cloudPreprocessingMode,
+    cloudDenoiseNoiseFloorDb,
+    cloudDenoiseReductionDb,
+    cloudDenoiseSmoothing,
+    cloudDenoiseCalibrationSeconds,
+    cloudPreprocessEnableFilters,
+    cloudPreprocessHighpassHz,
+    cloudPreprocessLowpassHz,
+    cloudPreprocessEnableLufs,
+    cloudPreprocessTargetLufs,
+    cloudPreprocessLimiterEnabled,
+    cloudPreprocessLimiterThresholdDb,
+    cloudPreprocessLimiterSoftness,
+    cloudPreprocessVadEnabled,
+    cloudPreprocessVadThresholdDb,
+    cloudPreprocessVadMinSilenceMs,
+    cloudPreprocessOverlapAdd,
+    cloudPreprocessOverlapBlockSec,
+    cloudPreprocessOverlapSec,
+    cloudAutoTunePreprocess,
+    cloudEnableWordTimestamps,
+    cloudShowSegmentConfidence,
+    cloudHfToken,
+    setCloudApiUrl,
+    setCloudHfToken,
+    setCloudMaxTokens,
+    setCloudTemperature,
+    setCloudTopP,
+    setCloudDoSample,
+    setCloudContextPreset,
+    setCloudShowSegments,
+    setCloudShowExportVtt,
+    setCloudShowExportSrt,
+    setCloudShowExportJson,
+    setCloudShowExportTelemetry,
+    setCloudPreprocessingMode,
+    setCloudDenoiseParams,
+    setCloudPreprocessParams,
+    setCloudAutoTunePreprocess,
+    setCloudEnableWordTimestamps,
+    setCloudShowSegmentConfidence,
+  } = useAsrStore(
+    useShallow((state) => ({
+      cloudApiUrl: state.cloudApiUrl,
+      cloudMaxTokens: state.cloudMaxTokens,
+      cloudTemperature: state.cloudTemperature,
+      cloudTopP: state.cloudTopP,
+      cloudDoSample: state.cloudDoSample,
+      cloudContextPreset: state.cloudContextPreset,
+      cloudShowSegments: state.cloudShowSegments,
+      cloudShowExportVtt: state.cloudShowExportVtt,
+      cloudShowExportSrt: state.cloudShowExportSrt,
+      cloudShowExportJson: state.cloudShowExportJson,
+      cloudShowExportTelemetry: state.cloudShowExportTelemetry,
+      cloudPreprocessingMode: state.cloudPreprocessingMode,
+      cloudDenoiseNoiseFloorDb: state.cloudDenoiseNoiseFloorDb,
+      cloudDenoiseReductionDb: state.cloudDenoiseReductionDb,
+      cloudDenoiseSmoothing: state.cloudDenoiseSmoothing,
+      cloudDenoiseCalibrationSeconds: state.cloudDenoiseCalibrationSeconds,
+      cloudPreprocessEnableFilters: state.cloudPreprocessEnableFilters,
+      cloudPreprocessHighpassHz: state.cloudPreprocessHighpassHz,
+      cloudPreprocessLowpassHz: state.cloudPreprocessLowpassHz,
+      cloudPreprocessEnableLufs: state.cloudPreprocessEnableLufs,
+      cloudPreprocessTargetLufs: state.cloudPreprocessTargetLufs,
+      cloudPreprocessLimiterEnabled: state.cloudPreprocessLimiterEnabled,
+      cloudPreprocessLimiterThresholdDb: state.cloudPreprocessLimiterThresholdDb,
+      cloudPreprocessLimiterSoftness: state.cloudPreprocessLimiterSoftness,
+      cloudPreprocessVadEnabled: state.cloudPreprocessVadEnabled,
+      cloudPreprocessVadThresholdDb: state.cloudPreprocessVadThresholdDb,
+      cloudPreprocessVadMinSilenceMs: state.cloudPreprocessVadMinSilenceMs,
+      cloudPreprocessOverlapAdd: state.cloudPreprocessOverlapAdd,
+      cloudPreprocessOverlapBlockSec: state.cloudPreprocessOverlapBlockSec,
+      cloudPreprocessOverlapSec: state.cloudPreprocessOverlapSec,
+      cloudAutoTunePreprocess: state.cloudAutoTunePreprocess,
+      cloudEnableWordTimestamps: state.cloudEnableWordTimestamps,
+      cloudShowSegmentConfidence: state.cloudShowSegmentConfidence,
+      cloudHfToken: state.cloudHfToken,
+      setCloudApiUrl: state.setCloudApiUrl,
+      setCloudHfToken: state.setCloudHfToken,
+      setCloudMaxTokens: state.setCloudMaxTokens,
+      setCloudTemperature: state.setCloudTemperature,
+      setCloudTopP: state.setCloudTopP,
+      setCloudDoSample: state.setCloudDoSample,
+      setCloudContextPreset: state.setCloudContextPreset,
+      setCloudShowSegments: state.setCloudShowSegments,
+      setCloudShowExportVtt: state.setCloudShowExportVtt,
+      setCloudShowExportSrt: state.setCloudShowExportSrt,
+      setCloudShowExportJson: state.setCloudShowExportJson,
+      setCloudShowExportTelemetry: state.setCloudShowExportTelemetry,
+      setCloudPreprocessingMode: state.setCloudPreprocessingMode,
+      setCloudDenoiseParams: state.setCloudDenoiseParams,
+      setCloudPreprocessParams: state.setCloudPreprocessParams,
+      setCloudAutoTunePreprocess: state.setCloudAutoTunePreprocess,
+      setCloudEnableWordTimestamps: state.setCloudEnableWordTimestamps,
+      setCloudShowSegmentConfidence: state.setCloudShowSegmentConfidence,
     }))
   );
 
@@ -2276,11 +2387,429 @@ export function SettingsPanel({
           <div className="grid gap-4 lg:grid-cols-2">
             <Card className="lg:col-span-2">
               <CardHeader>
-                <CardTitle>Transcription cloud</CardTitle>
-                <CardDescription>Parametres cloud a venir.</CardDescription>
+                <CardTitle>Connexion cloud</CardTitle>
+                <CardDescription>Paramètres de connexion et options d'inférence.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="cloud-api-url">URL Gradio</Label>
+                  <Input
+                    id="cloud-api-url"
+                    value={cloudApiUrl}
+                    onChange={(event) => setCloudApiUrl(event.target.value)}
+                    placeholder="https://....gradio.live/"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cloud-hf-token">Token Hugging Face (Whisper)</Label>
+                  <Input
+                    id="cloud-hf-token"
+                    type="password"
+                    value={cloudHfToken}
+                    onChange={(event) => setCloudHfToken(event.target.value)}
+                    placeholder="hf_..."
+                    autoComplete="off"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Stocké localement pour l&apos;inférence Whisper.
+                  </p>
+                </div>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <NumberField
+                    id="cloud-max-tokens"
+                    label="Max tokens"
+                    min={256}
+                    max={65536}
+                    step={256}
+                    value={cloudMaxTokens}
+                    onChange={(value) => setCloudMaxTokens(value)}
+                  />
+                  <NumberField
+                    id="cloud-temperature"
+                    label="Temperature"
+                    min={0}
+                    max={2}
+                    step={0.1}
+                    value={cloudTemperature}
+                    onChange={(value) => setCloudTemperature(value)}
+                  />
+                  <NumberField
+                    id="cloud-top-p"
+                    label="Top-p"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={cloudTopP}
+                    onChange={(value) => setCloudTopP(value)}
+                  />
+                </div>
+                <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">Sampling</p>
+                    <p className="text-xs text-muted-foreground">Active la génération stochastique.</p>
+                  </div>
+                  <Switch
+                    className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                    checked={cloudDoSample}
+                    onCheckedChange={(value) => setCloudDoSample(value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cloud-context-preset">Contexte par défaut (pré-remplissage)</Label>
+                  <Textarea
+                    id="cloud-context-preset"
+                    rows={4}
+                    value={cloudContextPreset}
+                    onChange={(event) => setCloudContextPreset(event.target.value)}
+                    placeholder="Noms propres, jargon, acronymes..."
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Ce texte sera ajouté automatiquement au contexte saisi sur la page cloud.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle>Pré-traitement cloud</CardTitle>
+                <CardDescription>
+                  Réglages du pré-traitement appliqué localement avant l'envoi vers le cloud.
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="text-sm text-muted-foreground">Cette section est vide pour le moment.</p>
+                <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">Mode de pré-traitement</p>
+                    <p className="text-xs text-muted-foreground">"Rapide" conserve l'audio brut, "Complet" applique les filtres.</p>
+                  </div>
+                  <Select value={cloudPreprocessingMode} onValueChange={(v) => setCloudPreprocessingMode(v as "quick" | "full") }>
+                    <SelectTrigger className="w-44">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="quick">Rapide</SelectItem>
+                      <SelectItem value="full">Complet</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {cloudPreprocessingMode === "full" ? (
+                  <div className="mt-4 space-y-4 rounded-md border bg-muted/30 px-3 py-3">
+                    <p className="text-xs text-muted-foreground">
+                      Le mode complet applique un filtrage passe-haut/passe-bas, normalisation loudness, puis débruitage spectral.
+                    </p>
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <SliderField
+                        id="cloud-noise-floor"
+                        label="Noise floor (dB)"
+                        min={-50}
+                        max={-5}
+                        step={1}
+                        value={cloudDenoiseNoiseFloorDb}
+                        onChange={(value) => setCloudDenoiseParams({ denoiseNoiseFloorDb: value })}
+                        help="Décalage du seuil par rapport au profil de bruit."
+                        disabled={cloudAutoTunePreprocess}
+                      />
+                      <SliderField
+                        id="cloud-reduction-db"
+                        label="Réduction (dB)"
+                        min={0}
+                        max={24}
+                        step={1}
+                        value={cloudDenoiseReductionDb}
+                        onChange={(value) => setCloudDenoiseParams({ denoiseReductionDb: value })}
+                        help="Atténuation max dans les bandes bruyantes."
+                        disabled={cloudAutoTunePreprocess}
+                      />
+                      <SliderField
+                        id="cloud-smoothing"
+                        label="Lissage"
+                        min={0}
+                        max={0.99}
+                        step={0.01}
+                        value={cloudDenoiseSmoothing}
+                        onChange={(value) => setCloudDenoiseParams({ denoiseSmoothing: value })}
+                        help="0 = réactif, 0.8 par défaut = transitions douces."
+                        disabled={cloudAutoTunePreprocess}
+                      />
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+                        <div>
+                          <p className="text-sm font-medium">Filtres passe-haut / passe-bas</p>
+                          <p className="text-xs text-muted-foreground">Élimine les basses fréquences et les aigus inutiles.</p>
+                        </div>
+                        <Switch
+                          className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                          checked={cloudPreprocessEnableFilters}
+                          onCheckedChange={(value) => setCloudPreprocessParams({ preprocessEnableFilters: value })}
+                          disabled={cloudAutoTunePreprocess}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+                        <div>
+                          <p className="text-sm font-medium">Normalisation loudness (LUFS)</p>
+                          <p className="text-xs text-muted-foreground">Stabilise la loudness perçue.</p>
+                        </div>
+                        <Switch
+                          className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                          checked={cloudPreprocessEnableLufs}
+                          onCheckedChange={(value) => setCloudPreprocessParams({ preprocessEnableLufs: value })}
+                          disabled={cloudAutoTunePreprocess}
+                        />
+                      </div>
+                      <SliderField
+                        id="cloud-pre-highpass"
+                        label="Passe-haut (Hz)"
+                        min={40}
+                        max={200}
+                        step={5}
+                        value={cloudPreprocessHighpassHz}
+                        onChange={(value) => setCloudPreprocessParams({ preprocessHighpassHz: value })}
+                        help="Coupe les basses fréquences."
+                        disabled={!cloudPreprocessEnableFilters || cloudAutoTunePreprocess}
+                      />
+                      <SliderField
+                        id="cloud-pre-lowpass"
+                        label="Passe-bas (Hz)"
+                        min={4000}
+                        max={12000}
+                        step={250}
+                        value={cloudPreprocessLowpassHz}
+                        onChange={(value) => setCloudPreprocessParams({ preprocessLowpassHz: value })}
+                        help="Coupe les aigus agressifs."
+                        disabled={!cloudPreprocessEnableFilters || cloudAutoTunePreprocess}
+                      />
+                      <SliderField
+                        id="cloud-pre-lufs-target"
+                        label="Cible loudness (LUFS)"
+                        min={-30}
+                        max={-14}
+                        step={0.5}
+                        value={cloudPreprocessTargetLufs}
+                        onChange={(value) => setCloudPreprocessParams({ preprocessTargetLufs: value })}
+                        help="Cible loudness moyenne."
+                        disabled={!cloudPreprocessEnableLufs || cloudAutoTunePreprocess}
+                      />
+                      <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+                        <div>
+                          <p className="text-sm font-medium">Limiteur doux</p>
+                          <p className="text-xs text-muted-foreground">Évite les saturations après normalisation.</p>
+                        </div>
+                        <Switch
+                          className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                          checked={cloudPreprocessLimiterEnabled}
+                          onCheckedChange={(value) => setCloudPreprocessParams({ preprocessLimiterEnabled: value })}
+                          disabled={cloudAutoTunePreprocess}
+                        />
+                      </div>
+                      <SliderField
+                        id="cloud-pre-limiter-threshold"
+                        label="Seuil limiteur (dBFS)"
+                        min={-6}
+                        max={-0.1}
+                        step={0.1}
+                        value={cloudPreprocessLimiterThresholdDb}
+                        onChange={(value) => setCloudPreprocessParams({ preprocessLimiterThresholdDb: value })}
+                        help="Seuil de limitation."
+                        disabled={!cloudPreprocessLimiterEnabled || cloudAutoTunePreprocess}
+                      />
+                      <SliderField
+                        id="cloud-pre-limiter-softness"
+                        label="Douceur limiteur"
+                        min={0.1}
+                        max={1}
+                        step={0.05}
+                        value={cloudPreprocessLimiterSoftness}
+                        onChange={(value) => setCloudPreprocessParams({ preprocessLimiterSoftness: value })}
+                        help="Plus élevé = limitation plus douce."
+                        disabled={!cloudPreprocessLimiterEnabled || cloudAutoTunePreprocess}
+                      />
+                      <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+                        <div>
+                          <p className="text-sm font-medium">Calibration VAD (silence)</p>
+                          <p className="text-xs text-muted-foreground">Calcule le profil de bruit sur zones non parlées.</p>
+                        </div>
+                        <Switch
+                          className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                          checked={cloudPreprocessVadEnabled}
+                          onCheckedChange={(value) => setCloudPreprocessParams({ preprocessVadEnabled: value })}
+                          disabled={cloudAutoTunePreprocess}
+                        />
+                      </div>
+                      <SliderField
+                        id="cloud-pre-vad-threshold"
+                        label="Seuil VAD (dB)"
+                        min={-60}
+                        max={-30}
+                        step={1}
+                        value={cloudPreprocessVadThresholdDb}
+                        onChange={(value) => setCloudPreprocessParams({ preprocessVadThresholdDb: value })}
+                        help="Seuil d'énergie pour détecter la parole."
+                        disabled={!cloudPreprocessVadEnabled || cloudAutoTunePreprocess}
+                      />
+                      <SliderField
+                        id="cloud-pre-vad-min-silence"
+                        label="Silence min (ms)"
+                        min={50}
+                        max={1000}
+                        step={50}
+                        value={cloudPreprocessVadMinSilenceMs}
+                        onChange={(value) => setCloudPreprocessParams({ preprocessVadMinSilenceMs: value })}
+                        help="Durée minimale d'un silence pour la calibration."
+                        disabled={!cloudPreprocessVadEnabled || cloudAutoTunePreprocess}
+                      />
+                      <div className="flex items-center justify-between rounded-md border bg-background px-3 py-2">
+                        <div>
+                          <p className="text-sm font-medium">Lissage overlap-add</p>
+                          <p className="text-xs text-muted-foreground">Réduit les artefacts aux frontières.</p>
+                        </div>
+                        <Switch
+                          className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                          checked={cloudPreprocessOverlapAdd}
+                          onCheckedChange={(value) => setCloudPreprocessParams({ preprocessOverlapAdd: value })}
+                          disabled={cloudAutoTunePreprocess}
+                        />
+                      </div>
+                      <SliderField
+                        id="cloud-pre-overlap-block"
+                        label="Fenêtre overlap (s)"
+                        min={0.5}
+                        max={3}
+                        step={0.1}
+                        value={cloudPreprocessOverlapBlockSec}
+                        onChange={(value) => setCloudPreprocessParams({ preprocessOverlapBlockSec: value })}
+                        help="Durée de fenêtre pour le lissage."
+                        disabled={!cloudPreprocessOverlapAdd || cloudAutoTunePreprocess}
+                      />
+                      <SliderField
+                        id="cloud-pre-overlap-sec"
+                        label="Recouvrement (s)"
+                        min={0.05}
+                        max={0.8}
+                        step={0.05}
+                        value={cloudPreprocessOverlapSec}
+                        onChange={(value) => setCloudPreprocessParams({ preprocessOverlapSec: value })}
+                        help="Recouvrement entre fenêtres."
+                        disabled={!cloudPreprocessOverlapAdd || cloudAutoTunePreprocess}
+                      />
+                    </div>
+
+                    <div className="mt-3">
+                      <SliderField
+                        id="cloud-calibration-seconds"
+                        label="Durée calibration (s)"
+                        min={0.25}
+                        max={5}
+                        step={0.25}
+                        value={cloudDenoiseCalibrationSeconds}
+                        onChange={(value) => setCloudDenoiseParams({ denoiseCalibrationSeconds: value })}
+                        help="Durée utilisée pour estimer le profil de bruit."
+                      />
+                      <div className="mt-3 flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium">Autotune prétraitement (cloud)</p>
+                          <p className="text-xs text-muted-foreground">
+                            Ajuste automatiquement les paramètres de prétraitement à partir du fichier.
+                          </p>
+                        </div>
+                        <div>
+                          <Switch
+                            aria-label="Autotune prétraitement (cloud)"
+                            className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                            checked={cloudAutoTunePreprocess}
+                            onCheckedChange={(v) => setCloudAutoTunePreprocess(v)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle>Segments cloud</CardTitle>
+                <CardDescription>Contrôlez l'affichage des résultats sur /cloudupload.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-2">
+                <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">Afficher le tableau des segments</p>
+                    <p className="text-xs text-muted-foreground">Masque le tableau sur /cloudupload.</p>
+                  </div>
+                  <Switch
+                    className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                    checked={cloudShowSegments}
+                    onCheckedChange={(checked) => setCloudShowSegments(checked)}
+                  />
+                </div>
+                <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">Indice de confiance</p>
+                    <p className="text-xs text-muted-foreground">Affiche la colonne de confiance si disponible.</p>
+                  </div>
+                  <Switch
+                    className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                    checked={cloudShowSegmentConfidence}
+                    onCheckedChange={(checked) => setCloudShowSegmentConfidence(checked)}
+                  />
+                </div>
+                <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">Timestamps mots</p>
+                    <p className="text-xs text-muted-foreground">Affiche les timestamps mots si fournis.</p>
+                  </div>
+                  <Switch
+                    className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                    checked={cloudEnableWordTimestamps}
+                    onCheckedChange={(checked) => setCloudEnableWordTimestamps(checked)}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle>Exports cloud</CardTitle>
+                <CardDescription>
+                  Contrôlez quels boutons d'export apparaissent sur la page Transcription cloud.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-2">
+                <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">VTT</p>
+                    <p className="text-xs text-muted-foreground">Affiche le bouton d'export VTT.</p>
+                  </div>
+                  <Switch className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500" checked={cloudShowExportVtt} onCheckedChange={(v) => setCloudShowExportVtt(v)} />
+                </div>
+
+                <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">SRT</p>
+                    <p className="text-xs text-muted-foreground">Affiche le bouton d'export SRT.</p>
+                  </div>
+                  <Switch className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500" checked={cloudShowExportSrt} onCheckedChange={(v) => setCloudShowExportSrt(v)} />
+                </div>
+
+                <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">JSON segments</p>
+                    <p className="text-xs text-muted-foreground">Affiche le bouton d'export JSON (segments).</p>
+                  </div>
+                  <Switch className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500" checked={cloudShowExportJson} onCheckedChange={(v) => setCloudShowExportJson(v)} />
+                </div>
+
+                <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">Telemetry</p>
+                    <p className="text-xs text-muted-foreground">Affiche le bouton d'export telemetry.json.</p>
+                  </div>
+                  <Switch className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500" checked={cloudShowExportTelemetry} onCheckedChange={(v) => setCloudShowExportTelemetry(v)} />
+                </div>
               </CardContent>
             </Card>
           </div>

@@ -155,4 +155,36 @@ describe('SettingsPanel', () => {
 
     expect(screen.getByText('Cloud')).toBeTruthy();
   });
+
+  it("updates cloud api url from settings", async () => {
+    render(
+      <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">
+        <SettingsPanel />
+      </ThemeProvider>
+    );
+
+    const cloudTab = screen.getByText("Cloud");
+    await userEvent.click(cloudTab);
+
+    const input = screen.getByLabelText("URL Gradio", { selector: "input#cloud-api-url" });
+    fireEvent.change(input, { target: { value: "https://example.com/" } });
+
+    expect(useAsrStore.getState().cloudApiUrl).toBe("https://example.com/");
+  });
+
+  it("updates cloud hf token from settings", async () => {
+    render(
+      <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">
+        <SettingsPanel />
+      </ThemeProvider>
+    );
+
+    const cloudTab = screen.getByText("Cloud");
+    await userEvent.click(cloudTab);
+
+    const input = screen.getByLabelText("Token Hugging Face (Whisper)", { selector: "input#cloud-hf-token" });
+    fireEvent.change(input, { target: { value: "hf_test_token" } });
+
+    expect(useAsrStore.getState().cloudHfToken).toBe("hf_test_token");
+  });
 });

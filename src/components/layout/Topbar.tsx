@@ -1,9 +1,9 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { useAsrStore, MODEL_PRESETS } from "@/store/asr-store";
+import { useAsrStore, MODEL_PRESETS, type CloudTranscriptionStatus } from "@/store/asr-store";
 import { cn } from "@/lib/utils";
-import { ActivitySquare, Cog, Loader2, LogOut, RotateCw } from "lucide-react";
+import { ActivitySquare, Cloud, Cog, Loader2, LogOut, RotateCw } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "@/components/ui/use-toast";
 import { useEffect, useState } from "react";
@@ -25,6 +25,16 @@ const STATUS_LABELS: Record<string, string> = {
   error: "Erreur",
 };
 
+const CLOUD_STATUS_META: Record<CloudTranscriptionStatus, { label: string; variant: "default" | "secondary" | "destructive" | "success" | "warning" }> = {
+  idle: { label: "En attente", variant: "secondary" },
+  preprocessing: { label: "Prétraitement", variant: "warning" },
+  uploading: { label: "Envoi cloud", variant: "warning" },
+  transcribing: { label: "Transcription", variant: "default" },
+  stopping: { label: "Arrêt", variant: "secondary" },
+  done: { label: "Terminé", variant: "success" },
+  error: { label: "Erreur", variant: "destructive" },
+};
+
 const MODEL_TEST_STATUS_META: Record<ModelTestStatus, { label: string; variant: "default" | "secondary" | "destructive" | "success" | "warning" }> = {
   pending: { label: "En attente", variant: "secondary" },
   testing: { label: "En cours", variant: "warning" },
@@ -44,11 +54,12 @@ export function Topbar() {
     activeBackend,
     status,
     statusDetail,
+    cloudStatus,
+    cloudStatusDetail,
     wasmThreads,
     preprocessingMode,
     telemetryCollector,
-  } =
-    useAsrStore();
+  } = useAsrStore();
 
   const { abortTranscription } = useTranscriptionController();
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -74,6 +85,10 @@ export function Topbar() {
   const backendKeys = ["webgpu", "wasm"] as const;
   const showDebugActions = !isProdEnv();
   const envMode = getEnvMode();
+  const isCloudRoute = location.pathname === "/cloudupload";
+  const cloudStatusMeta = CLOUD_STATUS_META[cloudStatus];
+  const statusLabel = isCloudRoute ? cloudStatusMeta.label : STATUS_LABELS[status] ?? status;
+  const statusDetailLabel = isCloudRoute ? cloudStatusDetail : statusDetail;
 
   useEffect(() => {
     console.info("Topbar debug controls visibility", { showDebugActions, mode: envMode });
@@ -86,38 +101,50 @@ export function Topbar() {
   return (
     <>
     <header className="flex min-h-16 items-center justify-between border-b px-4 py-3">
-      <div className="space-y-1">
-        <p className="text-sm font-medium text-muted-foreground">Backend</p>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={backendBadgeVariant}>
-            {backendBadgeLabel}
-          </Badge>
-          {showPreferenceBadge ? (
-            <Badge variant="outline" className="capitalize">
-              {`Préférence : ${backendPreference}`}
+      {isCloudRoute ? (
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-muted-foreground">Cloud</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={cloudStatusMeta.variant}>{cloudStatusMeta.label}</Badge>
+            <Badge variant="outline" className="gap-1">
+              <Cloud className="h-3 w-3" /> Cloud
             </Badge>
-          ) : null}
-          {/* Multithread indicator for WASM */}
-          {backendDisplay === "wasm" ? (
-            <Badge variant={wasmThreads && wasmThreads > 1 ? 'success' : 'warning'}>
-              {wasmThreads && wasmThreads > 1 ? `multithread (${wasmThreads})` : 'single-thread'}
-            </Badge>
-          ) : null}
-          {/* Preprocessing mode badge */}
-          <Badge variant={preprocessingMode === 'full' ? 'success' : 'warning'} className="capitalize">
-            {preprocessingMode === 'full' ? 'Complet' : 'Rapide'}
-          </Badge>
-          <Badge variant="secondary">{presetLabel}</Badge>
-          {/* model badge removed per request */}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-muted-foreground">Backend</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={backendBadgeVariant}>
+              {backendBadgeLabel}
+            </Badge>
+            {showPreferenceBadge ? (
+              <Badge variant="outline" className="capitalize">
+                {`Préférence : ${backendPreference}`}
+              </Badge>
+            ) : null}
+            {/* Multithread indicator for WASM */}
+            {backendDisplay === "wasm" ? (
+              <Badge variant={wasmThreads && wasmThreads > 1 ? 'success' : 'warning'}>
+                {wasmThreads && wasmThreads > 1 ? `multithread (${wasmThreads})` : 'single-thread'}
+              </Badge>
+            ) : null}
+            {/* Preprocessing mode badge */}
+            <Badge variant={preprocessingMode === 'full' ? 'success' : 'warning'} className="capitalize">
+              {preprocessingMode === 'full' ? 'Complet' : 'Rapide'}
+            </Badge>
+            <Badge variant="secondary">{presetLabel}</Badge>
+            {/* model badge removed per request */}
+          </div>
+        </div>
+      )}
       <div className="flex items-center gap-3">
         <div className={cn("flex flex-col text-right")}> 
           <span className="text-sm font-medium leading-tight">
-            {STATUS_LABELS[status] ?? status}
+            {statusLabel}
           </span>
-          {statusDetail ? (
-            <span className="text-xs text-muted-foreground">{statusDetail}</span>
+          {statusDetailLabel ? (
+            <span className="text-xs text-muted-foreground">{statusDetailLabel}</span>
           ) : null}
         </div>
         <Button

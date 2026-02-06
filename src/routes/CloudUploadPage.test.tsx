@@ -1,11 +1,22 @@
 import { describe, it, expect } from "vitest";
 import { renderWithStore } from "@/test/utils";
+import { screen } from "@testing-library/react";
 import CloudUploadPage from "./CloudUploadPage";
 
 describe("CloudUploadPage", () => {
-  it("renders the cloud upload placeholder", () => {
-    renderWithStore(<CloudUploadPage />);
-    expect(document.body.textContent).toContain("Transcription cloud");
-    expect(document.body.textContent).toContain("Contenu a venir");
+  it("renders the cloud upload UI", () => {
+    renderWithStore(<CloudUploadPage />, {
+      cloudApiUrl: "https://cloud.example",
+      cloudMaxTokens: 2048,
+      cloudTemperature: 0.4,
+      cloudTopP: 0.8,
+      cloudDoSample: true,
+    });
+    expect(screen.getByText("Transcription cloud")).toBeTruthy();
+    expect(screen.getByText("Provider")).toBeTruthy();
+    expect(screen.getByText("Gradio")).toBeTruthy();
+    expect(screen.getByText(/Afficher le contexte/i)).toBeTruthy();
+    expect(screen.getByText("Importer un fichier audio")).toBeTruthy();
+    expect(screen.getByText("Lancer la transcription")).toBeTruthy();
   });
 });

@@ -12,12 +12,15 @@ interface AudioUploaderProps {
   onFileSelected: (file: File) => void;
   metadata?: AudioMetadata | null;
   disabled?: boolean;
+  title?: string;
+  description?: string;
+  formatsHint?: string;
 }
 
 const WARNING_DURATION_SEC = 3600;
 const HARD_WARNING_DURATION_SEC = 7200;
 
-export function AudioUploader({ onFileSelected, metadata, disabled }: AudioUploaderProps) {
+export function AudioUploader({ onFileSelected, metadata, disabled, title, description, formatsHint }: AudioUploaderProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -112,9 +115,9 @@ export function AudioUploader({ onFileSelected, metadata, disabled }: AudioUploa
   return (
     <Card className="overflow-hidden">
       <CardHeader>
-        <CardTitle>Importer un fichier audio</CardTitle>
+        <CardTitle>{title ?? "Importer un fichier audio"}</CardTitle>
         <CardDescription>
-          Glissez-déposez un fichier MP3, WAV ou M4A. Tout est traité localement dans Chrome.
+          {description ?? "Glissez-déposez un fichier MP3, WAV ou M4A. Tout est traité localement dans Chrome."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -138,7 +141,9 @@ export function AudioUploader({ onFileSelected, metadata, disabled }: AudioUploa
           <p className="text-sm text-muted-foreground">
             Déposez votre fichier ici ou <span className="text-primary">cliquez</span> pour parcourir.
           </p>
-          <p className="text-xs text-muted-foreground/80">Formats supportés : mp3, wav, m4a, ogg, webm.</p>
+          <p className="text-xs text-muted-foreground/80">
+            {formatsHint ?? "Formats supportés : mp3, wav, m4a, ogg, webm."}
+          </p>
           {/* keep the input in the DOM (not display:none) so programmatic click reliably opens the file picker across browsers */}
           <Input
             ref={inputRef}

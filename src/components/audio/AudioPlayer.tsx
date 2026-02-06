@@ -4,15 +4,17 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAsrStore } from "@/store/asr-store";
 import type { AudioMetadata } from "@/lib/audio";
+import type { TranscriptionSegment } from "@/lib/export";
 import { Play, Pause, SkipBack, SkipForward, Repeat, Volume2, ChevronLeft, ChevronRight } from "lucide-react";
 
 interface AudioPlayerProps {
   file?: File | null;
   metadata?: AudioMetadata | null;
   previewUrl?: string | null;
+  segments?: TranscriptionSegment[];
 }
 
-export function AudioPlayer({ file, metadata, previewUrl }: AudioPlayerProps) {
+export function AudioPlayer({ file, metadata, previewUrl, segments: segmentsProp }: AudioPlayerProps) {
   const objectUrl = useMemo(() => {
     if (!file || previewUrl) return undefined;
     return URL.createObjectURL(file);
@@ -27,7 +29,8 @@ export function AudioPlayer({ file, metadata, previewUrl }: AudioPlayerProps) {
   const [loop, setLoop] = useState(false);
   const [isSeeking, setIsSeeking] = useState(false);
 
-  const segments = useAsrStore((s) => s.segments);
+  const storeSegments = useAsrStore((s) => s.segments);
+  const segments = segmentsProp ?? storeSegments;
 
   useEffect(() => {
     return () => {

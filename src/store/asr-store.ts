@@ -21,6 +21,15 @@ export type PipelineStatus =
   | "stopping"
   | "error";
 
+export type CloudTranscriptionStatus =
+  | "idle"
+  | "preprocessing"
+  | "uploading"
+  | "transcribing"
+  | "stopping"
+  | "done"
+  | "error";
+
 export interface ModelPreset {
   key: PresetKey;
   label: string;
@@ -87,6 +96,25 @@ const resolveBackendPreference = (
   return fallback;
 };
 
+export const normalizeCloudApiUrl = (value: string | undefined, fallback: string) => {
+  if (!value) return fallback;
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  const withoutTrailingSlash = trimmed.replace(/\/+$/, "");
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.pathname.startsWith("/gradio_api")) {
+      return parsed.origin;
+    }
+    if (parsed.pathname === "/gradio" || parsed.pathname.startsWith("/gradio/")) {
+      return `${parsed.origin}/gradio`;
+    }
+  } catch {
+    // Ignore invalid URLs and fall back to trimmed value.
+  }
+  return withoutTrailingSlash;
+};
+
 type SessionSource = {
   id: string;
   label: string;
@@ -103,6 +131,8 @@ interface AsrConfigState {
   wasmAvailable: boolean;
   status: PipelineStatus;
   statusDetail?: string;
+  cloudStatus: CloudTranscriptionStatus;
+  cloudStatusDetail?: string;
   activeBackend?: BackendImplementation;
   memoryMode: "full" | "progressive";
   chunkStrategy: "sequential" | "overlap" | "silence";
@@ -181,6 +211,41 @@ interface AsrConfigState {
   micEnableWordTimestamps: boolean;
   micShowSegmentConfidence: boolean;
   micForceSingleThread: boolean;
+  // Cloud-specific settings
+  cloudApiUrl: string;
+  cloudHfToken: string;
+  cloudMaxTokens: number;
+  cloudTemperature: number;
+  cloudTopP: number;
+  cloudDoSample: boolean;
+  cloudContextPreset: string;
+  cloudShowSegments: boolean;
+  cloudShowExportVtt: boolean;
+  cloudShowExportSrt: boolean;
+  cloudShowExportJson: boolean;
+  cloudShowExportTelemetry: boolean;
+  cloudPreprocessingMode: "quick" | "full";
+  cloudDenoiseNoiseFloorDb: number;
+  cloudDenoiseReductionDb: number;
+  cloudDenoiseSmoothing: number;
+  cloudDenoiseCalibrationSeconds: number;
+  cloudPreprocessEnableFilters: boolean;
+  cloudPreprocessHighpassHz: number;
+  cloudPreprocessLowpassHz: number;
+  cloudPreprocessEnableLufs: boolean;
+  cloudPreprocessTargetLufs: number;
+  cloudPreprocessLimiterEnabled: boolean;
+  cloudPreprocessLimiterThresholdDb: number;
+  cloudPreprocessLimiterSoftness: number;
+  cloudPreprocessVadEnabled: boolean;
+  cloudPreprocessVadThresholdDb: number;
+  cloudPreprocessVadMinSilenceMs: number;
+  cloudPreprocessOverlapAdd: boolean;
+  cloudPreprocessOverlapBlockSec: number;
+  cloudPreprocessOverlapSec: number;
+  cloudAutoTunePreprocess: boolean;
+  cloudEnableWordTimestamps: boolean;
+  cloudShowSegmentConfidence: boolean;
   noiseCalibrationRequestedAt?: number | null;
   autoTunePreprocess: boolean;
   lastAutoTuneParams?: {
@@ -316,6 +381,45 @@ interface AsrConfigActions {
   setMicEnableWordTimestamps: (value: boolean) => void;
   setMicShowSegmentConfidence: (value: boolean) => void;
   setMicForceSingleThread: (value: boolean) => void;
+  setCloudStatus: (status: CloudTranscriptionStatus, detail?: string) => void;
+  setCloudApiUrl: (value: string) => void;
+  setCloudHfToken: (value: string) => void;
+  setCloudMaxTokens: (value: number) => void;
+  setCloudTemperature: (value: number) => void;
+  setCloudTopP: (value: number) => void;
+  setCloudDoSample: (value: boolean) => void;
+  setCloudContextPreset: (value: string) => void;
+  setCloudShowSegments: (value: boolean) => void;
+  setCloudShowExportVtt: (value: boolean) => void;
+  setCloudShowExportSrt: (value: boolean) => void;
+  setCloudShowExportJson: (value: boolean) => void;
+  setCloudShowExportTelemetry: (value: boolean) => void;
+  setCloudPreprocessingMode: (mode: "quick" | "full") => void;
+  setCloudDenoiseParams: (params: Partial<{
+    denoiseNoiseFloorDb: number;
+    denoiseReductionDb: number;
+    denoiseSmoothing: number;
+    denoiseCalibrationSeconds: number;
+  }>) => void;
+  setCloudPreprocessParams: (params: Partial<{
+    preprocessEnableFilters: boolean;
+    preprocessHighpassHz: number;
+    preprocessLowpassHz: number;
+    preprocessEnableLufs: boolean;
+    preprocessTargetLufs: number;
+    preprocessLimiterEnabled: boolean;
+    preprocessLimiterThresholdDb: number;
+    preprocessLimiterSoftness: number;
+    preprocessVadEnabled: boolean;
+    preprocessVadThresholdDb: number;
+    preprocessVadMinSilenceMs: number;
+    preprocessOverlapAdd: boolean;
+    preprocessOverlapBlockSec: number;
+    preprocessOverlapSec: number;
+  }>) => void;
+  setCloudAutoTunePreprocess: (value: boolean) => void;
+  setCloudEnableWordTimestamps: (value: boolean) => void;
+  setCloudShowSegmentConfidence: (value: boolean) => void;
   setAutoTunePreprocess: (value: boolean) => void;
   setLastAutoTuneParams: (params: {
     noiseFloorDb: number;
@@ -373,6 +477,8 @@ const initialState: AsrConfigState = {
   wasmAvailable: true,
   status: "idle",
   statusDetail: undefined,
+  cloudStatus: "idle",
+  cloudStatusDetail: undefined,
   activeBackend: undefined,
   memoryMode: "full",
   chunkStrategy: "overlap",
@@ -449,6 +555,40 @@ const initialState: AsrConfigState = {
   micEnableWordTimestamps: false,
   micShowSegmentConfidence: false,
   micForceSingleThread: false,
+  cloudApiUrl: "https://transcode.demeter-sante.fr/gradio",
+  cloudHfToken: "",
+  cloudMaxTokens: 32768,
+  cloudTemperature: 0,
+  cloudTopP: 1,
+  cloudDoSample: false,
+  cloudContextPreset: "",
+  cloudShowSegments: true,
+  cloudShowExportVtt: false,
+  cloudShowExportSrt: false,
+  cloudShowExportJson: false,
+  cloudShowExportTelemetry: false,
+  cloudPreprocessingMode: "full",
+  cloudDenoiseNoiseFloorDb: -28,
+  cloudDenoiseReductionDb: 10,
+  cloudDenoiseSmoothing: 0.85,
+  cloudDenoiseCalibrationSeconds: 6,
+  cloudPreprocessEnableFilters: true,
+  cloudPreprocessHighpassHz: 90,
+  cloudPreprocessLowpassHz: 7500,
+  cloudPreprocessEnableLufs: true,
+  cloudPreprocessTargetLufs: -20,
+  cloudPreprocessLimiterEnabled: true,
+  cloudPreprocessLimiterThresholdDb: -1,
+  cloudPreprocessLimiterSoftness: 0.65,
+  cloudPreprocessVadEnabled: true,
+  cloudPreprocessVadThresholdDb: -42,
+  cloudPreprocessVadMinSilenceMs: 250,
+  cloudPreprocessOverlapAdd: true,
+  cloudPreprocessOverlapBlockSec: 1.4,
+  cloudPreprocessOverlapSec: 0.3,
+  cloudAutoTunePreprocess: true,
+  cloudEnableWordTimestamps: false,
+  cloudShowSegmentConfidence: false,
   noiseCalibrationRequestedAt: null,
   segmentationStatus: "idle",
   segmentationProgress: 0,
@@ -572,6 +712,19 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         ...support,
       });
     }
+    const currentCloudApiUrl = get().cloudApiUrl;
+    const normalizedCloudApiUrl = normalizeCloudApiUrl(settings.cloudApiUrl ?? currentCloudApiUrl, currentCloudApiUrl);
+    if ((settings.cloudApiUrl ?? currentCloudApiUrl) !== normalizedCloudApiUrl) {
+      const storedValue = settings.cloudApiUrl ?? currentCloudApiUrl;
+      console.info("[asr-store] cloud api url normalized", {
+        stored: storedValue,
+        normalized: normalizedCloudApiUrl,
+      });
+      logger.info("[asr-store] cloud api url normalized", {
+        stored: storedValue,
+        normalized: normalizedCloudApiUrl,
+      });
+    }
     set((state) => ({
       ...state,
       hasHydrated: true,
@@ -660,6 +813,40 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       micEnableWordTimestamps: settings.micEnableWordTimestamps ?? state.micEnableWordTimestamps,
       micShowSegmentConfidence: settings.micShowSegmentConfidence ?? state.micShowSegmentConfidence,
       micForceSingleThread: settings.micForceSingleThread ?? state.micForceSingleThread,
+      cloudApiUrl: normalizedCloudApiUrl,
+      cloudHfToken: settings.cloudHfToken ?? state.cloudHfToken,
+      cloudMaxTokens: settings.cloudMaxTokens ?? state.cloudMaxTokens,
+      cloudTemperature: settings.cloudTemperature ?? state.cloudTemperature,
+      cloudTopP: settings.cloudTopP ?? state.cloudTopP,
+      cloudDoSample: settings.cloudDoSample ?? state.cloudDoSample,
+      cloudContextPreset: settings.cloudContextPreset ?? state.cloudContextPreset,
+      cloudShowSegments: settings.cloudShowSegments ?? state.cloudShowSegments,
+      cloudShowExportVtt: settings.cloudShowExportVtt ?? state.cloudShowExportVtt,
+      cloudShowExportSrt: settings.cloudShowExportSrt ?? state.cloudShowExportSrt,
+      cloudShowExportJson: settings.cloudShowExportJson ?? state.cloudShowExportJson,
+      cloudShowExportTelemetry: settings.cloudShowExportTelemetry ?? state.cloudShowExportTelemetry,
+      cloudPreprocessingMode: settings.cloudPreprocessingMode ?? state.cloudPreprocessingMode,
+      cloudDenoiseNoiseFloorDb: settings.cloudDenoiseNoiseFloorDb ?? state.cloudDenoiseNoiseFloorDb,
+      cloudDenoiseReductionDb: settings.cloudDenoiseReductionDb ?? state.cloudDenoiseReductionDb,
+      cloudDenoiseSmoothing: settings.cloudDenoiseSmoothing ?? state.cloudDenoiseSmoothing,
+      cloudDenoiseCalibrationSeconds: settings.cloudDenoiseCalibrationSeconds ?? state.cloudDenoiseCalibrationSeconds,
+      cloudPreprocessEnableFilters: settings.cloudPreprocessEnableFilters ?? state.cloudPreprocessEnableFilters,
+      cloudPreprocessHighpassHz: settings.cloudPreprocessHighpassHz ?? state.cloudPreprocessHighpassHz,
+      cloudPreprocessLowpassHz: settings.cloudPreprocessLowpassHz ?? state.cloudPreprocessLowpassHz,
+      cloudPreprocessEnableLufs: settings.cloudPreprocessEnableLufs ?? state.cloudPreprocessEnableLufs,
+      cloudPreprocessTargetLufs: settings.cloudPreprocessTargetLufs ?? state.cloudPreprocessTargetLufs,
+      cloudPreprocessLimiterEnabled: settings.cloudPreprocessLimiterEnabled ?? state.cloudPreprocessLimiterEnabled,
+      cloudPreprocessLimiterThresholdDb: settings.cloudPreprocessLimiterThresholdDb ?? state.cloudPreprocessLimiterThresholdDb,
+      cloudPreprocessLimiterSoftness: settings.cloudPreprocessLimiterSoftness ?? state.cloudPreprocessLimiterSoftness,
+      cloudPreprocessVadEnabled: settings.cloudPreprocessVadEnabled ?? state.cloudPreprocessVadEnabled,
+      cloudPreprocessVadThresholdDb: settings.cloudPreprocessVadThresholdDb ?? state.cloudPreprocessVadThresholdDb,
+      cloudPreprocessVadMinSilenceMs: settings.cloudPreprocessVadMinSilenceMs ?? state.cloudPreprocessVadMinSilenceMs,
+      cloudPreprocessOverlapAdd: settings.cloudPreprocessOverlapAdd ?? state.cloudPreprocessOverlapAdd,
+      cloudPreprocessOverlapBlockSec: settings.cloudPreprocessOverlapBlockSec ?? state.cloudPreprocessOverlapBlockSec,
+      cloudPreprocessOverlapSec: settings.cloudPreprocessOverlapSec ?? state.cloudPreprocessOverlapSec,
+      cloudAutoTunePreprocess: settings.cloudAutoTunePreprocess ?? state.cloudAutoTunePreprocess,
+      cloudEnableWordTimestamps: settings.cloudEnableWordTimestamps ?? state.cloudEnableWordTimestamps,
+      cloudShowSegmentConfidence: settings.cloudShowSegmentConfidence ?? state.cloudShowSegmentConfidence,
       autoTunePreprocess: settings.autoTunePreprocess ?? state.autoTunePreprocess,
       forceSingleThread: settings.forceSingleThread ?? state.forceSingleThread,
       enableWordTimestamps: settings.enableWordTimestamps ?? state.enableWordTimestamps,
@@ -755,6 +942,52 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
   setMicEnableWordTimestamps: (value) => set(() => ({ micEnableWordTimestamps: value })),
   setMicShowSegmentConfidence: (value) => set(() => ({ micShowSegmentConfidence: value })),
   setMicForceSingleThread: (value) => set(() => ({ micForceSingleThread: value })),
+  setCloudStatus: (status, detail) =>
+    set(() => ({
+      cloudStatus: status,
+      cloudStatusDetail: detail ?? undefined,
+    })),
+  setCloudApiUrl: (value) => set(() => ({ cloudApiUrl: value })),
+  setCloudHfToken: (value) => set(() => ({ cloudHfToken: value })),
+  setCloudMaxTokens: (value) => set(() => ({ cloudMaxTokens: value })),
+  setCloudTemperature: (value) => set(() => ({ cloudTemperature: value })),
+  setCloudTopP: (value) => set(() => ({ cloudTopP: value })),
+  setCloudDoSample: (value) => set(() => ({ cloudDoSample: value })),
+  setCloudContextPreset: (value) => set(() => ({ cloudContextPreset: value })),
+  setCloudShowSegments: (value) => set(() => ({ cloudShowSegments: value })),
+  setCloudShowExportVtt: (value) => set(() => ({ cloudShowExportVtt: value })),
+  setCloudShowExportSrt: (value) => set(() => ({ cloudShowExportSrt: value })),
+  setCloudShowExportJson: (value) => set(() => ({ cloudShowExportJson: value })),
+  setCloudShowExportTelemetry: (value) => set(() => ({ cloudShowExportTelemetry: value })),
+  setCloudPreprocessingMode: (mode) => set(() => ({ cloudPreprocessingMode: mode })),
+  setCloudDenoiseParams: (params) =>
+    set((state) => ({
+      cloudDenoiseNoiseFloorDb: params.denoiseNoiseFloorDb ?? state.cloudDenoiseNoiseFloorDb,
+      cloudDenoiseReductionDb: params.denoiseReductionDb ?? state.cloudDenoiseReductionDb,
+      cloudDenoiseSmoothing: params.denoiseSmoothing ?? state.cloudDenoiseSmoothing,
+      cloudDenoiseCalibrationSeconds: params.denoiseCalibrationSeconds ?? state.cloudDenoiseCalibrationSeconds,
+    })),
+  setCloudPreprocessParams: (params) =>
+    set((state) => ({
+      cloudPreprocessEnableFilters: params.preprocessEnableFilters ?? state.cloudPreprocessEnableFilters,
+      cloudPreprocessHighpassHz: params.preprocessHighpassHz ?? state.cloudPreprocessHighpassHz,
+      cloudPreprocessLowpassHz: params.preprocessLowpassHz ?? state.cloudPreprocessLowpassHz,
+      cloudPreprocessEnableLufs: params.preprocessEnableLufs ?? state.cloudPreprocessEnableLufs,
+      cloudPreprocessTargetLufs: params.preprocessTargetLufs ?? state.cloudPreprocessTargetLufs,
+      cloudPreprocessLimiterEnabled: params.preprocessLimiterEnabled ?? state.cloudPreprocessLimiterEnabled,
+      cloudPreprocessLimiterThresholdDb:
+        params.preprocessLimiterThresholdDb ?? state.cloudPreprocessLimiterThresholdDb,
+      cloudPreprocessLimiterSoftness: params.preprocessLimiterSoftness ?? state.cloudPreprocessLimiterSoftness,
+      cloudPreprocessVadEnabled: params.preprocessVadEnabled ?? state.cloudPreprocessVadEnabled,
+      cloudPreprocessVadThresholdDb: params.preprocessVadThresholdDb ?? state.cloudPreprocessVadThresholdDb,
+      cloudPreprocessVadMinSilenceMs: params.preprocessVadMinSilenceMs ?? state.cloudPreprocessVadMinSilenceMs,
+      cloudPreprocessOverlapAdd: params.preprocessOverlapAdd ?? state.cloudPreprocessOverlapAdd,
+      cloudPreprocessOverlapBlockSec: params.preprocessOverlapBlockSec ?? state.cloudPreprocessOverlapBlockSec,
+      cloudPreprocessOverlapSec: params.preprocessOverlapSec ?? state.cloudPreprocessOverlapSec,
+    })),
+  setCloudAutoTunePreprocess: (value) => set(() => ({ cloudAutoTunePreprocess: value })),
+  setCloudEnableWordTimestamps: (value) => set(() => ({ cloudEnableWordTimestamps: value })),
+  setCloudShowSegmentConfidence: (value) => set(() => ({ cloudShowSegmentConfidence: value })),
   setAutoTunePreprocess: (value: boolean) => set(() => ({ autoTunePreprocess: value })),
   setLastAutoTuneParams: (params) => set(() => ({ lastAutoTuneParams: params })),
   requestNoiseCalibration: () => set(() => ({ noiseCalibrationRequestedAt: Date.now() })),
@@ -767,6 +1000,8 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       resetCounter: state.resetCounter + 1,
       status: "idle",
       statusDetail: undefined,
+      cloudStatus: "idle",
+      cloudStatusDetail: undefined,
       activeBackend: undefined,
       telemetryCollector: null,
       chunkPlan: [],
@@ -924,6 +1159,41 @@ useAsrStore.subscribe((state) => {
     // performance
     forceSingleThread: state.forceSingleThread,
     micForceSingleThread: state.micForceSingleThread,
+    // cloud
+    cloudApiUrl: state.cloudApiUrl,
+    cloudHfToken: state.cloudHfToken,
+    cloudMaxTokens: state.cloudMaxTokens,
+    cloudTemperature: state.cloudTemperature,
+    cloudTopP: state.cloudTopP,
+    cloudDoSample: state.cloudDoSample,
+    cloudContextPreset: state.cloudContextPreset,
+    cloudShowSegments: state.cloudShowSegments,
+    cloudShowExportVtt: state.cloudShowExportVtt,
+    cloudShowExportSrt: state.cloudShowExportSrt,
+    cloudShowExportJson: state.cloudShowExportJson,
+    cloudShowExportTelemetry: state.cloudShowExportTelemetry,
+    cloudPreprocessingMode: state.cloudPreprocessingMode,
+    cloudDenoiseNoiseFloorDb: state.cloudDenoiseNoiseFloorDb,
+    cloudDenoiseReductionDb: state.cloudDenoiseReductionDb,
+    cloudDenoiseSmoothing: state.cloudDenoiseSmoothing,
+    cloudDenoiseCalibrationSeconds: state.cloudDenoiseCalibrationSeconds,
+    cloudPreprocessEnableFilters: state.cloudPreprocessEnableFilters,
+    cloudPreprocessHighpassHz: state.cloudPreprocessHighpassHz,
+    cloudPreprocessLowpassHz: state.cloudPreprocessLowpassHz,
+    cloudPreprocessEnableLufs: state.cloudPreprocessEnableLufs,
+    cloudPreprocessTargetLufs: state.cloudPreprocessTargetLufs,
+    cloudPreprocessLimiterEnabled: state.cloudPreprocessLimiterEnabled,
+    cloudPreprocessLimiterThresholdDb: state.cloudPreprocessLimiterThresholdDb,
+    cloudPreprocessLimiterSoftness: state.cloudPreprocessLimiterSoftness,
+    cloudPreprocessVadEnabled: state.cloudPreprocessVadEnabled,
+    cloudPreprocessVadThresholdDb: state.cloudPreprocessVadThresholdDb,
+    cloudPreprocessVadMinSilenceMs: state.cloudPreprocessVadMinSilenceMs,
+    cloudPreprocessOverlapAdd: state.cloudPreprocessOverlapAdd,
+    cloudPreprocessOverlapBlockSec: state.cloudPreprocessOverlapBlockSec,
+    cloudPreprocessOverlapSec: state.cloudPreprocessOverlapSec,
+    cloudAutoTunePreprocess: state.cloudAutoTunePreprocess,
+    cloudEnableWordTimestamps: state.cloudEnableWordTimestamps,
+    cloudShowSegmentConfidence: state.cloudShowSegmentConfidence,
     // whisper
     enableWordTimestamps: state.enableWordTimestamps,
     showSegmentConfidence: state.showSegmentConfidence,

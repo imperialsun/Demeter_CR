@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { describe, it, expect } from 'vitest';
-import { mixToMono, extractChunkPcm, resampleMono, probeAudioMetadata, mixToMono as _mix } from './audio';
+import { mixToMono, extractChunkPcm, resampleMono, probeAudioMetadata, encodeWavBuffer, mixToMono as _mix } from './audio';
 
 // Minimal fake AudioBuffer used for mixToMono
 function makeAudioBuffer(channels: number, length: number, valuesPerChannel: number[][]) {
@@ -55,4 +55,24 @@ describe('audio helpers', () => {
     // restore
     (globalThis as any).document = origDoc;
   });
+
+  it('encodeWavBuffer writes a valid wav header', () => {
+    const pcm = new Float32Array([0, 1, -1]);
+    const buffer = encodeWavBuffer(pcm, 16000);
+    const view = new DataView(buffer);
+    expect(readString(view, 0, 4)).toBe('RIFF');
+    expect(readString(view, 8, 4)).toBe('WAVE');
+    expect(readString(view, 12, 4)).toBe('fmt ');
+    expect(readString(view, 36, 4)).toBe('data');
+    const dataSize = view.getUint32(40, true);
+    expect(dataSize).toBe(pcm.length * 2);
+  });
 });
+
+function readString(view: DataView, offset: number, length: number) {
+  let text = '';
+  for (let i = 0; i < length; i += 1) {
+    text += String.fromCharCode(view.getUint8(offset + i));
+  }
+  return text;
+}

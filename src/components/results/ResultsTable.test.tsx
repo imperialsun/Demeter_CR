@@ -20,6 +20,8 @@ describe('ResultsTable', () => {
     render(<ResultsTable segments={sample as any} />);
     expect(screen.getByText('Bonjour le monde')).toBeTruthy();
     expect(screen.getByText('90%')).toBeTruthy();
+    expect(screen.getByText('Tokens (est.)')).toBeTruthy();
+    expect(screen.getByText('Tokens (est.) : 9')).toBeTruthy();
 
     const input = screen.getByPlaceholderText('Rechercher un mot clé…');
     fireEvent.change(input, { target: { value: 'Ceci' } });

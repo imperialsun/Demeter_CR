@@ -10,7 +10,7 @@ import { toast } from "@/components/ui/use-toast";
 import logger from "@/lib/logger";
 import { useAsrStore } from "@/store/asr-store";
 import { getFfmpeg } from "@/lib/ffmpeg-loader";
-import { resampleMono } from "@/lib/audio";
+import { encodeWavBuffer, resampleMono } from "@/lib/audio";
 import {
   getSharedRunId,
   nextSharedRunId,
@@ -1540,55 +1540,6 @@ function mergeFloat32Arrays(chunks: Float32Array[]): Float32Array {
     offset += chunk.length;
   }
   return merged;
-}
-
-function encodeWavBuffer(pcm: Float32Array, sampleRate: number) {
-  const bytesPerSample = 2;
-  const blockAlign = bytesPerSample;
-  const byteRate = sampleRate * blockAlign;
-  const buffer = new ArrayBuffer(44 + pcm.length * bytesPerSample);
-  const view = new DataView(buffer);
-
-  let offset = 0;
-  writeString(view, offset, "RIFF");
-  offset += 4;
-  view.setUint32(offset, 36 + pcm.length * bytesPerSample, true);
-  offset += 4;
-  writeString(view, offset, "WAVE");
-  offset += 4;
-  writeString(view, offset, "fmt ");
-  offset += 4;
-  view.setUint32(offset, 16, true);
-  offset += 4;
-  view.setUint16(offset, 1, true);
-  offset += 2;
-  view.setUint16(offset, 1, true);
-  offset += 2;
-  view.setUint32(offset, sampleRate, true);
-  offset += 4;
-  view.setUint32(offset, byteRate, true);
-  offset += 4;
-  view.setUint16(offset, blockAlign, true);
-  offset += 2;
-  view.setUint16(offset, bytesPerSample * 8, true);
-  offset += 2;
-  writeString(view, offset, "data");
-  offset += 4;
-  view.setUint32(offset, pcm.length * bytesPerSample, true);
-  offset += 4;
-
-  for (let i = 0; i < pcm.length; i += 1, offset += 2) {
-    const sample = Math.max(-1, Math.min(1, pcm[i] ?? 0));
-    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-  }
-
-  return buffer;
-}
-
-function writeString(view: DataView, offset: number, text: string) {
-  for (let i = 0; i < text.length; i += 1) {
-    view.setUint8(offset + i, text.charCodeAt(i));
-  }
 }
 
 async function transcodeWavToMp3(wavBuffer: ArrayBuffer) {

@@ -11,23 +11,38 @@ import {
 } from "@/components/ui/table";
 import { useAsrStore } from "@/store/asr-store";
 import type { TranscriptionSegment } from "@/lib/export";
+import { estimateTokenCount } from "@/lib/tokens";
 
 interface ResultsTableProps {
   segments: TranscriptionSegment[];
+  enableWordTimestamps?: boolean;
+  showSegmentConfidence?: boolean;
 }
 
-export function ResultsTable({ segments }: ResultsTableProps) {
+export function ResultsTable({ segments, enableWordTimestamps, showSegmentConfidence }: ResultsTableProps) {
   const [query, setQuery] = useState("");
-  const enableWordTimestamps = useAsrStore((s) => s.enableWordTimestamps);
-  const showSegmentConfidence = useAsrStore((s) => s.showSegmentConfidence);
+  const storeEnableWordTimestamps = useAsrStore((s) => s.enableWordTimestamps);
+  const storeShowSegmentConfidence = useAsrStore((s) => s.showSegmentConfidence);
+  const resolvedEnableWordTimestamps =
+    typeof enableWordTimestamps === "boolean" ? enableWordTimestamps : storeEnableWordTimestamps;
+  const resolvedShowSegmentConfidence =
+    typeof showSegmentConfidence === "boolean" ? showSegmentConfidence : storeShowSegmentConfidence;
   const filtered = useMemo(() => {
     if (!query) return segments;
     const lower = query.toLowerCase();
     return segments.filter((segment) => segment.text.toLowerCase().includes(lower));
   }, [segments, query]);
+  const totalTokenCount = useMemo(
+    () => segments.reduce((acc, segment) => acc + estimateTokenCount(segment.text), 0),
+    [segments]
+  );
 
   return (
     <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>{segments.length} segments</span>
+        <span>Tokens (est.) : {totalTokenCount}</span>
+      </div>
       <Input
         placeholder="Rechercher un mot clé…"
         value={query}
@@ -40,7 +55,8 @@ export function ResultsTable({ segments }: ResultsTableProps) {
               <TableHead className="w-12">#</TableHead>
               <TableHead>Début</TableHead>
               <TableHead>Fin</TableHead>
-              {showSegmentConfidence ? <TableHead className="w-24">Conf.</TableHead> : null}
+              {resolvedShowSegmentConfidence ? <TableHead className="w-24">Conf.</TableHead> : null}
+              <TableHead className="w-28">Tokens (est.)</TableHead>
               <TableHead>Texte</TableHead>
             </TableRow>
           </TableHeader>
@@ -50,7 +66,7 @@ export function ResultsTable({ segments }: ResultsTableProps) {
                 <TableCell className="font-medium">{segment.index + 1}</TableCell>
                 <TableCell>{formatTimestamp(segment.start)}</TableCell>
                 <TableCell>{formatTimestamp(segment.end)}</TableCell>
-                {showSegmentConfidence ? (
+                {resolvedShowSegmentConfidence ? (
                   <TableCell>
                     {typeof segment.confidence === "number" ? (
                       <div className="text-sm font-mono">
@@ -63,9 +79,12 @@ export function ResultsTable({ segments }: ResultsTableProps) {
                     )}
                   </TableCell>
                 ) : null}
+                <TableCell className="text-sm font-mono">
+                  {estimateTokenCount(segment.text)}
+                </TableCell>
                 <TableCell className="max-w-xl whitespace-pre-wrap text-sm">
                   <div>{segment.text}</div>
-                  {enableWordTimestamps && segment.words && segment.words.length ? (
+                  {resolvedEnableWordTimestamps && segment.words && segment.words.length ? (
                     <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
                       {segment.words.map((w, i) => (
                         <span key={i} className="rounded px-1 py-0.5 bg-muted/10">
@@ -80,7 +99,7 @@ export function ResultsTable({ segments }: ResultsTableProps) {
             ))}
             {!filtered.length ? (
               <TableRow>
-                <TableCell colSpan={showSegmentConfidence ? 5 : 4} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={resolvedShowSegmentConfidence ? 6 : 5} className="h-24 text-center text-muted-foreground">
                   Aucun segment ne correspond à « {query} ».
                 </TableCell>
               </TableRow>

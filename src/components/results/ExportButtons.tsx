@@ -20,7 +20,7 @@ interface ExportButtonsProps {
   showSrt?: boolean;
   showJson?: boolean;
   showTelemetry?: boolean;
-  mode?: "upload" | "mic";
+  mode?: "upload" | "mic" | "cloud";
 }
 
 export function ExportButtons({
@@ -99,7 +99,7 @@ function buildFilename(suffix: string) {
   return `transcription-${now}-${suffix}`;
 }
 
-function buildExportHeader(mode: "upload" | "mic"): ExportHeader {
+function buildExportHeader(mode: "upload" | "mic" | "cloud"): ExportHeader {
   const state = useAsrStore.getState();
   return {
     exportedAt: new Date().toISOString(),
@@ -188,6 +188,41 @@ function buildExportHeader(mode: "upload" | "mic"): ExportHeader {
         micShowSegmentConfidence: state.micShowSegmentConfidence,
         micForceSingleThread: state.micForceSingleThread,
       },
+      cloud: {
+        cloudApiUrl: state.cloudApiUrl,
+        cloudMaxTokens: state.cloudMaxTokens,
+        cloudTemperature: state.cloudTemperature,
+        cloudTopP: state.cloudTopP,
+        cloudDoSample: state.cloudDoSample,
+        cloudContextPreset: state.cloudContextPreset,
+        cloudShowSegments: state.cloudShowSegments,
+        cloudShowExportVtt: state.cloudShowExportVtt,
+        cloudShowExportSrt: state.cloudShowExportSrt,
+        cloudShowExportJson: state.cloudShowExportJson,
+        cloudShowExportTelemetry: state.cloudShowExportTelemetry,
+        cloudPreprocessingMode: state.cloudPreprocessingMode,
+        cloudDenoiseNoiseFloorDb: state.cloudDenoiseNoiseFloorDb,
+        cloudDenoiseReductionDb: state.cloudDenoiseReductionDb,
+        cloudDenoiseSmoothing: state.cloudDenoiseSmoothing,
+        cloudDenoiseCalibrationSeconds: state.cloudDenoiseCalibrationSeconds,
+        cloudPreprocessEnableFilters: state.cloudPreprocessEnableFilters,
+        cloudPreprocessHighpassHz: state.cloudPreprocessHighpassHz,
+        cloudPreprocessLowpassHz: state.cloudPreprocessLowpassHz,
+        cloudPreprocessEnableLufs: state.cloudPreprocessEnableLufs,
+        cloudPreprocessTargetLufs: state.cloudPreprocessTargetLufs,
+        cloudPreprocessLimiterEnabled: state.cloudPreprocessLimiterEnabled,
+        cloudPreprocessLimiterThresholdDb: state.cloudPreprocessLimiterThresholdDb,
+        cloudPreprocessLimiterSoftness: state.cloudPreprocessLimiterSoftness,
+        cloudPreprocessVadEnabled: state.cloudPreprocessVadEnabled,
+        cloudPreprocessVadThresholdDb: state.cloudPreprocessVadThresholdDb,
+        cloudPreprocessVadMinSilenceMs: state.cloudPreprocessVadMinSilenceMs,
+        cloudPreprocessOverlapAdd: state.cloudPreprocessOverlapAdd,
+        cloudPreprocessOverlapBlockSec: state.cloudPreprocessOverlapBlockSec,
+        cloudPreprocessOverlapSec: state.cloudPreprocessOverlapSec,
+        cloudAutoTunePreprocess: state.cloudAutoTunePreprocess,
+        cloudEnableWordTimestamps: state.cloudEnableWordTimestamps,
+        cloudShowSegmentConfidence: state.cloudShowSegmentConfidence,
+      },
     },
     runtime: {
       activeBackend: state.activeBackend,
@@ -196,6 +231,7 @@ function buildExportHeader(mode: "upload" | "mic"): ExportHeader {
       micActiveModelId: resolveModelId(state.micActivePreset, state.micCustomModelId),
       preprocessingMode: state.preprocessingMode,
       micPreprocessingMode: state.micPreprocessingMode,
+      cloudApiUrl: state.cloudApiUrl,
     },
   };
 }

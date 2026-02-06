@@ -89,6 +89,41 @@ export interface PersistedSettings {
   micEnableWordTimestamps?: boolean;
   micShowSegmentConfidence?: boolean;
   micForceSingleThread?: boolean;
+  // Cloud-specific settings
+  cloudApiUrl?: string;
+  cloudHfToken?: string;
+  cloudMaxTokens?: number;
+  cloudTemperature?: number;
+  cloudTopP?: number;
+  cloudDoSample?: boolean;
+  cloudContextPreset?: string;
+  cloudShowSegments?: boolean;
+  cloudShowExportVtt?: boolean;
+  cloudShowExportSrt?: boolean;
+  cloudShowExportJson?: boolean;
+  cloudShowExportTelemetry?: boolean;
+  cloudPreprocessingMode?: "quick" | "full";
+  cloudDenoiseNoiseFloorDb?: number;
+  cloudDenoiseReductionDb?: number;
+  cloudDenoiseSmoothing?: number;
+  cloudDenoiseCalibrationSeconds?: number;
+  cloudPreprocessEnableFilters?: boolean;
+  cloudPreprocessHighpassHz?: number;
+  cloudPreprocessLowpassHz?: number;
+  cloudPreprocessEnableLufs?: boolean;
+  cloudPreprocessTargetLufs?: number;
+  cloudPreprocessLimiterEnabled?: boolean;
+  cloudPreprocessLimiterThresholdDb?: number;
+  cloudPreprocessLimiterSoftness?: number;
+  cloudPreprocessVadEnabled?: boolean;
+  cloudPreprocessVadThresholdDb?: number;
+  cloudPreprocessVadMinSilenceMs?: number;
+  cloudPreprocessOverlapAdd?: boolean;
+  cloudPreprocessOverlapBlockSec?: number;
+  cloudPreprocessOverlapSec?: number;
+  cloudAutoTunePreprocess?: boolean;
+  cloudEnableWordTimestamps?: boolean;
+  cloudShowSegmentConfidence?: boolean;
 }
 
 export function loadSettings(): Partial<PersistedSettings> | null {
@@ -198,4 +233,39 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   micEnableWordTimestamps: false,
   micShowSegmentConfidence: false,
   micForceSingleThread: false,
+  // cloud defaults
+  cloudApiUrl: "https://transcode.demeter-sante.fr/gradio",
+  cloudHfToken: "",
+  cloudMaxTokens: 32768,
+  cloudTemperature: 0,
+  cloudTopP: 1,
+  cloudDoSample: false,
+  cloudContextPreset: "",
+  cloudShowSegments: true,
+  cloudShowExportVtt: false,
+  cloudShowExportSrt: false,
+  cloudShowExportJson: false,
+  cloudShowExportTelemetry: false,
+  cloudPreprocessingMode: "full",
+  cloudDenoiseNoiseFloorDb: -28,
+  cloudDenoiseReductionDb: 10,
+  cloudDenoiseSmoothing: 0.85,
+  cloudDenoiseCalibrationSeconds: 6,
+  cloudPreprocessEnableFilters: true,
+  cloudPreprocessHighpassHz: 90,
+  cloudPreprocessLowpassHz: 7500,
+  cloudPreprocessEnableLufs: true,
+  cloudPreprocessTargetLufs: -20,
+  cloudPreprocessLimiterEnabled: true,
+  cloudPreprocessLimiterThresholdDb: -1,
+  cloudPreprocessLimiterSoftness: 0.65,
+  cloudPreprocessVadEnabled: true,
+  cloudPreprocessVadThresholdDb: -42,
+  cloudPreprocessVadMinSilenceMs: 250,
+  cloudPreprocessOverlapAdd: true,
+  cloudPreprocessOverlapBlockSec: 1.4,
+  cloudPreprocessOverlapSec: 0.3,
+  cloudAutoTunePreprocess: true,
+  cloudEnableWordTimestamps: false,
+  cloudShowSegmentConfidence: false,
 };
