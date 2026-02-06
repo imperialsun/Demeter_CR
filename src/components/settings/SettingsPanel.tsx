@@ -542,10 +542,7 @@ export function SettingsPanel({
     });
   };
 
-  const presetOptions = useMemo(
-    () => Object.values(MODEL_PRESETS).filter((preset) => preset.key !== "french"),
-    []
-  );
+  const presetOptions = useMemo(() => Object.values(MODEL_PRESETS), []);
   const blockedPresetSet = useMemo(() => new Set(blockedPresets), [blockedPresets]);
 
   async function clearAppCache() {

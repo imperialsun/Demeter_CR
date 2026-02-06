@@ -2,6 +2,7 @@ import {
   resolveModelId,
   useAsrStore,
   type BackendImplementation,
+  type PresetKey,
   type PipelineStatus,
 } from "@/store/asr-store";
 import type { ChunkDefinition } from "@/lib/chunking";
@@ -42,7 +43,7 @@ interface PipelineInvokeResult {
 }
 
 export interface CreatePipelineOptions {
-  modelPreset: "fast" | "balanced" | "medium" | "quality" | "french" | "custom";
+  modelPreset: PresetKey;
   customModelId: string;
   backendPreference: BackendImplementation;
   forceBackend?: BackendImplementation;

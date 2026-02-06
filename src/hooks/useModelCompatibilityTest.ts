@@ -7,7 +7,7 @@ import logger from "@/lib/logger";
 
 type TestPreset = Exclude<PresetKey, "custom">;
 
-const TEST_ORDER: TestPreset[] = ["fast", "balanced", "medium", "quality"];
+const TEST_ORDER: TestPreset[] = ["fast", "balanced", "medium", "quality", "turbo"];
 const TEST_SAMPLE_RATE = 16000;
 const TEST_DURATION_SEC = 1;
 

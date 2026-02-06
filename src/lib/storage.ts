@@ -4,7 +4,7 @@ import logger from "@/lib/logger";
 const STORAGE_KEY = "demeter-asr-settings";
 
 export interface PersistedSettings {
-  activePreset: "fast" | "balanced" | "medium" | "quality" | "french" | "custom";
+  activePreset: PresetKey;
   customModelId: string;
   blockedPresets?: PresetKey[];
   backendPreference: BackendImplementation;
@@ -53,7 +53,7 @@ export interface PersistedSettings {
   // performance
   forceSingleThread?: boolean;
   // Mic-specific settings
-  micActivePreset?: "fast" | "balanced" | "medium" | "quality" | "french" | "custom";
+  micActivePreset?: PresetKey;
   micCustomModelId?: string;
   micBackendPreference?: BackendImplementation;
   micPreprocessingMode?: "quick" | "full";

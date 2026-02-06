@@ -7,7 +7,7 @@ import type { ChunkDefinition } from "@/lib/chunking";
 import type { TranscriptionSegment } from "@/lib/export";
 import type { TelemetryCollector, ChunkTelemetry, TelemetrySummary } from "@/lib/telemetry";
 
-export type PresetKey = "fast" | "balanced" | "medium" | "quality" | "french" | "custom";
+export type PresetKey = "fast" | "balanced" | "medium" | "quality" | "turbo" | "custom";
 
 export type BackendImplementation = "webgpu" | "wasm";
 export type DedupeMode = "normal" | "fuzzy";
@@ -40,39 +40,43 @@ export interface ModelPreset {
 export const MODEL_PRESETS: Record<Exclude<PresetKey, "custom">, ModelPreset> = {
   fast: {
     key: "fast",
-    label: "Rapide (whisper-tiny)",
+    label: "Rapide (Whisper Tiny)",
     modelId: "Xenova/whisper-tiny",
     description: "Latence minimale, qualité correcte pour des itérations rapides.",
   },
   balanced: {
     key: "balanced",
-    label: "Équilibre (whisper-base)",
+    label: "Équilibre (Whisper Base)",
     modelId: "Xenova/whisper-base",
     description: "Bon compromis précision/temps pour la production quotidienne.",
   },
   medium: {
     key: "medium",
-    label: "Intermédiaire (whisper-small)",
+    label: "Intermédiaire (Whisper Small)",
     modelId: "Xenova/whisper-small",
-    description: "Meilleure précision que l'option Équilibre (whisper-base), latence et mémoire modérées.",
+    description: "Meilleure précision que l'option Équilibre, latence et mémoire modérées.",
   },
   quality: {
     key: "quality",
-    label: "Qualité (whisper-medium)",
+    label: "Qualité (Whisper Medium)",
     modelId: "Xenova/whisper-medium",
-    description: "Précision supérieure à l'option Intermédiaire, au prix d'un temps de traitement et d'un usage mémoire plus élevés.",
+    description: "Précision supérieure à l'option Intermédiaire, avec un coût mémoire plus élevé.",
   },
-  french: {
-    key: "french",
-    label: "Français (whisper-small-cv11)",
-    modelId: "onnx-community/whisper-small-cv11-french-ONNX",
-    description: "Modèle spécialisé français pour une meilleure précision sur les contenus francophones.",
+  turbo: {
+    key: "turbo",
+    label: "Très haute qualité (Mistral Turbo)",
+    modelId: "Xenova/whisper-large-v3-turbo",
+    description: "Niveau de qualité maximal, plus lent et plus gourmand en mémoire.",
   },
 };
 
 const FALLBACK_PRESET: PresetKey = "balanced";
-const sanitizePreset = (preset: PresetKey | undefined) =>
-  preset && preset !== "french" ? preset : FALLBACK_PRESET;
+const allowedActivePresets = new Set<PresetKey>([
+  ...(Object.keys(MODEL_PRESETS) as Array<Exclude<PresetKey, "custom">>),
+  "custom",
+]);
+const sanitizePreset = (preset: string | undefined): PresetKey =>
+  preset && allowedActivePresets.has(preset as PresetKey) ? (preset as PresetKey) : FALLBACK_PRESET;
 
 const allowedBlockedPresets = new Set<Exclude<PresetKey, "custom">>(
   Object.keys(MODEL_PRESETS) as Array<Exclude<PresetKey, "custom">>

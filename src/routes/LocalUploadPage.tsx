@@ -41,7 +41,7 @@ function LocalUploadPage() {
   const transcriptionConfidence = useAsrStore((s) => s.transcriptionConfidence);
   const transcriptionConfidenceSource = useAsrStore((s) => s.transcriptionConfidenceSource);
   const { startUploadTranscription, stopTranscription, isTranscribing } = useTranscriptionController();
-  const presetOptions = Object.values(MODEL_PRESETS).filter((preset) => preset.key !== "french");
+  const presetOptions = Object.values(MODEL_PRESETS);
   const blockedPresetSet = new Set(blockedPresets);
   const [privacyNoteOpen, setPrivacyNoteOpen] = useState(false);
 
