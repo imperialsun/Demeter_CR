@@ -187,4 +187,32 @@ describe('SettingsPanel', () => {
 
     expect(useAsrStore.getState().cloudHfToken).toBe("hf_test_token");
   });
+
+  it("updates cloud mistral api settings", async () => {
+    render(
+      <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">
+        <SettingsPanel />
+      </ThemeProvider>
+    );
+
+    const cloudTab = screen.getByText("Cloud");
+    await userEvent.click(cloudTab);
+
+    fireEvent.change(
+      screen.getByLabelText("URL API Mistral", { selector: "input#cloud-mistral-api-url" }),
+      { target: { value: "https://api.mistral.ai" } }
+    );
+    fireEvent.change(
+      screen.getByLabelText("Token API Mistral", { selector: "input#cloud-mistral-api-key" }),
+      { target: { value: "mistral_secret" } }
+    );
+    fireEvent.change(
+      screen.getByLabelText("Modèle Mistral", { selector: "input#cloud-mistral-model" }),
+      { target: { value: "voxtral-mini-transcribe-26-02" } }
+    );
+
+    expect(useAsrStore.getState().cloudMistralApiUrl).toBe("https://api.mistral.ai");
+    expect(useAsrStore.getState().cloudMistralApiKey).toBe("mistral_secret");
+    expect(useAsrStore.getState().cloudMistralModel).toBe("voxtral-mini-transcribe-26-02");
+  });
 });

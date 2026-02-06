@@ -92,6 +92,9 @@ export interface PersistedSettings {
   // Cloud-specific settings
   cloudApiUrl?: string;
   cloudHfToken?: string;
+  cloudMistralApiUrl?: string;
+  cloudMistralApiKey?: string;
+  cloudMistralModel?: string;
   cloudMaxTokens?: number;
   cloudTemperature?: number;
   cloudTopP?: number;
@@ -236,6 +239,9 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   // cloud defaults
   cloudApiUrl: "https://transcode.demeter-sante.fr/gradio",
   cloudHfToken: "",
+  cloudMistralApiUrl: "https://api.mistral.ai",
+  cloudMistralApiKey: "",
+  cloudMistralModel: "voxtral-mini-transcribe-26-02",
   cloudMaxTokens: 32768,
   cloudTemperature: 0,
   cloudTopP: 1,

@@ -218,6 +218,9 @@ interface AsrConfigState {
   // Cloud-specific settings
   cloudApiUrl: string;
   cloudHfToken: string;
+  cloudMistralApiUrl: string;
+  cloudMistralApiKey: string;
+  cloudMistralModel: string;
   cloudMaxTokens: number;
   cloudTemperature: number;
   cloudTopP: number;
@@ -388,6 +391,9 @@ interface AsrConfigActions {
   setCloudStatus: (status: CloudTranscriptionStatus, detail?: string) => void;
   setCloudApiUrl: (value: string) => void;
   setCloudHfToken: (value: string) => void;
+  setCloudMistralApiUrl: (value: string) => void;
+  setCloudMistralApiKey: (value: string) => void;
+  setCloudMistralModel: (value: string) => void;
   setCloudMaxTokens: (value: number) => void;
   setCloudTemperature: (value: number) => void;
   setCloudTopP: (value: number) => void;
@@ -561,6 +567,9 @@ const initialState: AsrConfigState = {
   micForceSingleThread: false,
   cloudApiUrl: "https://transcode.demeter-sante.fr/gradio",
   cloudHfToken: "",
+  cloudMistralApiUrl: "https://api.mistral.ai",
+  cloudMistralApiKey: "",
+  cloudMistralModel: "voxtral-mini-transcribe-26-02",
   cloudMaxTokens: 32768,
   cloudTemperature: 0,
   cloudTopP: 1,
@@ -819,6 +828,9 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       micForceSingleThread: settings.micForceSingleThread ?? state.micForceSingleThread,
       cloudApiUrl: normalizedCloudApiUrl,
       cloudHfToken: settings.cloudHfToken ?? state.cloudHfToken,
+      cloudMistralApiUrl: settings.cloudMistralApiUrl ?? state.cloudMistralApiUrl,
+      cloudMistralApiKey: settings.cloudMistralApiKey ?? state.cloudMistralApiKey,
+      cloudMistralModel: settings.cloudMistralModel ?? state.cloudMistralModel,
       cloudMaxTokens: settings.cloudMaxTokens ?? state.cloudMaxTokens,
       cloudTemperature: settings.cloudTemperature ?? state.cloudTemperature,
       cloudTopP: settings.cloudTopP ?? state.cloudTopP,
@@ -953,6 +965,9 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
     })),
   setCloudApiUrl: (value) => set(() => ({ cloudApiUrl: value })),
   setCloudHfToken: (value) => set(() => ({ cloudHfToken: value })),
+  setCloudMistralApiUrl: (value) => set(() => ({ cloudMistralApiUrl: value })),
+  setCloudMistralApiKey: (value) => set(() => ({ cloudMistralApiKey: value })),
+  setCloudMistralModel: (value) => set(() => ({ cloudMistralModel: value })),
   setCloudMaxTokens: (value) => set(() => ({ cloudMaxTokens: value })),
   setCloudTemperature: (value) => set(() => ({ cloudTemperature: value })),
   setCloudTopP: (value) => set(() => ({ cloudTopP: value })),
@@ -1166,6 +1181,9 @@ useAsrStore.subscribe((state) => {
     // cloud
     cloudApiUrl: state.cloudApiUrl,
     cloudHfToken: state.cloudHfToken,
+    cloudMistralApiUrl: state.cloudMistralApiUrl,
+    cloudMistralApiKey: state.cloudMistralApiKey,
+    cloudMistralModel: state.cloudMistralModel,
     cloudMaxTokens: state.cloudMaxTokens,
     cloudTemperature: state.cloudTemperature,
     cloudTopP: state.cloudTopP,

@@ -18,12 +18,18 @@ import { Loader2, PauseCircle, Play, Cloud, ChevronDown, ChevronUp } from "lucid
 
 function CloudUploadPage() {
   const [isContextOpen, setIsContextOpen] = useState(false);
-  const [provider, setProvider] = useState<"gradio" | "whisper">("gradio");
+  const [provider, setProvider] = useState<"gradio" | "whisper" | "mistral">("gradio");
   const isWhisper = provider === "whisper";
+  const isMistral = provider === "mistral";
+  const usesContext = provider === "gradio";
   const telemetry = useAsrStore((state) => state.telemetryCollector);
   const cloudContextPreset = useAsrStore((state) => state.cloudContextPreset);
   const cloudHfToken = useAsrStore((state) => state.cloudHfToken);
   const setCloudHfToken = useAsrStore((state) => state.setCloudHfToken);
+  const cloudMistralApiUrl = useAsrStore((state) => state.cloudMistralApiUrl);
+  const cloudMistralApiKey = useAsrStore((state) => state.cloudMistralApiKey);
+  const cloudMistralModel = useAsrStore((state) => state.cloudMistralModel);
+  const setCloudMistralApiKey = useAsrStore((state) => state.setCloudMistralApiKey);
   const cloudShowSegments = useAsrStore((state) => state.cloudShowSegments);
   const cloudShowExportVtt = useAsrStore((state) => state.cloudShowExportVtt);
   const cloudShowExportSrt = useAsrStore((state) => state.cloudShowExportSrt);
@@ -92,7 +98,7 @@ function CloudUploadPage() {
         <Select
           value={provider}
           onValueChange={(value) => {
-            const next = value === "whisper" ? "whisper" : "gradio";
+            const next = value === "whisper" || value === "mistral" ? value : "gradio";
             setProvider(next);
             logger.info("[cloud] provider changed", { provider: next });
             telemetry?.logEvent?.("CLOUD_PROVIDER_CHANGE", { provider: next });
@@ -104,34 +110,53 @@ function CloudUploadPage() {
           <SelectContent>
             <SelectItem value="gradio">Gradio</SelectItem>
             <SelectItem value="whisper">Whisper</SelectItem>
+            <SelectItem value="mistral">Mistral</SelectItem>
           </SelectContent>
         </Select>
       </div>
 
-      {isWhisper ? (
+      {isWhisper || isMistral ? (
         <Card>
           <CardHeader>
-            <CardTitle>Token Hugging Face</CardTitle>
-            <CardDescription>Ajoutez votre token HF pour utiliser l&apos;API Whisper.</CardDescription>
+            <CardTitle>{isWhisper ? "Token Hugging Face" : "Token API Mistral"}</CardTitle>
+            <CardDescription>
+              {isWhisper
+                ? "Ajoutez votre token HF pour utiliser l&apos;API Whisper."
+                : "Ajoutez votre token Mistral pour utiliser le modèle Voxtral."}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
-            <Label htmlFor="cloud-hf-token-session">Token HF</Label>
+            <Label htmlFor="cloud-provider-token-session">{isWhisper ? "Token HF" : "Token Mistral"}</Label>
             <Input
-              id="cloud-hf-token-session"
+              id="cloud-provider-token-session"
               type="password"
-              value={cloudHfToken}
-              onChange={(event) => setCloudHfToken(event.target.value)}
-              placeholder="hf_..."
+              value={isWhisper ? cloudHfToken : cloudMistralApiKey}
+              onChange={(event) => {
+                if (isWhisper) {
+                  setCloudHfToken(event.target.value);
+                } else {
+                  setCloudMistralApiKey(event.target.value);
+                }
+              }}
+              placeholder={isWhisper ? "hf_..." : "...."}
               autoComplete="off"
             />
+            {isMistral ? (
+              <div className="space-y-1 text-xs text-muted-foreground">
+                <p>Endpoint: {cloudMistralApiUrl || "https://api.mistral.ai"}</p>
+                <p>Modèle: {cloudMistralModel || "voxtral-mini-transcribe-26-02"}</p>
+              </div>
+            ) : null}
             <p className="text-xs text-muted-foreground">
-              Stocké localement. Aucun token n&apos;est envoyé ailleurs que vers l&apos;API Hugging Face.
+              {isWhisper
+                ? "Stocké localement. Aucun token n&apos;est envoyé ailleurs que vers l&apos;API Hugging Face."
+                : "Stocké localement. Aucun token n&apos;est envoyé ailleurs que vers l&apos;API Mistral."}
             </p>
           </CardContent>
         </Card>
       ) : null}
 
-      {!isWhisper ? (
+      {usesContext ? (
         <Card>
           <CardHeader>
             <CardTitle>Contexte</CardTitle>
@@ -188,7 +213,7 @@ function CloudUploadPage() {
                   {statusMeta.label}
                 </Badge>
                 <Badge variant="outline" className="gap-1">
-                  <Cloud className="h-3 w-3" /> {isWhisper ? "Whisper" : "Cloud"}
+                  <Cloud className="h-3 w-3" /> {isWhisper ? "Whisper" : isMistral ? "Mistral" : "Gradio"}
                 </Badge>
                 {statusDetail ? <span className="text-sm text-muted-foreground">{statusDetail}</span> : null}
               </div>

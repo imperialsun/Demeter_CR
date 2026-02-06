@@ -242,6 +242,9 @@ export function SettingsPanel({
     cloudTopP,
     cloudDoSample,
     cloudContextPreset,
+    cloudMistralApiUrl,
+    cloudMistralApiKey,
+    cloudMistralModel,
     cloudShowSegments,
     cloudShowExportVtt,
     cloudShowExportSrt,
@@ -272,6 +275,9 @@ export function SettingsPanel({
     cloudHfToken,
     setCloudApiUrl,
     setCloudHfToken,
+    setCloudMistralApiUrl,
+    setCloudMistralApiKey,
+    setCloudMistralModel,
     setCloudMaxTokens,
     setCloudTemperature,
     setCloudTopP,
@@ -296,6 +302,9 @@ export function SettingsPanel({
       cloudTopP: state.cloudTopP,
       cloudDoSample: state.cloudDoSample,
       cloudContextPreset: state.cloudContextPreset,
+      cloudMistralApiUrl: state.cloudMistralApiUrl,
+      cloudMistralApiKey: state.cloudMistralApiKey,
+      cloudMistralModel: state.cloudMistralModel,
       cloudShowSegments: state.cloudShowSegments,
       cloudShowExportVtt: state.cloudShowExportVtt,
       cloudShowExportSrt: state.cloudShowExportSrt,
@@ -326,6 +335,9 @@ export function SettingsPanel({
       cloudHfToken: state.cloudHfToken,
       setCloudApiUrl: state.setCloudApiUrl,
       setCloudHfToken: state.setCloudHfToken,
+      setCloudMistralApiUrl: state.setCloudMistralApiUrl,
+      setCloudMistralApiKey: state.setCloudMistralApiKey,
+      setCloudMistralModel: state.setCloudMistralModel,
       setCloudMaxTokens: state.setCloudMaxTokens,
       setCloudTemperature: state.setCloudTemperature,
       setCloudTopP: state.setCloudTopP,
@@ -2411,6 +2423,40 @@ export function SettingsPanel({
                     Stocké localement pour l&apos;inférence Whisper.
                   </p>
                 </div>
+                <Separator />
+                <div className="space-y-2">
+                  <Label htmlFor="cloud-mistral-api-url">URL API Mistral</Label>
+                  <Input
+                    id="cloud-mistral-api-url"
+                    value={cloudMistralApiUrl}
+                    onChange={(event) => setCloudMistralApiUrl(event.target.value)}
+                    placeholder="https://api.mistral.ai"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cloud-mistral-api-key">Token API Mistral</Label>
+                  <Input
+                    id="cloud-mistral-api-key"
+                    type="password"
+                    value={cloudMistralApiKey}
+                    onChange={(event) => setCloudMistralApiKey(event.target.value)}
+                    placeholder="..."
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cloud-mistral-model">Modèle Mistral</Label>
+                  <Input
+                    id="cloud-mistral-model"
+                    value={cloudMistralModel}
+                    onChange={(event) => setCloudMistralModel(event.target.value)}
+                    placeholder="voxtral-mini-transcribe-26-02"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Modèle par défaut recommandé: <code>voxtral-mini-transcribe-26-02</code>.
+                  </p>
+                </div>
+                <Separator />
                 <div className="grid gap-3 md:grid-cols-3">
                   <NumberField
                     id="cloud-max-tokens"

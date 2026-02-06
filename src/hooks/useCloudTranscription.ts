@@ -21,6 +21,8 @@ import { offsetSegments } from "@/lib/cloud/segmentOffsets";
 import { getWhisperClient } from "@/lib/cloud/whisperClient";
 import { buildWhisperParameters } from "@/lib/cloud/whisperParams";
 import { parseWhisperOutput } from "@/lib/cloud/whisperSegments";
+import { transcribeWithMistral } from "@/lib/cloud/mistralClient";
+import { parseMistralOutput } from "@/lib/cloud/mistralSegments";
 
 type CloudStatus = "idle" | "preprocessing" | "uploading" | "transcribing" | "stopping" | "done" | "error";
 
@@ -34,7 +36,7 @@ const TRANSCRIBE_PROGRESS_SPAN = 1 - TRANSCRIBE_PROGRESS_BASE;
 const PROGRESS_FALLBACK_DELAY_MS = 2000;
 const PROGRESS_FALLBACK_INTERVAL_MS = 1500;
 
-export function useCloudTranscription(provider: "gradio" | "whisper") {
+export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral") {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewFile, setPreviewFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -66,6 +68,9 @@ export function useCloudTranscription(provider: "gradio" | "whisper") {
 
   const cloudApiUrl = useAsrStore((s) => s.cloudApiUrl);
   const cloudHfToken = useAsrStore((s) => s.cloudHfToken);
+  const cloudMistralApiUrl = useAsrStore((s) => s.cloudMistralApiUrl);
+  const cloudMistralApiKey = useAsrStore((s) => s.cloudMistralApiKey);
+  const cloudMistralModel = useAsrStore((s) => s.cloudMistralModel);
   const cloudMaxTokens = useAsrStore((s) => s.cloudMaxTokens);
   const cloudTemperature = useAsrStore((s) => s.cloudTemperature);
   const cloudTopP = useAsrStore((s) => s.cloudTopP);
@@ -165,7 +170,9 @@ export function useCloudTranscription(provider: "gradio" | "whisper") {
     telemetry?.logEvent("STOP_REQUESTED", { context: "cloud" });
     logger.warn("[cloud] stop requested", { url, provider });
     if (provider !== "gradio") {
-      telemetry?.logEvent("CLOUD_WHISPER_STOP_REQUESTED", { provider });
+      if (provider === "whisper") {
+        telemetry?.logEvent("CLOUD_WHISPER_STOP_REQUESTED", { provider });
+      }
       return;
     }
     try {
@@ -353,9 +360,186 @@ export function useCloudTranscription(provider: "gradio" | "whisper") {
     setStatusDetail("Transcription terminée");
   }, [cloudHfToken, combinedContext, resolvedSettings, selectedFile]);
 
+  const runMistralTranscription = useCallback(async (args: {
+    runId: number;
+    settings: ReturnType<typeof useAsrStore.getState>;
+    metadata: AudioMetadata;
+    telemetry: TelemetryCollector;
+    preprocessSettings: CloudPreprocessSettings;
+  }) => {
+    const { runId, settings, metadata, telemetry, preprocessSettings } = args;
+    const apiKey = cloudMistralApiKey.trim();
+    const apiUrl = cloudMistralApiUrl.trim();
+    const model = cloudMistralModel.trim() || "voxtral-mini-transcribe-26-02";
+
+    if (!apiKey) {
+      const message = "Token API Mistral manquant";
+      telemetry.recordAlert("CLOUD_MISTRAL_TOKEN_MISSING", { message });
+      throw new Error(message);
+    }
+
+    if (combinedContext.trim()) {
+      logger.info("[cloud][mistral] context ignored", { length: combinedContext.length });
+      telemetry.logEvent("CLOUD_WHISPER_CONTEXT_IGNORED", { provider: "mistral", length: combinedContext.length });
+    }
+
+    const sourceFile = selectedFile;
+    if (!sourceFile) {
+      throw new Error("Fichier audio manquant");
+    }
+
+    const segmentDurationSec = 30;
+    const plan = buildFixedSegments({
+      durationSec: metadata.durationSec,
+      segmentDurationSec,
+      overlapSec: 0,
+    });
+    const totalSegments = Math.max(1, plan.length);
+    logger.info("[cloud][mistral] plan", {
+      segments: totalSegments,
+      durationSec: metadata.durationSec,
+      segmentDurationSec,
+      model,
+    });
+
+    const allSegments: TranscriptionSegment[] = [];
+    let nextIndex = 0;
+
+    for (let segmentIndex = 0; segmentIndex < totalSegments; segmentIndex += 1) {
+      const segment = plan[segmentIndex];
+      if (!segment) continue;
+
+      if (stopRequestedRef.current || runIdRef.current !== runId) {
+        logger.warn("[cloud][mistral] run aborted before segment", { runId, segmentIndex });
+        return;
+      }
+
+      const labelSuffix = ` · ${segmentIndex + 1}/${totalSegments}`;
+      setStatus("preprocessing");
+      setStatusDetail(`Prétraitement local${labelSuffix}`);
+      setProgress(Math.max(0, Math.min(1, segmentIndex / totalSegments)));
+
+      let segmentFile = sourceFile;
+      if (totalSegments > 1) {
+        const extracted = await extractSegmentBlob(
+          sourceFile,
+          { index: segmentIndex, startSec: segment.start, endSec: segment.end },
+          telemetry
+        );
+        segmentFile = new File([extracted.blob], extracted.name, {
+          type: extracted.mimeType,
+          lastModified: Date.now(),
+        });
+      }
+
+      telemetry.startTimer("cloud_preprocess");
+      const preprocessResult = await preprocessCloudAudio(segmentFile, preprocessSettings, telemetry);
+      telemetry.stopTimer("cloud_preprocess");
+
+      if (settings.cloudAutoTunePreprocess && preprocessResult.tune && segmentIndex === 0) {
+        settings.setCloudDenoiseParams({
+          denoiseNoiseFloorDb: preprocessResult.tune.noiseFloorDb,
+          denoiseReductionDb: preprocessResult.tune.reductionDb,
+          denoiseSmoothing: preprocessResult.tune.smoothing,
+          denoiseCalibrationSeconds: settings.cloudDenoiseCalibrationSeconds,
+        });
+        settings.setCloudPreprocessParams({
+          preprocessTargetLufs: preprocessResult.tune.targetLufs,
+          preprocessHighpassHz: preprocessResult.tune.highpassHz,
+          preprocessLowpassHz: preprocessResult.tune.lowpassHz,
+          preprocessLimiterThresholdDb: preprocessResult.tune.limiterThresholdDb,
+          preprocessLimiterSoftness: preprocessResult.tune.limiterSoftness,
+          preprocessVadThresholdDb: preprocessResult.tune.vadThresholdDb,
+          preprocessOverlapBlockSec: preprocessResult.tune.overlapBlockSec,
+          preprocessOverlapSec: preprocessResult.tune.overlapSec,
+        });
+      }
+
+      if (stopRequestedRef.current || runIdRef.current !== runId) {
+        logger.warn("[cloud][mistral] run aborted after preprocess", { runId, segmentIndex });
+        return;
+      }
+
+      const wavBuffer = encodeWavBuffer(preprocessResult.processed.pcm, preprocessResult.processed.sampleRate);
+      const baseName = segmentFile.name.replace(/\.[^/.]+$/, "");
+      const safeBaseName = makeSafeFilename(baseName || "audio");
+      const processedFile = new File([wavBuffer], `${safeBaseName}-mistral.wav`, {
+        type: "audio/wav",
+        lastModified: Date.now(),
+      });
+
+      setStatus("transcribing");
+      setStatusDetail(`Transcription Mistral${labelSuffix}`);
+      setProgress(Math.max(0, Math.min(1, (segmentIndex + 0.4) / totalSegments)));
+      telemetry.startTimer("cloud_transcribe");
+      logger.info("[cloud][mistral] chunk start", {
+        segmentIndex,
+        totalSegments,
+        model,
+      });
+
+      const output = await transcribeWithMistral(
+        {
+          apiUrl,
+          apiKey,
+          model,
+          file: processedFile,
+        },
+        telemetry
+      );
+
+      telemetry.stopTimer("cloud_transcribe");
+
+      if (stopRequestedRef.current || runIdRef.current !== runId) {
+        logger.warn("[cloud][mistral] run aborted after inference", { runId, segmentIndex });
+        return;
+      }
+
+      const chunkId = `mistral-${segmentIndex + 1}`;
+      const parsedSegments = parseMistralOutput(output, {
+        offsetSec: segment.start,
+        startIndex: nextIndex,
+        chunkId,
+        fallbackDurationSec: Math.max(0, segment.end - segment.start),
+        includeWordTimestamps: settings.cloudEnableWordTimestamps,
+      });
+      nextIndex += parsedSegments.length;
+      allSegments.push(...parsedSegments);
+      setSegments([...allSegments]);
+
+      const summary = summarizeSegments(parsedSegments);
+      logger.info("[cloud][mistral] segments ready", { ...summary, segmentIndex, totalSegments });
+      telemetry.logEvent("CLOUD_SEGMENTS_READY", {
+        provider: "mistral",
+        segmentIndex,
+        totalSegments,
+        count: summary.count,
+        totalDurationSec: summary.totalDurationSec,
+        textChars: summary.textChars,
+        tokenCount: summary.tokenCount,
+      });
+
+      setProgress(Math.max(0, Math.min(1, (segmentIndex + 1) / totalSegments)));
+    }
+
+    const summary = summarizeSegments(allSegments);
+    logger.info("[cloud][mistral] all segments ready", summary);
+    telemetry.logEvent("CLOUD_TRANSCRIBE_DONE", { provider: "mistral", segments: allSegments.length });
+    setProgress(1);
+    setStatus("done");
+    setStatusDetail("Transcription terminée");
+  }, [
+    cloudMistralApiKey,
+    cloudMistralApiUrl,
+    cloudMistralModel,
+    combinedContext,
+    selectedFile,
+  ]);
+
   const startTranscription = useCallback(async () => {
     const settings = useAsrStore.getState();
     const isWhisper = provider === "whisper";
+    const isMistral = provider === "mistral";
     if (!selectedFile) {
       toast("Sélectionnez un fichier audio avant de lancer.");
       return;
@@ -365,7 +549,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper") {
       return;
     }
 
-    runApiUrlRef.current = isWhisper ? null : resolvedSettings.apiUrl;
+    runApiUrlRef.current = isWhisper || isMistral ? null : resolvedSettings.apiUrl;
     const runId = runIdRef.current + 1;
     runIdRef.current = runId;
     setSegments([]);
@@ -432,6 +616,17 @@ export function useCloudTranscription(provider: "gradio" | "whisper") {
 
       if (isWhisper) {
         await runWhisperTranscription({
+          runId,
+          settings,
+          metadata,
+          telemetry,
+          preprocessSettings,
+        });
+        return;
+      }
+
+      if (isMistral) {
+        await runMistralTranscription({
           runId,
           settings,
           metadata,
@@ -810,6 +1005,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper") {
     isTranscribing,
     provider,
     previewUrl,
+    runMistralTranscription,
     runWhisperTranscription,
     resolvedSettings,
     selectedFile,
