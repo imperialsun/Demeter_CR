@@ -8,9 +8,27 @@ import type { TranscriptionSegment } from "@/lib/export";
 import type { TelemetryCollector, ChunkTelemetry, TelemetrySummary } from "@/lib/telemetry";
 
 export type PresetKey = "fast" | "balanced" | "medium" | "quality" | "turbo" | "custom";
+export type BuiltInPresetKey = Exclude<PresetKey, "custom">;
 
 export type BackendImplementation = "webgpu" | "wasm";
+export type ModelDtype = "auto" | "fp32" | "fp16" | "q8" | "q4" | "q4f16" | "int8" | "uint8" | "bnb4";
+export type PresetQuantizationOverrides = Partial<
+  Record<BuiltInPresetKey, Partial<Record<BackendImplementation, ModelDtype>>>
+>;
 export type DedupeMode = "normal" | "fuzzy";
+
+const MODEL_DTYPE_VALUES: readonly ModelDtype[] = [
+  "auto",
+  "fp32",
+  "fp16",
+  "q8",
+  "q4",
+  "q4f16",
+  "int8",
+  "uint8",
+  "bnb4",
+] as const;
+const ALLOWED_MODEL_DTYPES = new Set<ModelDtype>(MODEL_DTYPE_VALUES);
 
 export type PipelineStatus =
   | "idle"
@@ -35,6 +53,7 @@ export interface ModelPreset {
   label: string;
   modelId: string;
   description: string;
+  quantization: Partial<Record<BackendImplementation, ModelDtype>>;
 }
 
 export const MODEL_PRESETS: Record<Exclude<PresetKey, "custom">, ModelPreset> = {
@@ -43,30 +62,50 @@ export const MODEL_PRESETS: Record<Exclude<PresetKey, "custom">, ModelPreset> = 
     label: "Rapide (Whisper Tiny)",
     modelId: "Xenova/whisper-tiny",
     description: "Latence minimale, qualité correcte pour des itérations rapides.",
+    quantization: {
+      webgpu: "q4",
+      wasm: "q8",
+    },
   },
   balanced: {
     key: "balanced",
     label: "Équilibre (Whisper Base)",
     modelId: "Xenova/whisper-base",
     description: "Bon compromis précision/temps pour la production quotidienne.",
+    quantization: {
+      webgpu: "q8",
+      wasm: "q8",
+    },
   },
   medium: {
     key: "medium",
     label: "Intermédiaire (Whisper Small)",
     modelId: "Xenova/whisper-small",
     description: "Meilleure précision que l'option Équilibre, latence et mémoire modérées.",
+    quantization: {
+      webgpu: "q8",
+      wasm: "q8",
+    },
   },
   quality: {
     key: "quality",
     label: "Qualité (Whisper Medium)",
     modelId: "Xenova/whisper-medium",
     description: "Précision supérieure à l'option Intermédiaire, avec un coût mémoire plus élevé.",
+    quantization: {
+      webgpu: "fp16",
+      wasm: "q8",
+    },
   },
   turbo: {
     key: "turbo",
     label: "Très haute qualité (Mistral Turbo)",
-    modelId: "Xenova/whisper-large-v3-turbo",
+    modelId: "onnx-community/whisper-large-v3-turbo",
     description: "Niveau de qualité maximal, plus lent et plus gourmand en mémoire.",
+    quantization: {
+      webgpu: "fp16",
+      wasm: "q8",
+    },
   },
 };
 
@@ -88,6 +127,31 @@ const sanitizeBlockedPresets = (presets: PresetKey[] | undefined, fallback: Pres
   if (!Array.isArray(presets)) return fallback;
   const filtered = presets.filter((preset) => allowedBlockedPresets.has(preset as Exclude<PresetKey, "custom">));
   return filtered.length ? filtered : [];
+};
+
+const sanitizePresetQuantizationOverrides = (
+  overrides: PresetQuantizationOverrides | undefined,
+  fallback: PresetQuantizationOverrides = {}
+): PresetQuantizationOverrides => {
+  if (!overrides || typeof overrides !== "object") return fallback;
+  const sanitized: PresetQuantizationOverrides = {};
+  const presetEntries = Object.entries(overrides as Record<string, unknown>);
+  for (const [presetKey, value] of presetEntries) {
+    if (!allowedBlockedPresets.has(presetKey as BuiltInPresetKey)) continue;
+    if (!value || typeof value !== "object") continue;
+    const backendMap = value as Partial<Record<BackendImplementation, unknown>>;
+    const nextBackendMap: Partial<Record<BackendImplementation, ModelDtype>> = {};
+    for (const backend of ["webgpu", "wasm"] as const) {
+      const dtype = backendMap[backend];
+      if (typeof dtype === "string" && ALLOWED_MODEL_DTYPES.has(dtype as ModelDtype)) {
+        nextBackendMap[backend] = dtype as ModelDtype;
+      }
+    }
+    if (Object.keys(nextBackendMap).length > 0) {
+      sanitized[presetKey as BuiltInPresetKey] = nextBackendMap;
+    }
+  }
+  return sanitized;
 };
 
 const resolveBackendPreference = (
@@ -140,6 +204,7 @@ interface AsrConfigState {
   hasHydrated: boolean;
   activePreset: PresetKey;
   customModelId: string;
+  modelQuantizationOverrides: PresetQuantizationOverrides;
   blockedPresets: PresetKey[];
   backendPreference: BackendImplementation;
   webGpuSupported: boolean;
@@ -312,6 +377,7 @@ interface AsrConfigState {
 
 interface AsrConfigActions {
   setPreset: (preset: PresetKey, customModelId?: string) => void;
+  setPresetQuantization: (preset: BuiltInPresetKey, backend: BackendImplementation, dtype: ModelDtype) => void;
   setBlockedPresets: (presets: PresetKey[]) => void;
   setBackendPreference: (backend: BackendImplementation) => void;
   setStatus: (status: PipelineStatus, detail?: string) => void;
@@ -506,6 +572,7 @@ const initialState: AsrConfigState = {
   hasHydrated: false,
   activePreset: "fast",
   customModelId: "",
+  modelQuantizationOverrides: {},
   blockedPresets: [],
   backendPreference: "webgpu",
   webGpuSupported: true,
@@ -674,6 +741,24 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       activePreset: sanitizePreset(preset),
       customModelId: customId ?? "",
     })),
+  setPresetQuantization: (preset, backend, dtype) =>
+    set((state) => {
+      const currentPresetOverrides = { ...(state.modelQuantizationOverrides[preset] ?? {}) };
+      const defaultDtype = MODEL_PRESETS[preset].quantization[backend];
+      if (dtype === defaultDtype) {
+        delete currentPresetOverrides[backend];
+      } else {
+        currentPresetOverrides[backend] = dtype;
+      }
+
+      const nextOverrides = { ...state.modelQuantizationOverrides };
+      if (Object.keys(currentPresetOverrides).length > 0) {
+        nextOverrides[preset] = currentPresetOverrides;
+      } else {
+        delete nextOverrides[preset];
+      }
+      return { modelQuantizationOverrides: nextOverrides };
+    }),
   setBlockedPresets: (presets) => {
     const sanitized = sanitizeBlockedPresets(presets);
     console.info("[asr-store] blocked presets updated", { blocked: sanitized });
@@ -726,6 +811,10 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       set(() => ({ hasHydrated: true }));
       return;
     }
+    const modelQuantizationOverrides = sanitizePresetQuantizationOverrides(
+      settings.presetQuantizationOverrides,
+      get().modelQuantizationOverrides
+    );
     const blockedPresets = sanitizeBlockedPresets(settings.blockedPresets, get().blockedPresets);
     const support = { webGpuSupported: get().webGpuSupported, wasmAvailable: get().wasmAvailable };
     const resolvedBackendPreference = resolveBackendPreference(
@@ -785,6 +874,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       hasHydrated: true,
       activePreset: sanitizePreset(settings.activePreset ?? state.activePreset),
       customModelId: settings.customModelId,
+      modelQuantizationOverrides,
       blockedPresets,
       backendPreference: resolvedBackendPreference,
       micActivePreset: settings.micActivePreset ? sanitizePreset(settings.micActivePreset) : state.micActivePreset,
@@ -1158,6 +1248,24 @@ export function resolveModelId(activePreset: PresetKey, customModelId: string) {
   return MODEL_PRESETS[activePreset].modelId;
 }
 
+export function resolveModelDtype(activePreset: PresetKey, backend: BackendImplementation): ModelDtype | undefined {
+  if (activePreset === "custom") {
+    return undefined;
+  }
+  return MODEL_PRESETS[activePreset].quantization[backend];
+}
+
+export function resolveEffectiveModelDtype(
+  activePreset: PresetKey,
+  backend: BackendImplementation,
+  overrides: PresetQuantizationOverrides | undefined
+): ModelDtype | undefined {
+  if (activePreset === "custom") {
+    return undefined;
+  }
+  return overrides?.[activePreset]?.[backend] ?? MODEL_PRESETS[activePreset].quantization[backend];
+}
+
 useAsrStore.subscribe((state) => {
   if (!state.hasHydrated) {
     return;
@@ -1165,6 +1273,7 @@ useAsrStore.subscribe((state) => {
   const payload: PersistedSettings = {
       activePreset: state.activePreset,
       customModelId: state.customModelId,
+      presetQuantizationOverrides: state.modelQuantizationOverrides,
       blockedPresets: state.blockedPresets,
       backendPreference: state.backendPreference,
     micActivePreset: state.micActivePreset,

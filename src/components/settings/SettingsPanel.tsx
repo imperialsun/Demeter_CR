@@ -4,9 +4,12 @@ import { ChevronDown } from "lucide-react";
 
 import {
   MODEL_PRESETS,
+  resolveEffectiveModelDtype,
   useAsrStore,
   type BackendImplementation,
+  type BuiltInPresetKey,
   type DedupeMode,
+  type ModelDtype,
 } from "@/store/asr-store";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
@@ -53,6 +56,22 @@ const BACKENDS: BackendOption[] = [
   },
 ];
 
+const QUANTIZATION_OPTIONS: Array<{
+  value: ModelDtype;
+  label: string;
+  description: string;
+}> = [
+  { value: "q4", label: "Q4", description: "Le moins gourmand (4-bit, _q4)." },
+  { value: "bnb4", label: "BNB4", description: "Très faible mémoire (4-bit, _bnb4)." },
+  { value: "q4f16", label: "Q4 F16", description: "4-bit avec calcul fp16 (_q4f16)." },
+  { value: "int8", label: "INT8", description: "Mémoire modérée (8-bit, _int8)." },
+  { value: "uint8", label: "UINT8", description: "Mémoire modérée (8-bit, _uint8)." },
+  { value: "q8", label: "Q8", description: "Quantized 8-bit (_quantized)." },
+  { value: "fp16", label: "FP16", description: "Plus gourmand (16-bit, _fp16)." },
+  { value: "fp32", label: "FP32", description: "Le plus gourmand (32-bit, suffixe vide)." },
+  { value: "auto", label: "Auto", description: "Variable selon backend/modèle (non classable strictement)." },
+];
+
 interface SettingsPanelProps {
   showMicroReminder?: boolean;
   showReminders?: boolean;
@@ -92,6 +111,7 @@ export function SettingsPanel({
   const {
     activePreset,
     customModelId,
+    modelQuantizationOverrides,
     backendPreference,
     webGpuSupported,
     wasmAvailable,
@@ -140,6 +160,7 @@ export function SettingsPanel({
     showSegmentConfidence,
     setShowSegmentConfidence,
     setPreset,
+    setPresetQuantization,
     setBackendPreference,
     setMemoryMode,
     setChunkStrategy,
@@ -163,6 +184,7 @@ export function SettingsPanel({
     useShallow((state) => ({
     activePreset: state.activePreset,
     customModelId: state.customModelId,
+    modelQuantizationOverrides: state.modelQuantizationOverrides,
     backendPreference: state.backendPreference,
     memoryMode: state.memoryMode,
     chunkStrategy: state.chunkStrategy,
@@ -205,6 +227,7 @@ export function SettingsPanel({
     webGpuSupported: state.webGpuSupported,
     wasmAvailable: state.wasmAvailable,
     setPreset: state.setPreset,
+    setPresetQuantization: state.setPresetQuantization,
     setBackendPreference: state.setBackendPreference,
     setMemoryMode: state.setMemoryMode,
     setChunkStrategy: state.setChunkStrategy,
@@ -938,6 +961,42 @@ export function SettingsPanel({
   type PresetKey = Parameters<typeof setPreset>[0];
   type MicPresetKey = Parameters<typeof setMicPreset>[0];
   type ChunkStrategyValue = Parameters<typeof setChunkStrategy>[0];
+  type EffectivePresetKey = BuiltInPresetKey;
+
+  const resolveQuantizationForPreset = (preset: PresetKey | MicPresetKey) => {
+    if (preset === "custom") return null;
+    const castPreset = preset as EffectivePresetKey;
+    const webgpu =
+      resolveEffectiveModelDtype(castPreset, "webgpu", modelQuantizationOverrides) ??
+      MODEL_PRESETS[castPreset].quantization.webgpu ??
+      "auto";
+    const wasm =
+      resolveEffectiveModelDtype(castPreset, "wasm", modelQuantizationOverrides) ??
+      MODEL_PRESETS[castPreset].quantization.wasm ??
+      "auto";
+    return { webgpu, wasm };
+  };
+
+  const activePresetQuantization = resolveQuantizationForPreset(activePreset);
+  const micPresetQuantization = resolveQuantizationForPreset(micActivePreset);
+
+  const handlePresetQuantizationChange = (
+    preset: PresetKey | MicPresetKey,
+    backend: BackendImplementation,
+    value: string
+  ) => {
+    if (preset === "custom") return;
+    setPresetQuantization(preset as EffectivePresetKey, backend, value as ModelDtype);
+  };
+
+  const resetPresetQuantizationDefaults = (preset: PresetKey | MicPresetKey) => {
+    if (preset === "custom") return;
+    const castPreset = preset as EffectivePresetKey;
+    const defaultWebgpu = MODEL_PRESETS[castPreset].quantization.webgpu ?? "auto";
+    const defaultWasm = MODEL_PRESETS[castPreset].quantization.wasm ?? "auto";
+    setPresetQuantization(castPreset, "webgpu", defaultWebgpu);
+    setPresetQuantization(castPreset, "wasm", defaultWasm);
+  };
 
   return (
     <Tabs defaultValue="local" className="space-y-6">
@@ -994,25 +1053,25 @@ export function SettingsPanel({
                 <SelectTrigger>
                   <SelectValue placeholder="Sélectionnez un preset" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="max-h-[24rem] w-[min(92vw,40rem)] min-w-[var(--radix-select-trigger-width)]">
                 {presetOptions.map((preset) => {
                   const isBlocked = blockedPresetSet.has(preset.key);
                   return (
-                    <SelectItem key={preset.key} value={preset.key} disabled={isBlocked}>
-                      <div className="flex flex-col">
-                        <span className="font-medium">{preset.label}</span>
-                        <span className="text-xs text-muted-foreground">{preset.description}</span>
+                    <SelectItem key={preset.key} value={preset.key} disabled={isBlocked} className="items-start py-2">
+                      <div className="flex min-w-0 flex-col">
+                        <span className="font-medium whitespace-normal break-words">{preset.label}</span>
+                        <span className="text-xs text-muted-foreground whitespace-normal break-words">{preset.description}</span>
                         {isBlocked ? (
-                          <span className="text-xs text-destructive">Trop lourd pour ce poste (test)</span>
+                          <span className="text-xs text-destructive whitespace-normal break-words">Trop lourd pour ce poste (test)</span>
                         ) : null}
                       </div>
                     </SelectItem>
                   );
                 })}
-                  <SelectItem value="custom">
-                    <div className="flex flex-col">
-                      <span className="font-medium">Custom</span>
-                      <span className="text-xs text-muted-foreground">Renseignez un repo Hugging Face compatible.</span>
+                  <SelectItem value="custom" className="items-start py-2">
+                    <div className="flex min-w-0 flex-col">
+                      <span className="font-medium whitespace-normal break-words">Custom</span>
+                      <span className="text-xs text-muted-foreground whitespace-normal break-words">Renseignez un repo Hugging Face compatible.</span>
                     </div>
                   </SelectItem>
                 </SelectContent>
@@ -1054,12 +1113,78 @@ export function SettingsPanel({
                   ))}
                 </SelectContent>
               </Select>
-              {!webGpuSupported ? (
+            {!webGpuSupported ? (
+              <p className="text-xs text-muted-foreground">
+                WebGPU n&apos;est pas disponible sur ce périphérique. Le mode WASM est appliqué automatiquement.
+              </p>
+            ) : null}
+          </div>
+          {!isCustom && activePresetQuantization ? (
+            <div className="space-y-3 rounded-md border bg-muted/40 px-3 py-3">
+              <div>
+                <p className="text-sm font-medium">Quantization du preset</p>
                 <p className="text-xs text-muted-foreground">
-                  WebGPU n&apos;est pas disponible sur ce périphérique. Le mode WASM est appliqué automatiquement.
+                  S&apos;applique à ce preset pour la transcription locale et micro.
                 </p>
-              ) : null}
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => resetPresetQuantizationDefaults(activePreset)}
+                >
+                  Réinitialiser ce preset
+                </Button>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="local-quantization-webgpu">WebGPU</Label>
+                  <Select
+                    value={activePresetQuantization.webgpu}
+                    onValueChange={(value) => handlePresetQuantizationChange(activePreset, "webgpu", value)}
+                  >
+                    <SelectTrigger id="local-quantization-webgpu">
+                      <SelectValue placeholder="Dtype WebGPU" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {QUANTIZATION_OPTIONS.map((option) => (
+                        <SelectItem
+                          key={`local-webgpu-${option.value}`}
+                          value={option.value}
+                          title={option.description}
+                        >
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="local-quantization-wasm">WASM</Label>
+                  <Select
+                    value={activePresetQuantization.wasm}
+                    onValueChange={(value) => handlePresetQuantizationChange(activePreset, "wasm", value)}
+                  >
+                    <SelectTrigger id="local-quantization-wasm">
+                      <SelectValue placeholder="Dtype WASM" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {QUANTIZATION_OPTIONS.map((option) => (
+                        <SelectItem
+                          key={`local-wasm-${option.value}`}
+                          value={option.value}
+                          title={option.description}
+                        >
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
             </div>
+          ) : null}
 
             <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
               <div>
@@ -1897,25 +2022,25 @@ export function SettingsPanel({
               <SelectTrigger>
                 <SelectValue placeholder="Sélectionnez un preset" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="max-h-[24rem] w-[min(92vw,40rem)] min-w-[var(--radix-select-trigger-width)]">
                 {presetOptions.map((preset) => {
                   const isBlocked = blockedPresetSet.has(preset.key);
                   return (
-                    <SelectItem key={preset.key} value={preset.key} disabled={isBlocked}>
-                      <div className="flex flex-col">
-                        <span className="font-medium">{preset.label}</span>
-                        <span className="text-xs text-muted-foreground">{preset.description}</span>
+                    <SelectItem key={preset.key} value={preset.key} disabled={isBlocked} className="items-start py-2">
+                      <div className="flex min-w-0 flex-col">
+                        <span className="font-medium whitespace-normal break-words">{preset.label}</span>
+                        <span className="text-xs text-muted-foreground whitespace-normal break-words">{preset.description}</span>
                         {isBlocked ? (
-                          <span className="text-xs text-destructive">Trop lourd pour ce poste (test)</span>
+                          <span className="text-xs text-destructive whitespace-normal break-words">Trop lourd pour ce poste (test)</span>
                         ) : null}
                       </div>
                     </SelectItem>
                   );
                 })}
-                <SelectItem value="custom">
-                  <div className="flex flex-col">
-                    <span className="font-medium">Custom</span>
-                    <span className="text-xs text-muted-foreground">Renseignez un repo Hugging Face compatible.</span>
+                <SelectItem value="custom" className="items-start py-2">
+                  <div className="flex min-w-0 flex-col">
+                    <span className="font-medium whitespace-normal break-words">Custom</span>
+                    <span className="text-xs text-muted-foreground whitespace-normal break-words">Renseignez un repo Hugging Face compatible.</span>
                   </div>
                 </SelectItem>
               </SelectContent>
@@ -1963,6 +2088,72 @@ export function SettingsPanel({
               </p>
             ) : null}
           </div>
+          {!isMicCustom && micPresetQuantization ? (
+            <div className="space-y-3 rounded-md border bg-muted/40 px-3 py-3">
+              <div>
+                <p className="text-sm font-medium">Quantization du preset</p>
+                <p className="text-xs text-muted-foreground">
+                  Réglage partagé avec l&apos;onglet Local pour ce preset.
+                </p>
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => resetPresetQuantizationDefaults(micActivePreset)}
+                >
+                  Réinitialiser ce preset
+                </Button>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="mic-quantization-webgpu">WebGPU</Label>
+                  <Select
+                    value={micPresetQuantization.webgpu}
+                    onValueChange={(value) => handlePresetQuantizationChange(micActivePreset, "webgpu", value)}
+                  >
+                    <SelectTrigger id="mic-quantization-webgpu">
+                      <SelectValue placeholder="Dtype WebGPU" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {QUANTIZATION_OPTIONS.map((option) => (
+                        <SelectItem
+                          key={`mic-webgpu-${option.value}`}
+                          value={option.value}
+                          title={option.description}
+                        >
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="mic-quantization-wasm">WASM</Label>
+                  <Select
+                    value={micPresetQuantization.wasm}
+                    onValueChange={(value) => handlePresetQuantizationChange(micActivePreset, "wasm", value)}
+                  >
+                    <SelectTrigger id="mic-quantization-wasm">
+                      <SelectValue placeholder="Dtype WASM" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {QUANTIZATION_OPTIONS.map((option) => (
+                        <SelectItem
+                          key={`mic-wasm-${option.value}`}
+                          value={option.value}
+                          title={option.description}
+                        >
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
             <div>

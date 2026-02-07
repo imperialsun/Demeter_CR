@@ -53,6 +53,48 @@ describe('SettingsPanel', () => {
     expect(useAsrStore.getState().enableWordTimestamps).toBe(true);
   });
 
+  it("shows quantization controls for built-in presets", async () => {
+    useAsrStore.setState({ activePreset: "fast" } as any);
+
+    render(<ThemeProvider defaultTheme="dark" storageKey="demeter-theme"><SettingsPanel /></ThemeProvider>);
+    const header = screen.getByText('Modèle Whisper');
+    const headerContainer = header.closest('div');
+    const showBtn = headerContainer?.parentElement?.querySelector('button');
+    expect(showBtn).toBeTruthy();
+    if (showBtn?.textContent?.includes("Afficher")) {
+      fireEvent.click(showBtn);
+    }
+
+    expect(await screen.findByText("Quantization du preset")).toBeTruthy();
+    expect(screen.getByLabelText("WebGPU", { selector: "button#local-quantization-webgpu" })).toBeTruthy();
+    expect(screen.getByLabelText("WASM", { selector: "button#local-quantization-wasm" })).toBeTruthy();
+  });
+
+  it("resets quantization overrides to preset defaults", async () => {
+    useAsrStore.setState({
+      activePreset: "fast",
+      modelQuantizationOverrides: {
+        fast: { webgpu: "fp32", wasm: "fp32" },
+      },
+    } as any);
+
+    render(<ThemeProvider defaultTheme="dark" storageKey="demeter-theme"><SettingsPanel /></ThemeProvider>);
+    const header = screen.getByText('Modèle Whisper');
+    const headerContainer = header.closest('div');
+    const showBtn = headerContainer?.parentElement?.querySelector('button');
+    expect(showBtn).toBeTruthy();
+    if (showBtn?.textContent?.includes("Afficher")) {
+      fireEvent.click(showBtn);
+    }
+
+    const resetButtons = await screen.findAllByRole('button', { name: "Réinitialiser ce preset" });
+    fireEvent.click(resetButtons[0]!);
+
+    await waitFor(() => {
+      expect(useAsrStore.getState().modelQuantizationOverrides.fast).toBeUndefined();
+    });
+  });
+
   it("clears caches and shows toast on confirm", async () => {
     // Mock caches API
     const keysSpy = vi.fn(async () => ['test-cache']);

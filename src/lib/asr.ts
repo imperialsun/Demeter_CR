@@ -1,4 +1,5 @@
 import {
+  resolveEffectiveModelDtype,
   resolveModelId,
   useAsrStore,
   type BackendImplementation,
@@ -126,6 +127,7 @@ export async function createAsrPipeline({
   modelId: string;
 }> {
   const modelId = resolveModelId(modelPreset, customModelId);
+  const modelQuantizationOverrides = useAsrStore.getState().modelQuantizationOverrides;
   telemetry?.setRuntimeContext({ backend: backendPreference, modelId });
   onStatus?.("downloading", "Préparation du modèle");
   logger.info("ASR model load start", { modelId, backendPreference });
@@ -183,15 +185,16 @@ export async function createAsrPipeline({
         sessionOptions.executionProviders = [ { name: "wasm", options: wasmOptions } ];
         flagWasmSessionOptions(sessionOptions);
       }
+      const dtype = resolveEffectiveModelDtype(modelPreset, backend, modelQuantizationOverrides);
       logger.debug("ASR session options", { backend, sessionOptions });
-      logger.info("ASR pipeline init", { backend, modelId, device, sessionOptions });
+      logger.info("ASR pipeline init", { backend, modelId, device, dtype, sessionOptions });
       const { pipeline } = await loadTransformers();
       const createPipeline = pipeline as unknown as (
         task: string,
         model?: string,
         options?: Record<string, unknown>
       ) => Promise<AutomaticSpeechRecognitionPipeline>;
-      const pipe = await createPipeline("automatic-speech-recognition", modelId, {
+      const pipelineOptions: Record<string, unknown> = {
         device,
         session_options: sessionOptions,
         progress_callback: (data: PipelineProgressPayload) => {
@@ -238,7 +241,11 @@ export async function createAsrPipeline({
             }
           }
         },
-      });
+      };
+      if (dtype) {
+        pipelineOptions.dtype = dtype;
+      }
+      const pipe = await createPipeline("automatic-speech-recognition", modelId, pipelineOptions);
 
       telemetry?.stopTimer("load_model_total");
       telemetry?.logEvent("READY", { backend });
@@ -330,8 +337,8 @@ export async function createAsrPipeline({
             model?: string,
             options?: Record<string, unknown>
           ) => Promise<AutomaticSpeechRecognitionPipeline>;
-
-          const pipe2 = await createPipeline2("automatic-speech-recognition", modelId, {
+          const dtype = resolveEffectiveModelDtype(modelPreset, backend, modelQuantizationOverrides);
+          const pipelineOptions2: Record<string, unknown> = {
             device,
             session_options: sessionOptions2,
             progress_callback: (data: PipelineProgressPayload) => {
@@ -345,7 +352,11 @@ export async function createAsrPipeline({
                 file: typeof data.file === "string" ? data.file : undefined,
               });
             },
-          });
+          };
+          if (dtype) {
+            pipelineOptions2.dtype = dtype;
+          }
+          const pipe2 = await createPipeline2("automatic-speech-recognition", modelId, pipelineOptions2);
           telemetry?.stopTimer("load_model_total");
           telemetry?.logEvent("READY", { backend: `${backend}-single-thread` });
           telemetry?.setRuntimeContext({ backend: `${backend}-single-thread`, modelId });
