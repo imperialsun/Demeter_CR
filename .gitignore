@@ -38,3 +38,4 @@ transcriptions/
 *.njsproj
 *.sln
 *.sw?
+worktrees/
