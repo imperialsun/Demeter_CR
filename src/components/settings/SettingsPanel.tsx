@@ -242,9 +242,11 @@ export function SettingsPanel({
     cloudTopP,
     cloudDoSample,
     cloudContextPreset,
-    cloudMistralApiUrl,
     cloudMistralApiKey,
-    cloudMistralModel,
+    cloudWhisperChunkDurationSec,
+    cloudWhisperOverlapSec,
+    cloudMistralChunkDurationSec,
+    cloudMistralOverlapSec,
     cloudShowSegments,
     cloudShowExportVtt,
     cloudShowExportSrt,
@@ -275,9 +277,9 @@ export function SettingsPanel({
     cloudHfToken,
     setCloudApiUrl,
     setCloudHfToken,
-    setCloudMistralApiUrl,
     setCloudMistralApiKey,
-    setCloudMistralModel,
+    setCloudWhisperChunking,
+    setCloudMistralChunking,
     setCloudMaxTokens,
     setCloudTemperature,
     setCloudTopP,
@@ -302,9 +304,11 @@ export function SettingsPanel({
       cloudTopP: state.cloudTopP,
       cloudDoSample: state.cloudDoSample,
       cloudContextPreset: state.cloudContextPreset,
-      cloudMistralApiUrl: state.cloudMistralApiUrl,
       cloudMistralApiKey: state.cloudMistralApiKey,
-      cloudMistralModel: state.cloudMistralModel,
+      cloudWhisperChunkDurationSec: state.cloudWhisperChunkDurationSec,
+      cloudWhisperOverlapSec: state.cloudWhisperOverlapSec,
+      cloudMistralChunkDurationSec: state.cloudMistralChunkDurationSec,
+      cloudMistralOverlapSec: state.cloudMistralOverlapSec,
       cloudShowSegments: state.cloudShowSegments,
       cloudShowExportVtt: state.cloudShowExportVtt,
       cloudShowExportSrt: state.cloudShowExportSrt,
@@ -335,9 +339,9 @@ export function SettingsPanel({
       cloudHfToken: state.cloudHfToken,
       setCloudApiUrl: state.setCloudApiUrl,
       setCloudHfToken: state.setCloudHfToken,
-      setCloudMistralApiUrl: state.setCloudMistralApiUrl,
       setCloudMistralApiKey: state.setCloudMistralApiKey,
-      setCloudMistralModel: state.setCloudMistralModel,
+      setCloudWhisperChunking: state.setCloudWhisperChunking,
+      setCloudMistralChunking: state.setCloudMistralChunking,
       setCloudMaxTokens: state.setCloudMaxTokens,
       setCloudTemperature: state.setCloudTemperature,
       setCloudTopP: state.setCloudTopP,
@@ -494,6 +498,7 @@ export function SettingsPanel({
 
   const [modelOpen, setModelOpen] = useState(initialModelOpen);
   const [chunkingOpen, setChunkingOpen] = useState(initialChunkingOpen);
+  const [cloudProviderPanel, setCloudProviderPanel] = useState<"gradio" | "whisper" | "mistral">("gradio");
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
 
@@ -2397,119 +2402,219 @@ export function SettingsPanel({
             <Card className="lg:col-span-2">
               <CardHeader>
                 <CardTitle>Connexion cloud</CardTitle>
-                <CardDescription>Paramètres de connexion et options d'inférence.</CardDescription>
+                <CardDescription>Paramètres organisés par provider.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="cloud-api-url">URL Gradio</Label>
-                  <Input
-                    id="cloud-api-url"
-                    value={cloudApiUrl}
-                    onChange={(event) => setCloudApiUrl(event.target.value)}
-                    placeholder="https://....gradio.live/"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cloud-hf-token">Token Hugging Face (Whisper)</Label>
-                  <Input
-                    id="cloud-hf-token"
-                    type="password"
-                    value={cloudHfToken}
-                    onChange={(event) => setCloudHfToken(event.target.value)}
-                    placeholder="hf_..."
-                    autoComplete="off"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Stocké localement pour l&apos;inférence Whisper.
-                  </p>
-                </div>
-                <Separator />
-                <div className="space-y-2">
-                  <Label htmlFor="cloud-mistral-api-url">URL API Mistral</Label>
-                  <Input
-                    id="cloud-mistral-api-url"
-                    value={cloudMistralApiUrl}
-                    onChange={(event) => setCloudMistralApiUrl(event.target.value)}
-                    placeholder="https://api.mistral.ai"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cloud-mistral-api-key">Token API Mistral</Label>
-                  <Input
-                    id="cloud-mistral-api-key"
-                    type="password"
-                    value={cloudMistralApiKey}
-                    onChange={(event) => setCloudMistralApiKey(event.target.value)}
-                    placeholder="..."
-                    autoComplete="off"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cloud-mistral-model">Modèle Mistral</Label>
-                  <Input
-                    id="cloud-mistral-model"
-                    value={cloudMistralModel}
-                    onChange={(event) => setCloudMistralModel(event.target.value)}
-                    placeholder="voxtral-mini-transcribe-26-02"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Modèle par défaut recommandé: <code>voxtral-mini-transcribe-26-02</code>.
-                  </p>
-                </div>
-                <Separator />
-                <div className="grid gap-3 md:grid-cols-3">
-                  <NumberField
-                    id="cloud-max-tokens"
-                    label="Max tokens"
-                    min={256}
-                    max={65536}
-                    step={256}
-                    value={cloudMaxTokens}
-                    onChange={(value) => setCloudMaxTokens(value)}
-                  />
-                  <NumberField
-                    id="cloud-temperature"
-                    label="Temperature"
-                    min={0}
-                    max={2}
-                    step={0.1}
-                    value={cloudTemperature}
-                    onChange={(value) => setCloudTemperature(value)}
-                  />
-                  <NumberField
-                    id="cloud-top-p"
-                    label="Top-p"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={cloudTopP}
-                    onChange={(value) => setCloudTopP(value)}
-                  />
-                </div>
-                <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
-                  <div>
-                    <p className="text-sm font-medium">Sampling</p>
-                    <p className="text-xs text-muted-foreground">Active la génération stochastique.</p>
-                  </div>
-                  <Switch
-                    className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
-                    checked={cloudDoSample}
-                    onCheckedChange={(value) => setCloudDoSample(value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cloud-context-preset">Contexte par défaut (pré-remplissage)</Label>
-                  <Textarea
-                    id="cloud-context-preset"
-                    rows={4}
-                    value={cloudContextPreset}
-                    onChange={(event) => setCloudContextPreset(event.target.value)}
-                    placeholder="Noms propres, jargon, acronymes..."
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Ce texte sera ajouté automatiquement au contexte saisi sur la page cloud.
-                  </p>
-                </div>
+                <Tabs
+                  value={cloudProviderPanel}
+                  onValueChange={(value) => {
+                    if (value === "gradio" || value === "whisper" || value === "mistral") {
+                      setCloudProviderPanel(value);
+                    }
+                  }}
+                >
+                  <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="gradio">Gradio</TabsTrigger>
+                    <TabsTrigger value="whisper">Whisper</TabsTrigger>
+                    <TabsTrigger value="mistral">Mistral</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="gradio" className="mt-4 space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="cloud-api-url">URL Gradio</Label>
+                      <Input
+                        id="cloud-api-url"
+                        value={cloudApiUrl}
+                        onChange={(event) => setCloudApiUrl(event.target.value)}
+                        placeholder="https://....gradio.live/"
+                      />
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <NumberField
+                        id="cloud-max-tokens"
+                        label="Max tokens"
+                        min={256}
+                        max={65536}
+                        step={256}
+                        value={cloudMaxTokens}
+                        onChange={(value) => setCloudMaxTokens(value)}
+                      />
+                      <NumberField
+                        id="cloud-temperature"
+                        label="Temperature"
+                        min={0}
+                        max={2}
+                        step={0.1}
+                        value={cloudTemperature}
+                        onChange={(value) => setCloudTemperature(value)}
+                      />
+                      <NumberField
+                        id="cloud-top-p"
+                        label="Top-p"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={cloudTopP}
+                        onChange={(value) => setCloudTopP(value)}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+                      <div>
+                        <p className="text-sm font-medium">Sampling</p>
+                        <p className="text-xs text-muted-foreground">Active la génération stochastique.</p>
+                      </div>
+                      <Switch
+                        className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                        checked={cloudDoSample}
+                        onCheckedChange={(value) => setCloudDoSample(value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="cloud-context-preset">Contexte par défaut (pré-remplissage)</Label>
+                      <Textarea
+                        id="cloud-context-preset"
+                        rows={4}
+                        value={cloudContextPreset}
+                        onChange={(event) => setCloudContextPreset(event.target.value)}
+                        placeholder="Noms propres, jargon, acronymes..."
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Ce texte sera ajouté automatiquement au contexte saisi sur la page cloud.
+                      </p>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="whisper" className="mt-4 space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="cloud-hf-token">Token Hugging Face (Whisper)</Label>
+                      <Input
+                        id="cloud-hf-token"
+                        type="password"
+                        value={cloudHfToken}
+                        onChange={(event) => setCloudHfToken(event.target.value)}
+                        placeholder="hf_..."
+                        autoComplete="off"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Stocké localement pour l&apos;inférence Whisper.
+                      </p>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <NumberField
+                        id="cloud-whisper-max-tokens"
+                        label="Max tokens"
+                        min={256}
+                        max={65536}
+                        step={256}
+                        value={cloudMaxTokens}
+                        onChange={(value) => setCloudMaxTokens(value)}
+                      />
+                      <NumberField
+                        id="cloud-whisper-temperature"
+                        label="Temperature"
+                        min={0}
+                        max={2}
+                        step={0.1}
+                        value={cloudTemperature}
+                        onChange={(value) => setCloudTemperature(value)}
+                      />
+                      <NumberField
+                        id="cloud-whisper-top-p"
+                        label="Top-p"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={cloudTopP}
+                        onChange={(value) => setCloudTopP(value)}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+                      <div>
+                        <p className="text-sm font-medium">Sampling</p>
+                        <p className="text-xs text-muted-foreground">Active la génération stochastique.</p>
+                      </div>
+                      <Switch
+                        className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                        checked={cloudDoSample}
+                        onCheckedChange={(value) => setCloudDoSample(value)}
+                      />
+                    </div>
+                    <div className="rounded-md border bg-muted/30 p-3">
+                      <p className="text-sm font-medium">Chunking Whisper</p>
+                      <p className="mb-3 text-xs text-muted-foreground">
+                        Définit la durée des chunks envoyés au provider Whisper.
+                      </p>
+                      <NumberField
+                        id="cloud-whisper-chunk-duration"
+                        label="Durée chunk (s)"
+                        min={5}
+                        max={3600}
+                        step={1}
+                        value={cloudWhisperChunkDurationSec}
+                        onChange={(value) => setCloudWhisperChunking({ chunkDurationSec: value })}
+                      />
+                    </div>
+                    <div className="rounded-md border bg-muted/30 p-3">
+                      <p className="text-sm font-medium">Segmentation Whisper</p>
+                      <p className="mb-3 text-xs text-muted-foreground">
+                        Définit le recouvrement entre chunks pour conserver le contexte.
+                      </p>
+                      <NumberField
+                        id="cloud-whisper-overlap"
+                        label="Recouvrement (s)"
+                        min={0}
+                        max={120}
+                        step={0.5}
+                        value={cloudWhisperOverlapSec}
+                        onChange={(value) => setCloudWhisperChunking({ overlapSec: value })}
+                      />
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="mistral" className="mt-4 space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="cloud-mistral-api-key">Token API Mistral</Label>
+                      <Input
+                        id="cloud-mistral-api-key"
+                        type="password"
+                        value={cloudMistralApiKey}
+                        onChange={(event) => setCloudMistralApiKey(event.target.value)}
+                        placeholder="..."
+                        autoComplete="off"
+                      />
+                    </div>
+                    <div className="rounded-md border bg-muted/30 p-3">
+                      <p className="text-sm font-medium">Chunking Mistral</p>
+                      <p className="mb-3 text-xs text-muted-foreground">
+                        Définit la durée des chunks envoyés à Mistral.
+                      </p>
+                      <NumberField
+                        id="cloud-mistral-chunk-duration"
+                        label="Durée chunk (s)"
+                        min={5}
+                        max={3600}
+                        step={1}
+                        value={cloudMistralChunkDurationSec}
+                        onChange={(value) => setCloudMistralChunking({ chunkDurationSec: value })}
+                      />
+                    </div>
+                    <div className="rounded-md border bg-muted/30 p-3">
+                      <p className="text-sm font-medium">Segmentation Mistral</p>
+                      <p className="mb-3 text-xs text-muted-foreground">
+                        Définit le recouvrement entre chunks.
+                      </p>
+                      <NumberField
+                        id="cloud-mistral-overlap"
+                        label="Recouvrement (s)"
+                        min={0}
+                        max={120}
+                        step={0.5}
+                        value={cloudMistralOverlapSec}
+                        onChange={(value) => setCloudMistralChunking({ overlapSec: value })}
+                      />
+                    </div>
+                  </TabsContent>
+                </Tabs>
               </CardContent>
             </Card>
 

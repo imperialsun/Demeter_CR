@@ -96,6 +96,10 @@ export interface PersistedSettings {
   cloudMistralApiKey?: string;
   cloudMistralModel?: string;
   cloudMistralDiarizationEnabled?: boolean;
+  cloudWhisperChunkDurationSec?: number;
+  cloudWhisperOverlapSec?: number;
+  cloudMistralChunkDurationSec?: number;
+  cloudMistralOverlapSec?: number;
   cloudMaxTokens?: number;
   cloudTemperature?: number;
   cloudTopP?: number;
@@ -242,8 +246,12 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   cloudHfToken: "",
   cloudMistralApiUrl: "https://api.mistral.ai",
   cloudMistralApiKey: "",
-  cloudMistralModel: "voxtral-mini-transcribe-26-02",
+  cloudMistralModel: "voxtral-mini-latest",
   cloudMistralDiarizationEnabled: true,
+  cloudWhisperChunkDurationSec: 30,
+  cloudWhisperOverlapSec: 0,
+  cloudMistralChunkDurationSec: 1800,
+  cloudMistralOverlapSec: 0,
   cloudMaxTokens: 32768,
   cloudTemperature: 0,
   cloudTopP: 1,

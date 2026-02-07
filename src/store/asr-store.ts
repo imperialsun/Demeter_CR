@@ -71,6 +71,8 @@ export const MODEL_PRESETS: Record<Exclude<PresetKey, "custom">, ModelPreset> = 
 };
 
 const FALLBACK_PRESET: PresetKey = "balanced";
+const DEFAULT_MISTRAL_MODEL = "voxtral-mini-latest";
+const LEGACY_MISTRAL_MODEL = "voxtral-mini-transcribe-26-02";
 const allowedActivePresets = new Set<PresetKey>([
   ...(Object.keys(MODEL_PRESETS) as Array<Exclude<PresetKey, "custom">>),
   "custom",
@@ -117,6 +119,15 @@ export const normalizeCloudApiUrl = (value: string | undefined, fallback: string
     // Ignore invalid URLs and fall back to trimmed value.
   }
   return withoutTrailingSlash;
+};
+
+export const normalizeMistralModel = (value: string | undefined, fallback: string) => {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return fallback;
+  if (trimmed.toLowerCase() === LEGACY_MISTRAL_MODEL) {
+    return DEFAULT_MISTRAL_MODEL;
+  }
+  return trimmed;
 };
 
 type SessionSource = {
@@ -222,6 +233,10 @@ interface AsrConfigState {
   cloudMistralApiKey: string;
   cloudMistralModel: string;
   cloudMistralDiarizationEnabled: boolean;
+  cloudWhisperChunkDurationSec: number;
+  cloudWhisperOverlapSec: number;
+  cloudMistralChunkDurationSec: number;
+  cloudMistralOverlapSec: number;
   cloudMaxTokens: number;
   cloudTemperature: number;
   cloudTopP: number;
@@ -396,6 +411,14 @@ interface AsrConfigActions {
   setCloudMistralApiKey: (value: string) => void;
   setCloudMistralModel: (value: string) => void;
   setCloudMistralDiarizationEnabled: (value: boolean) => void;
+  setCloudWhisperChunking: (params: Partial<{
+    chunkDurationSec: number;
+    overlapSec: number;
+  }>) => void;
+  setCloudMistralChunking: (params: Partial<{
+    chunkDurationSec: number;
+    overlapSec: number;
+  }>) => void;
   setCloudMaxTokens: (value: number) => void;
   setCloudTemperature: (value: number) => void;
   setCloudTopP: (value: number) => void;
@@ -571,8 +594,12 @@ const initialState: AsrConfigState = {
   cloudHfToken: "",
   cloudMistralApiUrl: "https://api.mistral.ai",
   cloudMistralApiKey: "",
-  cloudMistralModel: "voxtral-mini-transcribe-26-02",
+  cloudMistralModel: DEFAULT_MISTRAL_MODEL,
   cloudMistralDiarizationEnabled: true,
+  cloudWhisperChunkDurationSec: 30,
+  cloudWhisperOverlapSec: 0,
+  cloudMistralChunkDurationSec: 1800,
+  cloudMistralOverlapSec: 0,
   cloudMaxTokens: 32768,
   cloudTemperature: 0,
   cloudTopP: 1,
@@ -741,6 +768,18 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         normalized: normalizedCloudApiUrl,
       });
     }
+    const currentCloudMistralModel = get().cloudMistralModel;
+    const normalizedCloudMistralModel = normalizeMistralModel(
+      settings.cloudMistralModel ?? currentCloudMistralModel,
+      currentCloudMistralModel
+    );
+    if ((settings.cloudMistralModel ?? currentCloudMistralModel) !== normalizedCloudMistralModel) {
+      const storedValue = settings.cloudMistralModel ?? currentCloudMistralModel;
+      logger.info("[asr-store] cloud mistral model normalized", {
+        stored: storedValue,
+        normalized: normalizedCloudMistralModel,
+      });
+    }
     set((state) => ({
       ...state,
       hasHydrated: true,
@@ -833,9 +872,15 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       cloudHfToken: settings.cloudHfToken ?? state.cloudHfToken,
       cloudMistralApiUrl: settings.cloudMistralApiUrl ?? state.cloudMistralApiUrl,
       cloudMistralApiKey: settings.cloudMistralApiKey ?? state.cloudMistralApiKey,
-      cloudMistralModel: settings.cloudMistralModel ?? state.cloudMistralModel,
+      cloudMistralModel: normalizedCloudMistralModel,
       cloudMistralDiarizationEnabled:
         settings.cloudMistralDiarizationEnabled ?? state.cloudMistralDiarizationEnabled,
+      cloudWhisperChunkDurationSec:
+        settings.cloudWhisperChunkDurationSec ?? state.cloudWhisperChunkDurationSec,
+      cloudWhisperOverlapSec: settings.cloudWhisperOverlapSec ?? state.cloudWhisperOverlapSec,
+      cloudMistralChunkDurationSec:
+        settings.cloudMistralChunkDurationSec ?? state.cloudMistralChunkDurationSec,
+      cloudMistralOverlapSec: settings.cloudMistralOverlapSec ?? state.cloudMistralOverlapSec,
       cloudMaxTokens: settings.cloudMaxTokens ?? state.cloudMaxTokens,
       cloudTemperature: settings.cloudTemperature ?? state.cloudTemperature,
       cloudTopP: settings.cloudTopP ?? state.cloudTopP,
@@ -974,6 +1019,16 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
   setCloudMistralApiKey: (value) => set(() => ({ cloudMistralApiKey: value })),
   setCloudMistralModel: (value) => set(() => ({ cloudMistralModel: value })),
   setCloudMistralDiarizationEnabled: (value) => set(() => ({ cloudMistralDiarizationEnabled: value })),
+  setCloudWhisperChunking: (params) =>
+    set((state) => ({
+      cloudWhisperChunkDurationSec: params.chunkDurationSec ?? state.cloudWhisperChunkDurationSec,
+      cloudWhisperOverlapSec: params.overlapSec ?? state.cloudWhisperOverlapSec,
+    })),
+  setCloudMistralChunking: (params) =>
+    set((state) => ({
+      cloudMistralChunkDurationSec: params.chunkDurationSec ?? state.cloudMistralChunkDurationSec,
+      cloudMistralOverlapSec: params.overlapSec ?? state.cloudMistralOverlapSec,
+    })),
   setCloudMaxTokens: (value) => set(() => ({ cloudMaxTokens: value })),
   setCloudTemperature: (value) => set(() => ({ cloudTemperature: value })),
   setCloudTopP: (value) => set(() => ({ cloudTopP: value })),
@@ -1191,6 +1246,10 @@ useAsrStore.subscribe((state) => {
     cloudMistralApiKey: state.cloudMistralApiKey,
     cloudMistralModel: state.cloudMistralModel,
     cloudMistralDiarizationEnabled: state.cloudMistralDiarizationEnabled,
+    cloudWhisperChunkDurationSec: state.cloudWhisperChunkDurationSec,
+    cloudWhisperOverlapSec: state.cloudWhisperOverlapSec,
+    cloudMistralChunkDurationSec: state.cloudMistralChunkDurationSec,
+    cloudMistralOverlapSec: state.cloudMistralOverlapSec,
     cloudMaxTokens: state.cloudMaxTokens,
     cloudTemperature: state.cloudTemperature,
     cloudTopP: state.cloudTopP,

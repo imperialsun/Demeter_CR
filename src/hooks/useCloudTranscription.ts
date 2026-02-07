@@ -23,7 +23,6 @@ import { buildWhisperParameters } from "@/lib/cloud/whisperParams";
 import { parseWhisperOutput } from "@/lib/cloud/whisperSegments";
 import { transcribeWithMistral } from "@/lib/cloud/mistralClient";
 import { parseMistralOutput } from "@/lib/cloud/mistralSegments";
-import { resolveMistralSegmentDurationSec } from "@/lib/cloud/mistralParams";
 
 type CloudStatus = "idle" | "preprocessing" | "uploading" | "transcribing" | "stopping" | "done" | "error";
 
@@ -36,6 +35,12 @@ const TRANSCRIBE_PROGRESS_BASE = 0.6;
 const TRANSCRIBE_PROGRESS_SPAN = 1 - TRANSCRIBE_PROGRESS_BASE;
 const PROGRESS_FALLBACK_DELAY_MS = 2000;
 const PROGRESS_FALLBACK_INTERVAL_MS = 1500;
+
+function resolveChunkingConfig(chunkDurationSec: number, overlapSec: number) {
+  const duration = Math.max(5, Math.round(chunkDurationSec || 0));
+  const overlap = Math.min(Math.max(0, overlapSec || 0), Math.max(0, duration - 1));
+  return { duration, overlap };
+}
 
 export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral") {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -211,22 +216,27 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
       throw new Error("Fichier audio manquant");
     }
 
-    const segmentDurationSec = resolveMistralSegmentDurationSec(model);
+    const { duration: segmentDurationSec, overlap: overlapSec } = resolveChunkingConfig(
+      settings.cloudWhisperChunkDurationSec,
+      settings.cloudWhisperOverlapSec
+    );
     const plan = buildFixedSegments({
       durationSec: metadata.durationSec,
       segmentDurationSec,
-      overlapSec: 0,
+      overlapSec,
     });
     const totalSegments = Math.max(1, plan.length);
     logger.info("[cloud][whisper] plan", {
       segments: totalSegments,
       durationSec: metadata.durationSec,
       segmentDurationSec,
+      overlapSec,
     });
     telemetry.logEvent("CLOUD_WHISPER_PLAN", {
       segments: totalSegments,
       durationSec: metadata.durationSec,
       segmentDurationSec,
+      overlapSec,
     });
 
     const client = await getWhisperClient(token, telemetry);
@@ -372,7 +382,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
     const { runId, settings, metadata, telemetry, preprocessSettings } = args;
     const apiKey = cloudMistralApiKey.trim();
     const apiUrl = cloudMistralApiUrl.trim();
-    const model = cloudMistralModel.trim() || "voxtral-mini-transcribe-26-02";
+    const model = cloudMistralModel.trim() || "voxtral-mini-latest";
 
     if (!apiKey) {
       const message = "Token API Mistral manquant";
@@ -390,22 +400,27 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
       throw new Error("Fichier audio manquant");
     }
 
-    const segmentDurationSec = 30;
+    const { duration: segmentDurationSec, overlap: overlapSec } = resolveChunkingConfig(
+      settings.cloudMistralChunkDurationSec,
+      settings.cloudMistralOverlapSec
+    );
     const plan = buildFixedSegments({
       durationSec: metadata.durationSec,
       segmentDurationSec,
-      overlapSec: 0,
+      overlapSec,
     });
     const totalSegments = Math.max(1, plan.length);
     logger.info("[cloud][mistral] plan", {
       segments: totalSegments,
       durationSec: metadata.durationSec,
       segmentDurationSec,
+      overlapSec,
       model,
     });
     telemetry.logEvent("CLOUD_MISTRAL_PLAN", {
       model,
       segmentDurationSec,
+      overlapSec,
       segments: totalSegments,
       durationSec: metadata.durationSec,
     });

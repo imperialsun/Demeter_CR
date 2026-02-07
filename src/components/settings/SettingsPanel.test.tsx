@@ -181,6 +181,7 @@ describe('SettingsPanel', () => {
 
     const cloudTab = screen.getByText("Cloud");
     await userEvent.click(cloudTab);
+    await userEvent.click(screen.getByRole("tab", { name: "Whisper" }));
 
     const input = screen.getByLabelText("Token Hugging Face (Whisper)", { selector: "input#cloud-hf-token" });
     fireEvent.change(input, { target: { value: "hf_test_token" } });
@@ -188,7 +189,26 @@ describe('SettingsPanel', () => {
     expect(useAsrStore.getState().cloudHfToken).toBe("hf_test_token");
   });
 
-  it("updates cloud mistral api settings", async () => {
+  it("updates cloud mistral token from settings", async () => {
+    render(
+      <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">
+        <SettingsPanel />
+      </ThemeProvider>
+    );
+
+    const cloudTab = screen.getByText("Cloud");
+    await userEvent.click(cloudTab);
+    await userEvent.click(screen.getByRole("tab", { name: "Mistral" }));
+
+    fireEvent.change(
+      screen.getByLabelText("Token API Mistral", { selector: "input#cloud-mistral-api-key" }),
+      { target: { value: "mistral_secret" } }
+    );
+
+    expect(useAsrStore.getState().cloudMistralApiKey).toBe("mistral_secret");
+  });
+
+  it("stores independent chunking/segmentation settings for whisper and mistral", async () => {
     render(
       <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">
         <SettingsPanel />
@@ -198,21 +218,30 @@ describe('SettingsPanel', () => {
     const cloudTab = screen.getByText("Cloud");
     await userEvent.click(cloudTab);
 
+    await userEvent.click(screen.getByRole("tab", { name: "Whisper" }));
     fireEvent.change(
-      screen.getByLabelText("URL API Mistral", { selector: "input#cloud-mistral-api-url" }),
-      { target: { value: "https://api.mistral.ai" } }
+      screen.getByLabelText("Durée chunk (s)", { selector: "input#cloud-whisper-chunk-duration" }),
+      { target: { value: "45" } }
     );
     fireEvent.change(
-      screen.getByLabelText("Token API Mistral", { selector: "input#cloud-mistral-api-key" }),
-      { target: { value: "mistral_secret" } }
-    );
-    fireEvent.change(
-      screen.getByLabelText("Modèle Mistral", { selector: "input#cloud-mistral-model" }),
-      { target: { value: "voxtral-mini-transcribe-26-02" } }
+      screen.getByLabelText("Recouvrement (s)", { selector: "input#cloud-whisper-overlap" }),
+      { target: { value: "2" } }
     );
 
-    expect(useAsrStore.getState().cloudMistralApiUrl).toBe("https://api.mistral.ai");
-    expect(useAsrStore.getState().cloudMistralApiKey).toBe("mistral_secret");
-    expect(useAsrStore.getState().cloudMistralModel).toBe("voxtral-mini-transcribe-26-02");
+    await userEvent.click(screen.getByRole("tab", { name: "Mistral" }));
+    fireEvent.change(
+      screen.getByLabelText("Durée chunk (s)", { selector: "input#cloud-mistral-chunk-duration" }),
+      { target: { value: "120" } }
+    );
+    fireEvent.change(
+      screen.getByLabelText("Recouvrement (s)", { selector: "input#cloud-mistral-overlap" }),
+      { target: { value: "5" } }
+    );
+
+    const state = useAsrStore.getState();
+    expect(state.cloudWhisperChunkDurationSec).toBe(45);
+    expect(state.cloudWhisperOverlapSec).toBe(2);
+    expect(state.cloudMistralChunkDurationSec).toBe(120);
+    expect(state.cloudMistralOverlapSec).toBe(5);
   });
 });

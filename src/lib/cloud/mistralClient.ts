@@ -27,15 +27,83 @@ function normalizeApiUrl(value: string): string {
   return trimmed.replace(/\/+$/, "");
 }
 
+function formatValidationDetail(detail: unknown): string | null {
+  if (typeof detail === "string") {
+    const trimmed = detail.trim();
+    return trimmed || null;
+  }
+  if (!detail || typeof detail !== "object") return null;
+
+  const record = detail as Record<string, unknown>;
+  const msg = typeof record.msg === "string" ? record.msg.trim() : "";
+  const locValue = record.loc;
+  const loc =
+    Array.isArray(locValue) && locValue.length > 0
+      ? locValue.map((part) => String(part)).join(".")
+      : typeof locValue === "string" && locValue.trim()
+        ? locValue.trim()
+        : "";
+
+  if (loc && msg) return `${loc}: ${msg}`;
+  if (msg) return msg;
+
+  try {
+    return JSON.stringify(detail);
+  } catch {
+    return String(detail);
+  }
+}
+
+function extractApiMessage(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+  if (value == null) return null;
+
+  if (Array.isArray(value)) {
+    const chunks = value
+      .map((entry) => formatValidationDetail(entry) ?? extractApiMessage(entry))
+      .filter((chunk): chunk is string => Boolean(chunk && chunk.trim()));
+    if (!chunks.length) return null;
+    return chunks.join(" | ");
+  }
+
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const nested =
+      extractApiMessage(record.message) ??
+      extractApiMessage(record.error) ??
+      extractApiMessage(record.detail) ??
+      extractApiMessage(record.msg);
+    if (nested) return nested;
+    try {
+      return JSON.stringify(record);
+    } catch {
+      return String(value);
+    }
+  }
+
+  return String(value);
+}
+
 function parseApiError(raw: string): string {
   const text = raw.trim();
   if (!text) return "Réponse API vide";
   try {
-    const parsed = JSON.parse(text) as { message?: string; error?: { message?: string } };
-    return parsed?.message ?? parsed?.error?.message ?? text;
+    const parsed = JSON.parse(text) as unknown;
+    return extractApiMessage(parsed) ?? text;
   } catch {
     return text;
   }
+}
+
+function buildFormData(request: MistralTranscriptionRequest, diarize: boolean): FormData {
+  const formData = new FormData();
+  formData.set("model", request.model.trim());
+  formData.set("diarize", diarize ? "true" : "false");
+  formData.set("file", request.file, request.file.name);
+  return formData;
 }
 
 export async function transcribeWithMistral(
@@ -54,10 +122,6 @@ export async function transcribeWithMistral(
   const baseUrl = normalizeApiUrl(request.apiUrl);
   const diarize = request.diarize ?? true;
   const endpoint = `${baseUrl}/v1/audio/transcriptions`;
-  const formData = new FormData();
-  formData.set("model", model);
-  formData.set("diarize", diarize ? "true" : "false");
-  formData.set("file", request.file, request.file.name);
 
   logger.info("[cloud][mistral] request", {
     endpoint,
@@ -68,30 +132,60 @@ export async function transcribeWithMistral(
     mimeType: request.file.type,
   });
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: formData,
-    signal: request.signal,
-  });
+  const send = async (diarizeValue: boolean) => {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: buildFormData(request, diarizeValue),
+      signal: request.signal,
+    });
+    return response;
+  };
+
+  let response = await send(diarize);
+  let failedMessage = "";
 
   if (!response.ok) {
     const raw = await response.text();
-    const message = parseApiError(raw);
-    logger.error("[cloud][mistral] request failed", { status: response.status, message });
+    failedMessage = parseApiError(raw);
+
+    if (response.status === 422 && diarize) {
+      logger.warn("[cloud][mistral] retrying without diarization after validation error", {
+        status: response.status,
+        message: failedMessage,
+      });
+      response = await send(false);
+      if (response.ok) {
+        const json = (await response.json()) as MistralTranscriptionResponse;
+        logger.info("[cloud][mistral] request done", {
+          hasText: typeof json?.text === "string" && json.text.trim().length > 0,
+          hasSegments: Array.isArray(json?.segments),
+          diarize: false,
+        });
+        return json;
+      }
+
+      const retryRaw = await response.text();
+      failedMessage = parseApiError(retryRaw);
+    }
+  }
+
+  if (!response.ok) {
+    logger.error("[cloud][mistral] request failed", { status: response.status, message: failedMessage });
     telemetry?.recordAlert("CLOUD_MISTRAL_REQUEST_FAILED", {
       status: response.status,
-      message,
+      message: failedMessage,
     });
-    throw new Error(`Mistral API (${response.status}): ${message}`);
+    throw new Error(`Mistral API (${response.status}): ${failedMessage}`);
   }
 
   const json = (await response.json()) as MistralTranscriptionResponse;
   logger.info("[cloud][mistral] request done", {
     hasText: typeof json?.text === "string" && json.text.trim().length > 0,
     hasSegments: Array.isArray(json?.segments),
+    diarize,
   });
   return json;
 }

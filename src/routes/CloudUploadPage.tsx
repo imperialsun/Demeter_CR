@@ -11,7 +11,6 @@ import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import { useAsrStore } from "@/store/asr-store";
 import { useCloudTranscription } from "@/hooks/useCloudTranscription";
 import logger from "@/lib/logger";
@@ -28,9 +27,7 @@ function CloudUploadPage() {
   const cloudHfToken = useAsrStore((state) => state.cloudHfToken);
   const setCloudHfToken = useAsrStore((state) => state.setCloudHfToken);
   const cloudMistralApiKey = useAsrStore((state) => state.cloudMistralApiKey);
-  const cloudMistralDiarizationEnabled = useAsrStore((state) => state.cloudMistralDiarizationEnabled);
   const setCloudMistralApiKey = useAsrStore((state) => state.setCloudMistralApiKey);
-  const setCloudMistralDiarizationEnabled = useAsrStore((state) => state.setCloudMistralDiarizationEnabled);
   const cloudShowSegments = useAsrStore((state) => state.cloudShowSegments);
   const cloudShowExportVtt = useAsrStore((state) => state.cloudShowExportVtt);
   const cloudShowExportSrt = useAsrStore((state) => state.cloudShowExportSrt);
@@ -142,17 +139,6 @@ function CloudUploadPage() {
               placeholder={isWhisper ? "hf_..." : "...."}
               autoComplete="off"
             />
-            {isMistral ? (
-              <div className="flex items-center justify-between rounded-md border bg-muted/10 px-3 py-2">
-                <Label htmlFor="cloud-provider-mistral-diarization">Diarization</Label>
-                <Switch
-                  id="cloud-provider-mistral-diarization"
-                  className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
-                  checked={cloudMistralDiarizationEnabled}
-                  onCheckedChange={setCloudMistralDiarizationEnabled}
-                />
-              </div>
-            ) : null}
             <p className="text-xs text-muted-foreground">
               {isWhisper
                 ? "Stocké localement. Aucun token n&apos;est envoyé ailleurs que vers l&apos;API Hugging Face."
