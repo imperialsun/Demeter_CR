@@ -391,7 +391,7 @@ export function Topbar() {
               ))}
             </div>
             <p className="mt-4 text-xs text-muted-foreground">
-              Le test charge chaque modèle et lance une mini transcription. Les modèles trop lourds sont bloqués dans le menu.
+              Le test charge chaque modèle, essaie plusieurs quantizations par backend, puis lance une mini transcription. Les modèles trop lourds sont bloqués dans le menu.
             </p>
           </div>
         </div>

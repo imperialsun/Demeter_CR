@@ -243,4 +243,36 @@ describe("useModelCompatibilityTest", () => {
 
     await waitFor(() => expect(latest!.state.summaryOpen).toBe(false));
   });
+
+  it("tests multiple quantizations and restores initial overrides", async () => {
+    useAsrStore.setState({
+      modelQuantizationOverrides: {
+        fast: { webgpu: "fp16" },
+      },
+    } as any);
+
+    mocks.detectWebGpuSupport.mockResolvedValueOnce(true);
+    mocks.createAsrPipeline.mockResolvedValue({
+      pipeline: {} as any,
+      backend: "webgpu",
+      modelId: "m",
+    });
+
+    render(<TestComp />);
+    await waitFor(() => expect(latest).not.toBeNull());
+
+    await act(async () => {
+      await latest!.runTest();
+    });
+
+    const testedChunkIds = mocks.transcribeChunk.mock.calls.map(
+      (call) => (call[0] as { chunk: { id: string } }).chunk.id
+    );
+    expect(testedChunkIds).toContain("compat-fast-webgpu-fp16-1");
+    expect(testedChunkIds).toContain("compat-fast-webgpu-q8-2");
+    expect(testedChunkIds).toContain("compat-fast-webgpu-auto-3");
+    expect(useAsrStore.getState().modelQuantizationOverrides).toEqual({
+      fast: { webgpu: "fp16" },
+    });
+  });
 });

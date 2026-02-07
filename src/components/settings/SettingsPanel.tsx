@@ -986,7 +986,18 @@ export function SettingsPanel({
     value: string
   ) => {
     if (preset === "custom") return;
-    setPresetQuantization(preset as EffectivePresetKey, backend, value as ModelDtype);
+    const castPreset = preset as EffectivePresetKey;
+    const previousValue =
+      resolveEffectiveModelDtype(castPreset, backend, modelQuantizationOverrides) ??
+      MODEL_PRESETS[castPreset].quantization[backend] ??
+      "auto";
+    setPresetQuantization(castPreset, backend, value as ModelDtype);
+    telemetryCollector?.logEvent?.("SETTINGS_PRESET_QUANTIZATION_CHANGE", {
+      preset: castPreset,
+      backend,
+      from: previousValue,
+      to: value,
+    });
   };
 
   const resetPresetQuantizationDefaults = (preset: PresetKey | MicPresetKey) => {
@@ -996,6 +1007,11 @@ export function SettingsPanel({
     const defaultWasm = MODEL_PRESETS[castPreset].quantization.wasm ?? "auto";
     setPresetQuantization(castPreset, "webgpu", defaultWebgpu);
     setPresetQuantization(castPreset, "wasm", defaultWasm);
+    telemetryCollector?.logEvent?.("SETTINGS_PRESET_QUANTIZATION_RESET", {
+      preset: castPreset,
+      webgpu: defaultWebgpu,
+      wasm: defaultWasm,
+    });
   };
 
   return (

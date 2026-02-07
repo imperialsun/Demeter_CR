@@ -1,13 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createAsrPipeline, disposePipeline, isModelTooLargeError, transcribeChunk } from "@/lib/asr";
 import { detectWebGpuSupport } from "@/lib/backend-support";
-import { MODEL_PRESETS, type BackendImplementation, type PresetKey, useAsrStore } from "@/store/asr-store";
+import {
+  MODEL_PRESETS,
+  resolveEffectiveModelDtype,
+  type BackendImplementation,
+  type ModelDtype,
+  type PresetKey,
+  type PresetQuantizationOverrides,
+  useAsrStore,
+} from "@/store/asr-store";
 import { toast } from "@/components/ui/use-toast";
 import logger from "@/lib/logger";
 
 type TestPreset = Exclude<PresetKey, "custom">;
 
-const TEST_ORDER: TestPreset[] = ["fast", "balanced", "medium", "quality", "turbo"];
+const TEST_ORDER: TestPreset[] = ["fast", "balanced", "medium", "quality", "mms", "turbo"];
 const TEST_SAMPLE_RATE = 16000;
 const TEST_DURATION_SEC = 1;
 
@@ -94,6 +102,37 @@ const shouldBlockPreset = (backendResults: BackendTestResult[]) => {
   const hasOk = backendResults.some((b) => b.status === "ok");
   const hasBlockingFailure = backendResults.some((b) => b.status === "too_large" || b.status === "error");
   return !hasOk && hasBlockingFailure;
+};
+
+const cloneQuantizationOverrides = (overrides: PresetQuantizationOverrides): PresetQuantizationOverrides => {
+  const entries = Object.entries(overrides).map(([preset, value]) => [
+    preset,
+    {
+      ...(value ?? {}),
+    },
+  ]);
+  return Object.fromEntries(entries) as PresetQuantizationOverrides;
+};
+
+const uniqueDtypes = (values: ModelDtype[]): ModelDtype[] => {
+  const seen = new Set<ModelDtype>();
+  const out: ModelDtype[] = [];
+  for (const value of values) {
+    if (seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+  }
+  return out;
+};
+
+const resolveQuantizationCandidates = (
+  preset: TestPreset,
+  backend: BackendImplementation,
+  overrides: PresetQuantizationOverrides
+): ModelDtype[] => {
+  const defaultDtype = MODEL_PRESETS[preset].quantization[backend] ?? "auto";
+  const effectiveDtype = resolveEffectiveModelDtype(preset, backend, overrides) ?? defaultDtype;
+  return uniqueDtypes([effectiveDtype, defaultDtype, "auto"]);
 };
 
 function makeInitialResults(): ModelTestResult[] {
@@ -201,252 +240,366 @@ export function useModelCompatibilityTest() {
       return;
     }
     stopRef.current = false;
+    const initialQuantizationOverrides = cloneQuantizationOverrides(
+      useAsrStore.getState().modelQuantizationOverrides
+    );
+    const setPresetQuantization = useAsrStore.getState().setPresetQuantization;
 
-    let runtimeWebGpuSupported = webGpuSupported;
     try {
-      runtimeWebGpuSupported = await detectWebGpuSupport();
-      setWebGpuSupport(runtimeWebGpuSupported);
-      console.info("[compat-test] webgpu support check", { supported: runtimeWebGpuSupported });
-      telemetry?.logEvent?.("MODEL_COMPAT_WEBGPU_SUPPORT", { supported: runtimeWebGpuSupported });
-    } catch (err) {
-      void err;
-    }
-
-    setBlockedPresets([]);
-    publishOutcomeRef.current = false;
-    console.info("[compat-test] start", { backendPreference, order: TEST_ORDER });
-    telemetry?.logEvent?.("MODEL_COMPAT_TEST_START", {
-      backendPreference,
-      order: TEST_ORDER,
-    });
-    telemetry?.startTimer?.("model_compat_total");
-    const totalSteps = TEST_ORDER.length * backendOrder.length;
-
-    setState({
-      running: true,
-      results: makeInitialResults(),
-      step: 0,
-      total: totalSteps,
-      progress: 0,
-      progressLabel: "Preparation du test",
-      stopRequested: false,
-      summaryOpen: true,
-    });
-
-    if (!runtimeWebGpuSupported) {
-      console.info("[compat-test] webgpu unavailable (global)", { reason: "unsupported" });
-      telemetry?.logEvent?.("MODEL_COMPAT_SKIP", { backend: "webgpu", reason: "webgpu_unavailable" });
-      markBackendUnavailable("webgpu", "WebGPU non supporte");
-    }
-
-    if (!wasmAvailable) {
-      console.info("[compat-test] wasm unavailable (global)", { reason: "missing_assets" });
-      telemetry?.logEvent?.("MODEL_COMPAT_SKIP", { backend: "wasm", reason: "wasm_unavailable" });
-      markBackendUnavailable("wasm", "WASM non disponible");
-    }
-
-    let completedSteps = 0;
-
-    const markProgress = (currentProgress = 0) => {
-      const overall = (completedSteps + currentProgress) / totalSteps;
-      setState((prev) => ({
-        ...prev,
-        progress: Math.max(0, Math.min(1, overall)),
-      }));
-    };
-
-    const sharedPcm = new Float32Array(TEST_SAMPLE_RATE * TEST_DURATION_SEC);
-    const baseChunk = {
-      index: 0,
-      start: 0,
-      end: TEST_DURATION_SEC,
-      paddedStart: 0,
-      paddedEnd: TEST_DURATION_SEC,
-    };
-
-    for (let i = 0; i < TEST_ORDER.length; i += 1) {
-      const preset = TEST_ORDER[i];
-      const label = MODEL_PRESETS[preset].label;
-
-      for (const backend of backendOrder) {
-        if (stopRef.current) break;
-
-        if ((backend === "webgpu" && !runtimeWebGpuSupported) || (backend === "wasm" && !wasmAvailable)) {
-          console.info("[compat-test] backend skipped", {
-            preset,
-            backend,
-            reason: backend === "webgpu" ? "webgpu_unavailable" : "wasm_unavailable",
-          });
-          telemetry?.logEvent?.("MODEL_COMPAT_SKIP", {
-            preset,
-            backend,
-            reason: backend === "webgpu" ? "webgpu_unavailable" : "wasm_unavailable",
-          });
-          completedSteps += 1;
-          setState((prev) => ({ ...prev, step: completedSteps }));
-          markProgress();
-          continue;
-        }
-
-        const startTime = performance.now();
-        setState((prev) => ({
-          ...prev,
-          currentPreset: preset,
-          currentBackend: backend,
-          step: completedSteps + 1,
-          progressLabel: `Chargement ${label} (${backend.toUpperCase()})`,
-        }));
-        updateBackendResult(preset, backend, { status: "testing", message: "Chargement du modele" });
-        markProgress(0);
-        console.info("[compat-test] backend start", { preset, backend });
-        telemetry?.logEvent?.("MODEL_COMPAT_BACKEND_START", { preset, backend });
-        telemetry?.startTimer?.(`model_compat_${preset}_${backend}`);
-
-        let pipeline: Awaited<ReturnType<typeof createAsrPipeline>>["pipeline"] | undefined;
-        try {
-          const { pipeline: created } = await createAsrPipeline({
-            modelPreset: preset,
-            customModelId: "",
-            backendPreference,
-            forceBackend: backend,
-            forceSingleThread,
-            telemetry: telemetry ?? undefined,
-            onStatus: (_status, detail) => {
-              if (detail) {
-                setState((prev) => ({ ...prev, progressLabel: detail }));
-              }
-            },
-            onProgress: (progress, status) => {
-              markProgress(progress ?? 0);
-              setState((prev) => ({
-                ...prev,
-                progressLabel: status || prev.progressLabel,
-              }));
-              console.debug("[compat-test] progress", { preset, backend, progress, status });
-              telemetry?.logEvent?.("MODEL_COMPAT_PROGRESS", {
-                preset,
-                backend,
-                progress: progress ?? 0,
-                status,
-              });
-            },
-          });
-
-          pipeline = created;
-
-          const chunk = {
-            id: `compat-${preset}-${backend}`,
-            ...baseChunk,
-          };
-
-          await transcribeChunk({
-            pipeline,
-            chunk,
-            pcm: sharedPcm,
-            sampleRate: TEST_SAMPLE_RATE,
-          });
-
-          const durationMs = Math.round(performance.now() - startTime);
-          updateBackendResult(preset, backend, {
-            status: "ok",
-            durationMs,
-            message: "OK",
-          });
-          console.info("[compat-test] backend ok", { preset, backend, durationMs });
-          telemetry?.logEvent?.("MODEL_COMPAT_OK", { preset, backend, durationMs });
-        } catch (error) {
-          const durationMs = Math.round(performance.now() - startTime);
-          const contextMeta = {
-            preset,
-            backend,
-            presetLabel: label,
-            backendPreference,
-            forceSingleThread,
-            runtimeWebGpuSupported,
-            wasmAvailable,
-            step: completedSteps + 1,
-            totalSteps,
-          };
-
-          if (backend === "webgpu" && isWebGpuUnsupportedError(error)) {
-            const errorDetails = { ...getErrorDetails(error), ...contextMeta };
-            updateBackendResult(preset, backend, {
-              status: "unavailable",
-              durationMs,
-              message: "WebGPU non supporte",
-            });
-            console.info("[compat-test] webgpu unsupported", { durationMs, ...errorDetails });
-            console.error("[compat-test] webgpu unsupported error detail", { durationMs, errorDetails }, error);
-            telemetry?.logEvent?.("MODEL_COMPAT_SKIP", { preset, backend, reason: "webgpu_unsupported_runtime" });
-            telemetry?.logEvent?.("ERROR", { stage: "model_compat", kind: "webgpu_unsupported", durationMs, ...errorDetails });
-            telemetry?.recordAlert?.("MODEL_COMPAT_WEBGPU_UNSUPPORTED", { durationMs, ...errorDetails });
-            telemetry?.snapshotMemory?.("model_compat_webgpu_unsupported");
-            runtimeWebGpuSupported = false;
-            setWebGpuSupport(false);
-            markBackendUnavailable("webgpu", "WebGPU non supporte");
-          } else if (isModelTooLargeError(error)) {
-            const errorDetails = { ...getErrorDetails(error), ...contextMeta };
-            updateBackendResult(preset, backend, {
-              status: "too_large",
-              durationMs,
-              message: "Trop gros pour ce poste",
-            });
-            console.warn("[compat-test] model too large", { durationMs, ...errorDetails });
-            console.error("[compat-test] model too large error detail", { durationMs, errorDetails }, error);
-            telemetry?.recordAlert?.("MODEL_COMPAT_TOO_LARGE", { durationMs, ...errorDetails });
-            telemetry?.logEvent?.("ERROR", { stage: "model_compat", kind: "too_large", durationMs, ...errorDetails });
-            telemetry?.snapshotMemory?.("model_compat_too_large");
-          } else {
-            const message = (error as Error)?.message || "Erreur inconnue";
-            const errorDetails = { ...getErrorDetails(error), ...contextMeta };
-            logger.warn("Model compatibility test failed", error);
-            updateBackendResult(preset, backend, {
-              status: "error",
-              durationMs,
-              message,
-            });
-            console.error("[compat-test] backend error", { durationMs, message, ...errorDetails });
-            console.error("[compat-test] backend error detail", { durationMs, errorDetails }, error);
-            telemetry?.logEvent?.("ERROR", { stage: "model_compat", message, durationMs, ...errorDetails });
-            telemetry?.recordAlert?.("MODEL_COMPAT_ERROR", { durationMs, ...errorDetails });
-            telemetry?.snapshotMemory?.("model_compat_error");
-          }
-        } finally {
-          await disposePipeline(pipeline);
-          telemetry?.stopTimer?.(`model_compat_${preset}_${backend}`);
-          completedSteps += 1;
-          setState((prev) => ({ ...prev, step: completedSteps }));
-          markProgress();
-        }
+      let runtimeWebGpuSupported = webGpuSupported;
+      try {
+        runtimeWebGpuSupported = await detectWebGpuSupport();
+        setWebGpuSupport(runtimeWebGpuSupported);
+        console.info("[compat-test] webgpu support check", { supported: runtimeWebGpuSupported });
+        telemetry?.logEvent?.("MODEL_COMPAT_WEBGPU_SUPPORT", { supported: runtimeWebGpuSupported });
+      } catch (err) {
+        void err;
       }
 
-      if (stopRef.current) break;
-    }
+      const attemptsFor = (preset: TestPreset, backend: BackendImplementation) =>
+        resolveQuantizationCandidates(preset, backend, initialQuantizationOverrides);
 
-    if (stopRef.current) {
+      const totalSteps = TEST_ORDER.reduce((total, preset) => {
+        const perPreset = backendOrder.reduce((sum, backend) => sum + attemptsFor(preset, backend).length, 0);
+        return total + perPreset;
+      }, 0);
+
+      setBlockedPresets([]);
+      publishOutcomeRef.current = false;
+      console.info("[compat-test] start", { backendPreference, order: TEST_ORDER });
+      telemetry?.logEvent?.("MODEL_COMPAT_TEST_START", {
+        backendPreference,
+        order: TEST_ORDER,
+        protocol: "with_quantization",
+      });
+      telemetry?.startTimer?.("model_compat_total");
+
+      setState({
+        running: true,
+        results: makeInitialResults(),
+        step: 0,
+        total: totalSteps,
+        progress: 0,
+        progressLabel: "Preparation du test",
+        stopRequested: false,
+        summaryOpen: true,
+      });
+
+      if (!runtimeWebGpuSupported) {
+        console.info("[compat-test] webgpu unavailable (global)", { reason: "unsupported" });
+        telemetry?.logEvent?.("MODEL_COMPAT_SKIP", { backend: "webgpu", reason: "webgpu_unavailable" });
+        markBackendUnavailable("webgpu", "WebGPU non supporte");
+      }
+
+      if (!wasmAvailable) {
+        console.info("[compat-test] wasm unavailable (global)", { reason: "missing_assets" });
+        telemetry?.logEvent?.("MODEL_COMPAT_SKIP", { backend: "wasm", reason: "wasm_unavailable" });
+        markBackendUnavailable("wasm", "WASM non disponible");
+      }
+
+      let completedSteps = 0;
+
+      const markProgress = (currentProgress = 0) => {
+        const overall = (completedSteps + currentProgress) / Math.max(1, totalSteps);
+        setState((prev) => ({
+          ...prev,
+          progress: Math.max(0, Math.min(1, overall)),
+        }));
+      };
+
+      const sharedPcm = new Float32Array(TEST_SAMPLE_RATE * TEST_DURATION_SEC);
+      const baseChunk = {
+        index: 0,
+        start: 0,
+        end: TEST_DURATION_SEC,
+        paddedStart: 0,
+        paddedEnd: TEST_DURATION_SEC,
+      };
+
+      for (let i = 0; i < TEST_ORDER.length; i += 1) {
+        const preset = TEST_ORDER[i];
+        const label = MODEL_PRESETS[preset].label;
+
+        for (const backend of backendOrder) {
+          if (stopRef.current) break;
+
+          const quantizationAttempts = attemptsFor(preset, backend);
+          if ((backend === "webgpu" && !runtimeWebGpuSupported) || (backend === "wasm" && !wasmAvailable)) {
+            console.info("[compat-test] backend skipped", {
+              preset,
+              backend,
+              reason: backend === "webgpu" ? "webgpu_unavailable" : "wasm_unavailable",
+              quantizationAttempts,
+            });
+            telemetry?.logEvent?.("MODEL_COMPAT_SKIP", {
+              preset,
+              backend,
+              reason: backend === "webgpu" ? "webgpu_unavailable" : "wasm_unavailable",
+              quantizationAttempts,
+            });
+            completedSteps += quantizationAttempts.length;
+            setState((prev) => ({ ...prev, step: completedSteps }));
+            markProgress();
+            continue;
+          }
+
+          const attempts: Array<{
+            dtype: ModelDtype;
+            status: "ok" | "too_large" | "error" | "unavailable";
+            durationMs: number;
+            message?: string;
+          }> = [];
+          let backendRuntimeUnavailable = false;
+
+          for (let attemptIndex = 0; attemptIndex < quantizationAttempts.length; attemptIndex += 1) {
+            if (stopRef.current) break;
+
+            const dtype = quantizationAttempts[attemptIndex];
+            const timerKey = `model_compat_${preset}_${backend}_${dtype}_${attemptIndex + 1}`;
+            const startTime = performance.now();
+
+            setPresetQuantization(preset, backend, dtype);
+            setState((prev) => ({
+              ...prev,
+              currentPreset: preset,
+              currentBackend: backend,
+              step: completedSteps + 1,
+              progressLabel: `Chargement ${label} (${backend.toUpperCase()} · ${dtype.toUpperCase()})`,
+            }));
+            updateBackendResult(preset, backend, {
+              status: "testing",
+              message: `Chargement du modele (${dtype.toUpperCase()} ${attemptIndex + 1}/${quantizationAttempts.length})`,
+            });
+            markProgress(0);
+            console.info("[compat-test] backend start", {
+              preset,
+              backend,
+              dtype,
+              attempt: attemptIndex + 1,
+              attemptsTotal: quantizationAttempts.length,
+            });
+            telemetry?.logEvent?.("MODEL_COMPAT_BACKEND_START", {
+              preset,
+              backend,
+              dtype,
+              attempt: attemptIndex + 1,
+              attemptsTotal: quantizationAttempts.length,
+            });
+            telemetry?.startTimer?.(timerKey);
+
+            let pipeline: Awaited<ReturnType<typeof createAsrPipeline>>["pipeline"] | undefined;
+            try {
+              const { pipeline: created } = await createAsrPipeline({
+                modelPreset: preset,
+                customModelId: "",
+                backendPreference,
+                forceBackend: backend,
+                forceSingleThread,
+                telemetry: telemetry ?? undefined,
+                onStatus: (_status, detail) => {
+                  if (detail) {
+                    setState((prev) => ({
+                      ...prev,
+                      progressLabel: `${detail} (${dtype.toUpperCase()})`,
+                    }));
+                  }
+                },
+                onProgress: (progress, status) => {
+                  markProgress(progress ?? 0);
+                  setState((prev) => ({
+                    ...prev,
+                    progressLabel: status ? `${status} (${dtype.toUpperCase()})` : prev.progressLabel,
+                  }));
+                  console.debug("[compat-test] progress", { preset, backend, dtype, progress, status });
+                  telemetry?.logEvent?.("MODEL_COMPAT_PROGRESS", {
+                    preset,
+                    backend,
+                    dtype,
+                    progress: progress ?? 0,
+                    status,
+                  });
+                },
+              });
+
+              pipeline = created;
+
+              const chunk = {
+                id: `compat-${preset}-${backend}-${dtype}-${attemptIndex + 1}`,
+                ...baseChunk,
+              };
+
+              await transcribeChunk({
+                pipeline,
+                chunk,
+                pcm: sharedPcm,
+                sampleRate: TEST_SAMPLE_RATE,
+              });
+
+              const durationMs = Math.round(performance.now() - startTime);
+              attempts.push({ dtype, status: "ok", durationMs, message: "OK" });
+              console.info("[compat-test] backend ok", { preset, backend, dtype, durationMs });
+              telemetry?.logEvent?.("MODEL_COMPAT_OK", { preset, backend, dtype, durationMs });
+            } catch (error) {
+              const durationMs = Math.round(performance.now() - startTime);
+              const contextMeta = {
+                preset,
+                backend,
+                dtype,
+                presetLabel: label,
+                backendPreference,
+                forceSingleThread,
+                runtimeWebGpuSupported,
+                wasmAvailable,
+                attempt: attemptIndex + 1,
+                attemptsTotal: quantizationAttempts.length,
+                step: completedSteps + 1,
+                totalSteps,
+              };
+
+              if (backend === "webgpu" && isWebGpuUnsupportedError(error)) {
+                const errorDetails = { ...getErrorDetails(error), ...contextMeta };
+                attempts.push({ dtype, status: "unavailable", durationMs, message: "WebGPU non supporte" });
+                updateBackendResult(preset, backend, {
+                  status: "unavailable",
+                  durationMs,
+                  message: "WebGPU non supporte",
+                });
+                console.info("[compat-test] webgpu unsupported", { durationMs, ...errorDetails });
+                console.error("[compat-test] webgpu unsupported error detail", { durationMs, errorDetails }, error);
+                telemetry?.logEvent?.("MODEL_COMPAT_SKIP", {
+                  preset,
+                  backend,
+                  dtype,
+                  reason: "webgpu_unsupported_runtime",
+                });
+                telemetry?.logEvent?.("ERROR", {
+                  stage: "model_compat",
+                  kind: "webgpu_unsupported",
+                  durationMs,
+                  ...errorDetails,
+                });
+                telemetry?.recordAlert?.("MODEL_COMPAT_WEBGPU_UNSUPPORTED", { durationMs, ...errorDetails });
+                telemetry?.snapshotMemory?.("model_compat_webgpu_unsupported");
+                runtimeWebGpuSupported = false;
+                setWebGpuSupport(false);
+                markBackendUnavailable("webgpu", "WebGPU non supporte");
+                backendRuntimeUnavailable = true;
+              } else if (isModelTooLargeError(error)) {
+                const errorDetails = { ...getErrorDetails(error), ...contextMeta };
+                attempts.push({ dtype, status: "too_large", durationMs, message: "Trop gros pour ce poste" });
+                console.warn("[compat-test] model too large", { durationMs, ...errorDetails });
+                console.error("[compat-test] model too large error detail", { durationMs, errorDetails }, error);
+                telemetry?.recordAlert?.("MODEL_COMPAT_TOO_LARGE", { durationMs, ...errorDetails });
+                telemetry?.logEvent?.("ERROR", { stage: "model_compat", kind: "too_large", durationMs, ...errorDetails });
+                telemetry?.snapshotMemory?.("model_compat_too_large");
+              } else {
+                const message = (error as Error)?.message || "Erreur inconnue";
+                const errorDetails = { ...getErrorDetails(error), ...contextMeta };
+                attempts.push({ dtype, status: "error", durationMs, message });
+                logger.warn("Model compatibility test failed", error);
+                console.error("[compat-test] backend error", { durationMs, message, ...errorDetails });
+                console.error("[compat-test] backend error detail", { durationMs, errorDetails }, error);
+                telemetry?.logEvent?.("ERROR", { stage: "model_compat", message, durationMs, ...errorDetails });
+                telemetry?.recordAlert?.("MODEL_COMPAT_ERROR", { durationMs, ...errorDetails });
+                telemetry?.snapshotMemory?.("model_compat_error");
+              }
+            } finally {
+              await disposePipeline(pipeline);
+              telemetry?.stopTimer?.(timerKey);
+              completedSteps += 1;
+              setState((prev) => ({ ...prev, step: completedSteps }));
+              markProgress();
+            }
+
+            if (backendRuntimeUnavailable) {
+              const remainingAttempts = quantizationAttempts.length - (attemptIndex + 1);
+              if (remainingAttempts > 0) {
+                completedSteps += remainingAttempts;
+                setState((prev) => ({ ...prev, step: completedSteps }));
+                markProgress();
+              }
+              break;
+            }
+          }
+
+          if (stopRef.current) break;
+          if (backendRuntimeUnavailable || attempts.length === 0) continue;
+
+          const okAttempts = attempts.filter((item) => item.status === "ok");
+          if (okAttempts.length > 0) {
+            const bestDurationMs = okAttempts.reduce(
+              (best, item) => Math.min(best, item.durationMs),
+              okAttempts[0]?.durationMs ?? 0
+            );
+            const okDtypes = okAttempts.map((item) => item.dtype.toUpperCase()).join(", ");
+            updateBackendResult(preset, backend, {
+              status: "ok",
+              durationMs: bestDurationMs,
+              message: `OK (${okDtypes})`,
+            });
+            continue;
+          }
+
+          const tooLargeAttempt = attempts.find((item) => item.status === "too_large");
+          if (tooLargeAttempt) {
+            updateBackendResult(preset, backend, {
+              status: "too_large",
+              durationMs: tooLargeAttempt.durationMs,
+              message: `Trop gros (${tooLargeAttempt.dtype.toUpperCase()})`,
+            });
+            continue;
+          }
+
+          const unavailableAttempt = attempts.find((item) => item.status === "unavailable");
+          if (unavailableAttempt) {
+            updateBackendResult(preset, backend, {
+              status: "unavailable",
+              durationMs: unavailableAttempt.durationMs,
+              message: unavailableAttempt.message ?? "Backend indisponible",
+            });
+            continue;
+          }
+
+          const firstError = attempts.find((item) => item.status === "error");
+          updateBackendResult(preset, backend, {
+            status: "error",
+            durationMs: firstError?.durationMs,
+            message: firstError?.message ?? "Erreur inconnue",
+          });
+        }
+
+        if (stopRef.current) break;
+      }
+
+      if (stopRef.current) {
+        setState((prev) => ({
+          ...prev,
+          running: false,
+          progressLabel: "Test interrompu",
+          stopRequested: true,
+          summaryOpen: true,
+        }));
+        telemetry?.stopTimer?.("model_compat_total");
+        toast("Test interrompu.");
+        return;
+      }
+
       setState((prev) => ({
         ...prev,
         running: false,
-        progressLabel: "Test interrompu",
-        stopRequested: true,
+        progress: 1,
+        progressLabel: "Test termine",
+        stopRequested: false,
         summaryOpen: true,
       }));
+
       telemetry?.stopTimer?.("model_compat_total");
-      toast("Test interrompu.");
-      return;
+      toast("Test de compatibilite termine.");
+    } finally {
+      useAsrStore.setState({
+        modelQuantizationOverrides: initialQuantizationOverrides,
+      });
     }
-
-    setState((prev) => ({
-      ...prev,
-      running: false,
-      progress: 1,
-      progressLabel: "Test termine",
-      stopRequested: false,
-      summaryOpen: true,
-    }));
-
-    telemetry?.stopTimer?.("model_compat_total");
-    toast("Test de compatibilite termine.");
   }, [
     backendOrder,
     backendPreference,

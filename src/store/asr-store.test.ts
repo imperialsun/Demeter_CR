@@ -38,6 +38,7 @@ describe("normalizeCloudApiUrl", () => {
 describe("preset model resolution", () => {
   it("returns model id for regular presets", () => {
     expect(resolveModelId("fast", "")).toBe("Xenova/whisper-tiny");
+    expect(resolveModelId("mms", "")).toBe("Xenova/mms-1b-all");
     expect(resolveModelId("turbo", "")).toBe("onnx-community/whisper-large-v3-turbo");
   });
 
@@ -50,9 +51,9 @@ describe("preset model resolution", () => {
   });
 
   it("resolves quantization by preset and backend", () => {
-    expect(resolveModelDtype("fast", "webgpu")).toBe("q4");
+    expect(resolveModelDtype("fast", "webgpu")).toBe("q8");
     expect(resolveModelDtype("balanced", "wasm")).toBe("q8");
-    expect(resolveModelDtype("quality", "webgpu")).toBe("fp16");
+    expect(resolveModelDtype("quality", "webgpu")).toBe("q8");
     expect(resolveModelDtype("turbo", "wasm")).toBe("q8");
   });
 

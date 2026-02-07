@@ -131,7 +131,11 @@ export async function createAsrPipeline({
   telemetry?.setRuntimeContext({ backend: backendPreference, modelId });
   onStatus?.("downloading", "Préparation du modèle");
   logger.info("ASR model load start", { modelId, backendPreference });
-  telemetry?.logEvent("START_LOAD_MODEL", { modelId });
+  telemetry?.logEvent("START_LOAD_MODEL", {
+    modelId,
+    preset: modelPreset,
+    backendPreference,
+  });
   telemetry?.startTimer("load_model_total");
 
   const backends = forceBackend ? [forceBackend] : BACKEND_SEQUENCE[backendPreference];
@@ -188,6 +192,13 @@ export async function createAsrPipeline({
       const dtype = resolveEffectiveModelDtype(modelPreset, backend, modelQuantizationOverrides);
       logger.debug("ASR session options", { backend, sessionOptions });
       logger.info("ASR pipeline init", { backend, modelId, device, dtype, sessionOptions });
+      telemetry?.logEvent("START_LOAD_MODEL", {
+        modelId,
+        preset: modelPreset,
+        backend,
+        dtype,
+        attempt: "primary",
+      });
       const { pipeline } = await loadTransformers();
       const createPipeline = pipeline as unknown as (
         task: string,
@@ -338,6 +349,13 @@ export async function createAsrPipeline({
             options?: Record<string, unknown>
           ) => Promise<AutomaticSpeechRecognitionPipeline>;
           const dtype = resolveEffectiveModelDtype(modelPreset, backend, modelQuantizationOverrides);
+          telemetry?.logEvent("START_LOAD_MODEL", {
+            modelId,
+            preset: modelPreset,
+            backend,
+            dtype,
+            attempt: "fallback_single_thread",
+          });
           const pipelineOptions2: Record<string, unknown> = {
             device,
             session_options: sessionOptions2,
@@ -392,6 +410,13 @@ export async function createAsrPipeline({
 
 const PIPELINES_WITHOUT_CROSS = new WeakSet<object>();
 
+function resolvePipelineModelType(asr: AutomaticSpeechRecognitionPipeline): string | null {
+  const modelType = (
+    asr as unknown as { model?: { config?: { model_type?: unknown } } }
+  ).model?.config?.model_type;
+  return typeof modelType === "string" ? modelType : null;
+}
+
 export async function transcribeChunk({
   pipeline: asr,
   chunk,
@@ -434,14 +459,19 @@ export async function transcribeChunk({
     typeof showSegmentConfidence === "boolean" ? showSegmentConfidence : useAsrStore.getState().showSegmentConfidence;
   const enabledInSettings = enableWordTimestampsFlag || showSegmentConfidenceFlag;
 
-  const invokeOptions = {
+  const modelType = resolvePipelineModelType(asr);
+  const supportsLanguageHint = modelType === "whisper";
+  const invokeOptions: Record<string, unknown> = {
     sampling_rate: sampleRate,
     // request word-level timestamps when enabled in settings (or when confidence display is requested) and supported
     return_timestamps: supportsWordTimestamps && enabledInSettings ? "word" : false,
     chunk_length_s: chunk.end - chunk.start,
     stride_length_s: chunk.paddedStart < chunk.start ? chunk.start - chunk.paddedStart : 0,
-    language: "fr",
-  } as const;
+  };
+  // `language` is supported on whisper; passing it to wav2vec2/mms triggers a runtime warning and is ignored.
+  if (supportsLanguageHint) {
+    invokeOptions.language = "fr";
+  }
 
   let result: PipelineInvokeResult;
   try {

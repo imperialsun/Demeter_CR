@@ -7,7 +7,7 @@ import type { ChunkDefinition } from "@/lib/chunking";
 import type { TranscriptionSegment } from "@/lib/export";
 import type { TelemetryCollector, ChunkTelemetry, TelemetrySummary } from "@/lib/telemetry";
 
-export type PresetKey = "fast" | "balanced" | "medium" | "quality" | "turbo" | "custom";
+export type PresetKey = "fast" | "balanced" | "medium" | "quality" | "mms" | "turbo" | "custom";
 export type BuiltInPresetKey = Exclude<PresetKey, "custom">;
 
 export type BackendImplementation = "webgpu" | "wasm";
@@ -63,7 +63,7 @@ export const MODEL_PRESETS: Record<Exclude<PresetKey, "custom">, ModelPreset> = 
     modelId: "Xenova/whisper-tiny",
     description: "Latence minimale, qualité correcte pour des itérations rapides.",
     quantization: {
-      webgpu: "q4",
+      webgpu: "q8",
       wasm: "q8",
     },
   },
@@ -93,7 +93,17 @@ export const MODEL_PRESETS: Record<Exclude<PresetKey, "custom">, ModelPreset> = 
     modelId: "Xenova/whisper-medium",
     description: "Précision supérieure à l'option Intermédiaire, avec un coût mémoire plus élevé.",
     quantization: {
-      webgpu: "fp16",
+      webgpu: "q8",
+      wasm: "q8",
+    },
+  },
+  mms: {
+    key: "mms",
+    label: "Multilingue (MMS 1B)",
+    modelId: "Xenova/mms-1b-all",
+    description: "Modèle multilingue (MMS) pour une couverture de langues étendue.",
+    quantization: {
+      webgpu: "q8",
       wasm: "q8",
     },
   },
@@ -103,7 +113,7 @@ export const MODEL_PRESETS: Record<Exclude<PresetKey, "custom">, ModelPreset> = 
     modelId: "onnx-community/whisper-large-v3-turbo",
     description: "Niveau de qualité maximal, plus lent et plus gourmand en mémoire.",
     quantization: {
-      webgpu: "fp16",
+      webgpu: "q8",
       wasm: "q8",
     },
   },
