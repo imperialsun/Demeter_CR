@@ -15,6 +15,7 @@ type MistralTranscriptionRequest = {
   apiKey: string;
   model: string;
   file: File;
+  diarize?: boolean;
   signal?: AbortSignal;
 };
 
@@ -51,14 +52,17 @@ export async function transcribeWithMistral(
   }
 
   const baseUrl = normalizeApiUrl(request.apiUrl);
+  const diarize = request.diarize ?? true;
   const endpoint = `${baseUrl}/v1/audio/transcriptions`;
   const formData = new FormData();
   formData.set("model", model);
+  formData.set("diarize", diarize ? "true" : "false");
   formData.set("file", request.file, request.file.name);
 
   logger.info("[cloud][mistral] request", {
     endpoint,
     model,
+    diarize,
     fileName: request.file.name,
     sizeBytes: request.file.size,
     mimeType: request.file.type,
@@ -91,4 +95,3 @@ export async function transcribeWithMistral(
   });
   return json;
 }
-

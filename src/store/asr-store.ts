@@ -221,6 +221,7 @@ interface AsrConfigState {
   cloudMistralApiUrl: string;
   cloudMistralApiKey: string;
   cloudMistralModel: string;
+  cloudMistralDiarizationEnabled: boolean;
   cloudMaxTokens: number;
   cloudTemperature: number;
   cloudTopP: number;
@@ -394,6 +395,7 @@ interface AsrConfigActions {
   setCloudMistralApiUrl: (value: string) => void;
   setCloudMistralApiKey: (value: string) => void;
   setCloudMistralModel: (value: string) => void;
+  setCloudMistralDiarizationEnabled: (value: boolean) => void;
   setCloudMaxTokens: (value: number) => void;
   setCloudTemperature: (value: number) => void;
   setCloudTopP: (value: number) => void;
@@ -570,6 +572,7 @@ const initialState: AsrConfigState = {
   cloudMistralApiUrl: "https://api.mistral.ai",
   cloudMistralApiKey: "",
   cloudMistralModel: "voxtral-mini-transcribe-26-02",
+  cloudMistralDiarizationEnabled: true,
   cloudMaxTokens: 32768,
   cloudTemperature: 0,
   cloudTopP: 1,
@@ -831,6 +834,8 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       cloudMistralApiUrl: settings.cloudMistralApiUrl ?? state.cloudMistralApiUrl,
       cloudMistralApiKey: settings.cloudMistralApiKey ?? state.cloudMistralApiKey,
       cloudMistralModel: settings.cloudMistralModel ?? state.cloudMistralModel,
+      cloudMistralDiarizationEnabled:
+        settings.cloudMistralDiarizationEnabled ?? state.cloudMistralDiarizationEnabled,
       cloudMaxTokens: settings.cloudMaxTokens ?? state.cloudMaxTokens,
       cloudTemperature: settings.cloudTemperature ?? state.cloudTemperature,
       cloudTopP: settings.cloudTopP ?? state.cloudTopP,
@@ -968,6 +973,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
   setCloudMistralApiUrl: (value) => set(() => ({ cloudMistralApiUrl: value })),
   setCloudMistralApiKey: (value) => set(() => ({ cloudMistralApiKey: value })),
   setCloudMistralModel: (value) => set(() => ({ cloudMistralModel: value })),
+  setCloudMistralDiarizationEnabled: (value) => set(() => ({ cloudMistralDiarizationEnabled: value })),
   setCloudMaxTokens: (value) => set(() => ({ cloudMaxTokens: value })),
   setCloudTemperature: (value) => set(() => ({ cloudTemperature: value })),
   setCloudTopP: (value) => set(() => ({ cloudTopP: value })),
@@ -1184,6 +1190,7 @@ useAsrStore.subscribe((state) => {
     cloudMistralApiUrl: state.cloudMistralApiUrl,
     cloudMistralApiKey: state.cloudMistralApiKey,
     cloudMistralModel: state.cloudMistralModel,
+    cloudMistralDiarizationEnabled: state.cloudMistralDiarizationEnabled,
     cloudMaxTokens: state.cloudMaxTokens,
     cloudTemperature: state.cloudTemperature,
     cloudTopP: state.cloudTopP,

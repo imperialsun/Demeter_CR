@@ -15,6 +15,8 @@ type RawSegment = {
   end?: unknown;
   confidence?: unknown;
   words?: unknown;
+  speaker?: unknown;
+  speaker_id?: unknown;
 };
 
 type RawWord = {
@@ -49,6 +51,14 @@ function mapWords(raw: unknown, offsetSec: number): WordSegment[] | undefined {
   return words.length ? words : undefined;
 }
 
+function mapSpeaker(raw: RawSegment): string | undefined {
+  const direct = asText(raw?.speaker);
+  if (direct) return direct;
+  const fromId = asText(raw?.speaker_id);
+  if (fromId) return fromId;
+  return undefined;
+}
+
 export function parseMistralOutput(
   output: MistralTranscriptionResponse | unknown,
   options: MistralSegmentOptions
@@ -68,12 +78,14 @@ export function parseMistralOutput(
     const rawStart = asFiniteNumber(item?.start) ?? 0;
     const rawEnd = asFiniteNumber(item?.end) ?? Math.max(rawStart, options.fallbackDurationSec);
     const confidence = asFiniteNumber(item?.confidence) ?? undefined;
+    const speaker = mapSpeaker(item);
     const words = options.includeWordTimestamps ? mapWords(item?.words, options.offsetSec) : undefined;
     segments.push({
       index,
       start: Math.max(0, options.offsetSec + rawStart),
       end: Math.max(0, options.offsetSec + Math.max(rawEnd, rawStart)),
       text,
+      speaker,
       chunkId: options.chunkId,
       strategy: "chunks",
       confidence,
@@ -99,4 +111,3 @@ export function parseMistralOutput(
 
   return segments;
 }
-

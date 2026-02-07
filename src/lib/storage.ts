@@ -95,6 +95,7 @@ export interface PersistedSettings {
   cloudMistralApiUrl?: string;
   cloudMistralApiKey?: string;
   cloudMistralModel?: string;
+  cloudMistralDiarizationEnabled?: boolean;
   cloudMaxTokens?: number;
   cloudTemperature?: number;
   cloudTopP?: number;
@@ -242,6 +243,7 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   cloudMistralApiUrl: "https://api.mistral.ai",
   cloudMistralApiKey: "",
   cloudMistralModel: "voxtral-mini-transcribe-26-02",
+  cloudMistralDiarizationEnabled: true,
   cloudMaxTokens: 32768,
   cloudTemperature: 0,
   cloudTopP: 1,

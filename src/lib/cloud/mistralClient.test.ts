@@ -41,6 +41,30 @@ describe("transcribeWithMistral", () => {
     expect(init?.method).toBe("POST");
     expect(init?.headers).toMatchObject({ Authorization: "Bearer token" });
     expect(init?.body).toBeInstanceOf(FormData);
+    const formData = init?.body as FormData;
+    expect(formData.get("model")).toBe("voxtral-mini-transcribe-26-02");
+    expect(formData.get("diarize")).toBe("true");
+  });
+
+  it("sends diarize=false when disabled", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ text: "ok" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const file = new File(["abc"], "test.wav", { type: "audio/wav" });
+    await transcribeWithMistral({
+      apiUrl: "https://api.mistral.ai",
+      apiKey: "token",
+      model: "voxtral-mini-transcribe-26-02",
+      file,
+      diarize: false,
+    });
+
+    const [, init] = fetchSpy.mock.calls[0]!;
+    const formData = init?.body as FormData;
+    expect(formData.get("diarize")).toBe("false");
   });
 });
-

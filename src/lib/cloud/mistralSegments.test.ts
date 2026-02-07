@@ -11,6 +11,7 @@ describe("parseMistralOutput", () => {
           start: 0,
           end: 1.2,
           confidence: 0.91,
+          speaker: "SPEAKER_00",
           words: [
             { word: "bonjour", start: 0, end: 1.2, confidence: 0.9 },
           ],
@@ -32,6 +33,7 @@ describe("parseMistralOutput", () => {
     expect(segments[0].end).toBeCloseTo(31.2);
     expect(segments[0].confidence).toBeCloseTo(0.91);
     expect(segments[0].confidenceSource).toBe("model");
+    expect(segments[0].speaker).toBe("SPEAKER_00");
     expect(segments[0].words?.[0]?.start).toBeCloseTo(30);
   });
 
@@ -51,4 +53,3 @@ describe("parseMistralOutput", () => {
     expect(segments[0].words).toBeUndefined();
   });
 });
-

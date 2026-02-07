@@ -11,6 +11,7 @@ import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { useAsrStore } from "@/store/asr-store";
 import { useCloudTranscription } from "@/hooks/useCloudTranscription";
 import logger from "@/lib/logger";
@@ -26,10 +27,10 @@ function CloudUploadPage() {
   const cloudContextPreset = useAsrStore((state) => state.cloudContextPreset);
   const cloudHfToken = useAsrStore((state) => state.cloudHfToken);
   const setCloudHfToken = useAsrStore((state) => state.setCloudHfToken);
-  const cloudMistralApiUrl = useAsrStore((state) => state.cloudMistralApiUrl);
   const cloudMistralApiKey = useAsrStore((state) => state.cloudMistralApiKey);
-  const cloudMistralModel = useAsrStore((state) => state.cloudMistralModel);
+  const cloudMistralDiarizationEnabled = useAsrStore((state) => state.cloudMistralDiarizationEnabled);
   const setCloudMistralApiKey = useAsrStore((state) => state.setCloudMistralApiKey);
+  const setCloudMistralDiarizationEnabled = useAsrStore((state) => state.setCloudMistralDiarizationEnabled);
   const cloudShowSegments = useAsrStore((state) => state.cloudShowSegments);
   const cloudShowExportVtt = useAsrStore((state) => state.cloudShowExportVtt);
   const cloudShowExportSrt = useAsrStore((state) => state.cloudShowExportSrt);
@@ -142,9 +143,14 @@ function CloudUploadPage() {
               autoComplete="off"
             />
             {isMistral ? (
-              <div className="space-y-1 text-xs text-muted-foreground">
-                <p>Endpoint: {cloudMistralApiUrl || "https://api.mistral.ai"}</p>
-                <p>Modèle: {cloudMistralModel || "voxtral-mini-transcribe-26-02"}</p>
+              <div className="flex items-center justify-between rounded-md border bg-muted/10 px-3 py-2">
+                <Label htmlFor="cloud-provider-mistral-diarization">Diarization</Label>
+                <Switch
+                  id="cloud-provider-mistral-diarization"
+                  className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                  checked={cloudMistralDiarizationEnabled}
+                  onCheckedChange={setCloudMistralDiarizationEnabled}
+                />
               </div>
             ) : null}
             <p className="text-xs text-muted-foreground">

@@ -23,6 +23,7 @@ import { buildWhisperParameters } from "@/lib/cloud/whisperParams";
 import { parseWhisperOutput } from "@/lib/cloud/whisperSegments";
 import { transcribeWithMistral } from "@/lib/cloud/mistralClient";
 import { parseMistralOutput } from "@/lib/cloud/mistralSegments";
+import { resolveMistralSegmentDurationSec } from "@/lib/cloud/mistralParams";
 
 type CloudStatus = "idle" | "preprocessing" | "uploading" | "transcribing" | "stopping" | "done" | "error";
 
@@ -71,6 +72,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
   const cloudMistralApiUrl = useAsrStore((s) => s.cloudMistralApiUrl);
   const cloudMistralApiKey = useAsrStore((s) => s.cloudMistralApiKey);
   const cloudMistralModel = useAsrStore((s) => s.cloudMistralModel);
+  const cloudMistralDiarizationEnabled = useAsrStore((s) => s.cloudMistralDiarizationEnabled);
   const cloudMaxTokens = useAsrStore((s) => s.cloudMaxTokens);
   const cloudTemperature = useAsrStore((s) => s.cloudTemperature);
   const cloudTopP = useAsrStore((s) => s.cloudTopP);
@@ -209,7 +211,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
       throw new Error("Fichier audio manquant");
     }
 
-    const segmentDurationSec = 30;
+    const segmentDurationSec = resolveMistralSegmentDurationSec(model);
     const plan = buildFixedSegments({
       durationSec: metadata.durationSec,
       segmentDurationSec,
@@ -401,6 +403,12 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
       segmentDurationSec,
       model,
     });
+    telemetry.logEvent("CLOUD_MISTRAL_PLAN", {
+      model,
+      segmentDurationSec,
+      segments: totalSegments,
+      durationSec: metadata.durationSec,
+    });
 
     const allSegments: TranscriptionSegment[] = [];
     let nextIndex = 0;
@@ -484,6 +492,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
           apiKey,
           model,
           file: processedFile,
+          diarize: cloudMistralDiarizationEnabled,
         },
         telemetry
       );
@@ -530,6 +539,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
     setStatusDetail("Transcription terminée");
   }, [
     cloudMistralApiKey,
+    cloudMistralDiarizationEnabled,
     cloudMistralApiUrl,
     cloudMistralModel,
     combinedContext,

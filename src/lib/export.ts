@@ -12,6 +12,7 @@ export interface TranscriptionSegment {
   start: number;
   end: number;
   text: string;
+  speaker?: string;
   chunkId: string;
   strategy: "chunks" | "silence";
   confidence?: number;
