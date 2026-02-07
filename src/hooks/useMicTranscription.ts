@@ -32,6 +32,7 @@ const MIC_NOISE_CALIBRATION_MS = (() => {
 })();
 const MIC_NOISE_THRESHOLD_MARGIN_DB = 6;
 const MIC_ASR_SAMPLE_RATE = 16000;
+const ERROR_STATUS_HOLD_MS = 10_000;
 
 type PendingChunk = {
   chunk: ChunkDefinition;
@@ -252,6 +253,7 @@ export function useMicTranscription() {
     maxPcmQueue: 0,
     lastAudioLogMs: 0,
   });
+  const errorResetTimeoutRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const noiseChunksRef = useRef<Float32Array[]>([]);
   const noiseSamplesRef = useRef(0);
 
@@ -286,8 +288,30 @@ export function useMicTranscription() {
       if (levelAnimationFrameRef.current !== null && typeof window !== "undefined") {
         window.cancelAnimationFrame(levelAnimationFrameRef.current);
       }
+      if (errorResetTimeoutRef.current !== null) {
+        globalThis.clearTimeout(errorResetTimeoutRef.current);
+        errorResetTimeoutRef.current = null;
+      }
     };
   }, []);
+
+  const clearErrorResetTimer = useCallback(() => {
+    if (errorResetTimeoutRef.current !== null) {
+      globalThis.clearTimeout(errorResetTimeoutRef.current);
+      errorResetTimeoutRef.current = null;
+    }
+  }, []);
+
+  const scheduleErrorReset = useCallback((runId: number) => {
+    clearErrorResetTimer();
+    errorResetTimeoutRef.current = globalThis.setTimeout(() => {
+      errorResetTimeoutRef.current = null;
+      if (runId !== getSharedRunId()) return;
+      const snapshot = useAsrStore.getState();
+      if (snapshot.isTranscribing || snapshot.status !== "error") return;
+      snapshot.resetSession();
+    }, ERROR_STATUS_HOLD_MS);
+  }, [clearErrorResetTimer]);
 
   const resetLocalState = useCallback(() => {
     pcmQueueRef.current = [];
@@ -417,9 +441,10 @@ export function useMicTranscription() {
     recordingStartRef.current = null;
     setRecordingSeconds(0);
     pendingWorkletFlushRef.current = null;
+    clearErrorResetTimer();
     resetLocalState();
     void cleanupCapture();
-  }, [cleanupCapture, resetCounter, resetLocalState]);
+  }, [cleanupCapture, clearErrorResetTimer, resetCounter, resetLocalState]);
 
   const ensurePipeline = useCallback(async () => {
     if (pipelineRef.current) return pipelineRef.current;
@@ -500,9 +525,16 @@ export function useMicTranscription() {
       state.setStatus("ready", "Prêt");
       toast("Transcription micro terminée.");
     }
-    state.setIsTranscribing(false);
-    state.resetStopRequest();
-    state.registerTelemetry(null);
+    if (mode === "error") {
+      state.setIsTranscribing(false);
+      state.resetStopRequest();
+      state.registerTelemetry(null);
+      scheduleErrorReset(runIdRef.current);
+    } else {
+      state.setIsTranscribing(false);
+      state.resetStopRequest();
+      state.registerTelemetry(null);
+    }
 
     telemetryRef.current = null;
     abortControllerRef.current = null;
@@ -512,7 +544,7 @@ export function useMicTranscription() {
     isRecordingRef.current = false;
     stopAfterQueueRef.current = false;
     recordingStartRef.current = null;
-  }, []);
+  }, [scheduleErrorReset]);
 
   const maybeFinish = useCallback(async () => {
     if (!stopAfterQueueRef.current) return;
@@ -1274,6 +1306,7 @@ export function useMicTranscription() {
       pcmQueue: pcmQueueRef.current.length,
     });
     finishModeRef.current = "abort";
+    clearErrorResetTimer();
     stopAfterQueueRef.current = true;
     isRecordingRef.current = false;
     setIsRecording(false);
@@ -1284,7 +1317,7 @@ export function useMicTranscription() {
     setPendingCount(0);
     await cleanupCapture();
     await finishSession("abort");
-  }, [cleanupCapture, finishSession, resetLocalState, scheduleAudioLevelUpdate]);
+  }, [cleanupCapture, clearErrorResetTimer, finishSession, resetLocalState, scheduleAudioLevelUpdate]);
 
   const startRecording = useCallback(async () => {
     const state = useAsrStore.getState();
@@ -1296,6 +1329,7 @@ export function useMicTranscription() {
       toast("Faites silence puis initialisez le bruit de fond avant de démarrer l'enregistrement.");
       return;
     }
+    clearErrorResetTimer();
 
     finishModeRef.current = "complete";
     setIsRecording(true);
@@ -1440,13 +1474,14 @@ export function useMicTranscription() {
       logger.error("[mic] getUserMedia failed", error);
       state.setStatus("error", "Accès micro refusé ou indisponible");
       toast("Impossible d'accéder au micro.");
+      finishModeRef.current = "error";
       await cleanupCapture();
       stopAfterQueueRef.current = true;
       setIsRecording(false);
       isRecordingRef.current = false;
       await maybeFinish();
     }
-  }, [abortRecording, cleanupCapture, handleAudioProcess, maybeFinish, resetLocalState]);
+  }, [abortRecording, cleanupCapture, clearErrorResetTimer, handleAudioProcess, maybeFinish, resetLocalState]);
 
   const stopRecording = useCallback(async () => {
     if (!isRecordingRef.current) return;

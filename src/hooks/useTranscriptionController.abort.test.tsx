@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, act, waitFor } from "@testing-library/react";
 import { useAsrStore } from "@/store/asr-store";
+import { createAsrPipeline } from "@/lib/asr";
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -93,6 +94,7 @@ import { useTranscriptionController } from "./useTranscriptionController";
 
 describe("useTranscriptionController abort", () => {
   beforeEach(() => {
+    vi.useRealTimers();
     transcribeDeferred = createDeferred();
     useAsrStore.setState({
       memoryMode: "full",
@@ -161,5 +163,41 @@ describe("useTranscriptionController abort", () => {
       await startPromise!;
     });
     expect(useAsrStore.getState().segments).toHaveLength(0);
+  });
+
+  it("keeps error status for 10 seconds before resetting the session", async () => {
+    vi.useFakeTimers();
+    vi.mocked(createAsrPipeline).mockRejectedValueOnce(new Error("boom"));
+
+    let startUpload: ((file: File) => Promise<void>) | null = null;
+
+    function TestComp({ onReady }: { onReady: (startFn: (file: File) => Promise<void>) => void }) {
+      const controller = useTranscriptionController();
+      onReady(controller.startUploadTranscription);
+      return null;
+    }
+
+    await act(async () => {
+      render(<TestComp onReady={(startFn) => { startUpload = startFn; }} />);
+    });
+
+    const file = new File([new ArrayBuffer(8)], "test.wav", { type: "audio/wav" });
+    if (!startUpload) throw new Error("transcription handler not obtained");
+
+    await act(async () => {
+      await startUpload!(file);
+    });
+
+    expect(useAsrStore.getState().status).toBe("error");
+
+    await act(async () => {
+      vi.advanceTimersByTime(9_999);
+    });
+    expect(useAsrStore.getState().status).toBe("error");
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(useAsrStore.getState().status).toBe("idle");
   });
 });

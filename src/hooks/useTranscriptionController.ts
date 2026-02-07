@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { AutomaticSpeechRecognitionPipeline } from "@huggingface/transformers";
 
 import { toast } from "@/components/ui/use-toast";
@@ -30,6 +30,7 @@ function clamp01(value: number) {
 
 const sharedAbortRef: { current: AbortController | null } = { current: null };
 const sharedRunIdRef: { current: number } = { current: 0 };
+const ERROR_STATUS_HOLD_MS = 10_000;
 
 export function nextSharedRunId() {
   sharedRunIdRef.current += 1;
@@ -54,6 +55,7 @@ export function useTranscriptionController() {
   const progressThrottleRef = useRef(0);
   const segmentationThrottleRef = useRef(0);
   const preprocessThrottleRef = useRef(0);
+  const errorResetTimeoutRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
   const throttleMs = 120;
 
   const isTranscribing = useAsrStore((state) => state.isTranscribing);
@@ -130,6 +132,30 @@ export function useTranscriptionController() {
       useAsrStore.getState().setPreprocessingProgress(value);
     }
   };
+
+  const clearErrorResetTimer = useCallback(() => {
+    if (errorResetTimeoutRef.current !== null) {
+      globalThis.clearTimeout(errorResetTimeoutRef.current);
+      errorResetTimeoutRef.current = null;
+    }
+  }, []);
+
+  const scheduleErrorReset = useCallback((runId: number) => {
+    clearErrorResetTimer();
+    errorResetTimeoutRef.current = globalThis.setTimeout(() => {
+      errorResetTimeoutRef.current = null;
+      if (sharedRunIdRef.current !== runId) return;
+      const snapshot = useAsrStore.getState();
+      if (snapshot.isTranscribing || snapshot.status !== "error") return;
+      snapshot.resetSession();
+    }, ERROR_STATUS_HOLD_MS);
+  }, [clearErrorResetTimer]);
+
+  useEffect(() => {
+    return () => {
+      clearErrorResetTimer();
+    };
+  }, [clearErrorResetTimer]);
 
   const handleFullPipeline = useCallback(
     async ({
@@ -851,6 +877,7 @@ export function useTranscriptionController() {
       toast("Une transcription est déjà en cours.");
       return;
     }
+    clearErrorResetTimer();
     const runId = sharedRunIdRef.current + 1;
     sharedRunIdRef.current = runId;
 
@@ -937,6 +964,7 @@ export function useTranscriptionController() {
     }
 
     let activePipeline: AutomaticSpeechRecognitionPipeline | null = null;
+    let failed = false;
     try {
       // If we're in full-memory mode and preprocessing (quick or full) is requested, perform
       // decode + calibration (quick) or full preprocess **before** loading the model so that
@@ -1157,6 +1185,7 @@ export function useTranscriptionController() {
       toast("Transcription terminée.");
       state.setStatus("ready", "Prêt");
     } catch (error) {
+      failed = true;
       logger.error(error);
       const message = (error as Error)?.message ?? String(error ?? "Erreur inconnue");
       if (isModelTooLargeError(error)) {
@@ -1171,14 +1200,21 @@ export function useTranscriptionController() {
       if (activePipeline) {
         await disposePipeline(activePipeline);
       }
+      if (failed) {
+        state.setIsTranscribing(false);
+        state.resetStopRequest();
+        state.registerTelemetry(null);
+        scheduleErrorReset(runId);
+      } else {
+        state.setIsTranscribing(false);
+        state.resetStopRequest();
+        state.registerTelemetry(null);
+      }
       // Restore debug toggle to previous value in case any flow changed it
       state.setDebugConfidence(previousDebug);
-      state.setIsTranscribing(false);
-      state.resetStopRequest();
-      state.registerTelemetry(null);
       sharedAbortRef.current = null;
     }
-  }, [handleFullPipeline, handleProgressivePipeline]);
+  }, [clearErrorResetTimer, handleFullPipeline, handleProgressivePipeline, scheduleErrorReset]);
 
   const stopTranscription = useCallback(() => {
     const state = useAsrStore.getState();
@@ -1190,6 +1226,7 @@ export function useTranscriptionController() {
   // Immediately abort any in-progress transcription (used for reset/cleanup)
   const abortTranscription = useCallback(() => {
     sharedRunIdRef.current += 1;
+    clearErrorResetTimer();
     const state = useAsrStore.getState();
     if (!state.isTranscribing) {
       return;
@@ -1221,7 +1258,7 @@ export function useTranscriptionController() {
       };
       tick();
     });
-  }, []);
+  }, [clearErrorResetTimer]);
 
   return {
     startUploadTranscription,
