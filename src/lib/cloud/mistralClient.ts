@@ -102,6 +102,10 @@ function buildFormData(request: MistralTranscriptionRequest, diarize: boolean): 
   const formData = new FormData();
   formData.set("model", request.model.trim());
   formData.set("diarize", diarize ? "true" : "false");
+  if (diarize) {
+    // Mistral requires segment timestamps when diarization is enabled.
+    formData.append("timestamp_granularities", "segment");
+  }
   formData.set("file", request.file, request.file.name);
   return formData;
 }

@@ -11,6 +11,7 @@ import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { useAsrStore } from "@/store/asr-store";
 import { useCloudTranscription } from "@/hooks/useCloudTranscription";
 import logger from "@/lib/logger";
@@ -31,6 +32,8 @@ function CloudUploadPage() {
   const setCloudHfToken = useAsrStore((state) => state.setCloudHfToken);
   const cloudMistralApiKey = useAsrStore((state) => state.cloudMistralApiKey);
   const setCloudMistralApiKey = useAsrStore((state) => state.setCloudMistralApiKey);
+  const cloudMistralDiarizationEnabled = useAsrStore((state) => state.cloudMistralDiarizationEnabled);
+  const setCloudMistralDiarizationEnabled = useAsrStore((state) => state.setCloudMistralDiarizationEnabled);
   const cloudShowSegments = useAsrStore((state) => state.cloudShowSegments);
   const cloudShowExportVtt = useAsrStore((state) => state.cloudShowExportVtt);
   const cloudShowExportSrt = useAsrStore((state) => state.cloudShowExportSrt);
@@ -149,6 +152,25 @@ function CloudUploadPage() {
                 ? "Stocké localement. Aucun token n'est envoyé ailleurs que vers l'API Hugging Face."
                 : "Stocké localement. Aucun token n'est envoyé ailleurs que vers l'API Mistral."}
             </p>
+            {isMistral ? (
+              <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+                <div>
+                  <p className="text-sm font-medium">Diarization</p>
+                  <p className="text-xs text-muted-foreground">
+                    Identifie les intervenants (speaker labels) dans la transcription Mistral.
+                  </p>
+                </div>
+                <Switch
+                  aria-label="Diarization"
+                  className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                  checked={cloudMistralDiarizationEnabled}
+                  onCheckedChange={(checked) => {
+                    setCloudMistralDiarizationEnabled(checked);
+                    logger.info("[cloud][ui] mistral diarization toggled", { enabled: checked });
+                  }}
+                />
+              </div>
+            ) : null}
             {isWhisperTokenMissing ? (
               <p className="text-xs text-destructive">{CLOUD_HF_TOKEN_REQUIRED_MESSAGE}</p>
             ) : null}

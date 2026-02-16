@@ -44,6 +44,7 @@ describe("transcribeWithMistral", () => {
     const formData = init?.body as FormData;
     expect(formData.get("model")).toBe("voxtral-mini-latest");
     expect(formData.get("diarize")).toBe("true");
+    expect(formData.getAll("timestamp_granularities")).toEqual(["segment"]);
   });
 
   it("sends diarize=false when disabled", async () => {
@@ -66,6 +67,7 @@ describe("transcribeWithMistral", () => {
     const [, init] = fetchSpy.mock.calls[0]!;
     const formData = init?.body as FormData;
     expect(formData.get("diarize")).toBe("false");
+    expect(formData.getAll("timestamp_granularities")).toEqual([]);
   });
 
   it("retries without diarization after a 422 validation error", async () => {
@@ -99,10 +101,12 @@ describe("transcribeWithMistral", () => {
     const [, firstInit] = fetchSpy.mock.calls[0]!;
     const firstFormData = firstInit?.body as FormData;
     expect(firstFormData.get("diarize")).toBe("true");
+    expect(firstFormData.getAll("timestamp_granularities")).toEqual(["segment"]);
 
     const [, secondInit] = fetchSpy.mock.calls[1]!;
     const secondFormData = secondInit?.body as FormData;
     expect(secondFormData.get("diarize")).toBe("false");
+    expect(secondFormData.getAll("timestamp_granularities")).toEqual([]);
   });
 
   it("formats validation details in errors", async () => {

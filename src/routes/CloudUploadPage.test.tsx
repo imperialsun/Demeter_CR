@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { renderWithStore } from "@/test/utils";
 import { fireEvent, screen } from "@testing-library/react";
+import { useAsrStore } from "@/store/asr-store";
 import CloudUploadPage from "./CloudUploadPage";
 
 describe("CloudUploadPage", () => {
@@ -51,5 +52,57 @@ describe("CloudUploadPage", () => {
     fireEvent.click(screen.getByText("Mistral"));
 
     expect(screen.getByText(/ne peut pas fonctionner sans cle api mistral/i)).toBeInTheDocument();
+  });
+
+  it("shows diarization switch when provider is mistral", () => {
+    renderWithStore(<CloudUploadPage />, {
+      cloudApiUrl: "https://cloud.example",
+      cloudMistralApiKey: "mistral_secret",
+      cloudMistralDiarizationEnabled: true,
+    });
+
+    const providerSelect = screen.getByRole("combobox", { name: /provider/i });
+    fireEvent.click(providerSelect);
+    fireEvent.click(screen.getByText("Mistral"));
+
+    expect(screen.getByText("Diarization")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Diarization" })).toBeInTheDocument();
+  });
+
+  it("does not show diarization switch when provider is whisper", () => {
+    renderWithStore(<CloudUploadPage />, {
+      cloudApiUrl: "https://cloud.example",
+      cloudHfToken: "hf_token",
+      cloudMistralApiKey: "mistral_secret",
+      cloudMistralDiarizationEnabled: true,
+    });
+
+    const providerSelect = screen.getByRole("combobox", { name: /provider/i });
+    fireEvent.click(providerSelect);
+    fireEvent.click(screen.getByText("Whisper"));
+
+    expect(screen.queryByText("Diarization")).toBeNull();
+    expect(screen.queryByRole("switch", { name: "Diarization" })).toBeNull();
+  });
+
+  it("updates store when toggling mistral diarization switch", () => {
+    renderWithStore(<CloudUploadPage />, {
+      cloudApiUrl: "https://cloud.example",
+      cloudMistralApiKey: "mistral_secret",
+      cloudMistralDiarizationEnabled: true,
+    });
+
+    const providerSelect = screen.getByRole("combobox", { name: /provider/i });
+    fireEvent.click(providerSelect);
+    fireEvent.click(screen.getByText("Mistral"));
+
+    const diarizationSwitch = screen.getByRole("switch", { name: "Diarization" });
+    expect(useAsrStore.getState().cloudMistralDiarizationEnabled).toBe(true);
+
+    fireEvent.click(diarizationSwitch);
+    expect(useAsrStore.getState().cloudMistralDiarizationEnabled).toBe(false);
+
+    fireEvent.click(diarizationSwitch);
+    expect(useAsrStore.getState().cloudMistralDiarizationEnabled).toBe(true);
   });
 });
