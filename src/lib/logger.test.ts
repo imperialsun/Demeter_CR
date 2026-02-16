@@ -68,6 +68,74 @@ describe("logger", () => {
     expect(infoSpy).toHaveBeenCalled();
   });
 
+  it("supports warn-error-only visibility policy", async () => {
+    const { installConsoleGuard, setConsoleVisibilityPolicy, setDebugProvider } = await import("./logger");
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    setDebugProvider(() => false);
+    setConsoleVisibilityPolicy("warn-error-only");
+    installConsoleGuard();
+
+    console.info("hidden-info");
+    console.warn("visible-warn");
+    console.error("visible-error");
+
+    expect(infoSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("mirrors logger entries into telemetry events", async () => {
+    const {
+      info,
+      debug,
+      warn,
+      error,
+      setDebugProvider,
+      setTelemetryProvider,
+      setConsoleVisibilityPolicy,
+    } = await import("./logger");
+    const telemetry = { logEvent: vi.fn() };
+
+    setDebugProvider(() => false);
+    setConsoleVisibilityPolicy("warn-error-only");
+    setTelemetryProvider(() => telemetry as unknown as import("./telemetry").TelemetryCollector);
+
+    info("[test] info");
+    debug("[test] debug");
+    warn("[test] warn");
+    error("[test] error");
+
+    expect(telemetry.logEvent).toHaveBeenCalledTimes(4);
+    expect(telemetry.logEvent).toHaveBeenNthCalledWith(1, "LOG_INFO", expect.any(Object));
+    expect(telemetry.logEvent).toHaveBeenNthCalledWith(2, "LOG_DEBUG", expect.any(Object));
+    expect(telemetry.logEvent).toHaveBeenNthCalledWith(3, "LOG_WARN", expect.any(Object));
+    expect(telemetry.logEvent).toHaveBeenNthCalledWith(4, "LOG_ERROR", expect.any(Object));
+  });
+
+  it("truncates long telemetry payload with head/tail preview", async () => {
+    const { info, setTelemetryProvider, setDebugProvider } = await import("./logger");
+    const telemetry = { logEvent: vi.fn() };
+    const longText = "x".repeat(2000);
+
+    setDebugProvider(() => false);
+    setTelemetryProvider(() => telemetry as unknown as import("./telemetry").TelemetryCollector);
+    info(longText);
+
+    const payload = telemetry.logEvent.mock.calls[0]?.[1] as {
+      messagePreview?: string;
+      messageTotalLength?: number;
+      truncatedArgs?: number;
+    };
+    expect(payload.messageTotalLength).toBe(2000);
+    expect(payload.truncatedArgs).toBe(1);
+    expect(payload.messagePreview).toContain("[1488 chars omitted]");
+    expect(payload.messagePreview?.startsWith("x".repeat(256))).toBe(true);
+    expect(payload.messagePreview?.endsWith("x".repeat(256))).toBe(true);
+  });
+
   it("keeps last 2000 entries in memory and spills older logs to cache", async () => {
     const { info, exportLogEntries, setDebugProvider } = await import("./logger");
     setDebugProvider(() => false);
@@ -92,8 +160,9 @@ describe("logger", () => {
       JSON.stringify([{ timestamp: "t0", level: "info", message: ["cached"] }])
     );
 
-    const { info, exportLogEntries, setDebugProvider } = await import("./logger");
+    const { info, exportLogEntries, setDebugProvider, setTelemetryProvider } = await import("./logger");
     setDebugProvider(() => false);
+    setTelemetryProvider(null);
     info("live");
 
     const entries = exportLogEntries();

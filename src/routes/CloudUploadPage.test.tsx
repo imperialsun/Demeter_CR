@@ -24,4 +24,32 @@ describe("CloudUploadPage", () => {
     expect(screen.getByText("Whisper")).toBeTruthy();
     expect(screen.getByText("Mistral")).toBeTruthy();
   });
+
+  it("shows inline alert when whisper token is missing", () => {
+    renderWithStore(<CloudUploadPage />, {
+      cloudApiUrl: "https://cloud.example",
+      cloudHfToken: "",
+      cloudMistralApiKey: "mistral_secret",
+    });
+
+    const providerSelect = screen.getByRole("combobox", { name: /provider/i });
+    fireEvent.click(providerSelect);
+    fireEvent.click(screen.getByText("Whisper"));
+
+    expect(screen.getByText(/ne peut pas fonctionner sans cle api hugging face/i)).toBeInTheDocument();
+  });
+
+  it("shows inline alert when mistral token is missing", () => {
+    renderWithStore(<CloudUploadPage />, {
+      cloudApiUrl: "https://cloud.example",
+      cloudHfToken: "hf_token",
+      cloudMistralApiKey: "",
+    });
+
+    const providerSelect = screen.getByRole("combobox", { name: /provider/i });
+    fireEvent.click(providerSelect);
+    fireEvent.click(screen.getByText("Mistral"));
+
+    expect(screen.getByText(/ne peut pas fonctionner sans cle api mistral/i)).toBeInTheDocument();
+  });
 });

@@ -10,10 +10,12 @@ import { useEffect, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useTranscriptionController } from "@/hooks/useTranscriptionController";
 import { initializeBackendSupport, resetWebGpuSupportCache } from "@/lib/backend-support";
-import { exportLogEntries } from "@/lib/logger";
+import logger, { exportLogEntries } from "@/lib/logger";
 import { setAuthenticated } from "@/lib/auth";
 import { useModelCompatibilityTest, type ModelTestStatus } from "@/hooks/useModelCompatibilityTest";
 import { getEnvMode, isProdEnv } from "@/lib/env";
+import { findSuggestedReportModel, formatTokenCount } from "@/lib/llm/modelCatalog";
+import { LLM_API_STATUS_META } from "@/lib/llm/llmStatusMeta";
 
 const STATUS_LABELS: Record<string, string> = {
   idle: "Inactif",
@@ -56,6 +58,11 @@ export function Topbar() {
     statusDetail,
     cloudStatus,
     cloudStatusDetail,
+    llmApiStatus,
+    llmApiStatusDetail,
+    llmApiProvider,
+    llmApiModelId,
+    llmApiMaxTokens,
     wasmThreads,
     preprocessingMode,
     telemetryCollector,
@@ -86,12 +93,22 @@ export function Topbar() {
   const showDebugActions = !isProdEnv();
   const envMode = getEnvMode();
   const isCloudRoute = location.pathname === "/cloudupload";
+  const isLlmRoute = location.pathname === "/llmapi";
   const cloudStatusMeta = CLOUD_STATUS_META[cloudStatus];
-  const statusLabel = isCloudRoute ? cloudStatusMeta.label : STATUS_LABELS[status] ?? status;
-  const statusDetailLabel = isCloudRoute ? cloudStatusDetail : statusDetail;
+  const llmStatusMeta = LLM_API_STATUS_META[llmApiStatus];
+  const llmModelId = llmApiModelId.trim();
+  const llmSuggestedModel = findSuggestedReportModel(llmModelId);
+  const llmModelLabel = llmSuggestedModel?.label ?? (llmModelId || "Modele non defini");
+  const llmProviderLabel = llmApiProvider === "mistral" ? "Mistral API" : "HF API";
+  const statusLabel = isCloudRoute
+    ? cloudStatusMeta.label
+    : isLlmRoute
+      ? llmStatusMeta.label
+      : STATUS_LABELS[status] ?? status;
+  const statusDetailLabel = isCloudRoute ? cloudStatusDetail : isLlmRoute ? llmApiStatusDetail : statusDetail;
 
   useEffect(() => {
-    console.info("Topbar debug controls visibility", { showDebugActions, mode: envMode });
+    logger.info("[topbar] debug controls visibility", { showDebugActions, mode: envMode });
     telemetryCollector?.logEvent?.("TOPBAR_DEBUG_CONTROLS_VISIBILITY", {
       showDebugActions,
       mode: envMode,
@@ -109,6 +126,18 @@ export function Topbar() {
             <Badge variant="outline" className="gap-1">
               <Cloud className="h-3 w-3" /> Cloud
             </Badge>
+          </div>
+        </div>
+      ) : isLlmRoute ? (
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-muted-foreground">LLM Cloud</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={llmStatusMeta.variant}>{llmStatusMeta.label}</Badge>
+            <Badge variant="outline" className="gap-1">
+              <Cloud className="h-3 w-3" /> {llmProviderLabel}
+            </Badge>
+            <Badge variant="secondary">{llmModelLabel}</Badge>
+            <Badge variant="outline">{`Max ${formatTokenCount(llmApiMaxTokens)}`}</Badge>
           </div>
         </div>
       ) : (

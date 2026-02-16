@@ -251,7 +251,7 @@ DRY_RUN=1 ./deploy.sh
 
 ### 11) Structure du dépôt (repères)
 
-- `src/routes/` : pages (login, local upload, cloud, settings, telemetry).
+- `src/routes/` : pages (login, local upload, cloud, llm cloud, settings, telemetry).
 - `src/hooks/` : orchestration des pipelines de transcription.
 - `src/lib/` : logique métier (ASR, preprocessing, chunking, cloud clients, telemetry, storage).
 - `src/store/asr-store.ts` : état global et persistance.
@@ -296,6 +296,26 @@ npm run test:ci
 - **Échec Whisper/Mistral** :
 - vérifier tokens API et quotas,
 - vérifier paramètres de chunking cloud.
+
+### 15) LLM Cloud (Formats CRI/CRO/CRS)
+
+- Nouvelle route : `/llmapi` (menu latéral `LLM Cloud`).
+- Source au choix :
+- transcription de session (`segments`),
+- texte libre collé manuellement.
+- Paramètres dédiés persistés en local (`llmApi*`) :
+- token Hugging Face,
+- `modelId`,
+- `temperature`,
+- `maxTokens`.
+- Génération séquentielle des 3 formats :
+- `CRI` (fidèle),
+- `CRO` (structuré),
+- `CRS` (synthèse).
+- Résilience sur entrées longues :
+- pipeline 2 passes (découpage + consolidation) au-delà du seuil de tokens.
+- Export DOCX :
+- 3 fichiers séparés (`rapport-cri-...`, `rapport-cro-...`, `rapport-crs-...`) avec mise en forme professionnelle.
 
 ---
 
@@ -534,7 +554,7 @@ DRY_RUN=1 ./deploy.sh
 
 ### 11) Repository map
 
-- `src/routes/`: pages (login/local/cloud/settings/telemetry).
+- `src/routes/`: pages (login/local/cloud/llm cloud/settings/telemetry).
 - `src/hooks/`: orchestration logic for transcription flows.
 - `src/lib/`: core business modules (ASR, preprocessing, chunking, cloud clients, telemetry, storage).
 - `src/store/asr-store.ts`: global state + persistence.
@@ -572,3 +592,23 @@ npm run test:ci
 - **Whisper/Mistral errors**:
 - verify API token/key,
 - check provider quota and chunking values.
+
+### 15) LLM Cloud (CRI/CRO/CRS Formats)
+
+- New route: `/llmapi` (sidebar entry `LLM Cloud`).
+- Input source options:
+- session transcription (`segments`),
+- manually pasted free text.
+- Dedicated local-persisted settings (`llmApi*`):
+- Hugging Face token,
+- `modelId`,
+- `temperature`,
+- `maxTokens`.
+- Sequential generation of all three formats:
+- `CRI` (high fidelity),
+- `CRO` (structured concise rewrite),
+- `CRS` (short synthesis).
+- Long-input resilience:
+- two-pass pipeline (chunk extraction + consolidation) above token threshold.
+- DOCX export:
+- 3 separate files (`rapport-cri-...`, `rapport-cro-...`, `rapport-crs-...`) with professional formatting.

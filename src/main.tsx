@@ -5,13 +5,20 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/toaster";
 import { toast } from "@/components/ui/use-toast";
 import { initializeBackendSupport } from "@/lib/backend-support";
-import logger, { installConsoleGuard, setDebugProvider } from "@/lib/logger";
+import logger, {
+  installConsoleGuard,
+  setConsoleVisibilityPolicy,
+  setDebugProvider,
+  setTelemetryProvider,
+} from "@/lib/logger";
 import "./index.css";
 import App from "./App";
 
 // Configure logger provider after store is available so logger.enabled() can read runtime flag
 import { useAsrStore } from "@/store/asr-store";
 setDebugProvider(() => useAsrStore.getState().debugConfidence);
+setTelemetryProvider(() => useAsrStore.getState().telemetryCollector);
+setConsoleVisibilityPolicy("warn-error-only");
 installConsoleGuard();
 
 try {
@@ -27,7 +34,7 @@ try {
 
 await initializeBackendSupport();
 useAsrStore.getState().hydrateFromStorage();
-console.info("[app] settings hydrated from storage", {
+logger.info("[app] settings hydrated from storage", {
   blockedPresets: useAsrStore.getState().blockedPresets,
 });
 
@@ -38,7 +45,14 @@ console.info("[app] settings hydrated from storage", {
     const message = "Aucun backend utilisable trouvé : WebGPU non supporté et fichiers WASM manquants ou inaccessibles (/onnx/). Vérifiez que les assets WASM sont déployés et que les en-têtes COOP/COEP sont configurés.";
     // Set UI status and emit a toast (deferred to allow Toaster to mount)
     state.setStatus("error", message);
-    try { logger.error("Startup check: no backend available", { webGpuSupported: state.webGpuSupported, wasmAvailable: state.wasmAvailable }); } catch (err) { void err; }
+    try {
+      logger.error("[app] startup check failed: no backend available", {
+        webGpuSupported: state.webGpuSupported,
+        wasmAvailable: state.wasmAvailable,
+      });
+    } catch (err) {
+      void err;
+    }
     setTimeout(() => { try { toast(message); } catch (err) { void err; } }, 0);
   }
 }

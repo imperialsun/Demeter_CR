@@ -6,6 +6,7 @@ import { computeDefaultOverlap } from "@/lib/chunking";
 import type { ChunkDefinition } from "@/lib/chunking";
 import type { TranscriptionSegment } from "@/lib/export";
 import type { TelemetryCollector, ChunkTelemetry, TelemetrySummary } from "@/lib/telemetry";
+import type { ReportResult, ReportResultKey } from "@/lib/llm/reportSchema";
 
 export type PresetKey = "fast" | "balanced" | "medium" | "quality" | "mms" | "turbo" | "custom";
 export type BuiltInPresetKey = Exclude<PresetKey, "custom">;
@@ -47,6 +48,9 @@ export type CloudTranscriptionStatus =
   | "stopping"
   | "done"
   | "error";
+
+export type LlmApiStatus = "idle" | "preparing" | "generating" | "formatting" | "done" | "error";
+export type LlmApiProvider = "huggingface" | "mistral";
 
 export interface ModelPreset {
   key: PresetKey;
@@ -204,6 +208,11 @@ export const normalizeMistralModel = (value: string | undefined, fallback: strin
   return trimmed;
 };
 
+const normalizeLlmApiProvider = (value: string | undefined, fallback: LlmApiProvider): LlmApiProvider => {
+  if (value === "huggingface" || value === "mistral") return value;
+  return fallback;
+};
+
 type SessionSource = {
   id: string;
   label: string;
@@ -344,6 +353,16 @@ interface AsrConfigState {
   cloudAutoTunePreprocess: boolean;
   cloudEnableWordTimestamps: boolean;
   cloudShowSegmentConfidence: boolean;
+  // LLM API specific settings/runtime
+  llmApiProvider: LlmApiProvider;
+  llmApiHfToken: string;
+  llmApiModelId: string;
+  llmApiTemperature: number;
+  llmApiMaxTokens: number;
+  llmApiStatus: LlmApiStatus;
+  llmApiStatusDetail?: string;
+  llmApiProgress: number;
+  llmApiResults: Partial<Record<ReportResultKey, ReportResult>>;
   noiseCalibrationRequestedAt?: number | null;
   autoTunePreprocess: boolean;
   lastAutoTuneParams?: {
@@ -531,6 +550,16 @@ interface AsrConfigActions {
   setCloudAutoTunePreprocess: (value: boolean) => void;
   setCloudEnableWordTimestamps: (value: boolean) => void;
   setCloudShowSegmentConfidence: (value: boolean) => void;
+  setLlmApiProvider: (value: LlmApiProvider) => void;
+  setLlmApiHfToken: (value: string) => void;
+  setLlmApiModelId: (value: string) => void;
+  setLlmApiTemperature: (value: number) => void;
+  setLlmApiMaxTokens: (value: number) => void;
+  setLlmApiStatus: (status: LlmApiStatus, detail?: string) => void;
+  setLlmApiProgress: (value: number) => void;
+  setLlmApiResult: (format: ReportResultKey, value: ReportResult) => void;
+  setLlmApiResults: (value: Partial<Record<ReportResultKey, ReportResult>>) => void;
+  resetLlmApiSession: () => void;
   setAutoTunePreprocess: (value: boolean) => void;
   setLastAutoTuneParams: (params: {
     noiseFloorDb: number;
@@ -709,6 +738,15 @@ const initialState: AsrConfigState = {
   cloudAutoTunePreprocess: true,
   cloudEnableWordTimestamps: false,
   cloudShowSegmentConfidence: false,
+  llmApiProvider: "huggingface",
+  llmApiHfToken: "",
+  llmApiModelId: "openai/gpt-oss-20b",
+  llmApiTemperature: 0.2,
+  llmApiMaxTokens: 131072,
+  llmApiStatus: "idle",
+  llmApiStatusDetail: undefined,
+  llmApiProgress: 0,
+  llmApiResults: {},
   noiseCalibrationRequestedAt: null,
   segmentationStatus: "idle",
   segmentationProgress: 0,
@@ -771,7 +809,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
     }),
   setBlockedPresets: (presets) => {
     const sanitized = sanitizeBlockedPresets(presets);
-    console.info("[asr-store] blocked presets updated", { blocked: sanitized });
+    logger.info("[asr-store] blocked presets updated", { blocked: sanitized });
     set(() => ({ blockedPresets: sanitized }));
   },
   setBackendPreference: (backend) =>
@@ -838,17 +876,17 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       get().micBackendPreference
     );
     if (blockedPresets.length > 0) {
-      console.info("[asr-store] hydrated blocked presets", { blocked: blockedPresets });
+      logger.info("[asr-store] hydrated blocked presets", { blocked: blockedPresets });
     }
     if (settings.backendPreference && resolvedBackendPreference !== settings.backendPreference) {
-      console.info("[asr-store] backend preference adjusted", {
+      logger.info("[asr-store] backend preference adjusted", {
         stored: settings.backendPreference,
         resolved: resolvedBackendPreference,
         ...support,
       });
     }
     if (settings.micBackendPreference && resolvedMicBackendPreference !== settings.micBackendPreference) {
-      console.info("[asr-store] mic backend preference adjusted", {
+      logger.info("[asr-store] mic backend preference adjusted", {
         stored: settings.micBackendPreference,
         resolved: resolvedMicBackendPreference,
         ...support,
@@ -858,10 +896,6 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
     const normalizedCloudApiUrl = normalizeCloudApiUrl(settings.cloudApiUrl ?? currentCloudApiUrl, currentCloudApiUrl);
     if ((settings.cloudApiUrl ?? currentCloudApiUrl) !== normalizedCloudApiUrl) {
       const storedValue = settings.cloudApiUrl ?? currentCloudApiUrl;
-      console.info("[asr-store] cloud api url normalized", {
-        stored: storedValue,
-        normalized: normalizedCloudApiUrl,
-      });
       logger.info("[asr-store] cloud api url normalized", {
         stored: storedValue,
         normalized: normalizedCloudApiUrl,
@@ -1013,6 +1047,11 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       cloudAutoTunePreprocess: settings.cloudAutoTunePreprocess ?? state.cloudAutoTunePreprocess,
       cloudEnableWordTimestamps: settings.cloudEnableWordTimestamps ?? state.cloudEnableWordTimestamps,
       cloudShowSegmentConfidence: settings.cloudShowSegmentConfidence ?? state.cloudShowSegmentConfidence,
+      llmApiProvider: normalizeLlmApiProvider(settings.llmApiProvider, state.llmApiProvider),
+      llmApiHfToken: settings.llmApiHfToken ?? state.llmApiHfToken,
+      llmApiModelId: settings.llmApiModelId ?? state.llmApiModelId,
+      llmApiTemperature: settings.llmApiTemperature ?? state.llmApiTemperature,
+      llmApiMaxTokens: settings.llmApiMaxTokens ?? state.llmApiMaxTokens,
       autoTunePreprocess: settings.autoTunePreprocess ?? state.autoTunePreprocess,
       forceSingleThread: settings.forceSingleThread ?? state.forceSingleThread,
       enableWordTimestamps: settings.enableWordTimestamps ?? state.enableWordTimestamps,
@@ -1168,6 +1207,26 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
   setCloudAutoTunePreprocess: (value) => set(() => ({ cloudAutoTunePreprocess: value })),
   setCloudEnableWordTimestamps: (value) => set(() => ({ cloudEnableWordTimestamps: value })),
   setCloudShowSegmentConfidence: (value) => set(() => ({ cloudShowSegmentConfidence: value })),
+  setLlmApiProvider: (value) => set(() => ({ llmApiProvider: value })),
+  setLlmApiHfToken: (value) => set(() => ({ llmApiHfToken: value })),
+  setLlmApiModelId: (value) => set(() => ({ llmApiModelId: value })),
+  setLlmApiTemperature: (value) =>
+    set(() => ({ llmApiTemperature: Number.isFinite(value) ? Math.max(0, Math.min(2, value)) : 0.2 })),
+  setLlmApiMaxTokens: (value) =>
+    set(() => ({ llmApiMaxTokens: Number.isFinite(value) ? Math.max(128, Math.round(value)) : 131072 })),
+  setLlmApiStatus: (status, detail) => set(() => ({ llmApiStatus: status, llmApiStatusDetail: detail ?? undefined })),
+  setLlmApiProgress: (value) =>
+    set(() => ({ llmApiProgress: Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0 })),
+  setLlmApiResult: (format, value) =>
+    set((state) => ({ llmApiResults: { ...state.llmApiResults, [format]: value } })),
+  setLlmApiResults: (value) => set(() => ({ llmApiResults: value })),
+  resetLlmApiSession: () =>
+    set(() => ({
+      llmApiStatus: "idle",
+      llmApiStatusDetail: undefined,
+      llmApiProgress: 0,
+      llmApiResults: {},
+    })),
   setAutoTunePreprocess: (value: boolean) => set(() => ({ autoTunePreprocess: value })),
   setLastAutoTuneParams: (params) => set(() => ({ lastAutoTuneParams: params })),
   requestNoiseCalibration: () => set(() => ({ noiseCalibrationRequestedAt: Date.now() })),
@@ -1198,6 +1257,10 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       segmentationProgress: 0,
       transcriptionConfidence: null,
       transcriptionConfidenceSource: null,
+      llmApiStatus: "idle",
+      llmApiStatusDetail: undefined,
+      llmApiProgress: 0,
+      llmApiResults: {},
       // Preserve debug toggle across session resets
       debugConfidence: state.debugConfidence,
       previewUrl: state.previewUrl,
@@ -1401,6 +1464,11 @@ useAsrStore.subscribe((state) => {
     cloudAutoTunePreprocess: state.cloudAutoTunePreprocess,
     cloudEnableWordTimestamps: state.cloudEnableWordTimestamps,
     cloudShowSegmentConfidence: state.cloudShowSegmentConfidence,
+    llmApiProvider: state.llmApiProvider,
+    llmApiHfToken: state.llmApiHfToken,
+    llmApiModelId: state.llmApiModelId,
+    llmApiTemperature: state.llmApiTemperature,
+    llmApiMaxTokens: state.llmApiMaxTokens,
     // whisper
     enableWordTimestamps: state.enableWordTimestamps,
     showSegmentConfidence: state.showSegmentConfidence,

@@ -1,9 +1,10 @@
 import { compareSync } from "bcryptjs";
+import logger from "@/lib/logger";
 
 const AUTH_KEY = "demeter-authenticated";
 const LOGIN_HASHES: string[] = typeof __LOGIN_HASHES__ !== "undefined" ? __LOGIN_HASHES__ : [];
 try {
-  console.info("Auth hashes loaded", { count: LOGIN_HASHES.length });
+  logger.info("Auth hashes loaded", { count: LOGIN_HASHES.length });
 } catch (err) {
   void err;
 }

@@ -1,5 +1,6 @@
 import type { AutomaticSpeechRecognitionPipeline, Pipeline as GenericPipeline } from "@huggingface/transformers";
 import { setTransformersVersion } from "@/lib/telemetry";
+import logger from "@/lib/logger";
 
 
 
@@ -13,11 +14,20 @@ let environmentConfigured = false;
 
 async function ensureTransformersModule(): Promise<TransformersModule> {
   if (!transformersPromise) {
+    logger.info("[asr][transformers-loader] loading transformers module");
     transformersPromise = import("@huggingface/transformers").then(async (module) => {
       setTransformersVersion(typeof module.env?.version === "string" ? module.env.version : "unknown");
       await ensureOrtPatched();
       configureEnvironment(module);
+      logger.info("[asr][transformers-loader] transformers module ready", {
+        version: typeof module.env?.version === "string" ? module.env.version : "unknown",
+      });
       return module;
+    }).catch((error) => {
+      logger.error("[asr][transformers-loader] failed to load transformers module", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     });
   }
   return transformersPromise;
@@ -25,6 +35,7 @@ async function ensureTransformersModule(): Promise<TransformersModule> {
 
 async function ensureOrtPatched() {
   if (!ortPromise) {
+    logger.debug("[asr][transformers-loader] patching onnxruntime module");
     // resolve promise immediately with already-imported ort module
     ortPromise = Promise.resolve(ort as typeof ort);
   }
@@ -54,6 +65,15 @@ function configureEnvironment(module: TransformersModule) {
   wasmBackend.simd = true;
   wasmBackend.numThreads = 1;
   environmentConfigured = true;
+  logger.info("[asr][transformers-loader] environment configured", {
+    allowLocalModels: envMutable.allowLocalModels,
+    useBrowserCache: envMutable.useBrowserCache,
+    wasmProxy: wasmBackend.proxy,
+    wasmUseJsep: wasmBackend.useJsep,
+    wasmSimd: wasmBackend.simd,
+    wasmThreads: wasmBackend.numThreads,
+    wasmPaths: typeof wasmBackend.wasmPaths === "string" ? wasmBackend.wasmPaths : "custom",
+  });
 }
 
 

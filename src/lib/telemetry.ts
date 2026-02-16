@@ -1,4 +1,8 @@
 export type TelemetryEventType =
+  | "LOG_INFO"
+  | "LOG_DEBUG"
+  | "LOG_WARN"
+  | "LOG_ERROR"
   | "START_INIT"
   | "START_LOAD_MODEL"
   | "PROGRESS_MODEL"
@@ -87,7 +91,12 @@ export type TelemetryEventType =
   | "MODEL_COMPAT_SUMMARY_CLOSED"
   | "WASM_MULTITHREAD_AVAILABLE"
   | "WASM_MULTITHREAD_TEST"
-  | "WASM_MEMORY_MEASURE_FAILED";
+  | "WASM_MEMORY_MEASURE_FAILED"
+  | "LLM_RUN_START"
+  | "LLM_RUN_STAGE"
+  | "LLM_RUN_DONE"
+  | "LLM_RUN_ERROR"
+  | "LLM_DOCX_DOWNLOAD";
 
 export interface TelemetryEvent {
   type: TelemetryEventType;
@@ -124,6 +133,7 @@ export interface TelemetrySummary {
   events: TelemetryEvent[];
   memorySnapshots: TelemetrySnapshot[];
   alerts: Record<string, { count: number; lastTimestamp: number; lastData?: Record<string, unknown> }>;
+  droppedEvents?: number;
 }
 
 let transformersVersion = "unknown";
@@ -137,6 +147,7 @@ export function getTransformersVersion() {
 }
 
 export class TelemetryCollector {
+  private static readonly MAX_EVENTS = 5000;
   private readonly sessionId: string;
   private readonly events: TelemetryEvent[] = [];
   private readonly timings = new Map<string, number>();
@@ -146,6 +157,7 @@ export class TelemetryCollector {
   private readonly alerts = new Map<string, { count: number; lastTimestamp: number; lastData?: Record<string, unknown> }>();
   private backend: string = "auto";
   private modelId: string = "";
+  private droppedEvents = 0;
 
   constructor(sessionId: string = crypto.randomUUID()) {
     this.sessionId = sessionId;
@@ -158,6 +170,10 @@ export class TelemetryCollector {
   }
 
   logEvent(type: TelemetryEventType, data?: Record<string, unknown>) {
+    if (this.events.length >= TelemetryCollector.MAX_EVENTS) {
+      this.events.shift();
+      this.droppedEvents += 1;
+    }
     this.events.push({ type, timestamp: performance.now(), data });
   }
 
@@ -222,6 +238,7 @@ export class TelemetryCollector {
       events: this.events,
       memorySnapshots: this.snapshots,
       alerts,
+      droppedEvents: this.droppedEvents > 0 ? this.droppedEvents : undefined,
     };
   }
 

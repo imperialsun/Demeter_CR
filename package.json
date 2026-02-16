@@ -5,11 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run audit:observability && tsc -b && vite build",
+    "audit:observability": "node scripts/observability-audit.mjs",
     "lint": "eslint .",
     "test": "vitest --run",
     "test:watch": "vitest",
-    "test:ci": "vitest --run --coverage",
+    "test:ci": "npm run audit:observability && vitest --run --coverage",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -31,6 +32,7 @@
     "bcryptjs": "^2.4.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "docx": "^9.5.3",
     "lucide-react": "^0.562.0",
     "onnxruntime-web": "^1.23.2",
     "react": "^19.2.0",

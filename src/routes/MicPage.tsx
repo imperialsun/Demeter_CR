@@ -10,6 +10,7 @@ import { ResultsTable } from "@/components/results/ResultsTable";
 import { ExportButtons } from "@/components/results/ExportButtons";
 import { toast } from "@/components/ui/use-toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import logger from "@/lib/logger";
 
 const STATUS_LABELS: Record<string, { label: string; tone: "default" | "secondary" | "destructive" }> = {
   idle: { label: "En attente", tone: "secondary" },
@@ -87,6 +88,18 @@ function MicPage() {
       : null;
 
   useEffect(() => {
+    logger.info("[mic][ui] page mounted", {
+      backendPreference,
+      micBackendPreference,
+      activeBackend: activeBackend ?? null,
+      segmentsCount: segments.length,
+    });
+    return () => {
+      logger.info("[mic][ui] page unmounted");
+    };
+  }, [activeBackend, backendPreference, micBackendPreference, segments.length]);
+
+  useEffect(() => {
     return () => {
       if (mp3Url) {
         URL.revokeObjectURL(mp3Url);
@@ -134,6 +147,11 @@ function MicPage() {
 
   const handlePrepareMp3 = async () => {
     if (!hasRecording || isPreparingMp3) return;
+    logger.info("[mic][ui] prepare mp3 requested", {
+      hasRecording,
+      isRecording,
+      pendingCount,
+    });
     setIsPreparingMp3(true);
     try {
       const blob = await prepareRecordingMp3();
@@ -144,16 +162,43 @@ function MicPage() {
         }
         return url;
       });
+      logger.info("[mic][ui] prepare mp3 success", { sizeBytes: blob.size });
       toast("MP3 prêt. Cliquez sur Télécharger pour récupérer l'audio.");
     } catch (error) {
       const message = (error as Error)?.message ?? "Impossible de générer le MP3.";
+      logger.error("[mic][ui] prepare mp3 failed", { message });
       toast(message);
     } finally {
       setIsPreparingMp3(false);
     }
   };
 
+  const handleRecordingToggle = () => {
+    if (isRecording) {
+      logger.info("[mic][ui] stop recording requested", {
+        pendingCount,
+        recordingSeconds,
+      });
+      stopRecording();
+      return;
+    }
+    logger.info("[mic][ui] start recording requested", {
+      noiseCalibrated,
+      pendingCount,
+    });
+    startRecording();
+  };
+
+  const handleCalibrateNoise = () => {
+    logger.info("[mic][ui] noise calibration requested", {
+      isCalibratingNoise,
+      noiseCalibrated,
+    });
+    calibrateSilenceThreshold();
+  };
+
   const handleStopAfterChunk = () => {
+    logger.info("[mic][ui] stop after chunk requested", { pendingCount });
     const state = useAsrStore.getState();
     state.setStatus("stopping", "Arrêt après le chunk courant");
     state.requestStop();
@@ -164,7 +209,7 @@ function MicPage() {
       <header className="space-y-2">
         <h2 className="text-2xl font-semibold">Micro en direct</h2>
         <p className="text-muted-foreground">
-          Lancez l&apos;enregistrement et transcrivez au fil des silences. Arrêtez pour télécharger le résultat.
+          Lancez l'enregistrement et transcrivez au fil des silences. Arrêtez pour télécharger le résultat.
         </p>
       </header>
 
@@ -203,7 +248,7 @@ function MicPage() {
 
                   {wavUrl ? (
                     <div className="w-full space-y-2">
-                      <div className="text-xs text-muted-foreground text-center">Réécouter l&apos;enregistrement</div>
+                      <div className="text-xs text-muted-foreground text-center">Réécouter l'enregistrement</div>
                       <audio controls className="w-full" src={wavUrl} aria-label="Lecture enregistrement micro" />
                     </div>
                   ) : null}
@@ -236,7 +281,7 @@ function MicPage() {
                       <TooltipTrigger asChild>
                         <span className="mx-auto inline-block">
                           <Button
-                            onClick={isRecording ? stopRecording : startRecording}
+                            onClick={handleRecordingToggle}
                             disabled={isStopping || (!isRecording && !noiseCalibrated)}
                             aria-pressed={isRecording}
                             variant={isRecording ? "destructive" : "default"}
@@ -253,7 +298,7 @@ function MicPage() {
                   </TooltipProvider>
                 ) : (
                   <Button
-                    onClick={isRecording ? stopRecording : startRecording}
+                    onClick={handleRecordingToggle}
                     disabled={isStopping || (!isRecording && !noiseCalibrated)}
                     aria-pressed={isRecording}
                     variant={isRecording ? "destructive" : "default"}
@@ -268,7 +313,7 @@ function MicPage() {
                 <div className="flex justify-center">
                   <Button
                     variant={noiseCalibrated ? "default" : "outline"}
-                    onClick={calibrateSilenceThreshold}
+                    onClick={handleCalibrateNoise}
                     disabled={isStopping || isCalibratingNoise}
                     className={
                       noiseCalibrated ? "ring-2 ring-emerald-400 ring-offset-2 ring-offset-background" : undefined
@@ -319,7 +364,7 @@ function MicPage() {
           ) : (
             <Card>
               <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                Les segments apparaîtront ici pendant l&apos;enregistrement.
+                Les segments apparaîtront ici pendant l'enregistrement.
               </CardContent>
             </Card>
           )}

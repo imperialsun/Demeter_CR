@@ -549,17 +549,17 @@ export function SettingsPanel({
   }, [micBackendPreference, setMicBackendPreference, webGpuSupported]);
 
   useEffect(() => {
-    console.info("Settings panel view", { section: "settings" });
+    logger.info("Settings panel view", { section: "settings" });
     telemetryCollector?.logEvent?.("SETTINGS_PANEL_VIEW", { section: "settings" });
   }, [telemetryCollector]);
 
   useEffect(() => {
-    console.info("Settings mic section visibility", { visible: showMicSettings });
+    logger.info("Settings mic section visibility", { visible: showMicSettings });
     telemetryCollector?.logEvent?.("SETTINGS_MIC_SECTION_VISIBILITY", { visible: showMicSettings });
   }, [showMicSettings, telemetryCollector]);
 
   useEffect(() => {
-    console.info("Settings cloud section visibility", { visible: showCloudSettingsResolved });
+    logger.info("Settings cloud section visibility", { visible: showCloudSettingsResolved });
     telemetryCollector?.logEvent?.("SETTINGS_CLOUD_SECTION_VISIBILITY", {
       visible: showCloudSettingsResolved,
     });
@@ -1026,9 +1026,9 @@ export function SettingsPanel({
       {showReminders ? (
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Rappels d&apos;utilisation</CardTitle>
+            <CardTitle>Rappels d'utilisation</CardTitle>
             <CardDescription>
-              Sélectionnez un mode d&apos;import dans la sidebar puis lancez la transcription en un clic.
+              Sélectionnez un mode d'import dans la sidebar puis lancez la transcription en un clic.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-6 md:grid-cols-3">
@@ -1045,7 +1045,7 @@ export function SettingsPanel({
             <div>
               <CardTitle>Modèle Whisper</CardTitle>
               <CardDescription>
-                Choisissez le preset adapté à votre cas d&apos;usage ou renseignez un modèle custom.
+                Choisissez le preset adapté à votre cas d'usage ou renseignez un modèle custom.
               </CardDescription>
             </div>
             <Button
@@ -1131,7 +1131,7 @@ export function SettingsPanel({
               </Select>
             {!webGpuSupported ? (
               <p className="text-xs text-muted-foreground">
-                WebGPU n&apos;est pas disponible sur ce périphérique. Le mode WASM est appliqué automatiquement.
+                WebGPU n'est pas disponible sur ce périphérique. Le mode WASM est appliqué automatiquement.
               </p>
             ) : null}
           </div>
@@ -1140,7 +1140,7 @@ export function SettingsPanel({
               <div>
                 <p className="text-sm font-medium">Quantization du preset</p>
                 <p className="text-xs text-muted-foreground">
-                  S&apos;applique à ce preset pour la transcription locale et micro.
+                  S'applique à ce preset pour la transcription locale et micro.
                 </p>
               </div>
               <div className="flex justify-end">
@@ -1955,7 +1955,7 @@ export function SettingsPanel({
             <CardTitle>Segments</CardTitle>
             <CardDescription>
               Choisissez si le tableau des segments s'affiche sur la page Transcription locale. Cette option est
-              désactivée par défaut pour alléger l&apos;interface.
+              désactivée par défaut pour alléger l'interface.
             </CardDescription>
           </div>
         </CardHeader>
@@ -1964,7 +1964,7 @@ export function SettingsPanel({
             <div>
               <p className="text-sm font-medium">Afficher le tableau des segments</p>
               <p className="text-xs text-muted-foreground">
-                Les segments sont masqués sur /localupload lorsque l&apos;option est désactivée.
+                Les segments sont masqués sur /localupload lorsque l'option est désactivée.
               </p>
             </div>
             <Switch
@@ -2028,7 +2028,7 @@ export function SettingsPanel({
         <CardHeader>
           <CardTitle>Modèle Whisper (micro)</CardTitle>
           <CardDescription>
-            Choisissez le preset et le backend utilisés pour l&apos;enregistrement.
+            Choisissez le preset et le backend utilisés pour l'enregistrement.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -2100,7 +2100,7 @@ export function SettingsPanel({
             </Select>
             {!webGpuSupported ? (
               <p className="text-xs text-muted-foreground">
-                WebGPU n&apos;est pas disponible sur ce périphérique. Le mode WASM est appliqué automatiquement.
+                WebGPU n'est pas disponible sur ce périphérique. Le mode WASM est appliqué automatiquement.
               </p>
             ) : null}
           </div>
@@ -2109,7 +2109,7 @@ export function SettingsPanel({
               <div>
                 <p className="text-sm font-medium">Quantization du preset</p>
                 <p className="text-xs text-muted-foreground">
-                  Réglage partagé avec l&apos;onglet Local pour ce preset.
+                  Réglage partagé avec l'onglet Local pour ce preset.
                 </p>
               </div>
               <div className="flex justify-end">
@@ -2185,8 +2185,8 @@ export function SettingsPanel({
 
           <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
             <div>
-              <p className="text-sm font-medium">Afficher l&apos;indice de confiance</p>
-              <p className="text-xs text-muted-foreground">Afficher l&apos;indice de confiance calculé pour chaque segment.</p>
+              <p className="text-sm font-medium">Afficher l'indice de confiance</p>
+              <p className="text-xs text-muted-foreground">Afficher l'indice de confiance calculé pour chaque segment.</p>
             </div>
             <Switch
               aria-label="Afficher l'indice de confiance (micro)"
@@ -2515,7 +2515,7 @@ export function SettingsPanel({
                   <div>
                     <p className="text-sm font-medium">Autotune prétraitement (micro)</p>
                     <p className="text-xs text-muted-foreground">
-                      Calibre sur le premier chunk et conserve les réglages pendant l&apos;enregistrement.
+                      Calibre sur le premier chunk et conserve les réglages pendant l'enregistrement.
                     </p>
                   </div>
                   <div>
@@ -2562,7 +2562,7 @@ export function SettingsPanel({
           <div>
             <CardTitle>Exports micro</CardTitle>
             <CardDescription>
-              Contrôlez quels boutons d&apos;export apparaissent sur la page Micro.
+              Contrôlez quels boutons d'export apparaissent sur la page Micro.
             </CardDescription>
           </div>
         </CardHeader>
@@ -2570,7 +2570,7 @@ export function SettingsPanel({
           <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
             <div>
               <p className="text-sm font-medium">VTT</p>
-              <p className="text-xs text-muted-foreground">Affiche le bouton d&apos;export VTT sur /mic.</p>
+              <p className="text-xs text-muted-foreground">Affiche le bouton d'export VTT sur /mic.</p>
             </div>
             <Switch className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500" checked={micShowExportVtt} onCheckedChange={(v) => setMicShowExportVtt(v)} />
           </div>
@@ -2578,7 +2578,7 @@ export function SettingsPanel({
           <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
             <div>
               <p className="text-sm font-medium">SRT</p>
-              <p className="text-xs text-muted-foreground">Affiche le bouton d&apos;export SRT sur /mic.</p>
+              <p className="text-xs text-muted-foreground">Affiche le bouton d'export SRT sur /mic.</p>
             </div>
             <Switch className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500" checked={micShowExportSrt} onCheckedChange={(v) => setMicShowExportSrt(v)} />
           </div>
@@ -2586,7 +2586,7 @@ export function SettingsPanel({
           <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
             <div>
               <p className="text-sm font-medium">JSON segments</p>
-              <p className="text-xs text-muted-foreground">Affiche le bouton d&apos;export JSON (segments).</p>
+              <p className="text-xs text-muted-foreground">Affiche le bouton d'export JSON (segments).</p>
             </div>
             <Switch className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500" checked={micShowExportJson} onCheckedChange={(v) => setMicShowExportJson(v)} />
           </div>
@@ -2594,7 +2594,7 @@ export function SettingsPanel({
           <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
             <div>
               <p className="text-sm font-medium">Telemetry</p>
-              <p className="text-xs text-muted-foreground">Affiche le bouton d&apos;export telemetry.json.</p>
+              <p className="text-xs text-muted-foreground">Affiche le bouton d'export telemetry.json.</p>
             </div>
             <Switch className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500" checked={micShowExportTelemetry} onCheckedChange={(v) => setMicShowExportTelemetry(v)} />
           </div>
@@ -2703,7 +2703,7 @@ export function SettingsPanel({
                         autoComplete="off"
                       />
                       <p className="text-xs text-muted-foreground">
-                        Stocké localement pour l&apos;inférence Whisper.
+                        Stocké localement pour l'inférence Whisper.
                       </p>
                     </div>
                     <div className="grid gap-3 md:grid-cols-3">

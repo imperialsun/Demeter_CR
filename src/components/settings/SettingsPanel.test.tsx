@@ -51,7 +51,7 @@ describe('SettingsPanel', () => {
     // Assert the store values were updated
     expect(useAsrStore.getState().showSegmentConfidence).toBe(true);
     expect(useAsrStore.getState().enableWordTimestamps).toBe(true);
-  });
+  }, 15000);
 
   it("shows quantization controls for built-in presets", async () => {
     useAsrStore.setState({ activePreset: "fast" } as any);

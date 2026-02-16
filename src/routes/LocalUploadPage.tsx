@@ -46,14 +46,14 @@ function LocalUploadPage() {
   const [privacyNoteOpen, setPrivacyNoteOpen] = useState(false);
 
   useEffect(() => {
-    console.info("Local upload page view", { route: "/localupload", mode: "local" });
+    logger.info("Local upload page view", { route: "/localupload", mode: "local" });
     telemetry?.logEvent?.("LOCAL_UPLOAD_PAGE_VIEW", { route: "/localupload", mode: "local" });
   }, [telemetry]);
 
   const togglePrivacyNote = useCallback(() => {
     setPrivacyNoteOpen((value) => {
       const next = !value;
-      console.info("Local upload privacy note toggled", { open: next });
+      logger.info("Local upload privacy note toggled", { open: next });
       telemetry?.logEvent?.("LOCAL_UPLOAD_PRIVACY_NOTE_TOGGLE", { open: next });
       return next;
     });
@@ -113,7 +113,7 @@ function LocalUploadPage() {
           Importez un fichier audio, ajustez Whisper et suivez la transcription morceau par morceau sans quitter Chrome.
         </p>
         <p className="text-sm font-medium text-emerald-600">
-          Traitement 100% local sur ce poste : aucun fichier audio ni transcription n&apos;est transmis au cloud.
+          Traitement 100% local sur ce poste : aucun fichier audio ni transcription n'est transmis au cloud.
         </p>
         <div className="pt-2">
           <button

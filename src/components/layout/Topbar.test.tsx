@@ -25,6 +25,12 @@ vi.mock('@/hooks/useTranscriptionController', () => ({
 }));
 
 vi.mock('@/lib/logger', () => ({
+  default: {
+    info: vi.fn(),
+    debug: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
   exportLogEntries: vi.fn(() => [{ timestamp: 't1', level: 'info', message: ['log'] }]),
 }));
 
@@ -47,6 +53,7 @@ describe('Topbar', () => {
       statusDetail: undefined,
       cloudStatus: 'idle',
       cloudStatusDetail: undefined,
+      llmApiProvider: 'huggingface',
       wasmThreads: 1,
       preprocessingMode: 'fast',
       debugConfidence: false,
@@ -128,6 +135,41 @@ describe('Topbar', () => {
     expect(screen.queryByText('Backend')).toBeNull();
     expect(screen.getAllByText('Cloud').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Transcription').length).toBeGreaterThan(0);
+  });
+
+  it('shows llm badges and llm status on /llmapi', () => {
+    vi.spyOn(rr, 'useLocation').mockReturnValue({ pathname: '/llmapi', search: '', state: null, hash: '', key: '' } as any);
+    useAsrStore.setState({
+      llmApiStatus: 'generating',
+      llmApiStatusDetail: 'Generation CRI (1/3)',
+      llmApiProvider: 'huggingface',
+      llmApiModelId: 'openai/gpt-oss-20b',
+      llmApiMaxTokens: 131072,
+    } as any);
+
+    render(<Topbar />);
+
+    expect(screen.queryByText('Backend')).toBeNull();
+    expect(screen.getAllByText('LLM Cloud').length).toBeGreaterThan(0);
+    expect(screen.getByText('HF API')).toBeInTheDocument();
+    expect(screen.getByText('OpenAI OSS 20B')).toBeInTheDocument();
+    expect(screen.getByText(/Max 131/)).toBeInTheDocument();
+    expect(screen.getAllByText('Generation').length).toBeGreaterThan(0);
+    expect(screen.getByText('Generation CRI (1/3)')).toBeInTheDocument();
+  });
+
+  it('shows mistral provider badge on /llmapi when provider is mistral', () => {
+    vi.spyOn(rr, 'useLocation').mockReturnValue({ pathname: '/llmapi', search: '', state: null, hash: '', key: '' } as any);
+    useAsrStore.setState({
+      llmApiStatus: 'generating',
+      llmApiProvider: 'mistral',
+      llmApiModelId: 'mistral-medium-latest',
+      llmApiMaxTokens: 8192,
+    } as any);
+
+    render(<Topbar />);
+
+    expect(screen.getByText('Mistral API')).toBeInTheDocument();
   });
 
   it('hides debug controls in production', () => {

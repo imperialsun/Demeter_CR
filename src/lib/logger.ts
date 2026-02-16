@@ -1,15 +1,24 @@
 // Lightweight logger that defers the "debugEnabled" decision to a runtime provider.
 // This avoids importing the Zustand store here and causing circular imports or dynamic-import churn.
+import type { TelemetryCollector } from "@/lib/telemetry";
 
 let debugProvider: (() => boolean) | null = null;
 const LOG_BUFFER_LIMIT = 2000;
 const LOG_CACHE_KEY = "demeter-log-cache";
+const TELEMETRY_PREVIEW_HEAD = 256;
+const TELEMETRY_PREVIEW_TAIL = 256;
+const TELEMETRY_MAX_ARGS = 6;
+let telemetryProvider: (() => TelemetryCollector | null) | null = null;
+
+export type ConsoleVisibilityPolicy = "always" | "debug-gated" | "warn-error-only";
+let consoleVisibilityPolicy: ConsoleVisibilityPolicy = "debug-gated";
 
 type LogEntry = {
   timestamp: string;
   level: "info" | "debug" | "warn" | "error";
   message: string[];
 };
+type LogLevel = LogEntry["level"];
 
 const logBuffer: LogEntry[] = [];
 let cachedLogsMemo: LogEntry[] | null = null;
@@ -18,6 +27,14 @@ let cacheFlushScheduled = false;
 
 export function setDebugProvider(provider: () => boolean) {
   debugProvider = provider;
+}
+
+export function setTelemetryProvider(provider: (() => TelemetryCollector | null) | null) {
+  telemetryProvider = provider;
+}
+
+export function setConsoleVisibilityPolicy(policy: ConsoleVisibilityPolicy) {
+  consoleVisibilityPolicy = policy;
 }
 
 function enabled() {
@@ -50,18 +67,18 @@ export function installConsoleGuard() {
   };
 
   const guarded =
-    (method: keyof typeof baseConsole, always = false) =>
+    (method: keyof typeof baseConsole, level: LogLevel) =>
     (...args: unknown[]) => {
-      if (always || enabled()) {
+      if (shouldEmitConsole(level)) {
         baseConsole[method](...args);
       }
     };
 
-  console.log = guarded("log");
-  console.info = guarded("info");
-  console.debug = guarded("debug");
-  console.warn = guarded("warn");
-  console.error = guarded("error", true);
+  console.log = guarded("log", "info");
+  console.info = guarded("info", "info");
+  console.debug = guarded("debug", "debug");
+  console.warn = guarded("warn", "warn");
+  console.error = guarded("error", "error");
 }
 
 function safeStringify(value: unknown) {
@@ -186,6 +203,75 @@ function pushLog(level: LogEntry["level"], args: unknown[]) {
   }
 }
 
+function shouldEmitConsole(level: LogLevel): boolean {
+  if (consoleVisibilityPolicy === "always") return true;
+  if (consoleVisibilityPolicy === "warn-error-only") {
+    if (level === "warn" || level === "error") return true;
+    return enabled();
+  }
+  if (level === "error") return true;
+  return enabled();
+}
+
+function truncateForTelemetry(value: string): { preview: string; totalLength: number; truncated: boolean } {
+  if (value.length <= TELEMETRY_PREVIEW_HEAD + TELEMETRY_PREVIEW_TAIL) {
+    return {
+      preview: value,
+      totalLength: value.length,
+      truncated: false,
+    };
+  }
+
+  const omittedChars = value.length - TELEMETRY_PREVIEW_HEAD - TELEMETRY_PREVIEW_TAIL;
+  return {
+    preview: `${value.slice(0, TELEMETRY_PREVIEW_HEAD)}...[${omittedChars} chars omitted]...${value.slice(
+      -TELEMETRY_PREVIEW_TAIL
+    )}`,
+    totalLength: value.length,
+    truncated: true,
+  };
+}
+
+function emitTelemetry(level: LogLevel, args: unknown[]) {
+  if (!telemetryProvider) return;
+  let telemetry: TelemetryCollector | null = null;
+  try {
+    telemetry = telemetryProvider();
+  } catch {
+    telemetry = null;
+  }
+  if (!telemetry) return;
+
+  try {
+    const eventType =
+      level === "error"
+        ? "LOG_ERROR"
+        : level === "warn"
+          ? "LOG_WARN"
+          : level === "debug"
+            ? "LOG_DEBUG"
+            : "LOG_INFO";
+
+    const formattedArgs = args.map(formatArg);
+    const previews = formattedArgs.slice(0, TELEMETRY_MAX_ARGS).map(truncateForTelemetry);
+    const first = previews[0];
+
+    telemetry.logEvent(eventType, {
+      level,
+      argCount: args.length,
+      truncatedArgs: previews.filter((item) => item.truncated).length,
+      omittedArgs: Math.max(0, args.length - TELEMETRY_MAX_ARGS),
+      messagePreview: first?.preview,
+      messageTotalLength: first?.totalLength ?? 0,
+      argsPreview: previews.map((item) => item.preview),
+      argsTotalLength: previews.map((item) => item.totalLength),
+      hasTelemetryPreview: true,
+    });
+  } catch {
+    // avoid logging loops on telemetry failures
+  }
+}
+
 export function exportLogEntries() {
   // Ensure any scheduled cache spill is persisted before exporting.
   flushCachedLogs();
@@ -194,22 +280,26 @@ export function exportLogEntries() {
 
 export function info(...args: unknown[]) {
   pushLog("info", args);
-  if (enabled()) console.info(...args);
+  emitTelemetry("info", args);
+  if (shouldEmitConsole("info")) console.info(...args);
 }
 
 export function debug(...args: unknown[]) {
   pushLog("debug", args);
-  if (enabled()) console.debug(...args);
+  emitTelemetry("debug", args);
+  if (shouldEmitConsole("debug")) console.debug(...args);
 }
 
 export function warn(...args: unknown[]) {
   pushLog("warn", args);
-  if (enabled()) console.warn(...args);
+  emitTelemetry("warn", args);
+  if (shouldEmitConsole("warn")) console.warn(...args);
 }
 
 export function error(...args: unknown[]) {
   pushLog("error", args);
-  console.error(...args);
+  emitTelemetry("error", args);
+  if (shouldEmitConsole("error")) console.error(...args);
 }
 
 export default {
@@ -217,4 +307,6 @@ export default {
   debug,
   warn,
   error,
+  setConsoleVisibilityPolicy,
+  setTelemetryProvider,
 };

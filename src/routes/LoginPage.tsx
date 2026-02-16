@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/use-toast";
 import { isAuthenticated, isPasswordValid, setAuthenticated } from "@/lib/auth";
+import logger from "@/lib/logger";
 import { useAsrStore } from "@/store/asr-store";
 
 type LocationState = { from?: { pathname?: string } };
@@ -30,7 +31,7 @@ export default function LoginPage() {
     event.preventDefault();
     setError(null);
     try {
-      console.info("Auth login attempt");
+      logger.info("Auth login attempt");
       telemetry?.logEvent("AUTH_LOGIN_ATTEMPT", { source: "login_page" });
     } catch (err) {
       void err;
@@ -38,7 +39,7 @@ export default function LoginPage() {
     if (!password.trim()) {
       setError("Veuillez saisir le mot de passe.");
       try {
-        console.warn("Auth login failed", { reason: "empty_password" });
+        logger.warn("Auth login failed", { reason: "empty_password" });
         telemetry?.logEvent("AUTH_LOGIN_FAILED", { reason: "empty_password" });
       } catch (err) {
         void err;
@@ -49,7 +50,7 @@ export default function LoginPage() {
     if (!isPasswordValid(password)) {
       setError("Mot de passe incorrect.");
       try {
-        console.warn("Auth login failed", { reason: "invalid_password" });
+        logger.warn("Auth login failed", { reason: "invalid_password" });
         telemetry?.logEvent("AUTH_LOGIN_FAILED", { reason: "invalid_password" });
       } catch (err) {
         void err;
@@ -59,7 +60,7 @@ export default function LoginPage() {
 
     setAuthenticated(true);
     try {
-      console.info("Auth login success");
+      logger.info("Auth login success");
       telemetry?.logEvent("AUTH_LOGIN_SUCCESS", { source: "login_page" });
     } catch (err) {
       void err;

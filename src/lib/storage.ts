@@ -1,6 +1,7 @@
 import type {
   BackendImplementation,
   DedupeMode,
+  LlmApiProvider,
   ModelDtype,
   PresetKey,
 } from "@/store/asr-store";
@@ -140,6 +141,12 @@ export interface PersistedSettings {
   cloudAutoTunePreprocess?: boolean;
   cloudEnableWordTimestamps?: boolean;
   cloudShowSegmentConfidence?: boolean;
+  // LLM API settings
+  llmApiProvider?: LlmApiProvider;
+  llmApiHfToken?: string;
+  llmApiModelId?: string;
+  llmApiTemperature?: number;
+  llmApiMaxTokens?: number;
 }
 
 export function loadSettings(): Partial<PersistedSettings> | null {
@@ -293,4 +300,10 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   cloudAutoTunePreprocess: true,
   cloudEnableWordTimestamps: false,
   cloudShowSegmentConfidence: false,
+  // llm cloud defaults
+  llmApiProvider: "huggingface",
+  llmApiHfToken: "",
+  llmApiModelId: "openai/gpt-oss-20b",
+  llmApiTemperature: 0.2,
+  llmApiMaxTokens: 131072,
 };

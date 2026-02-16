@@ -1,4 +1,5 @@
 import type { Client, StatusMessage } from "@gradio/client";
+import logger from "@/lib/logger";
 
 export type GradioProgressUpdate = {
   progress: number | null;
@@ -49,6 +50,11 @@ export async function submitWithProgress<T>(
   data: unknown[] | Record<string, unknown>,
   options: SubmitOptions = {}
 ): Promise<{ data: T; progressSeen: boolean }> {
+  logger.info("[cloud][gradio] submit start", {
+    endpoint,
+    payloadType: Array.isArray(data) ? "array" : "object",
+    payloadSize: Array.isArray(data) ? data.length : Object.keys(data).length,
+  });
   const iterable = client.submit(endpoint, data, undefined, null, true) as AsyncIterable<unknown> & {
     cancel: () => Promise<void>;
   };
@@ -57,6 +63,7 @@ export async function submitWithProgress<T>(
 
   for await (const message of iterable) {
     if (options.shouldAbort?.()) {
+      logger.warn("[cloud][gradio] submit aborted by caller", { endpoint });
       await iterable.cancel();
       break;
     }
@@ -68,6 +75,12 @@ export async function submitWithProgress<T>(
       const status = message as StatusMessage;
       options.onStatus?.(status);
       if (status.stage === "error") {
+        logger.error("[cloud][gradio] status error", {
+          endpoint,
+          stage: status.stage,
+          code: status.code ?? null,
+          message: status.message ?? null,
+        });
         throw status;
       }
       const update = extractProgress(status);
@@ -79,7 +92,9 @@ export async function submitWithProgress<T>(
   }
 
   if (lastData === null) {
+    logger.error("[cloud][gradio] submit failed: no data returned", { endpoint });
     throw new Error("Gradio submit did not return data");
   }
+  logger.info("[cloud][gradio] submit done", { endpoint, progressSeen });
   return { data: lastData, progressSeen };
 }

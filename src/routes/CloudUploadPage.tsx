@@ -16,6 +16,9 @@ import { useCloudTranscription } from "@/hooks/useCloudTranscription";
 import logger from "@/lib/logger";
 import { Loader2, PauseCircle, Play, Cloud, ChevronDown, ChevronUp } from "lucide-react";
 
+const CLOUD_HF_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans cle API Hugging Face.";
+const CLOUD_MISTRAL_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans cle API Mistral.";
+
 function CloudUploadPage() {
   const [isContextOpen, setIsContextOpen] = useState(false);
   const [provider, setProvider] = useState<"gradio" | "whisper" | "mistral">("gradio");
@@ -78,6 +81,8 @@ function CloudUploadPage() {
         return { label: "En attente", tone: "secondary" as const };
     }
   }, [status]);
+  const isWhisperTokenMissing = isWhisper && cloudHfToken.trim().length === 0;
+  const isMistralTokenMissing = isMistral && cloudMistralApiKey.trim().length === 0;
   const percent = Math.round(progress * 100);
   return (
     <div className="space-y-8">
@@ -87,7 +92,7 @@ function CloudUploadPage() {
           Importez un fichier audio, prétraitez-le localement puis lancez la transcription via le service cloud.
         </p>
         <p className="text-sm font-medium text-amber-600">
-          L&apos;audio est prétraité localement avant d&apos;être envoyé au cloud pour la transcription.
+          L'audio est prétraité localement avant d'être envoyé au cloud pour la transcription.
         </p>
       </header>
 
@@ -119,7 +124,7 @@ function CloudUploadPage() {
             <CardTitle>{isWhisper ? "Token Hugging Face" : "Token API Mistral"}</CardTitle>
             <CardDescription>
               {isWhisper
-                ? "Ajoutez votre token HF pour utiliser l&apos;API Whisper."
+                ? "Ajoutez votre token HF pour utiliser l'API Whisper."
                 : "Ajoutez votre token Mistral pour utiliser le modèle Voxtral."}
             </CardDescription>
           </CardHeader>
@@ -141,9 +146,15 @@ function CloudUploadPage() {
             />
             <p className="text-xs text-muted-foreground">
               {isWhisper
-                ? "Stocké localement. Aucun token n&apos;est envoyé ailleurs que vers l&apos;API Hugging Face."
-                : "Stocké localement. Aucun token n&apos;est envoyé ailleurs que vers l&apos;API Mistral."}
+                ? "Stocké localement. Aucun token n'est envoyé ailleurs que vers l'API Hugging Face."
+                : "Stocké localement. Aucun token n'est envoyé ailleurs que vers l'API Mistral."}
             </p>
+            {isWhisperTokenMissing ? (
+              <p className="text-xs text-destructive">{CLOUD_HF_TOKEN_REQUIRED_MESSAGE}</p>
+            ) : null}
+            {isMistralTokenMissing ? (
+              <p className="text-xs text-destructive">{CLOUD_MISTRAL_TOKEN_REQUIRED_MESSAGE}</p>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}

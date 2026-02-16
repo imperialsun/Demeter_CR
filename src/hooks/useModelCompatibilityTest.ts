@@ -212,7 +212,7 @@ export function useModelCompatibilityTest() {
   const stopTest = useCallback(() => {
     if (!state.running) return;
     stopRef.current = true;
-    console.warn("[compat-test] stop requested");
+    logger.warn("[compat-test] stop requested");
     telemetry?.recordAlert?.("MODEL_COMPAT_STOP_REQUESTED", { at: Date.now() });
     setState((prev) => ({
       ...prev,
@@ -223,7 +223,7 @@ export function useModelCompatibilityTest() {
 
   const closeSummary = useCallback(() => {
     if (state.running) return;
-    console.info("[compat-test] summary closed");
+    logger.info("[compat-test] summary closed");
     telemetry?.logEvent?.("MODEL_COMPAT_SUMMARY_CLOSED", { at: Date.now() });
     setState((prev) => ({
       ...prev,
@@ -250,7 +250,7 @@ export function useModelCompatibilityTest() {
       try {
         runtimeWebGpuSupported = await detectWebGpuSupport();
         setWebGpuSupport(runtimeWebGpuSupported);
-        console.info("[compat-test] webgpu support check", { supported: runtimeWebGpuSupported });
+        logger.info("[compat-test] webgpu support check", { supported: runtimeWebGpuSupported });
         telemetry?.logEvent?.("MODEL_COMPAT_WEBGPU_SUPPORT", { supported: runtimeWebGpuSupported });
       } catch (err) {
         void err;
@@ -266,7 +266,7 @@ export function useModelCompatibilityTest() {
 
       setBlockedPresets([]);
       publishOutcomeRef.current = false;
-      console.info("[compat-test] start", { backendPreference, order: TEST_ORDER });
+      logger.info("[compat-test] start", { backendPreference, order: TEST_ORDER });
       telemetry?.logEvent?.("MODEL_COMPAT_TEST_START", {
         backendPreference,
         order: TEST_ORDER,
@@ -286,13 +286,13 @@ export function useModelCompatibilityTest() {
       });
 
       if (!runtimeWebGpuSupported) {
-        console.info("[compat-test] webgpu unavailable (global)", { reason: "unsupported" });
+        logger.info("[compat-test] webgpu unavailable (global)", { reason: "unsupported" });
         telemetry?.logEvent?.("MODEL_COMPAT_SKIP", { backend: "webgpu", reason: "webgpu_unavailable" });
         markBackendUnavailable("webgpu", "WebGPU non supporte");
       }
 
       if (!wasmAvailable) {
-        console.info("[compat-test] wasm unavailable (global)", { reason: "missing_assets" });
+        logger.info("[compat-test] wasm unavailable (global)", { reason: "missing_assets" });
         telemetry?.logEvent?.("MODEL_COMPAT_SKIP", { backend: "wasm", reason: "wasm_unavailable" });
         markBackendUnavailable("wasm", "WASM non disponible");
       }
@@ -325,7 +325,7 @@ export function useModelCompatibilityTest() {
 
           const quantizationAttempts = attemptsFor(preset, backend);
           if ((backend === "webgpu" && !runtimeWebGpuSupported) || (backend === "wasm" && !wasmAvailable)) {
-            console.info("[compat-test] backend skipped", {
+            logger.info("[compat-test] backend skipped", {
               preset,
               backend,
               reason: backend === "webgpu" ? "webgpu_unavailable" : "wasm_unavailable",
@@ -371,7 +371,7 @@ export function useModelCompatibilityTest() {
               message: `Chargement du modele (${dtype.toUpperCase()} ${attemptIndex + 1}/${quantizationAttempts.length})`,
             });
             markProgress(0);
-            console.info("[compat-test] backend start", {
+            logger.info("[compat-test] backend start", {
               preset,
               backend,
               dtype,
@@ -410,7 +410,7 @@ export function useModelCompatibilityTest() {
                     ...prev,
                     progressLabel: status ? `${status} (${dtype.toUpperCase()})` : prev.progressLabel,
                   }));
-                  console.debug("[compat-test] progress", { preset, backend, dtype, progress, status });
+                  logger.debug("[compat-test] progress", { preset, backend, dtype, progress, status });
                   telemetry?.logEvent?.("MODEL_COMPAT_PROGRESS", {
                     preset,
                     backend,
@@ -437,7 +437,7 @@ export function useModelCompatibilityTest() {
 
               const durationMs = Math.round(performance.now() - startTime);
               attempts.push({ dtype, status: "ok", durationMs, message: "OK" });
-              console.info("[compat-test] backend ok", { preset, backend, dtype, durationMs });
+              logger.info("[compat-test] backend ok", { preset, backend, dtype, durationMs });
               telemetry?.logEvent?.("MODEL_COMPAT_OK", { preset, backend, dtype, durationMs });
             } catch (error) {
               const durationMs = Math.round(performance.now() - startTime);
@@ -464,8 +464,8 @@ export function useModelCompatibilityTest() {
                   durationMs,
                   message: "WebGPU non supporte",
                 });
-                console.info("[compat-test] webgpu unsupported", { durationMs, ...errorDetails });
-                console.error("[compat-test] webgpu unsupported error detail", { durationMs, errorDetails }, error);
+                logger.info("[compat-test] webgpu unsupported", { durationMs, ...errorDetails });
+                logger.error("[compat-test] webgpu unsupported error detail", { durationMs, errorDetails }, error);
                 telemetry?.logEvent?.("MODEL_COMPAT_SKIP", {
                   preset,
                   backend,
@@ -487,8 +487,8 @@ export function useModelCompatibilityTest() {
               } else if (isModelTooLargeError(error)) {
                 const errorDetails = { ...getErrorDetails(error), ...contextMeta };
                 attempts.push({ dtype, status: "too_large", durationMs, message: "Trop gros pour ce poste" });
-                console.warn("[compat-test] model too large", { durationMs, ...errorDetails });
-                console.error("[compat-test] model too large error detail", { durationMs, errorDetails }, error);
+                logger.warn("[compat-test] model too large", { durationMs, ...errorDetails });
+                logger.error("[compat-test] model too large error detail", { durationMs, errorDetails }, error);
                 telemetry?.recordAlert?.("MODEL_COMPAT_TOO_LARGE", { durationMs, ...errorDetails });
                 telemetry?.logEvent?.("ERROR", { stage: "model_compat", kind: "too_large", durationMs, ...errorDetails });
                 telemetry?.snapshotMemory?.("model_compat_too_large");
@@ -497,8 +497,8 @@ export function useModelCompatibilityTest() {
                 const errorDetails = { ...getErrorDetails(error), ...contextMeta };
                 attempts.push({ dtype, status: "error", durationMs, message });
                 logger.warn("Model compatibility test failed", error);
-                console.error("[compat-test] backend error", { durationMs, message, ...errorDetails });
-                console.error("[compat-test] backend error detail", { durationMs, errorDetails }, error);
+                logger.error("[compat-test] backend error", { durationMs, message, ...errorDetails });
+                logger.error("[compat-test] backend error detail", { durationMs, errorDetails }, error);
                 telemetry?.logEvent?.("ERROR", { stage: "model_compat", message, durationMs, ...errorDetails });
                 telemetry?.recordAlert?.("MODEL_COMPAT_ERROR", { durationMs, ...errorDetails });
                 telemetry?.snapshotMemory?.("model_compat_error");
@@ -632,10 +632,10 @@ export function useModelCompatibilityTest() {
     publishOutcomeRef.current = true;
     setBlockedPresets(blockedPresets);
     if (state.stopRequested) {
-      console.warn("[compat-test] stopped", { blocked: blockedPresets });
+      logger.warn("[compat-test] stopped", { blocked: blockedPresets });
       telemetry?.logEvent?.("MODEL_COMPAT_STOPPED", { blocked: blockedPresets });
     } else {
-      console.info("[compat-test] done", { blocked: blockedPresets });
+      logger.info("[compat-test] done", { blocked: blockedPresets });
       telemetry?.logEvent?.("MODEL_COMPAT_TEST_DONE", { blocked: blockedPresets });
     }
   }, [blockedPresets, setBlockedPresets, state.running, state.stopRequested, state.summaryOpen, telemetry]);

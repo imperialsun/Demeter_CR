@@ -1,4 +1,5 @@
 import { useAsrStore } from "@/store/asr-store";
+import logger from "@/lib/logger";
 
 let webGpuSupportPromise: Promise<boolean> | null = null;
 
@@ -31,7 +32,7 @@ export function resetWebGpuSupportCache() {
 
 async function checkWasmAssets(): Promise<boolean> {
   if (typeof window === "undefined") {
-    console.info("checkWasmAssets: skipped (non-browser)");
+    logger.info("checkWasmAssets: skipped (non-browser)");
     return false;
   }
   const candidates = [
@@ -44,22 +45,28 @@ async function checkWasmAssets(): Promise<boolean> {
   for (const url of candidates) {
     try {
       // Diagnostic logging to help debug deployment and caching issues
-      console.debug("checkWasmAssets: testing", { url });
+      logger.debug("checkWasmAssets: testing", { url });
       const resp = await fetch(url, { method: "GET" });
-      console.debug("checkWasmAssets: response", { url, ok: resp?.ok, status: resp?.status, type: resp?.type, contentType: resp?.headers?.get?.("content-type") });
+      logger.debug("checkWasmAssets: response", {
+        url,
+        ok: resp?.ok,
+        status: resp?.status,
+        type: resp?.type,
+        contentType: resp?.headers?.get?.("content-type"),
+      });
       // Treat only a successful non-opaque response as available
       if (resp && resp.ok && resp.type !== 'opaque') {
-        console.info("checkWasmAssets: found wasm", { url });
+        logger.info("checkWasmAssets: found wasm", { url });
         return true;
       }
       if (resp && resp.ok && resp.type === 'opaque') {
-        console.warn("checkWasmAssets: wasm response is opaque (possible service worker or cross-origin issue)", { url });
+        logger.warn("checkWasmAssets: wasm response is opaque (possible service worker or cross-origin issue)", { url });
       }
     } catch (err) {
-      console.warn("checkWasmAssets: fetch failed", { url, err });
+      logger.warn("checkWasmAssets: fetch failed", { url, err });
     }
   }
-  console.info("checkWasmAssets: no wasm asset found");
+  logger.info("checkWasmAssets: no wasm asset found");
   return false;
 }
 

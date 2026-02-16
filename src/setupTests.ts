@@ -18,6 +18,11 @@ if (typeof (URL as any).revokeObjectURL !== 'function') {
   (URL as any).revokeObjectURL = (_: any) => {};
 }
 
+// Radix Select relies on scrollIntoView in jsdom test env.
+if (typeof (Element as any) !== 'undefined' && typeof (Element as any).prototype.scrollIntoView !== 'function') {
+  (Element as any).prototype.scrollIntoView = () => {};
+}
+
 // Simple localStorage/sessionStorage polyfill for test envs
 if (typeof window !== 'undefined') {
   if (typeof window.localStorage?.getItem !== 'function') {
