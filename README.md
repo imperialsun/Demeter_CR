@@ -1,73 +1,574 @@
-# React + TypeScript + Vite
+# Demeter Speech
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Application web de transcription audio (locale et cloud), développée avec React + TypeScript + Vite.
 
-Currently, two official plugins are available:
+This is a browser-based audio transcription app (local and cloud), built with React + TypeScript + Vite.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+---
 
-## React Compiler
+## Français
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### 1) Objectif
 
-## Expanding the ESLint configuration
+Demeter Speech permet de transcrire des fichiers audio avec deux approches :
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- **Mode local** : transcription dans le navigateur via `@huggingface/transformers` + `onnxruntime-web` (WebGPU ou WASM).
+- **Mode cloud** : prétraitement local puis transcription via un provider distant (Gradio, Whisper API Hugging Face, Mistral Voxtral).
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+L’interface propose aussi :
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+- réglages avancés (modèles, chunking, prétraitement, backend, cloud),
+- visualisation des segments,
+- métriques de télémétrie,
+- export des résultats (`VTT`, `SRT`, `JSON`, `telemetry.json`).
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### 2) Fonctionnalités clés
+
+- Authentification par mot de passe (hash bcrypt injecté au build).
+- Détection automatique du backend runtime (WebGPU / WASM).
+- Fallback WebGPU -> WASM si nécessaire.
+- Prétraitement audio local configurable :
+- réduction de bruit,
+- filtres passe-haut/passe-bas,
+- normalisation LUFS,
+- limiteur,
+- VAD (détection voix/silence),
+- auto-tuning des paramètres.
+- Stratégies de chunking :
+- séquentiel,
+- overlap + dédoublonnage,
+- détection de silences.
+- Mode mémoire :
+- `full` : décodage complet en mémoire,
+- `progressive` : segmentation progressive (FFmpeg WASM + IndexedDB) pour gros fichiers.
+- Affichage optionnel des timestamps mot à mot et de l’indice de confiance par segment.
+- Page de télémétrie (timings, mémoire, timeline d’événements, alertes).
+- Outils de debug (export logs, test de compatibilité des modèles).
+
+### 3) Parcours utilisateur et flux applicatif
+
+#### A. Démarrage application
+
+Au boot (`src/main.tsx`) :
+
+- installation du guard console + provider de debug,
+- `initializeBackendSupport()` :
+- test support WebGPU,
+- vérification de présence des assets WASM ONNX sous `/onnx/`,
+- test de capacité WASM multithread,
+- hydratation des settings depuis le stockage local (`zustand` + `localStorage`),
+- si aucun backend disponible, passage en état d’erreur + toast utilisateur.
+
+#### B. Authentification
+
+- Route publique : `/login`.
+- Les routes applicatives sont protégées (`RequireAuth` dans `src/App.tsx`).
+- Si auth OK : redirection vers `/localupload`.
+- État auth stocké dans `localStorage` (`demeter-authenticated`).
+
+Important :
+
+- C’est un **verrouillage côté client**, pas une sécurité serveur forte.
+- Le hash bcrypt est généré au build depuis `LOGIN_PASSWORDS` (ou `LOGIN_PASSWORD`) dans `vite.config.ts`.
+
+#### C. Transcription locale (`/localupload`)
+
+Pipeline général (`useTranscriptionController`) :
+
+1. Import du fichier et lecture métadonnées.
+2. Chargement pipeline ASR (`createAsrPipeline`) selon preset + backend.
+3. Prétraitement audio (mode `quick` ou `full`).
+4. Découpage en chunks.
+5. Transcription chunk par chunk.
+6. Normalisation / dédoublonnage du texte inter-chunks.
+7. Calcul confiance segment + confiance globale.
+8. Mise à jour progression + télémétrie.
+9. Export des résultats.
+
+Mode progressif :
+
+- Segmente le média avec FFmpeg WASM (`src/lib/segmenter.ts`),
+- met en cache des segments compressés dans IndexedDB (`src/lib/segment-cache.ts`),
+- relit/traite segment par segment pour limiter l’empreinte mémoire.
+
+#### D. Transcription cloud (`/cloudupload`)
+
+Pipeline général (`useCloudTranscription`) :
+
+1. Upload local du fichier.
+2. Prétraitement local.
+3. Encodage WAV.
+4. Envoi vers provider cloud.
+5. Récupération / parsing des segments.
+6. Affichage + export.
+
+Providers disponibles :
+
+- `gradio` :
+- URL par défaut `https://transcode.demeter-sante.fr/gradio`,
+- flow orienté endpoint Gradio (upload + submit + récupération sortie SRT/texte).
+- `whisper` :
+- nécessite token Hugging Face,
+- utilise `openai/whisper-large-v3-turbo` via HF Inference.
+- `mistral` :
+- nécessite clé API Mistral,
+- endpoint par défaut `https://api.mistral.ai/v1/audio/transcriptions`,
+- modèle par défaut `voxtral-mini-latest`,
+- diarization activée par défaut.
+
+Note :
+
+- Le contexte personnalisé est utilisé côté Gradio.
+- Dans les providers Whisper/Mistral du repo actuel, le contexte est volontairement ignoré.
+
+### 4) Stockage local et persistance
+
+- `zustand` : état applicatif runtime.
+- `localStorage` :
+- paramètres (`demeter-asr-settings`),
+- état d’auth,
+- cache de logs.
+- `IndexedDB` :
+- segments audio intermédiaires (mode progressif),
+- caches liés aux modèles selon runtime navigateur.
+- Cache navigateur :
+- modèles Transformers.js (`env.useBrowserCache = true`),
+- assets statiques.
+
+### 5) Exports
+
+Exports disponibles depuis l’UI :
+
+- `VTT`,
+- `SRT`,
+- `JSON` (segments),
+- `telemetry.json`.
+
+Chaque export inclut un en-tête avec :
+
+- contexte d’export,
+- paramètres actifs,
+- informations runtime (backend, modèle, etc.).
+
+### 6) Stack technique
+
+- Frontend : React 19, TypeScript, Vite, React Router.
+- State management : Zustand.
+- UI : TailwindCSS + Radix UI.
+- ASR local : `@huggingface/transformers`, `onnxruntime-web`.
+- Audio : Web Audio API + FFmpeg WASM.
+- Tests : Vitest + Testing Library.
+
+### 7) Prérequis
+
+- Node.js 18+ (Node 20 recommandé en local).
+- npm.
+- Navigateur moderne (Chrome/Edge recommandé pour WebGPU/WASM).
+- Headers d’isolation cross-origin pour le multithread WASM :
+- `Cross-Origin-Opener-Policy: same-origin`
+- `Cross-Origin-Embedder-Policy: require-corp`
+
+### 8) Installation et lancement (local)
+
+```bash
+npm ci
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Créer un fichier `.env` :
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+LOGIN_PASSWORDS=monmotdepasse
 ```
+
+Lancer en dev :
+
+```bash
+npm run dev
+```
+
+Build production :
+
+```bash
+npm run build
+npm run preview
+```
+
+### 9) Scripts npm
+
+- `npm run dev` : serveur Vite dev.
+- `npm run build` : build TypeScript + Vite.
+- `npm run preview` : preview build.
+- `npm run lint` : lint ESLint.
+- `npm run test` : tests unitaires.
+- `npm run test:watch` : tests en watch.
+- `npm run test:ci` : tests + couverture.
+
+### 10) Docker et déploiement
+
+#### Dockerfile
+
+- Build multi-stage :
+- image Node pour compiler,
+- image Caddy pour servir le `dist/`.
+- Port exposé : `3000`.
+
+#### Docker Compose (prod)
+
+- `transcode` :
+- sert l’app (Caddy),
+- labels Traefik pour HTTPS et routage.
+- `gradio-proxy` :
+- reverse proxy Nginx vers une instance Gradio distante.
+
+Commande :
+
+```bash
+docker compose up --build -d
+```
+
+#### Docker Compose (dev)
+
+- service `transcode-dev` sur image Node,
+- montage du repo et lancement `npm run dev`.
+
+Commande :
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+```
+
+#### Script d’upload serveur
+
+`deploy.sh` envoie les fichiers vers une machine distante via `rsync` (fallback `tar+ssh`).
+
+Exemples :
+
+```bash
+./deploy.sh
+DRY_RUN=1 ./deploy.sh
+./deploy.sh user@host /chemin/remote
+```
+
+### 11) Structure du dépôt (repères)
+
+- `src/routes/` : pages (login, local upload, cloud, settings, telemetry).
+- `src/hooks/` : orchestration des pipelines de transcription.
+- `src/lib/` : logique métier (ASR, preprocessing, chunking, cloud clients, telemetry, storage).
+- `src/store/asr-store.ts` : état global et persistance.
+- `public/onnx/` : assets ONNX WASM.
+- `public/ffmpeg/` : assets FFmpeg WASM.
+- `docker-compose*.yml`, `Dockerfile`, `Caddyfile` : exécution conteneurisée et headers.
+
+### 12) Tests et qualité
+
+Lancer les tests :
+
+```bash
+npm run test
+```
+
+Couverture :
+
+```bash
+npm run test:ci
+```
+
+### 13) Limites connues et points d’attention
+
+- Sécurité auth côté client uniquement (pas un remplacement d’auth serveur).
+- Le multithread WASM dépend fortement de l’isolation cross-origin.
+- Les modèles lourds peuvent saturer la mémoire GPU/CPU selon machine.
+- La route `/mic` redirige actuellement vers `/localupload` (mode micro non exposé dans la navigation principale).
+
+### 14) Dépannage rapide
+
+- **Erreur “Aucun backend utilisable”** :
+- vérifier `public/onnx/*`,
+- vérifier headers COOP/COEP,
+- vérifier console réseau.
+- **Mode local très lent** :
+- forcer WASM single-thread ou alléger le preset,
+- réduire chunk duration / overlap,
+- activer mode progressif pour gros fichiers.
+- **Échec cloud Gradio** :
+- vérifier URL API dans les settings cloud,
+- vérifier proxy `/gradio` et `/gradio_api`.
+- **Échec Whisper/Mistral** :
+- vérifier tokens API et quotas,
+- vérifier paramètres de chunking cloud.
+
+---
+
+## English
+
+### 1) Goal
+
+Demeter Speech is an in-browser transcription app with two execution modes:
+
+- **Local mode**: fully browser-side ASR using `@huggingface/transformers` + `onnxruntime-web` (WebGPU/WASM).
+- **Cloud mode**: local preprocessing + remote transcription provider (Gradio, Hugging Face Whisper API, Mistral Voxtral).
+
+The UI also includes:
+
+- advanced settings (model/backend/chunking/preprocessing/cloud),
+- segment visualization,
+- telemetry pages,
+- multi-format export (`VTT`, `SRT`, `JSON`, `telemetry.json`).
+
+### 2) Key features
+
+- Password-gated access (bcrypt hashes injected at build time).
+- Runtime backend detection (WebGPU/WASM).
+- Automatic WebGPU -> WASM fallback.
+- Configurable local preprocessing:
+- denoise,
+- high-pass / low-pass filters,
+- LUFS normalization,
+- limiter,
+- VAD (voice activity detection),
+- preprocessing auto-tuning.
+- Chunking modes:
+- sequential,
+- overlap + dedup,
+- silence-based segmentation.
+- Memory modes:
+- `full`,
+- `progressive` (FFmpeg WASM + IndexedDB segment cache).
+- Optional per-word timestamps and confidence display.
+- Telemetry dashboard (timings, memory, event timeline, alerts).
+- Debug tooling (log export, model compatibility test).
+
+### 3) App flow
+
+#### A. App startup
+
+At startup (`src/main.tsx`):
+
+- installs console guard + debug provider,
+- runs `initializeBackendSupport()`:
+- WebGPU support probe,
+- ONNX WASM asset availability check under `/onnx/`,
+- WASM multithread capability test,
+- hydrates persisted settings from local storage,
+- if no backend is available, sets an error status + toast.
+
+#### B. Authentication
+
+- Public route: `/login`.
+- Main routes are protected (`RequireAuth` in `src/App.tsx`).
+- Successful auth redirects to `/localupload`.
+- Auth state is stored in `localStorage` (`demeter-authenticated`).
+
+Important:
+
+- This is a **client-side gate**, not hard server security.
+- Password hashes are built from `LOGIN_PASSWORDS` (or `LOGIN_PASSWORD`) in `vite.config.ts`.
+
+#### C. Local transcription (`/localupload`)
+
+Main pipeline (`useTranscriptionController`):
+
+1. File selection + metadata probing.
+2. ASR pipeline creation (`createAsrPipeline`) from preset + backend.
+3. Audio preprocessing (`quick` or `full`).
+4. Chunk planning.
+5. Chunk-by-chunk transcription.
+6. Text normalization + overlap dedup.
+7. Segment and global confidence computation.
+8. Progress + telemetry updates.
+9. Export.
+
+Progressive memory mode:
+
+- Segments media with FFmpeg WASM (`src/lib/segmenter.ts`),
+- stores intermediate compressed segments in IndexedDB (`src/lib/segment-cache.ts`),
+- decodes/transcribes segment by segment to reduce RAM pressure.
+
+#### D. Cloud transcription (`/cloudupload`)
+
+Main flow (`useCloudTranscription`):
+
+1. Select file.
+2. Local preprocessing.
+3. WAV encoding.
+4. Upload/submit to provider.
+5. Parse provider output into normalized segments.
+6. Display/export.
+
+Available providers:
+
+- `gradio`:
+- default URL `https://transcode.demeter-sante.fr/gradio`,
+- endpoint-driven Gradio flow (upload + submit + SRT/text extraction).
+- `whisper`:
+- requires Hugging Face token,
+- uses `openai/whisper-large-v3-turbo` via HF Inference.
+- `mistral`:
+- requires Mistral API key,
+- default API base `https://api.mistral.ai`,
+- default model `voxtral-mini-latest`,
+- diarization enabled by default.
+
+Note:
+
+- Context text is used in Gradio flows.
+- In the current Whisper/Mistral implementations, context is intentionally ignored.
+
+### 4) Persistence and storage
+
+- `zustand`: runtime app state.
+- `localStorage`:
+- persisted settings (`demeter-asr-settings`),
+- auth flag,
+- log cache.
+- `IndexedDB`:
+- intermediate progressive segments,
+- browser-managed model/runtime caches.
+- Browser cache:
+- Transformers.js model cache (`env.useBrowserCache = true`),
+- static assets.
+
+### 5) Export formats
+
+UI export buttons provide:
+
+- `VTT`,
+- `SRT`,
+- `JSON` (segments),
+- `telemetry.json`.
+
+Exports include header metadata:
+
+- export context,
+- active settings snapshot,
+- runtime context (backend/model).
+
+### 6) Tech stack
+
+- React 19, TypeScript, Vite, React Router.
+- Zustand for state management.
+- TailwindCSS + Radix UI components.
+- Local ASR via Transformers.js + ONNX Runtime Web.
+- Audio processing with Web Audio API + FFmpeg WASM.
+- Vitest + Testing Library.
+
+### 7) Requirements
+
+- Node.js 18+ (Node 20 recommended for local dev).
+- npm.
+- Modern browser (Chrome/Edge recommended).
+- Cross-origin isolation headers for reliable WASM multithreading:
+- `Cross-Origin-Opener-Policy: same-origin`
+- `Cross-Origin-Embedder-Policy: require-corp`
+
+### 8) Local setup
+
+```bash
+npm ci
+```
+
+Create `.env`:
+
+```bash
+LOGIN_PASSWORDS=mypassword
+```
+
+Run dev server:
+
+```bash
+npm run dev
+```
+
+Build and preview:
+
+```bash
+npm run build
+npm run preview
+```
+
+### 9) npm scripts
+
+- `npm run dev`
+- `npm run build`
+- `npm run preview`
+- `npm run lint`
+- `npm run test`
+- `npm run test:watch`
+- `npm run test:ci`
+
+### 10) Docker and deployment
+
+#### Dockerfile
+
+- Multi-stage image:
+- Node build stage,
+- Caddy runtime stage serving static `dist`.
+- Exposes `3000`.
+
+#### Production compose
+
+- `transcode`: app service with Traefik labels.
+- `gradio-proxy`: Nginx reverse proxy to remote Gradio.
+
+```bash
+docker compose up --build -d
+```
+
+#### Dev compose
+
+- `transcode-dev` runs Vite in a Node container with mounted source.
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+```
+
+#### Remote upload script
+
+`deploy.sh` uploads files via `rsync` (or `tar+ssh` fallback).
+
+```bash
+./deploy.sh
+DRY_RUN=1 ./deploy.sh
+./deploy.sh user@host /remote/path
+```
+
+### 11) Repository map
+
+- `src/routes/`: pages (login/local/cloud/settings/telemetry).
+- `src/hooks/`: orchestration logic for transcription flows.
+- `src/lib/`: core business modules (ASR, preprocessing, chunking, cloud clients, telemetry, storage).
+- `src/store/asr-store.ts`: global state + persistence.
+- `public/onnx/`: ONNX WASM assets.
+- `public/ffmpeg/`: FFmpeg WASM assets.
+- Docker and proxy files at repo root.
+
+### 12) Testing
+
+```bash
+npm run test
+npm run test:ci
+```
+
+### 13) Known limitations
+
+- Client-side auth is not equivalent to server-side access control.
+- WASM multithreading depends on cross-origin isolation support.
+- Large models may exceed available GPU/CPU memory.
+- `/mic` currently redirects to `/localupload` (mic mode code exists but is not exposed in the main navigation).
+
+### 14) Quick troubleshooting
+
+- **“No usable backend found”**:
+- verify `public/onnx/*`,
+- verify COOP/COEP headers,
+- inspect network/console errors.
+- **Local mode is slow**:
+- reduce model size,
+- adjust chunk duration/overlap,
+- use progressive mode for long files.
+- **Cloud Gradio errors**:
+- check configured cloud API URL,
+- verify `/gradio` and `/gradio_api` proxy routing.
+- **Whisper/Mistral errors**:
+- verify API token/key,
+- check provider quota and chunking values.
