@@ -8,6 +8,7 @@ import { toast } from "@/components/ui/use-toast";
 import { isAuthenticated, isPasswordValid, setAuthenticated } from "@/lib/auth";
 import logger from "@/lib/logger";
 import { useAsrStore } from "@/store/asr-store";
+import { BrandMark } from "@/components/branding/BrandMark";
 
 type LocationState = { from?: { pathname?: string } };
 
@@ -73,6 +74,7 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-background text-foreground p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
+          <BrandMark className="mb-3" size="md" />
           <CardTitle>Connexion</CardTitle>
           <CardDescription>Entrez le mot de passe pour accéder à l'application.</CardDescription>
         </CardHeader>

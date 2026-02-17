@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Activity, Cloud, FileText, Monitor, Settings } from "lucide-react";
+import { BrandMark } from "@/components/branding/BrandMark";
 
 const NAV_ITEMS = [
   { to: "/localupload", label: "Transcription locale", icon: Monitor },
@@ -14,8 +15,7 @@ export function Sidebar() {
   return (
     <aside className="hidden w-64 border-r bg-card/40 p-4 md:flex md:flex-col">
       <div className="mb-6">
-        <span className="text-lg font-semibold">Demeter Speech</span>
-        <p className="text-xs text-muted-foreground">100% navigateur</p>
+        <BrandMark size="md" showTagline />
       </div>
       <nav className="flex flex-1 flex-col gap-1">
         {NAV_ITEMS.map(({ to, label, icon: Icon }) => (

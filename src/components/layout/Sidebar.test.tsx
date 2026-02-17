@@ -11,6 +11,8 @@ describe("Sidebar", () => {
       </MemoryRouter>
     );
 
+    expect(screen.getByAltText("Logo Demeter Speech")).toBeInTheDocument();
+    expect(screen.getByText("Demeter Speech")).toBeInTheDocument();
     const link = screen.getByRole("link", { name: /llm cloud/i });
     expect(link).toBeInTheDocument();
     expect(link.getAttribute("href")).toBe("/llmapi");
