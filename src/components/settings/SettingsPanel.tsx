@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ChevronDown } from "lucide-react";
 
@@ -35,6 +35,7 @@ import { computeDefaultOverlap } from "@/lib/chunking";
 import { cn } from "@/lib/utils";
 import { testWasmMultithreadSupport } from "@/lib/backend-support";
 import logger from "@/lib/logger";
+import { LlmCloudSettingsTab } from "@/components/settings/LlmCloudSettingsTab";
 
 type BackendOption = {
   value: BackendImplementation;
@@ -77,9 +78,13 @@ interface SettingsPanelProps {
   showReminders?: boolean;
   showMicSettings?: boolean;
   showCloudSettings?: boolean;
+  showLlmSettings?: boolean;
   initialModelOpen?: boolean;
   initialChunkingOpen?: boolean;
+  initialTab?: "local" | "mic" | "cloud" | "llm";
 }
+
+type SettingsTabValue = "local" | "mic" | "cloud" | "llm";
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
@@ -105,8 +110,10 @@ export function SettingsPanel({
   showReminders = true,
   showMicSettings = true,
   showCloudSettings = true,
+  showLlmSettings = true,
   initialModelOpen = false,
   initialChunkingOpen = false,
+  initialTab,
 }: SettingsPanelProps) {
   const {
     activePreset,
@@ -541,6 +548,32 @@ export function SettingsPanel({
   const telemetryCollector = useAsrStore((state) => state.telemetryCollector);
   const showMicroReminderResolved = showMicroReminder && showMicSettings;
   const showCloudSettingsResolved = showCloudSettings;
+  const showLlmSettingsResolved = showLlmSettings;
+  const availableTabs = useMemo<SettingsTabValue[]>(() => {
+    const tabs: SettingsTabValue[] = ["local"];
+    if (showMicSettings) tabs.push("mic");
+    if (showCloudSettingsResolved) tabs.push("cloud");
+    if (showLlmSettingsResolved) tabs.push("llm");
+    return tabs;
+  }, [showCloudSettingsResolved, showLlmSettingsResolved, showMicSettings]);
+  const normalizedInitialTab = useMemo<SettingsTabValue>(() => {
+    if (!initialTab) return "local";
+    return availableTabs.includes(initialTab) ? initialTab : "local";
+  }, [availableTabs, initialTab]);
+  const [activeTab, setActiveTab] = useState<SettingsTabValue>(normalizedInitialTab);
+  const previousInitialTabRef = useRef<SettingsTabValue | undefined>(initialTab);
+
+  useEffect(() => {
+    if (!availableTabs.includes(activeTab)) {
+      setActiveTab(normalizedInitialTab);
+      return;
+    }
+
+    if (previousInitialTabRef.current !== initialTab) {
+      previousInitialTabRef.current = initialTab;
+      setActiveTab(normalizedInitialTab);
+    }
+  }, [activeTab, availableTabs, initialTab, normalizedInitialTab]);
 
   useEffect(() => {
     if (!webGpuSupported && micBackendPreference === "webgpu") {
@@ -1015,11 +1048,20 @@ export function SettingsPanel({
   };
 
   return (
-    <Tabs defaultValue="local" className="space-y-6">
+    <Tabs
+      value={activeTab}
+      onValueChange={(value) => {
+        if (value === "local" || value === "mic" || value === "cloud" || value === "llm") {
+          setActiveTab(value);
+        }
+      }}
+      className="space-y-6"
+    >
       <TabsList>
         <TabsTrigger value="local">Local</TabsTrigger>
         {showMicSettings ? <TabsTrigger value="mic">Enregistrement</TabsTrigger> : null}
         {showCloudSettingsResolved ? <TabsTrigger value="cloud">Cloud</TabsTrigger> : null}
+        {showLlmSettingsResolved ? <TabsTrigger value="llm">LLM Cloud</TabsTrigger> : null}
       </TabsList>
       <TabsContent value="local">
         <div className="grid gap-4 lg:grid-cols-2">
@@ -3168,6 +3210,11 @@ export function SettingsPanel({
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+      ) : null}
+      {showLlmSettingsResolved ? (
+        <TabsContent value="llm">
+          <LlmCloudSettingsTab />
         </TabsContent>
       ) : null}
     </Tabs>

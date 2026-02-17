@@ -144,6 +144,13 @@ export interface PersistedSettings {
   // LLM API settings
   llmApiProvider?: LlmApiProvider;
   llmApiHfToken?: string;
+  llmApiHfModelId?: string;
+  llmApiHfTemperature?: number;
+  llmApiHfMaxTokens?: number;
+  llmApiMistralModelId?: string;
+  llmApiMistralTemperature?: number;
+  llmApiMistralMaxTokens?: number;
+  // Legacy shared llm pipeline settings (read-only fallback migration)
   llmApiModelId?: string;
   llmApiTemperature?: number;
   llmApiMaxTokens?: number;
@@ -303,7 +310,10 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   // llm cloud defaults
   llmApiProvider: "huggingface",
   llmApiHfToken: "",
-  llmApiModelId: "openai/gpt-oss-20b",
-  llmApiTemperature: 0.2,
-  llmApiMaxTokens: 131072,
+  llmApiHfModelId: "openai/gpt-oss-20b",
+  llmApiHfTemperature: 0.2,
+  llmApiHfMaxTokens: 131072,
+  llmApiMistralModelId: "mistral-medium-latest",
+  llmApiMistralTemperature: 0.2,
+  llmApiMistralMaxTokens: 8192,
 };

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,20 +14,10 @@ import { buildReportFormatDescription } from "@/lib/llm/reportPrompts";
 import { LLM_API_STATUS_META } from "@/lib/llm/llmStatusMeta";
 import type { ReportResultKey } from "@/lib/llm/reportSchema";
 import {
-  findSuggestedReportModel,
   formatTokenCount,
   resolveModelTokenBudget,
-  resolveSuggestedModelMaxTokens,
-  SUGGESTED_REPORT_MODELS,
 } from "@/lib/llm/modelCatalog";
-import {
-  DEFAULT_MISTRAL_LLM_MODEL_ID,
-  FALLBACK_MISTRAL_MAX_TOKENS,
-  fetchMistralModelsSafe,
-  findMistralModelMetadata,
-  resolveMistralMaxTokens,
-  type MistralModelMetadata,
-} from "@/lib/llm/mistralModelsClient";
+import { resolveActiveLlmPipelineConfig } from "@/lib/llm/providerSettings";
 import { parseTranscriptFile, type ParsedTranscriptFile } from "@/lib/transcript/parseTranscriptFile";
 import { estimateTokenCount } from "@/lib/tokens";
 import logger from "@/lib/logger";
@@ -40,6 +30,8 @@ const FORMAT_PREVIEW_META = [
 
 const LLM_HF_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans cle API Hugging Face.";
 const LLM_MISTRAL_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans cle API Mistral.";
+const LLM_PIPELINE_CONFIG_REQUIRED_MESSAGE =
+  "Configuration pipeline incomplete: renseignez le Model ID dans Parametres > LLM Cloud.";
 const LLM_IMPORT_ACCEPT = ".txt,.srt,.vtt,.json,application/json,text/plain,text/vtt";
 
 type ImportedFileMeta = {
@@ -55,22 +47,20 @@ function LLMApiPage() {
   const segments = useAsrStore((state) => state.segments);
   const llmApiProvider = useAsrStore((state) => state.llmApiProvider);
   const llmApiHfToken = useAsrStore((state) => state.llmApiHfToken);
-  const llmApiModelId = useAsrStore((state) => state.llmApiModelId);
-  const llmApiTemperature = useAsrStore((state) => state.llmApiTemperature);
-  const llmApiMaxTokens = useAsrStore((state) => state.llmApiMaxTokens);
+  const llmApiHfModelId = useAsrStore((state) => state.llmApiHfModelId);
+  const llmApiHfTemperature = useAsrStore((state) => state.llmApiHfTemperature);
+  const llmApiHfMaxTokens = useAsrStore((state) => state.llmApiHfMaxTokens);
+  const llmApiMistralModelId = useAsrStore((state) => state.llmApiMistralModelId);
+  const llmApiMistralTemperature = useAsrStore((state) => state.llmApiMistralTemperature);
+  const llmApiMistralMaxTokens = useAsrStore((state) => state.llmApiMistralMaxTokens);
   const llmApiStatusDetail = useAsrStore((state) => state.llmApiStatusDetail);
   const cloudMistralApiKey = useAsrStore((state) => state.cloudMistralApiKey);
-  const cloudMistralApiUrl = useAsrStore((state) => state.cloudMistralApiUrl);
 
   const setLlmApiProvider = useAsrStore((state) => state.setLlmApiProvider);
   const setLlmApiHfToken = useAsrStore((state) => state.setLlmApiHfToken);
-  const setLlmApiModelId = useAsrStore((state) => state.setLlmApiModelId);
-  const setLlmApiTemperature = useAsrStore((state) => state.setLlmApiTemperature);
-  const setLlmApiMaxTokens = useAsrStore((state) => state.setLlmApiMaxTokens);
   const setLlmApiStatus = useAsrStore((state) => state.setLlmApiStatus);
   const resetLlmApiSession = useAsrStore((state) => state.resetLlmApiSession);
   const setCloudMistralApiKey = useAsrStore((state) => state.setCloudMistralApiKey);
-  const setCloudMistralApiUrl = useAsrStore((state) => state.setCloudMistralApiUrl);
 
   const { status, progress, results, generateAll, downloadDocx } = useLlmReports();
 
@@ -79,9 +69,6 @@ function LLMApiPage() {
   const [activeTab, setActiveTab] = useState<"cri" | "cro" | "crs">("cri");
   const [isImporting, setIsImporting] = useState(false);
   const [importedFileMeta, setImportedFileMeta] = useState<ImportedFileMeta | null>(null);
-  const [mistralModels, setMistralModels] = useState<MistralModelMetadata[]>([]);
-  const [mistralModelMetadata, setMistralModelMetadata] = useState<MistralModelMetadata | null>(null);
-  const [isMistralModelsLoading, setIsMistralModelsLoading] = useState(false);
   const sourceFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const transcriptionText = useMemo(() => {
@@ -92,90 +79,40 @@ function LLMApiPage() {
   }, [segments]);
   const transcriptionTokenEstimate = useMemo(() => estimateTokenCount(transcriptionText), [transcriptionText]);
 
-  useEffect(() => {
-    if (llmApiProvider !== "mistral") {
-      setMistralModels([]);
-      setMistralModelMetadata(null);
-      setIsMistralModelsLoading(false);
-      return;
-    }
-
-    const key = cloudMistralApiKey.trim();
-    if (!key) {
-      setMistralModels([]);
-      setMistralModelMetadata(null);
-      setIsMistralModelsLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setIsMistralModelsLoading(true);
-    logger.info("[llm-api][ui] mistral model list loading", {
-      apiUrl: cloudMistralApiUrl,
-    });
-    void (async () => {
-      const models = await fetchMistralModelsSafe({
-        apiUrl: cloudMistralApiUrl,
-        apiKey: key,
-      });
-      if (cancelled) return;
-      const sortedModels = [...models].sort((a, b) => a.id.localeCompare(b.id));
-      setMistralModels(sortedModels);
-      setIsMistralModelsLoading(false);
-      logger.info("[llm-api][ui] mistral model list loaded", {
-        modelCount: sortedModels.length,
-        apiUrl: cloudMistralApiUrl,
-      });
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [cloudMistralApiKey, cloudMistralApiUrl, llmApiProvider]);
-
-  useEffect(() => {
-    if (llmApiProvider !== "mistral") return;
-    setMistralModelMetadata(findMistralModelMetadata(mistralModels, llmApiModelId) ?? null);
-  }, [llmApiModelId, llmApiProvider, mistralModels]);
-
-  useEffect(() => {
-    if (llmApiProvider !== "mistral") return;
-    const currentModelId = llmApiModelId.trim();
-    if (!currentModelId || findSuggestedReportModel(currentModelId)) {
-      setLlmApiModelId(DEFAULT_MISTRAL_LLM_MODEL_ID);
-    }
-  }, [llmApiModelId, llmApiProvider, setLlmApiModelId]);
+  const activePipelineConfig = useMemo(
+    () =>
+      resolveActiveLlmPipelineConfig(
+        {
+          llmApiHfModelId,
+          llmApiHfTemperature,
+          llmApiHfMaxTokens,
+          llmApiMistralModelId,
+          llmApiMistralTemperature,
+          llmApiMistralMaxTokens,
+        },
+        llmApiProvider
+      ),
+    [
+      llmApiHfMaxTokens,
+      llmApiHfModelId,
+      llmApiHfTemperature,
+      llmApiMistralMaxTokens,
+      llmApiMistralModelId,
+      llmApiMistralTemperature,
+      llmApiProvider,
+    ]
+  );
 
   const sourceTextForBudget = source === "transcription" ? transcriptionText : manualText;
   const sourceTokenEstimate = useMemo(() => estimateTokenCount(sourceTextForBudget), [sourceTextForBudget]);
-  const selectedSuggestedModel = useMemo(
-    () => (llmApiProvider === "huggingface" ? findSuggestedReportModel(llmApiModelId) : undefined),
-    [llmApiModelId, llmApiProvider]
-  );
-  const runtimeLimits = useMemo(
-    () =>
-      llmApiProvider === "mistral" && typeof mistralModelMetadata?.maxContextTokens === "number"
-        ? { contextWindowTokens: mistralModelMetadata.maxContextTokens }
-        : undefined,
-    [llmApiProvider, mistralModelMetadata]
-  );
-  const settingMaxTokens = useMemo(() => {
-    if (llmApiProvider === "mistral") {
-      return resolveMistralMaxTokens(mistralModelMetadata ?? undefined);
-    }
-    return resolveSuggestedModelMaxTokens(llmApiModelId);
-  }, [llmApiModelId, llmApiProvider, mistralModelMetadata]);
   const tokenBudget = useMemo(
     () =>
       resolveModelTokenBudget({
-        modelId: llmApiModelId,
+        modelId: activePipelineConfig.modelId,
         sourceTokens: sourceTokenEstimate,
-        runtimeLimits,
       }),
-    [llmApiModelId, runtimeLimits, sourceTokenEstimate]
+    [activePipelineConfig.modelId, sourceTokenEstimate]
   );
-  const modelTokenCap = tokenBudget.effectiveMaxGenerationTokens;
-  const sourceFitsModelContext = !tokenBudget.blockedByContext;
 
   const meta = LLM_API_STATUS_META[status];
   const isBusy = status === "preparing" || status === "generating" || status === "formatting";
@@ -184,35 +121,20 @@ function LLMApiPage() {
     llmApiProvider === "huggingface" ? LLM_HF_TOKEN_REQUIRED_MESSAGE : LLM_MISTRAL_TOKEN_REQUIRED_MESSAGE;
   const isLlmTokenMissing =
     llmApiProvider === "huggingface" ? llmApiHfToken.trim().length === 0 : cloudMistralApiKey.trim().length === 0;
-  const canGenerate =
-    !isBusy &&
-    !isImporting &&
-    hasSource &&
-    sourceFitsModelContext &&
-    llmApiModelId.trim().length > 0;
-  const modelSelectValue = selectedSuggestedModel ? selectedSuggestedModel.id : "__custom__";
-  const selectedMistralModel = useMemo(
-    () => (llmApiProvider === "mistral" ? findMistralModelMetadata(mistralModels, llmApiModelId) : undefined),
-    [llmApiModelId, llmApiProvider, mistralModels]
-  );
-  const mistralModelSelectValue = selectedMistralModel?.id ?? "__custom__";
+  const pipelineConfigValid = activePipelineConfig.modelId.trim().length > 0;
+  const sourceFitsModelContext = !tokenBudget.blockedByContext;
+  const canGenerate = !isBusy && !isImporting && hasSource && sourceFitsModelContext && pipelineConfigValid;
 
   const percent = Math.round(Math.max(0, Math.min(1, progress)) * 100);
-
-  useEffect(() => {
-    if (typeof settingMaxTokens !== "number") return;
-    if (llmApiMaxTokens !== settingMaxTokens) {
-      setLlmApiMaxTokens(settingMaxTokens);
-    }
-  }, [llmApiMaxTokens, setLlmApiMaxTokens, settingMaxTokens]);
 
   const runGeneration = async () => {
     logger.info("[llm-api][ui] generation requested", {
       provider: llmApiProvider,
       source,
-      modelId: llmApiModelId,
+      modelId: activePipelineConfig.modelId,
       sourceTokenEstimate,
     });
+
     if (isLlmTokenMissing) {
       logger.warn("[llm-api][ui] generation blocked: missing token", {
         provider: llmApiProvider,
@@ -221,6 +143,16 @@ function LLMApiPage() {
       toast(tokenRequiredMessage);
       return;
     }
+
+    if (!pipelineConfigValid) {
+      logger.warn("[llm-api][ui] generation blocked: invalid pipeline config", {
+        modelId: activePipelineConfig.modelId,
+      });
+      setLlmApiStatus("error", LLM_PIPELINE_CONFIG_REQUIRED_MESSAGE);
+      toast(LLM_PIPELINE_CONFIG_REQUIRED_MESSAGE);
+      return;
+    }
+
     await generateAll({ source, text: source === "text" ? manualText : undefined });
   };
 
@@ -255,6 +187,7 @@ function LLMApiPage() {
       sizeBytes: file.size,
       fileType: file.type,
     });
+
     try {
       const parsed = await parseTranscriptFile(file);
       const importedText = parsed.text.trim();
@@ -312,7 +245,7 @@ function LLMApiPage() {
           <Card>
             <CardHeader>
               <CardTitle>Configuration API</CardTitle>
-              <CardDescription>Token, modele et parametres de generation.</CardDescription>
+              <CardDescription>Provider et tokens d'acces. Le pipeline LLM se regle dans Parametres.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-2">
@@ -342,216 +275,55 @@ function LLMApiPage() {
                   {isLlmTokenMissing ? <p className="text-xs text-destructive">{tokenRequiredMessage}</p> : null}
                 </div>
               ) : (
-                <div className="space-y-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="llm-mistral-api-key">Cle API Mistral</Label>
-                    <Input
-                      id="llm-mistral-api-key"
-                      type="password"
-                      value={cloudMistralApiKey}
-                      onChange={(event) => setCloudMistralApiKey(event.target.value)}
-                      placeholder="mistral_..."
-                      autoComplete="off"
-                    />
-                    {isLlmTokenMissing ? <p className="text-xs text-destructive">{tokenRequiredMessage}</p> : null}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="llm-mistral-api-url">URL API Mistral</Label>
-                    <Input
-                      id="llm-mistral-api-url"
-                      value={cloudMistralApiUrl}
-                      onChange={(event) => setCloudMistralApiUrl(event.target.value)}
-                      placeholder="https://api.mistral.ai"
-                      autoComplete="off"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Cle et URL partagees avec la page /cloudupload.
-                    </p>
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="llm-mistral-api-key">Cle API Mistral</Label>
+                  <Input
+                    id="llm-mistral-api-key"
+                    type="password"
+                    value={cloudMistralApiKey}
+                    onChange={(event) => setCloudMistralApiKey(event.target.value)}
+                    placeholder="mistral_..."
+                    autoComplete="off"
+                  />
+                  <p className="text-xs text-muted-foreground">Cle partagee avec la page /cloudupload.</p>
+                  {isLlmTokenMissing ? <p className="text-xs text-destructive">{tokenRequiredMessage}</p> : null}
                 </div>
               )}
-
-              {llmApiProvider === "huggingface" ? (
-                <div className="space-y-2">
-                  <Label htmlFor="llm-model-preset">Modele suggere</Label>
-                  <Select
-                    value={modelSelectValue}
-                    onValueChange={(value) => {
-                      if (value !== "__custom__") {
-                        setLlmApiModelId(value);
-                      }
-                    }}
-                  >
-                    <SelectTrigger id="llm-model-preset">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SUGGESTED_REPORT_MODELS.map((model) => (
-                        <SelectItem key={model.id} value={model.id}>
-                          {`${model.label} (${formatTokenCount(model.contextWindowTokens)} ctx)`}
-                        </SelectItem>
-                      ))}
-                      <SelectItem value="__custom__">Modele personnalise</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <Label htmlFor="llm-mistral-model-preset">Modeles Mistral disponibles</Label>
-                  <Select
-                    value={mistralModelSelectValue}
-                    onValueChange={(value) => {
-                      if (value !== "__custom__") {
-                        setLlmApiModelId(value);
-                      }
-                    }}
-                    disabled={isMistralModelsLoading || isLlmTokenMissing}
-                  >
-                    <SelectTrigger id="llm-mistral-model-preset">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {mistralModels.map((model) => (
-                        <SelectItem key={model.id} value={model.id}>
-                          {typeof model.maxContextTokens === "number"
-                            ? `${model.id} (${formatTokenCount(model.maxContextTokens)} ctx)`
-                            : model.id}
-                        </SelectItem>
-                      ))}
-                      <SelectItem value="__custom__">Model ID personnalise</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    {isLlmTokenMissing
-                      ? "Renseignez la cle API Mistral pour charger la liste."
-                      : isMistralModelsLoading
-                        ? "Chargement automatique des modeles Mistral..."
-                        : mistralModels.length > 0
-                          ? `${formatTokenCount(mistralModels.length)} modeles detectes via /v1/models.`
-                          : "Aucun modele detecte: vous pouvez saisir un Model ID manuellement."}
-                  </p>
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label htmlFor="llm-model-id">Model ID</Label>
-                <Input
-                  id="llm-model-id"
-                  value={llmApiModelId}
-                  onChange={(event) => setLlmApiModelId(event.target.value)}
-                  placeholder={llmApiProvider === "mistral" ? DEFAULT_MISTRAL_LLM_MODEL_ID : "openai/gpt-oss-20b"}
-                />
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="llm-temperature">Temperature</Label>
-                  <Input
-                    id="llm-temperature"
-                    type="number"
-                    step={0.1}
-                    min={0}
-                    max={2}
-                    value={llmApiTemperature}
-                    onChange={(event) => setLlmApiTemperature(Number(event.target.value))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="llm-max-tokens">Max tokens</Label>
-                  <Input
-                    id="llm-max-tokens"
-                    type="number"
-                    min={128}
-                    max={settingMaxTokens}
-                    step={128}
-                    value={llmApiMaxTokens}
-                    disabled={llmApiProvider === "mistral" || Boolean(selectedSuggestedModel)}
-                    onChange={(event) => setLlmApiMaxTokens(Number(event.target.value))}
-                  />
-                </div>
-              </div>
 
               <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
-                {llmApiProvider === "huggingface" && selectedSuggestedModel ? (
-                  <div className="space-y-1">
-                    <p>
-                      Contexte modele:{" "}
-                      <span className="font-medium text-foreground">
-                        {formatTokenCount(selectedSuggestedModel.contextWindowTokens)}
-                      </span>{" "}
-                      tokens.
-                    </p>
-                    <p>
-                      Sortie max officielle:{" "}
-                      <span className="font-medium text-foreground">
-                        {typeof tokenBudget.modelMaxGenerationTokens === "number"
-                          ? formatTokenCount(tokenBudget.modelMaxGenerationTokens)
-                          : "non publiee"}
-                      </span>
-                      .
-                    </p>
-                    <p>
-                      Max tokens regle automatiquement:{" "}
-                      <span className="font-medium text-foreground">
-                        {typeof settingMaxTokens === "number" ? formatTokenCount(settingMaxTokens) : "non calcule"}
-                      </span>{" "}
-                      tokens.
-                    </p>
-                    <p>
-                      Cap selon la source actuelle (~{formatTokenCount(sourceTokenEstimate)} tokens):{" "}
-                      <span className="font-medium text-foreground">
-                        {typeof modelTokenCap === "number" ? formatTokenCount(modelTokenCap) : "non calcule"}
-                      </span>{" "}
-                      tokens.
-                    </p>
-                    {tokenBudget.blockedByContext ? (
-                      <p className="font-medium text-destructive">
-                        Source trop longue pour ce modele. Reduisez la source ou choisissez un modele avec plus de
-                        contexte.
-                      </p>
-                    ) : null}
-                  </div>
-                ) : llmApiProvider === "mistral" ? (
-                  <div className="space-y-1">
-                    <p>
-                      Contexte modele:{" "}
-                      <span className="font-medium text-foreground">
-                        {typeof mistralModelMetadata?.maxContextTokens === "number"
-                          ? formatTokenCount(mistralModelMetadata.maxContextTokens)
-                          : "non publie"}
-                      </span>{" "}
-                      tokens.
-                    </p>
-                    <p>
-                      Max tokens regle automatiquement:{" "}
-                      <span className="font-medium text-foreground">{formatTokenCount(settingMaxTokens ?? FALLBACK_MISTRAL_MAX_TOKENS)}</span>{" "}
-                      tokens.
-                    </p>
-                    <p>
-                      Cap selon la source actuelle (~{formatTokenCount(sourceTokenEstimate)} tokens):{" "}
-                      <span className="font-medium text-foreground">
-                        {typeof modelTokenCap === "number" ? formatTokenCount(modelTokenCap) : "non calcule"}
-                      </span>{" "}
-                      tokens.
-                    </p>
-                    {isMistralModelsLoading ? (
-                      <p>Chargement des metadonnees du modele Mistral...</p>
-                    ) : !mistralModelMetadata ? (
-                      <p>
-                        Metadonnees Mistral indisponibles: fallback {formatTokenCount(FALLBACK_MISTRAL_MAX_TOKENS)} tokens.
-                      </p>
-                    ) : null}
-                    {tokenBudget.blockedByContext ? (
-                      <p className="font-medium text-destructive">
-                        Source trop longue pour ce modele. Reduisez la source ou choisissez un modele avec plus de
-                        contexte.
-                      </p>
-                    ) : null}
-                  </div>
-                ) : (
-                  <p>Modele personnalise: limites de tokens non verifiees automatiquement.</p>
-                )}
+                <p className="text-sm font-medium text-foreground">Configuration pipeline</p>
+                <p className="mt-1">
+                  Provider: <span className="font-medium text-foreground">{llmApiProvider === "mistral" ? "Mistral" : "Hugging Face"}</span>
+                </p>
+                <p>
+                  Model ID:{" "}
+                  <span className="font-medium text-foreground">{activePipelineConfig.modelId.trim() || "non defini"}</span>
+                </p>
+                <p>
+                  Temperature: <span className="font-medium text-foreground">{activePipelineConfig.temperature}</span>
+                </p>
+                <p>
+                  Max tokens:{" "}
+                  <span className="font-medium text-foreground">{formatTokenCount(activePipelineConfig.maxTokens)}</span>
+                </p>
+                <div className="mt-3">
+                  <Button asChild variant="outline" size="sm">
+                    <a href="/settings?tab=llm">Ouvrir parametres LLM</a>
+                  </Button>
+                </div>
               </div>
+
+              {!pipelineConfigValid ? (
+                <div className="rounded-md border border-destructive/60 bg-destructive/10 p-3 text-xs text-destructive">
+                  <p className="font-medium">Configuration pipeline incomplete</p>
+                  <p className="mt-1">Le module /llmapi ne peut pas fonctionner sans Model ID configure.</p>
+                  <div className="mt-3">
+                    <Button asChild variant="outline" size="sm">
+                      <a href="/settings?tab=llm">Ouvrir parametres LLM</a>
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
 
@@ -563,7 +335,7 @@ function LLMApiPage() {
             <CardContent className="space-y-3">
               <div className="space-y-2">
                 <Label htmlFor="llm-source">Mode d'entree</Label>
-                <Select value={source} onValueChange={(value) => setSource(value as "transcription" | "text")}>
+                <Select value={source} onValueChange={(value) => setSource(value as "transcription" | "text")}> 
                   <SelectTrigger id="llm-source">
                     <SelectValue />
                   </SelectTrigger>
@@ -664,6 +436,12 @@ function LLMApiPage() {
                   ) : null}
                 </div>
               )}
+
+              {!sourceFitsModelContext ? (
+                <p className="text-xs text-destructive">
+                  Source trop longue pour ce modele. Ajustez le pipeline dans Parametres &gt; LLM Cloud.
+                </p>
+              ) : null}
 
               <div className="flex flex-wrap items-center gap-2">
                 <Button onClick={runGeneration} disabled={!canGenerate}>

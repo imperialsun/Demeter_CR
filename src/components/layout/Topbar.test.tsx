@@ -54,6 +54,12 @@ describe('Topbar', () => {
       cloudStatus: 'idle',
       cloudStatusDetail: undefined,
       llmApiProvider: 'huggingface',
+      llmApiHfModelId: 'openai/gpt-oss-20b',
+      llmApiHfTemperature: 0.2,
+      llmApiHfMaxTokens: 131072,
+      llmApiMistralModelId: 'mistral-medium-latest',
+      llmApiMistralTemperature: 0.2,
+      llmApiMistralMaxTokens: 8192,
       wasmThreads: 1,
       preprocessingMode: 'fast',
       debugConfidence: false,
@@ -143,8 +149,8 @@ describe('Topbar', () => {
       llmApiStatus: 'generating',
       llmApiStatusDetail: 'Generation CRI (1/3)',
       llmApiProvider: 'huggingface',
-      llmApiModelId: 'openai/gpt-oss-20b',
-      llmApiMaxTokens: 131072,
+      llmApiHfModelId: 'openai/gpt-oss-20b',
+      llmApiHfMaxTokens: 131072,
     } as any);
 
     render(<Topbar />);
@@ -163,8 +169,8 @@ describe('Topbar', () => {
     useAsrStore.setState({
       llmApiStatus: 'generating',
       llmApiProvider: 'mistral',
-      llmApiModelId: 'mistral-medium-latest',
-      llmApiMaxTokens: 8192,
+      llmApiMistralModelId: 'mistral-medium-latest',
+      llmApiMistralMaxTokens: 8192,
     } as any);
 
     render(<Topbar />);

@@ -26,6 +26,7 @@ import {
   resolveModelTokenBudget,
   type RuntimeModelLimits,
 } from "@/lib/llm/modelCatalog";
+import { resolveActiveLlmPipelineConfig } from "@/lib/llm/providerSettings";
 import logger from "@/lib/logger";
 
 const FORMAT_ORDER: Array<{ key: ReportResultKey; format: ReportFormat }> = [
@@ -41,9 +42,12 @@ export function useLlmReports() {
 
   const llmApiHfToken = useAsrStore((state) => state.llmApiHfToken);
   const llmApiProvider = useAsrStore((state) => state.llmApiProvider);
-  const llmApiModelId = useAsrStore((state) => state.llmApiModelId);
-  const llmApiTemperature = useAsrStore((state) => state.llmApiTemperature);
-  const llmApiMaxTokens = useAsrStore((state) => state.llmApiMaxTokens);
+  const llmApiHfModelId = useAsrStore((state) => state.llmApiHfModelId);
+  const llmApiHfTemperature = useAsrStore((state) => state.llmApiHfTemperature);
+  const llmApiHfMaxTokens = useAsrStore((state) => state.llmApiHfMaxTokens);
+  const llmApiMistralModelId = useAsrStore((state) => state.llmApiMistralModelId);
+  const llmApiMistralTemperature = useAsrStore((state) => state.llmApiMistralTemperature);
+  const llmApiMistralMaxTokens = useAsrStore((state) => state.llmApiMistralMaxTokens);
   const cloudMistralApiKey = useAsrStore((state) => state.cloudMistralApiKey);
   const cloudMistralApiUrl = useAsrStore((state) => state.cloudMistralApiUrl);
 
@@ -60,6 +64,17 @@ export function useLlmReports() {
 
   const generateAll = useCallback(
     async (input: GenerateInput) => {
+      const activePipelineConfig = resolveActiveLlmPipelineConfig(
+        {
+          llmApiHfModelId,
+          llmApiHfTemperature,
+          llmApiHfMaxTokens,
+          llmApiMistralModelId,
+          llmApiMistralTemperature,
+          llmApiMistralMaxTokens,
+        },
+        llmApiProvider
+      );
       const telemetry = new TelemetryCollector();
       registerTelemetry(telemetry);
       setTelemetrySummary(null);
@@ -75,7 +90,9 @@ export function useLlmReports() {
         const hfToken = llmApiHfToken.trim();
         const mistralApiKey = cloudMistralApiKey.trim();
         const mistralApiUrl = cloudMistralApiUrl.trim();
-        const modelId = llmApiModelId.trim();
+        const pipelineConfig = activePipelineConfig;
+        const modelId = pipelineConfig.modelId.trim();
+        const temperature = pipelineConfig.temperature;
         telemetry.logEvent("LLM_RUN_START", {
           provider,
           sourceMode: input.source,
@@ -105,9 +122,9 @@ export function useLlmReports() {
         });
 
         let runtimeLimits: RuntimeModelLimits | undefined;
-        let configuredMaxTokens = llmApiMaxTokens;
+        let configuredMaxTokens = pipelineConfig.maxTokens;
         if (provider === "mistral") {
-          configuredMaxTokens = FALLBACK_MISTRAL_MAX_TOKENS;
+          configuredMaxTokens = Math.max(FALLBACK_MISTRAL_MAX_TOKENS, configuredMaxTokens);
           const models = await fetchMistralModelsSafe({
             apiUrl: mistralApiUrl,
             apiKey: mistralApiKey,
@@ -232,7 +249,7 @@ export function useLlmReports() {
           effectiveMaxGenerationTokens: tokenBudget.effectiveMaxGenerationTokens ?? null,
         });
 
-        const requestedMaxTokens = provider === "mistral" ? configuredMaxTokens : llmApiMaxTokens;
+        const requestedMaxTokens = configuredMaxTokens;
         const effectiveGenerationMaxTokens =
           typeof tokenBudget.effectiveMaxGenerationTokens === "number"
             ? Math.min(requestedMaxTokens, tokenBudget.effectiveMaxGenerationTokens)
@@ -259,7 +276,7 @@ export function useLlmReports() {
                   format: item.format,
                   modelId,
                   sourceText: prepared.text,
-                  temperature: llmApiTemperature,
+                  temperature,
                   maxTokens: effectiveGenerationMaxTokens,
                   hfToken,
                 })
@@ -268,7 +285,7 @@ export function useLlmReports() {
                   format: item.format,
                   modelId,
                   sourceText: prepared.text,
-                  temperature: llmApiTemperature,
+                  temperature,
                   maxTokens: effectiveGenerationMaxTokens,
                   mistralApiKey,
                   mistralApiUrl,
@@ -316,14 +333,14 @@ export function useLlmReports() {
           stage,
           message,
           provider: llmApiProvider,
-          modelId: llmApiModelId,
+          modelId: activePipelineConfig.modelId,
           sourceMode: input.source,
         });
         telemetry.logEvent("LLM_RUN_ERROR", {
           stage,
           message,
           provider: llmApiProvider,
-          modelId: llmApiModelId,
+          modelId: activePipelineConfig.modelId,
           sourceMode: input.source,
         });
         setTelemetrySummary(telemetry.exportSummary());
@@ -335,9 +352,12 @@ export function useLlmReports() {
       cloudMistralApiUrl,
       llmApiProvider,
       llmApiHfToken,
-      llmApiMaxTokens,
-      llmApiModelId,
-      llmApiTemperature,
+      llmApiHfModelId,
+      llmApiHfTemperature,
+      llmApiHfMaxTokens,
+      llmApiMistralModelId,
+      llmApiMistralTemperature,
+      llmApiMistralMaxTokens,
       registerTelemetry,
       segments,
       setLlmApiProgress,

@@ -6,21 +6,11 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { useAsrStore } from "@/store/asr-store";
 import LLMApiPage from "@/routes/LLMApiPage";
 
-type MistralModelListItem = {
-  id: string;
-  maxContextTokens?: number;
-  supportsChat: boolean;
-};
-
 const generateAll = vi.fn(async () => undefined);
 const downloadDocx = vi.fn(async () => undefined);
-const { toastMock, parseTranscriptFileMock, fetchMistralModelsSafeMock } = vi.hoisted(() => ({
+const { toastMock, parseTranscriptFileMock } = vi.hoisted(() => ({
   toastMock: vi.fn(),
   parseTranscriptFileMock: vi.fn(),
-  fetchMistralModelsSafeMock: vi.fn(async (params?: unknown): Promise<MistralModelListItem[]> => {
-    void params;
-    return [];
-  }),
 }));
 
 const hookState = {
@@ -43,24 +33,12 @@ vi.mock("@/lib/transcript/parseTranscriptFile", () => ({
   parseTranscriptFile: (...args: unknown[]) => parseTranscriptFileMock(...args),
 }));
 
-vi.mock("@/lib/llm/mistralModelsClient", () => ({
-  DEFAULT_MISTRAL_LLM_MODEL_ID: "mistral-medium-latest",
-  FALLBACK_MISTRAL_MAX_TOKENS: 8192,
-  fetchMistralModelsSafe: (params: unknown) => fetchMistralModelsSafeMock(params),
-  findMistralModelMetadata: (models: Array<{ id: string }>, modelId: string) =>
-    models.find((model) => model.id === modelId) ?? null,
-  resolveMistralMaxTokens: (metadata?: { maxContextTokens?: number }) =>
-    typeof metadata?.maxContextTokens === "number" ? metadata.maxContextTokens - 512 : 8192,
-}));
-
 describe("LLMApiPage", () => {
   beforeEach(() => {
     generateAll.mockClear();
     downloadDocx.mockClear();
     toastMock.mockClear();
     parseTranscriptFileMock.mockReset();
-    fetchMistralModelsSafeMock.mockReset();
-    fetchMistralModelsSafeMock.mockResolvedValue([]);
     hookState.status = "idle";
     hookState.progress = 0;
     hookState.results = {};
@@ -68,9 +46,12 @@ describe("LLMApiPage", () => {
     useAsrStore.setState({
       llmApiProvider: "huggingface",
       llmApiHfToken: "hf_test",
-      llmApiModelId: "openai/gpt-oss-20b",
-      llmApiTemperature: 0.2,
-      llmApiMaxTokens: 1024,
+      llmApiHfModelId: "openai/gpt-oss-20b",
+      llmApiHfTemperature: 0.2,
+      llmApiHfMaxTokens: 1024,
+      llmApiMistralModelId: "mistral-medium-latest",
+      llmApiMistralTemperature: 0.2,
+      llmApiMistralMaxTokens: 8192,
       llmApiStatusDetail: undefined,
       llmApiResults: {},
       cloudMistralApiKey: "",
@@ -138,13 +119,6 @@ describe("LLMApiPage", () => {
     expect(downloadDocx).toHaveBeenCalledWith("cri");
   });
 
-  it("auto-sets max tokens to the selected suggested model maximum", async () => {
-    renderPage();
-
-    const maxTokensInput = screen.getByLabelText("Max tokens", { selector: "input#llm-max-tokens" });
-    await waitFor(() => expect((maxTokensInput as HTMLInputElement).value).toBe("131072"));
-  });
-
   it("shows inline alert when llm token is missing", () => {
     useAsrStore.setState({ llmApiHfToken: "" } as any);
 
@@ -167,58 +141,25 @@ describe("LLMApiPage", () => {
     expect(generateAll).not.toHaveBeenCalled();
   });
 
-  it("switches to mistral provider and sets default model", async () => {
+  it("switches to mistral provider and keeps mistral pipeline config", async () => {
     renderPage();
 
     const providerSelect = screen.getByLabelText("Provider LLM", { selector: "button#llm-provider" });
     fireEvent.click(providerSelect);
     fireEvent.click(await screen.findByText("Mistral"));
 
-    await waitFor(() => {
-      expect((screen.getByLabelText("Model ID", { selector: "input#llm-model-id" }) as HTMLInputElement).value).toBe(
-        "mistral-medium-latest"
-      );
-    });
+    expect(useAsrStore.getState().llmApiProvider).toBe("mistral");
     expect(screen.getByLabelText("Cle API Mistral", { selector: "input#llm-mistral-api-key" })).toBeInTheDocument();
-    expect(screen.getByLabelText("URL API Mistral", { selector: "input#llm-mistral-api-url" })).toBeInTheDocument();
-  });
-
-  it("lists mistral models automatically and updates model id from selection", async () => {
-    fetchMistralModelsSafeMock.mockResolvedValue([
-      { id: "mistral-small-latest", maxContextTokens: 32768, supportsChat: true },
-      { id: "mistral-medium-latest", maxContextTokens: 65536, supportsChat: true },
-    ]);
-    useAsrStore.setState({
-      llmApiProvider: "mistral",
-      cloudMistralApiKey: "mistral_key",
-      llmApiModelId: "mistral-medium-latest",
-    } as any);
-
-    renderPage();
-
-    await waitFor(() => {
-      expect(fetchMistralModelsSafeMock).toHaveBeenCalled();
-      expect(screen.getByText(/modeles detectes via \/v1\/models/i)).toBeInTheDocument();
-    });
-
-    const mistralModelSelect = screen.getByLabelText("Modeles Mistral disponibles", {
-      selector: "button#llm-mistral-model-preset",
-    });
-    fireEvent.click(mistralModelSelect);
-    fireEvent.click(await screen.findByText(/mistral-small-latest/i));
-
-    await waitFor(() => {
-      expect((screen.getByLabelText("Model ID", { selector: "input#llm-model-id" }) as HTMLInputElement).value).toBe(
-        "mistral-small-latest"
-      );
-    });
+    expect(screen.queryByLabelText("URL API Mistral")).not.toBeInTheDocument();
+    expect(screen.getByText(/Model ID:/i)).toBeInTheDocument();
+    expect(screen.getByText("mistral-medium-latest")).toBeInTheDocument();
   });
 
   it("shows inline alert when mistral token is missing", () => {
     useAsrStore.setState({
       llmApiProvider: "mistral",
       cloudMistralApiKey: "",
-      llmApiModelId: "mistral-medium-latest",
+      llmApiMistralModelId: "mistral-medium-latest",
     } as any);
 
     renderPage();
@@ -230,7 +171,7 @@ describe("LLMApiPage", () => {
     useAsrStore.setState({
       llmApiProvider: "mistral",
       cloudMistralApiKey: "",
-      llmApiModelId: "mistral-medium-latest",
+      llmApiMistralModelId: "mistral-medium-latest",
     } as any);
 
     renderPage();
@@ -365,5 +306,34 @@ describe("LLMApiPage", () => {
     await waitFor(() => {
       expect(toastMock).toHaveBeenCalledWith("Fichier trop volumineux (max 50 Mo).");
     });
+  });
+
+  it("keeps only provider and token controls on llm page", () => {
+    renderPage();
+
+    expect(screen.getByLabelText("Provider LLM", { selector: "button#llm-provider" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Token Hugging Face", { selector: "input#llm-api-token" })).toBeInTheDocument();
+
+    expect(screen.queryByLabelText("Model ID")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Temperature")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Max tokens")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("URL API Mistral")).not.toBeInTheDocument();
+
+    const settingsLink = screen.getByRole("link", { name: /ouvrir parametres llm/i });
+    expect(settingsLink).toHaveAttribute("href", "/settings?tab=llm");
+  });
+
+  it("shows blocking config message when model id is missing", () => {
+    useAsrStore.setState({ llmApiHfModelId: "" } as any);
+
+    renderPage();
+
+    expect(screen.getByText(/configuration pipeline incomplete/i)).toBeInTheDocument();
+    expect(screen.getByText(/ne peut pas fonctionner sans model id/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /generer les 3 formats/i })).toBeDisabled();
+    expect(screen.getAllByRole("link", { name: /ouvrir parametres llm/i })[0]).toHaveAttribute(
+      "href",
+      "/settings?tab=llm"
+    );
   });
 });

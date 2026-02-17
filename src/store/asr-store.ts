@@ -126,6 +126,12 @@ export const MODEL_PRESETS: Record<Exclude<PresetKey, "custom">, ModelPreset> = 
 const FALLBACK_PRESET: PresetKey = "balanced";
 const DEFAULT_MISTRAL_MODEL = "voxtral-mini-latest";
 const LEGACY_MISTRAL_MODEL = "voxtral-mini-transcribe-26-02";
+const DEFAULT_LLM_HF_MODEL_ID = "openai/gpt-oss-20b";
+const DEFAULT_LLM_HF_TEMPERATURE = 0.2;
+const DEFAULT_LLM_HF_MAX_TOKENS = 131072;
+const DEFAULT_LLM_MISTRAL_MODEL_ID = "mistral-medium-latest";
+const DEFAULT_LLM_MISTRAL_TEMPERATURE = 0.2;
+const DEFAULT_LLM_MISTRAL_MAX_TOKENS = 8192;
 const allowedActivePresets = new Set<PresetKey>([
   ...(Object.keys(MODEL_PRESETS) as Array<Exclude<PresetKey, "custom">>),
   "custom",
@@ -211,6 +217,16 @@ export const normalizeMistralModel = (value: string | undefined, fallback: strin
 const normalizeLlmApiProvider = (value: string | undefined, fallback: LlmApiProvider): LlmApiProvider => {
   if (value === "huggingface" || value === "mistral") return value;
   return fallback;
+};
+
+const normalizeLlmTemperature = (value: number | undefined, fallback: number): number => {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(0, Math.min(2, value as number));
+};
+
+const normalizeLlmMaxTokens = (value: number | undefined, fallback: number): number => {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(128, Math.round(value as number));
 };
 
 type SessionSource = {
@@ -356,9 +372,12 @@ interface AsrConfigState {
   // LLM API specific settings/runtime
   llmApiProvider: LlmApiProvider;
   llmApiHfToken: string;
-  llmApiModelId: string;
-  llmApiTemperature: number;
-  llmApiMaxTokens: number;
+  llmApiHfModelId: string;
+  llmApiHfTemperature: number;
+  llmApiHfMaxTokens: number;
+  llmApiMistralModelId: string;
+  llmApiMistralTemperature: number;
+  llmApiMistralMaxTokens: number;
   llmApiStatus: LlmApiStatus;
   llmApiStatusDetail?: string;
   llmApiProgress: number;
@@ -552,9 +571,12 @@ interface AsrConfigActions {
   setCloudShowSegmentConfidence: (value: boolean) => void;
   setLlmApiProvider: (value: LlmApiProvider) => void;
   setLlmApiHfToken: (value: string) => void;
-  setLlmApiModelId: (value: string) => void;
-  setLlmApiTemperature: (value: number) => void;
-  setLlmApiMaxTokens: (value: number) => void;
+  setLlmApiHfModelId: (value: string) => void;
+  setLlmApiHfTemperature: (value: number) => void;
+  setLlmApiHfMaxTokens: (value: number) => void;
+  setLlmApiMistralModelId: (value: string) => void;
+  setLlmApiMistralTemperature: (value: number) => void;
+  setLlmApiMistralMaxTokens: (value: number) => void;
   setLlmApiStatus: (status: LlmApiStatus, detail?: string) => void;
   setLlmApiProgress: (value: number) => void;
   setLlmApiResult: (format: ReportResultKey, value: ReportResult) => void;
@@ -740,9 +762,12 @@ const initialState: AsrConfigState = {
   cloudShowSegmentConfidence: false,
   llmApiProvider: "huggingface",
   llmApiHfToken: "",
-  llmApiModelId: "openai/gpt-oss-20b",
-  llmApiTemperature: 0.2,
-  llmApiMaxTokens: 131072,
+  llmApiHfModelId: DEFAULT_LLM_HF_MODEL_ID,
+  llmApiHfTemperature: DEFAULT_LLM_HF_TEMPERATURE,
+  llmApiHfMaxTokens: DEFAULT_LLM_HF_MAX_TOKENS,
+  llmApiMistralModelId: DEFAULT_LLM_MISTRAL_MODEL_ID,
+  llmApiMistralTemperature: DEFAULT_LLM_MISTRAL_TEMPERATURE,
+  llmApiMistralMaxTokens: DEFAULT_LLM_MISTRAL_MAX_TOKENS,
   llmApiStatus: "idle",
   llmApiStatusDetail: undefined,
   llmApiProgress: 0,
@@ -913,7 +938,43 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         normalized: normalizedCloudMistralModel,
       });
     }
-    set((state) => ({
+    set((state) => {
+      const persistedLlmProvider = normalizeLlmApiProvider(settings.llmApiProvider, state.llmApiProvider);
+      const legacyLlmModelId = settings.llmApiModelId;
+      const legacyLlmTemperature = settings.llmApiTemperature;
+      const legacyLlmMaxTokens = settings.llmApiMaxTokens;
+
+      const llmApiHfModelId =
+        settings.llmApiHfModelId ??
+        (persistedLlmProvider === "huggingface" ? legacyLlmModelId : undefined) ??
+        state.llmApiHfModelId;
+      const llmApiHfTemperature = normalizeLlmTemperature(
+        settings.llmApiHfTemperature ??
+          (persistedLlmProvider === "huggingface" ? legacyLlmTemperature : undefined),
+        state.llmApiHfTemperature
+      );
+      const llmApiHfMaxTokens = normalizeLlmMaxTokens(
+        settings.llmApiHfMaxTokens ??
+          (persistedLlmProvider === "huggingface" ? legacyLlmMaxTokens : undefined),
+        state.llmApiHfMaxTokens
+      );
+
+      const llmApiMistralModelId =
+        settings.llmApiMistralModelId ??
+        (persistedLlmProvider === "mistral" ? legacyLlmModelId : undefined) ??
+        state.llmApiMistralModelId;
+      const llmApiMistralTemperature = normalizeLlmTemperature(
+        settings.llmApiMistralTemperature ??
+          (persistedLlmProvider === "mistral" ? legacyLlmTemperature : undefined),
+        state.llmApiMistralTemperature
+      );
+      const llmApiMistralMaxTokens = normalizeLlmMaxTokens(
+        settings.llmApiMistralMaxTokens ??
+          (persistedLlmProvider === "mistral" ? legacyLlmMaxTokens : undefined),
+        state.llmApiMistralMaxTokens
+      );
+
+      return {
       ...state,
       hasHydrated: true,
       activePreset: sanitizePreset(settings.activePreset ?? state.activePreset),
@@ -1047,16 +1108,20 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       cloudAutoTunePreprocess: settings.cloudAutoTunePreprocess ?? state.cloudAutoTunePreprocess,
       cloudEnableWordTimestamps: settings.cloudEnableWordTimestamps ?? state.cloudEnableWordTimestamps,
       cloudShowSegmentConfidence: settings.cloudShowSegmentConfidence ?? state.cloudShowSegmentConfidence,
-      llmApiProvider: normalizeLlmApiProvider(settings.llmApiProvider, state.llmApiProvider),
+      llmApiProvider: persistedLlmProvider,
       llmApiHfToken: settings.llmApiHfToken ?? state.llmApiHfToken,
-      llmApiModelId: settings.llmApiModelId ?? state.llmApiModelId,
-      llmApiTemperature: settings.llmApiTemperature ?? state.llmApiTemperature,
-      llmApiMaxTokens: settings.llmApiMaxTokens ?? state.llmApiMaxTokens,
+      llmApiHfModelId,
+      llmApiHfTemperature,
+      llmApiHfMaxTokens,
+      llmApiMistralModelId,
+      llmApiMistralTemperature,
+      llmApiMistralMaxTokens,
       autoTunePreprocess: settings.autoTunePreprocess ?? state.autoTunePreprocess,
       forceSingleThread: settings.forceSingleThread ?? state.forceSingleThread,
       enableWordTimestamps: settings.enableWordTimestamps ?? state.enableWordTimestamps,
       showSegmentConfidence: settings.showSegmentConfidence ?? state.showSegmentConfidence,
-    }));
+    };
+    });
   },
   registerTelemetry: (collector) => set(() => ({ telemetryCollector: collector })),
   registerAudioSource: (source, metadata) =>
@@ -1209,11 +1274,16 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
   setCloudShowSegmentConfidence: (value) => set(() => ({ cloudShowSegmentConfidence: value })),
   setLlmApiProvider: (value) => set(() => ({ llmApiProvider: value })),
   setLlmApiHfToken: (value) => set(() => ({ llmApiHfToken: value })),
-  setLlmApiModelId: (value) => set(() => ({ llmApiModelId: value })),
-  setLlmApiTemperature: (value) =>
-    set(() => ({ llmApiTemperature: Number.isFinite(value) ? Math.max(0, Math.min(2, value)) : 0.2 })),
-  setLlmApiMaxTokens: (value) =>
-    set(() => ({ llmApiMaxTokens: Number.isFinite(value) ? Math.max(128, Math.round(value)) : 131072 })),
+  setLlmApiHfModelId: (value) => set(() => ({ llmApiHfModelId: value })),
+  setLlmApiHfTemperature: (value) =>
+    set(() => ({ llmApiHfTemperature: normalizeLlmTemperature(value, DEFAULT_LLM_HF_TEMPERATURE) })),
+  setLlmApiHfMaxTokens: (value) =>
+    set(() => ({ llmApiHfMaxTokens: normalizeLlmMaxTokens(value, DEFAULT_LLM_HF_MAX_TOKENS) })),
+  setLlmApiMistralModelId: (value) => set(() => ({ llmApiMistralModelId: value })),
+  setLlmApiMistralTemperature: (value) =>
+    set(() => ({ llmApiMistralTemperature: normalizeLlmTemperature(value, DEFAULT_LLM_MISTRAL_TEMPERATURE) })),
+  setLlmApiMistralMaxTokens: (value) =>
+    set(() => ({ llmApiMistralMaxTokens: normalizeLlmMaxTokens(value, DEFAULT_LLM_MISTRAL_MAX_TOKENS) })),
   setLlmApiStatus: (status, detail) => set(() => ({ llmApiStatus: status, llmApiStatusDetail: detail ?? undefined })),
   setLlmApiProgress: (value) =>
     set(() => ({ llmApiProgress: Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0 })),
@@ -1466,9 +1536,12 @@ useAsrStore.subscribe((state) => {
     cloudShowSegmentConfidence: state.cloudShowSegmentConfidence,
     llmApiProvider: state.llmApiProvider,
     llmApiHfToken: state.llmApiHfToken,
-    llmApiModelId: state.llmApiModelId,
-    llmApiTemperature: state.llmApiTemperature,
-    llmApiMaxTokens: state.llmApiMaxTokens,
+    llmApiHfModelId: state.llmApiHfModelId,
+    llmApiHfTemperature: state.llmApiHfTemperature,
+    llmApiHfMaxTokens: state.llmApiHfMaxTokens,
+    llmApiMistralModelId: state.llmApiMistralModelId,
+    llmApiMistralTemperature: state.llmApiMistralTemperature,
+    llmApiMistralMaxTokens: state.llmApiMistralMaxTokens,
     // whisper
     enableWordTimestamps: state.enableWordTimestamps,
     showSegmentConfidence: state.showSegmentConfidence,

@@ -16,6 +16,7 @@ import { useModelCompatibilityTest, type ModelTestStatus } from "@/hooks/useMode
 import { getEnvMode, isProdEnv } from "@/lib/env";
 import { findSuggestedReportModel, formatTokenCount } from "@/lib/llm/modelCatalog";
 import { LLM_API_STATUS_META } from "@/lib/llm/llmStatusMeta";
+import { resolveActiveLlmPipelineConfig } from "@/lib/llm/providerSettings";
 
 const STATUS_LABELS: Record<string, string> = {
   idle: "Inactif",
@@ -61,8 +62,12 @@ export function Topbar() {
     llmApiStatus,
     llmApiStatusDetail,
     llmApiProvider,
-    llmApiModelId,
-    llmApiMaxTokens,
+    llmApiHfModelId,
+    llmApiHfTemperature,
+    llmApiHfMaxTokens,
+    llmApiMistralModelId,
+    llmApiMistralTemperature,
+    llmApiMistralMaxTokens,
     wasmThreads,
     preprocessingMode,
     telemetryCollector,
@@ -94,9 +99,20 @@ export function Topbar() {
   const envMode = getEnvMode();
   const isCloudRoute = location.pathname === "/cloudupload";
   const isLlmRoute = location.pathname === "/llmapi";
+  const activeLlmPipelineConfig = resolveActiveLlmPipelineConfig(
+    {
+      llmApiHfModelId,
+      llmApiHfTemperature,
+      llmApiHfMaxTokens,
+      llmApiMistralModelId,
+      llmApiMistralTemperature,
+      llmApiMistralMaxTokens,
+    },
+    llmApiProvider
+  );
   const cloudStatusMeta = CLOUD_STATUS_META[cloudStatus];
   const llmStatusMeta = LLM_API_STATUS_META[llmApiStatus];
-  const llmModelId = llmApiModelId.trim();
+  const llmModelId = activeLlmPipelineConfig.modelId.trim();
   const llmSuggestedModel = findSuggestedReportModel(llmModelId);
   const llmModelLabel = llmSuggestedModel?.label ?? (llmModelId || "Modele non defini");
   const llmProviderLabel = llmApiProvider === "mistral" ? "Mistral API" : "HF API";
@@ -137,7 +153,7 @@ export function Topbar() {
               <Cloud className="h-3 w-3" /> {llmProviderLabel}
             </Badge>
             <Badge variant="secondary">{llmModelLabel}</Badge>
-            <Badge variant="outline">{`Max ${formatTokenCount(llmApiMaxTokens)}`}</Badge>
+            <Badge variant="outline">{`Max ${formatTokenCount(activeLlmPipelineConfig.maxTokens)}`}</Badge>
           </div>
         </div>
       ) : (

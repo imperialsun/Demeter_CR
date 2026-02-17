@@ -76,4 +76,11 @@ describe('storage', () => {
       micMinChunkMs: DEFAULT_SETTINGS.micMinChunkMs,
     });
   });
+
+  it('defines provider-specific llm pipeline defaults', () => {
+    expect(DEFAULT_SETTINGS.llmApiHfModelId).toBeTruthy();
+    expect(DEFAULT_SETTINGS.llmApiHfMaxTokens).toBeGreaterThan(0);
+    expect(DEFAULT_SETTINGS.llmApiMistralModelId).toBeTruthy();
+    expect(DEFAULT_SETTINGS.llmApiMistralMaxTokens).toBeGreaterThan(0);
+  });
 });
