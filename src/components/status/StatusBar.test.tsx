@@ -49,6 +49,19 @@ describe('StatusBar', () => {
     expect(waiting.length).toBeGreaterThan(0);
   });
 
+  it("shows reset button in upload mode and calls onResetSession", () => {
+    const onResetSession = vi.fn();
+    render(<StatusBar onResetSession={onResetSession} mode="upload" />);
+    const resetBtn = screen.getByRole("button", { name: /Réinitialiser la session/i });
+    fireEvent.click(resetBtn);
+    expect(onResetSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not show reset button in mic mode", () => {
+    render(<StatusBar onResetSession={vi.fn()} mode="mic" />);
+    expect(screen.queryByRole("button", { name: /Réinitialiser la session/i })).toBeNull();
+  });
+
   it('displays progress, segments and percent correctly', () => {
     useAsrStore.setState({ progress: 0.42, chunkPlan: [{start:0,end:10},{start:10,end:20},{start:20,end:30}], segments: [{}, {}] } as any);
     render(<StatusBar />);

@@ -885,6 +885,11 @@ export function useTranscriptionController() {
     clearErrorResetTimer();
     const runId = sharedRunIdRef.current + 1;
     sharedRunIdRef.current = runId;
+    const throwIfRunInvalidated = () => {
+      if (runId !== sharedRunIdRef.current) {
+        throw new DOMException("Run invalidated", "AbortError");
+      }
+    };
 
     // Preserve the debug toggle explicitly so that any transient resets inside the
     // transcription flow do not change the UI state.
@@ -914,6 +919,7 @@ export function useTranscriptionController() {
     preprocessThrottleRef.current = 0;
 
     const metadata = await probeAudioMetadata(file);
+    throwIfRunInvalidated();
     const source = { id: crypto.randomUUID(), label: file.name, type: "file" as const };
     state.registerAudioSource(source, metadata);
 
@@ -977,11 +983,13 @@ export function useTranscriptionController() {
       let preDecoded: import("@/lib/audio").DecodedAudio | undefined;
       let preApplied = false;
       if (effectiveMemoryMode === "full" && (state.preprocessingMode === "full" || state.preprocessingMode === "quick")) {
+        throwIfRunInvalidated();
         state.setPreprocessingStatus("calibrating");
         state.setPreprocessingProgress(0);
         // Full decode is required for both quick and full modes to derive a noise profile
         try {
           preDecoded = await decodeFileFully(file, telemetry);
+          throwIfRunInvalidated();
           const pcmBytes = preDecoded.pcm.byteLength;
           const pcmMb = pcmBytes / (1024 * 1024);
           logger.info("[decode] pre-model full decode RAM footprint", {
@@ -1000,6 +1008,7 @@ export function useTranscriptionController() {
 
           // Estimate noise profile (quick mode: only calibration; full mode: we will apply the full preprocessing)
           try {
+            throwIfRunInvalidated();
             state.setPreprocessingStatus("calibrating");
             state.setPreprocessingProgress(0);
             const { profile, frames, vadUsed, silenceRanges } = estimateNoiseProfileWithVad(
@@ -1010,6 +1019,7 @@ export function useTranscriptionController() {
               state.preprocessVadMinSilenceMs
             );
             telemetry.logEvent("PREPROCESS_NOISE_PROFILE", { frames, source: "pre-model", vadUsed, silenceRanges });
+            throwIfRunInvalidated();
 
             // Auto-tune if enabled
             if (state.autoTunePreprocess) {
@@ -1076,6 +1086,7 @@ export function useTranscriptionController() {
 
             // Build preprocessConfig to pass into pipeline handlers. For full mode we will apply the heavy preprocessing now.
             if (state.preprocessingMode === "full") {
+              throwIfRunInvalidated();
               state.setPreprocessingStatus("processing");
               state.setPreprocessingProgress(0);
               const processed = await preprocessDecodedAudio(preDecoded, {
@@ -1099,6 +1110,7 @@ export function useTranscriptionController() {
                 preprocessOverlapBlockSec: state.preprocessOverlapBlockSec,
                 preprocessOverlapSec: state.preprocessOverlapSec,
               }, telemetry);
+              throwIfRunInvalidated();
               // Replace preDecoded with processed pcm so downstream chunking uses preprocessed audio
               preDecoded = {
                 metadata: preDecoded.metadata,
@@ -1109,6 +1121,7 @@ export function useTranscriptionController() {
               state.setPreprocessingStatus("done");
               preApplied = true;
             } else {
+              throwIfRunInvalidated();
               // quick mode: expose noiseProfile but do not apply the heavy gate; mark calibration done
               state.setPreprocessingProgress(1);
               state.setPreprocessingStatus("done");
@@ -1140,25 +1153,36 @@ export function useTranscriptionController() {
             // store on the local scope to pass later to handlers
             (telemetry as unknown as { __preprocessConfig?: unknown }).__preprocessConfig = preprocessConfigToPass;
           } catch (err) {
+            if (runId !== sharedRunIdRef.current || (err as DOMException)?.name === "AbortError") {
+              throw err;
+            }
             logger.warn("Pre-model calibration failed", err);
             telemetry.recordAlert("PREPROCESS_CALIBRATION_FAILED", { message: (err as Error).message });
             state.setPreprocessingStatus("idle");
             state.setPreprocessingProgress(0);
           }
         } catch (err) {
+          if (runId !== sharedRunIdRef.current || (err as DOMException)?.name === "AbortError") {
+            throw err;
+          }
           logger.warn("Pre-model full decode failed", err);
         }
       }
 
+      throwIfRunInvalidated();
       const { pipeline, backend, modelId } = await createAsrPipeline({
         modelPreset: state.activePreset,
         customModelId: state.customModelId,
         backendPreference: state.backendPreference,
         forceSingleThread: state.forceSingleThread,
         telemetry,
-        onStatus: (status, detail) => state.setStatus(status, detail),
+        onStatus: (status, detail) => {
+          if (runId !== sharedRunIdRef.current) return;
+          state.setStatus(status, detail);
+        },
       });
       activePipeline = pipeline;
+      throwIfRunInvalidated();
       state.setActiveBackend(backend);
       telemetry.setRuntimeContext({ backend, modelId });
 
@@ -1170,6 +1194,7 @@ export function useTranscriptionController() {
       } else {
         await handleProgressivePipeline({ file, telemetry, pipeline, source, preprocessConfig, runId });
       }
+      throwIfRunInvalidated();
 
       // Compute overall transcription confidence (duration-weighted average)
       try {
@@ -1186,36 +1211,45 @@ export function useTranscriptionController() {
 
       telemetry.logEvent("STOPPED");
       const summary = telemetry.exportSummary();
+      throwIfRunInvalidated();
       state.setTelemetrySummary(summary);
       toast("Transcription terminée.");
       state.setStatus("ready", "Prêt");
     } catch (error) {
-      failed = true;
-      logger.error(error);
-      const message = (error as Error)?.message ?? String(error ?? "Erreur inconnue");
-      if (isModelTooLargeError(error)) {
-        const fallbackPreset = resolveLighterPresetForMemoryFallback(state.activePreset, state.blockedPresets);
-        if (fallbackPreset) {
-          const previousPreset = state.activePreset;
-          state.setPreset(fallbackPreset);
-          logger.warn("[memory-fallback] switched upload preset after OOM", {
-            from: previousPreset,
-            to: fallbackPreset,
-            message,
-          });
-          const fallbackLabel = MODEL_PRESETS[fallbackPreset].label;
-          const friendly = `Erreur mémoire (modèle trop gros pour cette plateforme). Preset basculé automatiquement vers "${fallbackLabel}". Relancez la transcription.`;
-          state.setStatus("error", friendly);
-          toast(friendly);
-        } else {
-          const friendly =
-            "Erreur : modèle trop gros pour cette plateforme (mémoire insuffisante). Aucun preset plus léger n'est disponible, activez le mode single-thread ou utilisez un modèle custom plus petit.";
-          state.setStatus("error", friendly);
-          toast(friendly);
-        }
+      const runInvalidated = runId !== sharedRunIdRef.current || (error as DOMException)?.name === "AbortError";
+      if (runInvalidated) {
+        logger.info("Transcription aborted due to forced stop/reset", {
+          runId,
+          currentRunId: sharedRunIdRef.current,
+        });
       } else {
-        state.setStatus("error", message);
-        toast(`Échec de la transcription : ${message}`);
+        failed = true;
+        logger.error(error);
+        const message = (error as Error)?.message ?? String(error ?? "Erreur inconnue");
+        if (isModelTooLargeError(error)) {
+          const fallbackPreset = resolveLighterPresetForMemoryFallback(state.activePreset, state.blockedPresets);
+          if (fallbackPreset) {
+            const previousPreset = state.activePreset;
+            state.setPreset(fallbackPreset);
+            logger.warn("[memory-fallback] switched upload preset after OOM", {
+              from: previousPreset,
+              to: fallbackPreset,
+              message,
+            });
+            const fallbackLabel = MODEL_PRESETS[fallbackPreset].label;
+            const friendly = `Erreur mémoire (modèle trop gros pour cette plateforme). Preset basculé automatiquement vers "${fallbackLabel}". Relancez la transcription.`;
+            state.setStatus("error", friendly);
+            toast(friendly);
+          } else {
+            const friendly =
+              "Erreur : modèle trop gros pour cette plateforme (mémoire insuffisante). Aucun preset plus léger n'est disponible, activez le mode single-thread ou utilisez un modèle custom plus petit.";
+            state.setStatus("error", friendly);
+            toast(friendly);
+          }
+        } else {
+          state.setStatus("error", message);
+          toast(`Échec de la transcription : ${message}`);
+        }
       }
     } finally {
       if (activePipeline) {
@@ -1245,11 +1279,15 @@ export function useTranscriptionController() {
   }, []);
 
   // Immediately abort any in-progress transcription (used for reset/cleanup)
-  const abortTranscription = useCallback(() => {
+  const abortTranscription = useCallback((options?: { waitForStop?: boolean }) => {
+    const waitForStop = options?.waitForStop ?? true;
     sharedRunIdRef.current += 1;
     clearErrorResetTimer();
     const state = useAsrStore.getState();
     if (!state.isTranscribing) {
+      state.resetStopRequest();
+      state.registerTelemetry(null);
+      sharedAbortRef.current = null;
       return;
     }
     state.setStatus("stopping", "Arrêt forcé");
@@ -1257,6 +1295,14 @@ export function useTranscriptionController() {
     state.requestStop();
     if (sharedAbortRef.current) {
       sharedAbortRef.current.abort();
+    }
+    if (!waitForStop) {
+      // For immediate session reset flows we short-circuit UI state now.
+      state.setIsTranscribing(false);
+      state.resetStopRequest();
+      state.registerTelemetry(null);
+      sharedAbortRef.current = null;
+      return;
     }
     const start = Date.now();
     const timeoutMs = 15000;

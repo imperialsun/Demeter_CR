@@ -13,6 +13,7 @@ vi.mock("@/components/layout/AppShell", () => ({
 
 vi.mock("@/routes/LocalUploadPage", () => ({ default: () => <div>LocalUploadStub</div> }));
 vi.mock("@/routes/CloudUploadPage", () => ({ default: () => <div>CloudUploadStub</div> }));
+vi.mock("@/routes/LLMLocalPage", () => ({ default: () => <div>LLMLocalStub</div> }));
 vi.mock("@/routes/LLMApiPage", () => ({ default: () => <div>LLMApiStub</div> }));
 vi.mock("@/routes/SettingsPage", () => ({ default: () => <div>SettingsStub</div> }));
 vi.mock("@/routes/TelemetryPage", () => ({ default: () => <div>TelemetryStub</div> }));
@@ -27,5 +28,15 @@ describe("App routing", () => {
     );
 
     expect(screen.getByText("LLMApiStub")).toBeInTheDocument();
+  });
+
+  it("registers /llmlocal route", () => {
+    render(
+      <MemoryRouter initialEntries={["/llmlocal"]}>
+        <App />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText("LLMLocalStub")).toBeInTheDocument();
   });
 });

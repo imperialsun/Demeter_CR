@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useAsrStore, MODEL_PRESETS, type CloudTranscriptionStatus } from "@/store/asr-store";
 import { cn } from "@/lib/utils";
-import { ActivitySquare, Cloud, Cog, Loader2, LogOut, RotateCw } from "lucide-react";
+import { ActivitySquare, Bot, Cloud, Cog, Loader2, LogOut, RotateCw } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "@/components/ui/use-toast";
 import { useEffect, useState } from "react";
@@ -17,6 +17,7 @@ import { getEnvMode, isProdEnv } from "@/lib/env";
 import { findSuggestedReportModel, formatTokenCount } from "@/lib/llm/modelCatalog";
 import { LLM_API_STATUS_META } from "@/lib/llm/llmStatusMeta";
 import { resolveActiveLlmPipelineConfig } from "@/lib/llm/providerSettings";
+import { getLocalLlmModelProfile } from "@/lib/llm/localModelCatalog";
 
 const STATUS_LABELS: Record<string, string> = {
   idle: "Inactif",
@@ -68,6 +69,9 @@ export function Topbar() {
     llmApiMistralModelId,
     llmApiMistralTemperature,
     llmApiMistralMaxTokens,
+    llmLocalModelProfile,
+    llmLocalStatus,
+    llmLocalStatusDetail,
     wasmThreads,
     preprocessingMode,
     telemetryCollector,
@@ -99,6 +103,7 @@ export function Topbar() {
   const envMode = getEnvMode();
   const isCloudRoute = location.pathname === "/cloudupload";
   const isLlmRoute = location.pathname === "/llmapi";
+  const isLlmLocalRoute = location.pathname === "/llmlocal";
   const activeLlmPipelineConfig = resolveActiveLlmPipelineConfig(
     {
       llmApiHfModelId,
@@ -112,16 +117,26 @@ export function Topbar() {
   );
   const cloudStatusMeta = CLOUD_STATUS_META[cloudStatus];
   const llmStatusMeta = LLM_API_STATUS_META[llmApiStatus];
+  const llmLocalStatusMeta = LLM_API_STATUS_META[llmLocalStatus];
   const llmModelId = activeLlmPipelineConfig.modelId.trim();
   const llmSuggestedModel = findSuggestedReportModel(llmModelId);
   const llmModelLabel = llmSuggestedModel?.label ?? (llmModelId || "Modele non defini");
   const llmProviderLabel = llmApiProvider === "mistral" ? "Mistral API" : "HF API";
+  const llmLocalProfile = getLocalLlmModelProfile(llmLocalModelProfile);
   const statusLabel = isCloudRoute
     ? cloudStatusMeta.label
     : isLlmRoute
       ? llmStatusMeta.label
+      : isLlmLocalRoute
+        ? llmLocalStatusMeta.label
       : STATUS_LABELS[status] ?? status;
-  const statusDetailLabel = isCloudRoute ? cloudStatusDetail : isLlmRoute ? llmApiStatusDetail : statusDetail;
+  const statusDetailLabel = isCloudRoute
+    ? cloudStatusDetail
+    : isLlmRoute
+      ? llmApiStatusDetail
+      : isLlmLocalRoute
+        ? llmLocalStatusDetail
+      : statusDetail;
 
   useEffect(() => {
     logger.info("[topbar] debug controls visibility", { showDebugActions, mode: envMode });
@@ -154,6 +169,27 @@ export function Topbar() {
             </Badge>
             <Badge variant="secondary">{llmModelLabel}</Badge>
             <Badge variant="outline">{`Max ${formatTokenCount(activeLlmPipelineConfig.maxTokens)}`}</Badge>
+          </div>
+        </div>
+      ) : isLlmLocalRoute ? (
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-muted-foreground">Backend</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={backendBadgeVariant}>{backendBadgeLabel}</Badge>
+            {showPreferenceBadge ? (
+              <Badge variant="outline" className="capitalize">
+                {`Préférence : ${backendPreference}`}
+              </Badge>
+            ) : null}
+            {backendDisplay === "wasm" ? (
+              <Badge variant={wasmThreads && wasmThreads > 1 ? "success" : "warning"}>
+                {wasmThreads && wasmThreads > 1 ? `multithread (${wasmThreads})` : "single-thread"}
+              </Badge>
+            ) : null}
+            <Badge variant="outline" className="gap-1">
+              <Bot className="h-3 w-3" /> Local navigateur
+            </Badge>
+            <Badge variant="secondary">{llmLocalProfile.label}</Badge>
           </div>
         </div>
       ) : (

@@ -27,6 +27,7 @@ function LocalUploadPage() {
   const segments = useAsrStore((state) => state.segments);
   const showSegments = useAsrStore((state) => state.showSegments);
   const telemetrySummary = useAsrStore((state) => state.telemetrySummary);
+  const setTelemetrySummary = useAsrStore((state) => state.setTelemetrySummary);
   const audioMetadata = useAsrStore((state) => state.audioMetadata);
   const registerAudioSource = useAsrStore((state) => state.registerAudioSource);
   const resetSession = useAsrStore((state) => state.resetSession);
@@ -40,10 +41,11 @@ function LocalUploadPage() {
   // Read transcription confidence unconditionally to respect Hooks rules
   const transcriptionConfidence = useAsrStore((s) => s.transcriptionConfidence);
   const transcriptionConfidenceSource = useAsrStore((s) => s.transcriptionConfidenceSource);
-  const { startUploadTranscription, stopTranscription, isTranscribing } = useTranscriptionController();
+  const { startUploadTranscription, stopTranscription, abortTranscription, isTranscribing } = useTranscriptionController();
   const presetOptions = Object.values(MODEL_PRESETS);
   const blockedPresetSet = new Set(blockedPresets);
   const [privacyNoteOpen, setPrivacyNoteOpen] = useState(false);
+  const [isResettingSession, setIsResettingSession] = useState(false);
 
   useEffect(() => {
     logger.info("Local upload page view", { route: "/localupload", mode: "local" });
@@ -104,6 +106,43 @@ function LocalUploadPage() {
       toast((error as Error)?.message ?? "Erreur inconnue lors du démarrage de la transcription");
     }
   }, [selectedFile, startUploadTranscription]);
+
+  const handleResetLocalSession = useCallback(async () => {
+    if (isResettingSession) return;
+    setIsResettingSession(true);
+    try {
+      if (isTranscribing) {
+        abortTranscription({ waitForStop: false });
+      }
+      if (previewUrl) {
+        try {
+          URL.revokeObjectURL(previewUrl);
+        } catch (err) {
+          void err;
+        }
+      }
+      setPreviewUrl(null);
+      setUploadedFile(null);
+      setTelemetrySummary(null);
+      resetSession();
+      setStatus("idle", "Session réinitialisée");
+    } catch (error) {
+      logger.error("Erreur lors de la réinitialisation de la session locale", error);
+      toast((error as Error)?.message ?? "Impossible de réinitialiser la session locale");
+    } finally {
+      setIsResettingSession(false);
+    }
+  }, [
+    abortTranscription,
+    isResettingSession,
+    isTranscribing,
+    previewUrl,
+    resetSession,
+    setPreviewUrl,
+    setStatus,
+    setTelemetrySummary,
+    setUploadedFile,
+  ]);
 
   return (
     <div className="space-y-8">
@@ -169,7 +208,9 @@ function LocalUploadPage() {
           <StatusBar
             onStop={stopTranscription}
             onStart={handleManualStart}
+            onResetSession={handleResetLocalSession}
             startDisabled={!selectedFile || isTranscribing}
+            resetDisabled={isResettingSession}
           />
         </div>
 

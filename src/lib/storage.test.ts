@@ -83,4 +83,12 @@ describe('storage', () => {
     expect(DEFAULT_SETTINGS.llmApiMistralModelId).toBeTruthy();
     expect(DEFAULT_SETTINGS.llmApiMistralMaxTokens).toBeGreaterThan(0);
   });
+
+  it("defines llm local defaults", () => {
+    expect(DEFAULT_SETTINGS.llmLocalModelProfile).toBe("qwen_1_7b");
+    expect(DEFAULT_SETTINGS.llmLocalModelId).toContain("Qwen3-1.7B");
+    expect(DEFAULT_SETTINGS.llmLocalMaxTokens).toBeGreaterThan(0);
+    expect(DEFAULT_SETTINGS.llmLocalSettingsByProfile?.qwen_1_7b.modelId).toContain("Qwen3-1.7B");
+    expect(DEFAULT_SETTINGS.llmLocalSettingsByProfile?.ministral_3_3b.modelId).toContain("Ministral-3-3B");
+  });
 });

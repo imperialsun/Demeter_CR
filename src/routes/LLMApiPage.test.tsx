@@ -8,9 +8,10 @@ import LLMApiPage from "@/routes/LLMApiPage";
 
 const generateAll = vi.fn(async () => undefined);
 const downloadDocx = vi.fn(async () => undefined);
-const { toastMock, parseTranscriptFileMock } = vi.hoisted(() => ({
+const { toastMock, parseTranscriptFileMock, emitLlmEventMock } = vi.hoisted(() => ({
   toastMock: vi.fn(),
   parseTranscriptFileMock: vi.fn(),
+  emitLlmEventMock: vi.fn(),
 }));
 
 const hookState = {
@@ -33,12 +34,17 @@ vi.mock("@/lib/transcript/parseTranscriptFile", () => ({
   parseTranscriptFile: (...args: unknown[]) => parseTranscriptFileMock(...args),
 }));
 
+vi.mock("@/lib/llm/telemetrySession", () => ({
+  emitLlmEvent: (...args: unknown[]) => emitLlmEventMock(...args),
+}));
+
 describe("LLMApiPage", () => {
   beforeEach(() => {
     generateAll.mockClear();
     downloadDocx.mockClear();
     toastMock.mockClear();
     parseTranscriptFileMock.mockReset();
+    emitLlmEventMock.mockReset();
     hookState.status = "idle";
     hookState.progress = 0;
     hookState.results = {};
@@ -76,6 +82,14 @@ describe("LLMApiPage", () => {
 
     await userEvent.click(button);
     expect(generateAll).toHaveBeenCalledWith({ source: "transcription", text: undefined });
+  });
+
+  it("emits cloud page view telemetry on mount", () => {
+    renderPage();
+    expect(emitLlmEventMock).toHaveBeenCalledWith("LLM_CLOUD_PAGE_VIEW", {
+      route: "/llmapi",
+      mode: "cloud",
+    });
   });
 
   it("requires an imported file when source is texte libre", async () => {
@@ -139,6 +153,10 @@ describe("LLMApiPage", () => {
 
     expect(toastMock).toHaveBeenCalledWith("Ce module ne peut pas fonctionner sans cle API Hugging Face.");
     expect(generateAll).not.toHaveBeenCalled();
+    expect(emitLlmEventMock).toHaveBeenCalledWith(
+      "LLM_CLOUD_GENERATION_BLOCKED",
+      expect.objectContaining({ reason: "missing_token" })
+    );
   });
 
   it("switches to mistral provider and keeps mistral pipeline config", async () => {
@@ -153,6 +171,10 @@ describe("LLMApiPage", () => {
     expect(screen.queryByLabelText("URL API Mistral")).not.toBeInTheDocument();
     expect(screen.getByText(/Model ID:/i)).toBeInTheDocument();
     expect(screen.getByText("mistral-medium-latest")).toBeInTheDocument();
+    expect(emitLlmEventMock).toHaveBeenCalledWith(
+      "LLM_CLOUD_PROVIDER_CHANGE",
+      expect.objectContaining({ previousProvider: "huggingface", nextProvider: "mistral" })
+    );
   });
 
   it("shows inline alert when mistral token is missing", () => {
@@ -216,6 +238,14 @@ describe("LLMApiPage", () => {
     expect(parseTranscriptFileMock).toHaveBeenCalled();
     expect(screen.getByText(/tokens du fichier importe approx/i)).toBeInTheDocument();
     expect(toastMock).toHaveBeenCalledWith(expect.stringContaining("Fichier importe: source.txt"));
+    expect(emitLlmEventMock).toHaveBeenCalledWith(
+      "LLM_CLOUD_IMPORT_START",
+      expect.objectContaining({ fileName: "source.txt" })
+    );
+    expect(emitLlmEventMock).toHaveBeenCalledWith(
+      "LLM_CLOUD_IMPORT_SUCCESS",
+      expect.objectContaining({ fileName: "source.txt" })
+    );
   });
 
   it("imports srt and json file outputs into free text source", async () => {
@@ -334,6 +364,48 @@ describe("LLMApiPage", () => {
     expect(screen.getAllByRole("link", { name: /ouvrir parametres llm/i })[0]).toHaveAttribute(
       "href",
       "/settings?tab=llm"
+    );
+  });
+
+  it("emits reset and download telemetry events", async () => {
+    hookState.results = {
+      cri: {
+        format: "CRI",
+        report: {
+          format: "CRI",
+          title: "Titre CRI",
+          sections: [{ heading: "Contexte", paragraphs: ["P1"] }],
+        },
+        rawResponse: "{}",
+        modelId: "openai/gpt-oss-20b",
+        generatedAt: new Date().toISOString(),
+        sourceMode: "text",
+        sourceTokenCount: 50,
+        pipelinePasses: 1,
+        strategy: "chatCompletion",
+      },
+    } as any;
+
+    renderPage();
+
+    await userEvent.click(screen.getByRole("button", { name: /reinitialiser session llm/i }));
+    expect(emitLlmEventMock).toHaveBeenCalledWith(
+      "LLM_CLOUD_RESET_REQUESTED",
+      expect.objectContaining({ sourceMode: "transcription" })
+    );
+    expect(emitLlmEventMock).toHaveBeenCalledWith(
+      "LLM_CLOUD_RESET_DONE",
+      expect.objectContaining({ sourceMode: "transcription" })
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /telecharger cri/i }));
+    expect(emitLlmEventMock).toHaveBeenCalledWith(
+      "LLM_CLOUD_DOWNLOAD_REQUESTED",
+      expect.objectContaining({ format: "cri" })
+    );
+    expect(emitLlmEventMock).toHaveBeenCalledWith(
+      "LLM_CLOUD_DOWNLOAD_DONE",
+      expect.objectContaining({ format: "cri" })
     );
   });
 });

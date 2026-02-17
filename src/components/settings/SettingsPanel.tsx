@@ -36,6 +36,7 @@ import { cn } from "@/lib/utils";
 import { testWasmMultithreadSupport } from "@/lib/backend-support";
 import logger from "@/lib/logger";
 import { LlmCloudSettingsTab } from "@/components/settings/LlmCloudSettingsTab";
+import { LlmLocalSettingsTab } from "@/components/settings/LlmLocalSettingsTab";
 
 type BackendOption = {
   value: BackendImplementation;
@@ -81,10 +82,10 @@ interface SettingsPanelProps {
   showLlmSettings?: boolean;
   initialModelOpen?: boolean;
   initialChunkingOpen?: boolean;
-  initialTab?: "local" | "mic" | "cloud" | "llm";
+  initialTab?: "local" | "mic" | "cloud" | "llm" | "llmlocal";
 }
 
-type SettingsTabValue = "local" | "mic" | "cloud" | "llm";
+type SettingsTabValue = "local" | "mic" | "cloud" | "llm" | "llmlocal";
 
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
@@ -553,6 +554,7 @@ export function SettingsPanel({
     const tabs: SettingsTabValue[] = ["local"];
     if (showMicSettings) tabs.push("mic");
     if (showCloudSettingsResolved) tabs.push("cloud");
+    if (showLlmSettingsResolved) tabs.push("llmlocal");
     if (showLlmSettingsResolved) tabs.push("llm");
     return tabs;
   }, [showCloudSettingsResolved, showLlmSettingsResolved, showMicSettings]);
@@ -1051,7 +1053,7 @@ export function SettingsPanel({
     <Tabs
       value={activeTab}
       onValueChange={(value) => {
-        if (value === "local" || value === "mic" || value === "cloud" || value === "llm") {
+        if (value === "local" || value === "mic" || value === "cloud" || value === "llm" || value === "llmlocal") {
           setActiveTab(value);
         }
       }}
@@ -1061,6 +1063,7 @@ export function SettingsPanel({
         <TabsTrigger value="local">Local</TabsTrigger>
         {showMicSettings ? <TabsTrigger value="mic">Enregistrement</TabsTrigger> : null}
         {showCloudSettingsResolved ? <TabsTrigger value="cloud">Cloud</TabsTrigger> : null}
+        {showLlmSettingsResolved ? <TabsTrigger value="llmlocal">LLM Local</TabsTrigger> : null}
         {showLlmSettingsResolved ? <TabsTrigger value="llm">LLM Cloud</TabsTrigger> : null}
       </TabsList>
       <TabsContent value="local">
@@ -3210,6 +3213,11 @@ export function SettingsPanel({
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+      ) : null}
+      {showLlmSettingsResolved ? (
+        <TabsContent value="llmlocal">
+          <LlmLocalSettingsTab />
         </TabsContent>
       ) : null}
       {showLlmSettingsResolved ? (

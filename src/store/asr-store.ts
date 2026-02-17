@@ -7,6 +7,16 @@ import type { ChunkDefinition } from "@/lib/chunking";
 import type { TranscriptionSegment } from "@/lib/export";
 import type { TelemetryCollector, ChunkTelemetry, TelemetrySummary } from "@/lib/telemetry";
 import type { ReportResult, ReportResultKey } from "@/lib/llm/reportSchema";
+import {
+  createDefaultLocalModelSettings,
+  createDefaultLocalModelSettingsByProfile,
+  DEFAULT_LLM_LOCAL_MAX_TOKENS,
+  DEFAULT_LLM_LOCAL_MODEL_ID,
+  DEFAULT_LLM_LOCAL_PROFILE,
+  DEFAULT_LLM_LOCAL_TEMPERATURE,
+  getLocalLlmModelProfile,
+  resolveLocalLlmModelId,
+} from "@/lib/llm/localModelCatalog";
 
 export type PresetKey = "fast" | "balanced" | "medium" | "quality" | "mms" | "turbo" | "custom";
 export type BuiltInPresetKey = Exclude<PresetKey, "custom">;
@@ -51,6 +61,15 @@ export type CloudTranscriptionStatus =
 
 export type LlmApiStatus = "idle" | "preparing" | "generating" | "formatting" | "done" | "error";
 export type LlmApiProvider = "huggingface" | "mistral";
+export type LlmLocalModelProfile = "qwen_1_7b" | "ministral_3_3b";
+export interface LlmLocalModelSettings {
+  modelId: string;
+  temperature: number;
+  maxTokens: number;
+  dtypeWebgpu: ModelDtype;
+  dtypeWasm: ModelDtype;
+  appendNoThinkDirective: boolean;
+}
 
 export interface ModelPreset {
   key: PresetKey;
@@ -141,6 +160,13 @@ const DEFAULT_LLM_HF_MAX_TOKENS = 131072;
 const DEFAULT_LLM_MISTRAL_MODEL_ID = "mistral-medium-latest";
 const DEFAULT_LLM_MISTRAL_TEMPERATURE = 0.2;
 const DEFAULT_LLM_MISTRAL_MAX_TOKENS = 8192;
+const DEFAULT_LLM_LOCAL_MODEL_PROFILE: LlmLocalModelProfile = DEFAULT_LLM_LOCAL_PROFILE;
+const DEFAULT_LLM_LOCAL_BACKEND: BackendImplementation = "webgpu";
+const DEFAULT_LLM_LOCAL_DTYPE_WEBGPU: ModelDtype = "q4f16";
+const DEFAULT_LLM_LOCAL_DTYPE_WASM: ModelDtype = "q8";
+const LLM_LOCAL_PROFILES: LlmLocalModelProfile[] = ["qwen_1_7b", "ministral_3_3b"];
+const DEFAULT_LLM_LOCAL_SETTINGS_BY_PROFILE: Record<LlmLocalModelProfile, LlmLocalModelSettings> =
+  createDefaultLocalModelSettingsByProfile();
 const allowedActivePresets = new Set<PresetKey>([
   ...(Object.keys(MODEL_PRESETS) as Array<Exclude<PresetKey, "custom">>),
   "custom",
@@ -236,6 +262,78 @@ const normalizeLlmTemperature = (value: number | undefined, fallback: number): n
 const normalizeLlmMaxTokens = (value: number | undefined, fallback: number): number => {
   if (!Number.isFinite(value)) return fallback;
   return Math.max(128, Math.round(value as number));
+};
+
+const normalizeLlmLocalModelProfile = (
+  value: string | undefined,
+  fallback: LlmLocalModelProfile
+): LlmLocalModelProfile => {
+  if (value === "qwen_1_7b" || value === "ministral_3_3b") return value;
+  return fallback;
+};
+
+const normalizeLlmLocalDtype = (value: string | undefined, fallback: ModelDtype): ModelDtype => {
+  if (value && ALLOWED_MODEL_DTYPES.has(value as ModelDtype)) {
+    return value as ModelDtype;
+  }
+  return fallback;
+};
+
+const normalizeLlmLocalModelId = (
+  profile: LlmLocalModelProfile,
+  value: string | undefined,
+  fallback: string
+): string => {
+  const trimmed = value?.trim() ?? "";
+  if (trimmed) return trimmed;
+  const fallbackTrimmed = fallback.trim();
+  if (fallbackTrimmed) return fallbackTrimmed;
+  return resolveLocalLlmModelId(profile);
+};
+
+const normalizeLlmLocalModelSettings = (
+  profile: LlmLocalModelProfile,
+  value: Partial<LlmLocalModelSettings> | undefined,
+  fallback: LlmLocalModelSettings
+): LlmLocalModelSettings => {
+  const defaultSettings = createDefaultLocalModelSettings(profile);
+  const baseline: LlmLocalModelSettings = {
+    modelId: fallback.modelId || defaultSettings.modelId,
+    temperature: fallback.temperature,
+    maxTokens: fallback.maxTokens,
+    dtypeWebgpu: fallback.dtypeWebgpu,
+    dtypeWasm: fallback.dtypeWasm,
+    appendNoThinkDirective: fallback.appendNoThinkDirective,
+  };
+  const profileConfig = getLocalLlmModelProfile(profile);
+
+  return {
+    modelId: normalizeLlmLocalModelId(profile, value?.modelId, baseline.modelId),
+    temperature: normalizeLlmTemperature(value?.temperature, baseline.temperature),
+    maxTokens: Math.min(
+      normalizeLlmMaxTokens(value?.maxTokens, baseline.maxTokens),
+      profileConfig.maxGenerationTokens
+    ),
+    dtypeWebgpu: normalizeLlmLocalDtype(value?.dtypeWebgpu, baseline.dtypeWebgpu),
+    dtypeWasm: normalizeLlmLocalDtype(value?.dtypeWasm, baseline.dtypeWasm),
+    appendNoThinkDirective:
+      typeof value?.appendNoThinkDirective === "boolean"
+        ? value.appendNoThinkDirective
+        : baseline.appendNoThinkDirective,
+  };
+};
+
+const normalizeLlmLocalSettingsByProfile = (
+  value: Partial<Record<LlmLocalModelProfile, Partial<LlmLocalModelSettings>>> | undefined,
+  fallback: Record<LlmLocalModelProfile, LlmLocalModelSettings>
+): Record<LlmLocalModelProfile, LlmLocalModelSettings> => {
+  const normalized = {} as Record<LlmLocalModelProfile, LlmLocalModelSettings>;
+
+  for (const profile of LLM_LOCAL_PROFILES) {
+    normalized[profile] = normalizeLlmLocalModelSettings(profile, value?.[profile], fallback[profile]);
+  }
+
+  return normalized;
 };
 
 type SessionSource = {
@@ -391,6 +489,19 @@ interface AsrConfigState {
   llmApiStatusDetail?: string;
   llmApiProgress: number;
   llmApiResults: Partial<Record<ReportResultKey, ReportResult>>;
+  // LLM local specific settings/runtime
+  llmLocalModelProfile: LlmLocalModelProfile;
+  llmLocalModelId: string;
+  llmLocalTemperature: number;
+  llmLocalMaxTokens: number;
+  llmLocalBackendPreference: BackendImplementation;
+  llmLocalDtypeWebgpu: ModelDtype;
+  llmLocalDtypeWasm: ModelDtype;
+  llmLocalSettingsByProfile: Record<LlmLocalModelProfile, LlmLocalModelSettings>;
+  llmLocalStatus: LlmApiStatus;
+  llmLocalStatusDetail?: string;
+  llmLocalProgress: number;
+  llmLocalResults: Partial<Record<ReportResultKey, ReportResult>>;
   noiseCalibrationRequestedAt?: number | null;
   autoTunePreprocess: boolean;
   lastAutoTuneParams?: {
@@ -591,6 +702,20 @@ interface AsrConfigActions {
   setLlmApiResult: (format: ReportResultKey, value: ReportResult) => void;
   setLlmApiResults: (value: Partial<Record<ReportResultKey, ReportResult>>) => void;
   resetLlmApiSession: () => void;
+  setLlmLocalModelProfile: (value: LlmLocalModelProfile) => void;
+  setLlmLocalModelId: (value: string) => void;
+  setLlmLocalTemperature: (value: number) => void;
+  setLlmLocalMaxTokens: (value: number) => void;
+  setLlmLocalBackendPreference: (value: BackendImplementation) => void;
+  setLlmLocalDtypeWebgpu: (value: ModelDtype) => void;
+  setLlmLocalDtypeWasm: (value: ModelDtype) => void;
+  setLlmLocalModelSettings: (profile: LlmLocalModelProfile, patch: Partial<LlmLocalModelSettings>) => void;
+  resetLlmLocalModelSettings: (profile: LlmLocalModelProfile) => void;
+  setLlmLocalStatus: (status: LlmApiStatus, detail?: string) => void;
+  setLlmLocalProgress: (value: number) => void;
+  setLlmLocalResult: (format: ReportResultKey, value: ReportResult) => void;
+  setLlmLocalResults: (value: Partial<Record<ReportResultKey, ReportResult>>) => void;
+  resetLlmLocalSession: () => void;
   setAutoTunePreprocess: (value: boolean) => void;
   setLastAutoTuneParams: (params: {
     noiseFloorDb: number;
@@ -781,6 +906,18 @@ const initialState: AsrConfigState = {
   llmApiStatusDetail: undefined,
   llmApiProgress: 0,
   llmApiResults: {},
+  llmLocalSettingsByProfile: normalizeLlmLocalSettingsByProfile(undefined, DEFAULT_LLM_LOCAL_SETTINGS_BY_PROFILE),
+  llmLocalModelProfile: DEFAULT_LLM_LOCAL_MODEL_PROFILE,
+  llmLocalModelId: DEFAULT_LLM_LOCAL_MODEL_ID,
+  llmLocalTemperature: DEFAULT_LLM_LOCAL_TEMPERATURE,
+  llmLocalMaxTokens: DEFAULT_LLM_LOCAL_MAX_TOKENS,
+  llmLocalBackendPreference: DEFAULT_LLM_LOCAL_BACKEND,
+  llmLocalDtypeWebgpu: DEFAULT_LLM_LOCAL_DTYPE_WEBGPU,
+  llmLocalDtypeWasm: DEFAULT_LLM_LOCAL_DTYPE_WASM,
+  llmLocalStatus: "idle",
+  llmLocalStatusDetail: undefined,
+  llmLocalProgress: 0,
+  llmLocalResults: {},
   noiseCalibrationRequestedAt: null,
   segmentationStatus: "idle",
   segmentationProgress: 0,
@@ -983,6 +1120,46 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         state.llmApiMistralMaxTokens
       );
 
+      const llmLocalModelProfile = normalizeLlmLocalModelProfile(
+        settings.llmLocalModelProfile,
+        state.llmLocalModelProfile
+      );
+      const llmLocalSettingsByProfileFallback = normalizeLlmLocalSettingsByProfile(
+        undefined,
+        state.llmLocalSettingsByProfile
+      );
+      let llmLocalSettingsByProfile = normalizeLlmLocalSettingsByProfile(
+        settings.llmLocalSettingsByProfile,
+        llmLocalSettingsByProfileFallback
+      );
+      if (!settings.llmLocalSettingsByProfile) {
+        llmLocalSettingsByProfile = {
+          ...llmLocalSettingsByProfile,
+          [llmLocalModelProfile]: normalizeLlmLocalModelSettings(
+            llmLocalModelProfile,
+            {
+              modelId: settings.llmLocalModelId,
+              temperature: settings.llmLocalTemperature,
+              maxTokens: settings.llmLocalMaxTokens,
+              dtypeWebgpu: settings.llmLocalDtypeWebgpu,
+              dtypeWasm: settings.llmLocalDtypeWasm,
+            },
+            llmLocalSettingsByProfile[llmLocalModelProfile]
+          ),
+        };
+      }
+      const activeLlmLocalSettings = llmLocalSettingsByProfile[llmLocalModelProfile];
+      const llmLocalModelId = activeLlmLocalSettings.modelId;
+      const llmLocalTemperature = activeLlmLocalSettings.temperature;
+      const llmLocalMaxTokens = activeLlmLocalSettings.maxTokens;
+      const llmLocalBackendPreference = resolveBackendPreference(
+        settings.llmLocalBackendPreference,
+        support,
+        state.llmLocalBackendPreference
+      );
+      const llmLocalDtypeWebgpu = activeLlmLocalSettings.dtypeWebgpu;
+      const llmLocalDtypeWasm = activeLlmLocalSettings.dtypeWasm;
+
       return {
       ...state,
       hasHydrated: true,
@@ -1125,6 +1302,14 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       llmApiMistralModelId,
       llmApiMistralTemperature,
       llmApiMistralMaxTokens,
+      llmLocalSettingsByProfile,
+      llmLocalModelProfile,
+      llmLocalModelId,
+      llmLocalTemperature,
+      llmLocalMaxTokens,
+      llmLocalBackendPreference,
+      llmLocalDtypeWebgpu,
+      llmLocalDtypeWasm,
       autoTunePreprocess: settings.autoTunePreprocess ?? state.autoTunePreprocess,
       forceSingleThread: settings.forceSingleThread ?? state.forceSingleThread,
       enableWordTimestamps: settings.enableWordTimestamps ?? state.enableWordTimestamps,
@@ -1306,6 +1491,219 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       llmApiProgress: 0,
       llmApiResults: {},
     })),
+  setLlmLocalModelProfile: (value) =>
+    set((state) => {
+      const profile = normalizeLlmLocalModelProfile(value, state.llmLocalModelProfile);
+      const fallback = normalizeLlmLocalModelSettings(
+        profile,
+        undefined,
+        createDefaultLocalModelSettings(profile)
+      );
+      const nextSettings = normalizeLlmLocalModelSettings(
+        profile,
+        state.llmLocalSettingsByProfile[profile],
+        fallback
+      );
+      return {
+        llmLocalSettingsByProfile: {
+          ...state.llmLocalSettingsByProfile,
+          [profile]: nextSettings,
+        },
+        llmLocalModelProfile: profile,
+        llmLocalModelId: nextSettings.modelId,
+        llmLocalTemperature: nextSettings.temperature,
+        llmLocalMaxTokens: nextSettings.maxTokens,
+        llmLocalDtypeWebgpu: nextSettings.dtypeWebgpu,
+        llmLocalDtypeWasm: nextSettings.dtypeWasm,
+      };
+    }),
+  setLlmLocalModelId: (value) =>
+    set((state) => {
+      const profile = state.llmLocalModelProfile;
+      const fallback = normalizeLlmLocalModelSettings(
+        profile,
+        undefined,
+        createDefaultLocalModelSettings(profile)
+      );
+      const current = normalizeLlmLocalModelSettings(profile, state.llmLocalSettingsByProfile[profile], fallback);
+      const updated = normalizeLlmLocalModelSettings(profile, { modelId: value }, current);
+      return {
+        llmLocalSettingsByProfile: {
+          ...state.llmLocalSettingsByProfile,
+          [profile]: updated,
+        },
+        llmLocalModelId: updated.modelId,
+      };
+    }),
+  setLlmLocalTemperature: (value) =>
+    set((state) => {
+      const profile = state.llmLocalModelProfile;
+      const fallback = normalizeLlmLocalModelSettings(
+        profile,
+        undefined,
+        createDefaultLocalModelSettings(profile)
+      );
+      const current = normalizeLlmLocalModelSettings(profile, state.llmLocalSettingsByProfile[profile], fallback);
+      const updated = normalizeLlmLocalModelSettings(
+        profile,
+        { temperature: normalizeLlmTemperature(value, DEFAULT_LLM_LOCAL_TEMPERATURE) },
+        current
+      );
+      return {
+        llmLocalSettingsByProfile: {
+          ...state.llmLocalSettingsByProfile,
+          [profile]: updated,
+        },
+        llmLocalTemperature: updated.temperature,
+      };
+    }),
+  setLlmLocalMaxTokens: (value) =>
+    set((state) => {
+      const profile = state.llmLocalModelProfile;
+      const fallback = normalizeLlmLocalModelSettings(
+        profile,
+        undefined,
+        createDefaultLocalModelSettings(profile)
+      );
+      const current = normalizeLlmLocalModelSettings(profile, state.llmLocalSettingsByProfile[profile], fallback);
+      const updated = normalizeLlmLocalModelSettings(
+        profile,
+        { maxTokens: normalizeLlmMaxTokens(value, DEFAULT_LLM_LOCAL_MAX_TOKENS) },
+        current
+      );
+      return {
+        llmLocalSettingsByProfile: {
+          ...state.llmLocalSettingsByProfile,
+          [profile]: updated,
+        },
+        llmLocalMaxTokens: updated.maxTokens,
+      };
+    }),
+  setLlmLocalBackendPreference: (value) =>
+    set((state) => {
+      if (value === "webgpu" && !state.webGpuSupported) {
+        if (state.llmLocalBackendPreference === "wasm") return {};
+        return { llmLocalBackendPreference: "wasm" };
+      }
+      if (value === "wasm" && !state.wasmAvailable) {
+        return { llmLocalBackendPreference: "webgpu" };
+      }
+      return { llmLocalBackendPreference: value };
+    }),
+  setLlmLocalDtypeWebgpu: (value) =>
+    set((state) => {
+      const profile = state.llmLocalModelProfile;
+      const fallback = normalizeLlmLocalModelSettings(
+        profile,
+        undefined,
+        createDefaultLocalModelSettings(profile)
+      );
+      const current = normalizeLlmLocalModelSettings(profile, state.llmLocalSettingsByProfile[profile], fallback);
+      const updated = normalizeLlmLocalModelSettings(
+        profile,
+        { dtypeWebgpu: normalizeLlmLocalDtype(value, DEFAULT_LLM_LOCAL_DTYPE_WEBGPU) },
+        current
+      );
+      return {
+        llmLocalSettingsByProfile: {
+          ...state.llmLocalSettingsByProfile,
+          [profile]: updated,
+        },
+        llmLocalDtypeWebgpu: updated.dtypeWebgpu,
+      };
+    }),
+  setLlmLocalDtypeWasm: (value) =>
+    set((state) => {
+      const profile = state.llmLocalModelProfile;
+      const fallback = normalizeLlmLocalModelSettings(
+        profile,
+        undefined,
+        createDefaultLocalModelSettings(profile)
+      );
+      const current = normalizeLlmLocalModelSettings(profile, state.llmLocalSettingsByProfile[profile], fallback);
+      const updated = normalizeLlmLocalModelSettings(
+        profile,
+        { dtypeWasm: normalizeLlmLocalDtype(value, DEFAULT_LLM_LOCAL_DTYPE_WASM) },
+        current
+      );
+      return {
+        llmLocalSettingsByProfile: {
+          ...state.llmLocalSettingsByProfile,
+          [profile]: updated,
+        },
+        llmLocalDtypeWasm: updated.dtypeWasm,
+      };
+    }),
+  setLlmLocalModelSettings: (profile, patch) =>
+    set((state) => {
+      const normalizedProfile = normalizeLlmLocalModelProfile(profile, state.llmLocalModelProfile);
+      const fallback = normalizeLlmLocalModelSettings(
+        normalizedProfile,
+        undefined,
+        createDefaultLocalModelSettings(normalizedProfile)
+      );
+      const current = normalizeLlmLocalModelSettings(
+        normalizedProfile,
+        state.llmLocalSettingsByProfile[normalizedProfile],
+        fallback
+      );
+      const updated = normalizeLlmLocalModelSettings(normalizedProfile, patch, current);
+      const next = {
+        llmLocalSettingsByProfile: {
+          ...state.llmLocalSettingsByProfile,
+          [normalizedProfile]: updated,
+        },
+      } as Partial<AsrConfigStore>;
+
+      if (normalizedProfile === state.llmLocalModelProfile) {
+        next.llmLocalModelId = updated.modelId;
+        next.llmLocalTemperature = updated.temperature;
+        next.llmLocalMaxTokens = updated.maxTokens;
+        next.llmLocalDtypeWebgpu = updated.dtypeWebgpu;
+        next.llmLocalDtypeWasm = updated.dtypeWasm;
+      }
+
+      return next as Partial<AsrConfigStore>;
+    }),
+  resetLlmLocalModelSettings: (profile) =>
+    set((state) => {
+      const normalizedProfile = normalizeLlmLocalModelProfile(profile, state.llmLocalModelProfile);
+      const resetSettings = normalizeLlmLocalModelSettings(
+        normalizedProfile,
+        undefined,
+        createDefaultLocalModelSettings(normalizedProfile)
+      );
+      const next = {
+        llmLocalSettingsByProfile: {
+          ...state.llmLocalSettingsByProfile,
+          [normalizedProfile]: resetSettings,
+        },
+      } as Partial<AsrConfigStore>;
+
+      if (normalizedProfile === state.llmLocalModelProfile) {
+        next.llmLocalModelId = resetSettings.modelId;
+        next.llmLocalTemperature = resetSettings.temperature;
+        next.llmLocalMaxTokens = resetSettings.maxTokens;
+        next.llmLocalDtypeWebgpu = resetSettings.dtypeWebgpu;
+        next.llmLocalDtypeWasm = resetSettings.dtypeWasm;
+      }
+
+      return next as Partial<AsrConfigStore>;
+    }),
+  setLlmLocalStatus: (status, detail) =>
+    set(() => ({ llmLocalStatus: status, llmLocalStatusDetail: detail ?? undefined })),
+  setLlmLocalProgress: (value) =>
+    set(() => ({ llmLocalProgress: Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0 })),
+  setLlmLocalResult: (format, value) =>
+    set((state) => ({ llmLocalResults: { ...state.llmLocalResults, [format]: value } })),
+  setLlmLocalResults: (value) => set(() => ({ llmLocalResults: value })),
+  resetLlmLocalSession: () =>
+    set(() => ({
+      llmLocalStatus: "idle",
+      llmLocalStatusDetail: undefined,
+      llmLocalProgress: 0,
+      llmLocalResults: {},
+    })),
   setAutoTunePreprocess: (value: boolean) => set(() => ({ autoTunePreprocess: value })),
   setLastAutoTuneParams: (params) => set(() => ({ lastAutoTuneParams: params })),
   requestNoiseCalibration: () => set(() => ({ noiseCalibrationRequestedAt: Date.now() })),
@@ -1340,6 +1738,10 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       llmApiStatusDetail: undefined,
       llmApiProgress: 0,
       llmApiResults: {},
+      llmLocalStatus: "idle",
+      llmLocalStatusDetail: undefined,
+      llmLocalProgress: 0,
+      llmLocalResults: {},
       // Preserve debug toggle across session resets
       debugConfidence: state.debugConfidence,
       previewUrl: state.previewUrl,
@@ -1565,6 +1967,14 @@ useAsrStore.subscribe((state) => {
     llmApiMistralModelId: state.llmApiMistralModelId,
     llmApiMistralTemperature: state.llmApiMistralTemperature,
     llmApiMistralMaxTokens: state.llmApiMistralMaxTokens,
+    llmLocalModelProfile: state.llmLocalModelProfile,
+    llmLocalModelId: state.llmLocalModelId,
+    llmLocalTemperature: state.llmLocalTemperature,
+    llmLocalMaxTokens: state.llmLocalMaxTokens,
+    llmLocalBackendPreference: state.llmLocalBackendPreference,
+    llmLocalDtypeWebgpu: state.llmLocalDtypeWebgpu,
+    llmLocalDtypeWasm: state.llmLocalDtypeWasm,
+    llmLocalSettingsByProfile: state.llmLocalSettingsByProfile,
     // whisper
     enableWordTimestamps: state.enableWordTimestamps,
     showSegmentConfidence: state.showSegmentConfidence,

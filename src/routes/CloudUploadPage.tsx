@@ -52,6 +52,7 @@ function CloudUploadPage() {
     statusDetail,
     progress,
     isTranscribing,
+    isResettingSession,
     stopRequested,
     sessionContext,
     setSessionContext,
@@ -59,6 +60,7 @@ function CloudUploadPage() {
     handleFileSelected,
     startTranscription,
     stopTranscription,
+    resetTranscriptionSession,
   } = useCloudTranscription(provider);
 
   useEffect(() => {
@@ -244,13 +246,13 @@ function CloudUploadPage() {
               </div>
               <Progress value={percent} className="h-2 w-full" />
               <p className="text-xs text-muted-foreground">{percent}%</p>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-stretch gap-2">
                 {!isTranscribing ? (
                   <Button
                     size="sm"
-                    className="gap-2"
+                    className="w-full gap-2 sm:w-auto"
                     onClick={startTranscription}
-                    disabled={!selectedFile}
+                    disabled={!selectedFile || isResettingSession}
                   >
                     <Play className="h-4 w-4" />
                     Lancer la transcription
@@ -259,14 +261,26 @@ function CloudUploadPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    className="gap-2"
+                    className="w-full gap-2 sm:w-auto"
                     onClick={stopTranscription}
-                    disabled={stopRequested}
+                    disabled={stopRequested || isResettingSession}
                   >
                     {stopRequested ? <Loader2 className="h-4 w-4 animate-spin" /> : <PauseCircle className="h-4 w-4" />}
                     {stopRequested ? "Arrêt en cours…" : "Stop"}
                   </Button>
                 )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full gap-2 border-border bg-background/60 sm:w-auto"
+                  onClick={() => {
+                    void resetTranscriptionSession();
+                  }}
+                  disabled={isResettingSession}
+                >
+                  {isResettingSession ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  {isResettingSession ? "Réinitialisation..." : "Réinitialiser la session"}
+                </Button>
               </div>
             </CardContent>
           </Card>

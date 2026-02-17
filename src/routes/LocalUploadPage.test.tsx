@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect } from 'vitest';
-import { screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithStore } from '@/test/utils';
+import { useAsrStore } from '@/store/asr-store';
 import LocalUploadPage from './LocalUploadPage';
 
 // Render helper sets store state directly for tests
@@ -47,5 +48,30 @@ describe('LocalUploadPage', () => {
     } as any;
     renderWithStore(<LocalUploadPage />, storeOverrides);
     expect(screen.getByText(/Les segments apparaîtront ici/)).toBeInTheDocument();
+  });
+
+  it('shows reset session button and clears local upload session state', async () => {
+    renderWithStore(<LocalUploadPage />, {
+      uploadedFile: new File(['audio'], 'test.mp3', { type: 'audio/mpeg' }),
+      previewUrl: 'blob:local-preview',
+      segments: [{ index: 0, text: 'bonjour' }],
+      showSegments: true,
+      status: 'ready',
+      statusDetail: 'Prêt',
+    } as any);
+
+    const revokeSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    fireEvent.click(screen.getByRole('button', { name: /Réinitialiser la session/i }));
+
+    await waitFor(() => {
+      const state = useAsrStore.getState();
+      expect(state.uploadedFile).toBeNull();
+      expect(state.previewUrl).toBeNull();
+      expect(state.segments).toHaveLength(0);
+      expect(state.status).toBe('idle');
+      expect(state.statusDetail).toBe('Session réinitialisée');
+    });
+
+    revokeSpy.mockRestore();
   });
 });

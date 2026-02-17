@@ -20,7 +20,7 @@ export interface ReportResult {
   sourceMode: "transcription" | "text";
   sourceTokenCount: number;
   pipelinePasses: 1 | 2;
-  strategy: "chatCompletion" | "textGeneration";
+  strategy: "chatCompletion" | "textGeneration" | "localTextGeneration";
 }
 
 const FORMAT_SET = new Set<ReportFormat>(["CRI", "CRO", "CRS"]);

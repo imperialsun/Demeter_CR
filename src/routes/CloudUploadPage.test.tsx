@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { renderWithStore } from "@/test/utils";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { useAsrStore } from "@/store/asr-store";
 import CloudUploadPage from "./CloudUploadPage";
 
@@ -104,5 +104,31 @@ describe("CloudUploadPage", () => {
 
     fireEvent.click(diarizationSwitch);
     expect(useAsrStore.getState().cloudMistralDiarizationEnabled).toBe(true);
+  });
+
+  it("shows reset session button in cloud status card", () => {
+    renderWithStore(<CloudUploadPage />, {
+      cloudApiUrl: "https://cloud.example",
+    });
+    expect(screen.getByRole("button", { name: /Réinitialiser la session/i })).toBeInTheDocument();
+  });
+
+  it("resets cloud session context when clicking reset session", async () => {
+    renderWithStore(<CloudUploadPage />, {
+      cloudApiUrl: "https://cloud.example",
+      cloudContextPreset: "Preset",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Afficher le contexte/i }));
+    const textarea = screen.getByLabelText(/Contexte de session \(prioritaire\)/i) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "Contexte temporaire" } });
+    expect(textarea.value).toBe("Contexte temporaire");
+
+    fireEvent.click(screen.getByRole("button", { name: /Réinitialiser la session/i }));
+
+    await waitFor(() => {
+      const nextTextarea = screen.getByLabelText(/Contexte de session \(prioritaire\)/i) as HTMLTextAreaElement;
+      expect(nextTextarea.value).toBe("");
+    });
   });
 });

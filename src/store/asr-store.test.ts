@@ -9,6 +9,10 @@ import {
   resolveModelId,
 } from "./asr-store";
 import { DEFAULT_SETTINGS, loadSettings } from "@/lib/storage";
+import {
+  createDefaultLocalModelSettingsByProfile,
+  getLocalLlmModelProfile,
+} from "@/lib/llm/localModelCatalog";
 
 describe("normalizeCloudApiUrl", () => {
   const fallback = "https://transcode.demeter-sante.fr/gradio";
@@ -133,6 +137,7 @@ describe("llm provider config hydration", () => {
   it("migrates legacy llm fields into hugging face config when provider is huggingface", () => {
     const payload = {
       ...DEFAULT_SETTINGS,
+      llmLocalSettingsByProfile: undefined,
       llmApiProvider: "huggingface" as const,
       llmApiModelId: "legacy/hf-model",
       llmApiTemperature: 0.6,
@@ -158,6 +163,7 @@ describe("llm provider config hydration", () => {
   it("migrates legacy llm fields into mistral config when provider is mistral", () => {
     const payload = {
       ...DEFAULT_SETTINGS,
+      llmLocalSettingsByProfile: undefined,
       llmApiProvider: "mistral" as const,
       llmApiModelId: "legacy/mistral-model",
       llmApiTemperature: 0.4,
@@ -178,5 +184,83 @@ describe("llm provider config hydration", () => {
     expect(state.llmApiMistralTemperature).toBe(0.4);
     expect(state.llmApiMistralMaxTokens).toBe(4444);
     expect(state.llmApiHfModelId).toBe(DEFAULT_SETTINGS.llmApiHfModelId);
+  });
+
+  it("hydrates llm local profile settings", () => {
+    const payload = {
+      ...DEFAULT_SETTINGS,
+      llmLocalSettingsByProfile: undefined,
+      llmLocalModelProfile: "ministral_3_3b",
+      llmLocalModelId: "mistralai/Ministral-3-3B-Instruct-2512-ONNX",
+      llmLocalMaxTokens: 4096,
+      llmLocalTemperature: 0.4,
+      llmLocalBackendPreference: "webgpu",
+    };
+
+    window.localStorage.setItem(storageKey, JSON.stringify(payload));
+    useAsrStore.getState().hydrateFromStorage();
+
+    const state = useAsrStore.getState();
+    expect(state.llmLocalModelProfile).toBe("ministral_3_3b");
+    expect(state.llmLocalModelId).toContain("Ministral-3-3B");
+    expect(state.llmLocalMaxTokens).toBe(4096);
+    expect(state.llmLocalTemperature).toBe(0.4);
+  });
+
+  it("hydrates llm local settings map when provided", () => {
+    const defaults = createDefaultLocalModelSettingsByProfile();
+    const payload = {
+      ...DEFAULT_SETTINGS,
+      llmLocalModelProfile: "ministral_3_3b",
+      llmLocalSettingsByProfile: {
+        qwen_1_7b: {
+          ...defaults.qwen_1_7b,
+          temperature: 0.7,
+          maxTokens: 2048,
+        },
+        ministral_3_3b: {
+          ...defaults.ministral_3_3b,
+          modelId: "mistralai/Ministral-3-3B-Instruct-2512-ONNX",
+          temperature: 0.3,
+          maxTokens: 4096,
+          appendNoThinkDirective: true,
+        },
+      },
+    };
+
+    window.localStorage.setItem(storageKey, JSON.stringify(payload));
+    useAsrStore.getState().hydrateFromStorage();
+
+    const state = useAsrStore.getState();
+    expect(state.llmLocalSettingsByProfile.qwen_1_7b.temperature).toBe(0.7);
+    expect(state.llmLocalSettingsByProfile.ministral_3_3b.temperature).toBe(0.3);
+    expect(state.llmLocalModelProfile).toBe("ministral_3_3b");
+    expect(state.llmLocalModelId).toContain("Ministral-3-3B");
+    expect(state.llmLocalTemperature).toBe(0.3);
+    expect(state.llmLocalMaxTokens).toBe(4096);
+  });
+
+  it("keeps llm local settings isolated per profile and syncs legacy mirror", () => {
+    useAsrStore.getState().resetApp();
+
+    useAsrStore.getState().setLlmLocalModelSettings("qwen_1_7b", {
+      temperature: 0.8,
+      maxTokens: 99999,
+    });
+    useAsrStore.getState().setLlmLocalModelSettings("ministral_3_3b", {
+      temperature: 0.25,
+      maxTokens: 2048,
+    });
+
+    const qwenLimit = getLocalLlmModelProfile("qwen_1_7b").maxGenerationTokens;
+    let state = useAsrStore.getState();
+    expect(state.llmLocalSettingsByProfile.qwen_1_7b.maxTokens).toBe(qwenLimit);
+    expect(state.llmLocalSettingsByProfile.ministral_3_3b.maxTokens).toBe(2048);
+
+    useAsrStore.getState().setLlmLocalModelProfile("ministral_3_3b");
+    state = useAsrStore.getState();
+    expect(state.llmLocalTemperature).toBe(0.25);
+    expect(state.llmLocalMaxTokens).toBe(2048);
+    expect(state.llmLocalModelId).toBe(state.llmLocalSettingsByProfile.ministral_3_3b.modelId);
   });
 });

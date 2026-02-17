@@ -53,6 +53,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
   const [statusDetail, setStatusDetail] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isResettingSession, setIsResettingSession] = useState(false);
   const [stopRequested, setStopRequested] = useState(false);
   const [sessionContext, setSessionContext] = useState("");
   const [sessionApiUrl, setSessionApiUrl] = useState<string | null>(null);
@@ -63,6 +64,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
 
   const runIdRef = useRef(0);
   const runApiUrlRef = useRef<string | null>(null);
+  const isTranscribingRef = useRef(false);
   const stopRequestedRef = useRef(false);
   const telemetryRef = useRef<TelemetryCollector | null>(null);
   const previewRef = useRef<PreviewPayload>({ audioPrev: null, videoPrev: null });
@@ -83,6 +85,8 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
   const cloudTopP = useAsrStore((s) => s.cloudTopP);
   const cloudDoSample = useAsrStore((s) => s.cloudDoSample);
   const cloudContextPreset = useAsrStore((s) => s.cloudContextPreset);
+  const registerTelemetry = useAsrStore((s) => s.registerTelemetry);
+  const setGlobalTelemetrySummary = useAsrStore((s) => s.setTelemetrySummary);
   const combinedContext = useMemo(() => {
     return buildCloudContext(cloudContextPreset ?? "", sessionContext);
   }, [cloudContextPreset, sessionContext]);
@@ -121,6 +125,10 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
   }, [stopRequested]);
 
   useEffect(() => {
+    isTranscribingRef.current = isTranscribing;
+  }, [isTranscribing]);
+
+  useEffect(() => {
     useAsrStore.getState().setCloudStatus(status, statusDetail ?? undefined);
   }, [status, statusDetail]);
 
@@ -136,12 +144,119 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
     };
   }, [previewUrl]);
 
+  const clearProgressFallbackTimers = useCallback(() => {
+    if (progressFallbackRef.current.timeout) {
+      clearTimeout(progressFallbackRef.current.timeout);
+      progressFallbackRef.current.timeout = null;
+    }
+    if (progressFallbackRef.current.timer) {
+      clearInterval(progressFallbackRef.current.timer);
+      progressFallbackRef.current.timer = null;
+    }
+    progressFallbackRef.current.value = 0;
+  }, []);
+
+  const clearCloudSessionState = useCallback(
+    (detail = "Session réinitialisée") => {
+      if (previewUrl) {
+        try {
+          URL.revokeObjectURL(previewUrl);
+        } catch (err) {
+          void err;
+        }
+      }
+      clearProgressFallbackTimers();
+      runApiUrlRef.current = null;
+      stopRequestedRef.current = false;
+      previewRef.current = { audioPrev: null, videoPrev: null };
+      telemetryRef.current = null;
+      setSelectedFile(null);
+      setPreviewFile(null);
+      setPreviewUrl(null);
+      setAudioMetadata(null);
+      setSegments([]);
+      setTelemetrySummary(null);
+      setGlobalTelemetrySummary(null);
+      registerTelemetry(null);
+      setStatus("idle");
+      setStatusDetail(detail);
+      setProgress(0);
+      setIsTranscribing(false);
+      setStopRequested(false);
+      setSessionContext("");
+      setSessionApiUrl(null);
+      setSessionMaxTokens(null);
+      setSessionTemperature(null);
+      setSessionTopP(null);
+      setSessionDoSample(null);
+    },
+    [clearProgressFallbackTimers, previewUrl, registerTelemetry, setGlobalTelemetrySummary]
+  );
+
+  const abortCloudRunAndWait = useCallback(async () => {
+    runIdRef.current += 1;
+    stopRequestedRef.current = true;
+    const wasRunning = isTranscribingRef.current;
+    if (!wasRunning) {
+      return;
+    }
+
+    setStopRequested(true);
+    setStatus("stopping");
+    setStatusDetail("Arrêt forcé");
+
+    const url = runApiUrlRef.current ?? resolvedSettings.apiUrl;
+    if (provider === "gradio" && url) {
+      try {
+        const client = await getGradioClient(url);
+        await client.predict("/set_stop_flag", {});
+      } catch (err) {
+        logger.warn("[cloud] forced stop flag failed during reset", {
+          message: (err as Error)?.message ?? String(err),
+        });
+      }
+    }
+
+    const start = Date.now();
+    const timeoutMs = 15000;
+    await new Promise<void>((resolve) => {
+      const poll = () => {
+        if (!isTranscribingRef.current) {
+          resolve();
+          return;
+        }
+        if (Date.now() - start >= timeoutMs) {
+          logger.warn("[cloud] reset timeout while waiting for active run to stop", { timeoutMs });
+          resolve();
+          return;
+        }
+        setTimeout(poll, 50);
+      };
+      poll();
+    });
+  }, [provider, resolvedSettings.apiUrl]);
+
+  const resetTranscriptionSession = useCallback(async () => {
+    if (isResettingSession) {
+      return;
+    }
+    setIsResettingSession(true);
+    try {
+      await abortCloudRunAndWait();
+    } finally {
+      clearCloudSessionState();
+      setIsResettingSession(false);
+    }
+  }, [abortCloudRunAndWait, clearCloudSessionState, isResettingSession]);
+
   const handleFileSelected = useCallback(async (file: File) => {
     logger.info("[cloud] file selected", { name: file.name, size: file.size, type: file.type });
     setSelectedFile(file);
     setSegments([]);
     telemetryRef.current = null;
     setTelemetrySummary(null);
+    setGlobalTelemetrySummary(null);
+    registerTelemetry(null);
     setStatus("idle");
     setStatusDetail("Fichier chargé, prêt à lancer");
     setProgress(0);
@@ -165,7 +280,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
       setStatus("error");
       setStatusDetail("Impossible de lire les métadonnées audio");
     }
-  }, [previewUrl]);
+  }, [previewUrl, registerTelemetry, setGlobalTelemetrySummary]);
 
   const stopTranscription = useCallback(async () => {
     if (!isTranscribing) return;
@@ -565,6 +680,9 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
     const settings = useAsrStore.getState();
     const isWhisper = provider === "whisper";
     const isMistral = provider === "mistral";
+    if (isResettingSession) {
+      return;
+    }
     if (!selectedFile) {
       toast("Sélectionnez un fichier audio avant de lancer.");
       return;
@@ -586,6 +704,8 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
 
     const telemetry = new TelemetryCollector();
     telemetryRef.current = telemetry;
+    registerTelemetry(telemetry);
+    setGlobalTelemetrySummary(null);
     telemetry.startTimer("cloud_total");
 
     try {
@@ -1003,18 +1123,12 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
       setStatusDetail(message);
       toast(`Échec de la transcription cloud : ${message}`);
     } finally {
-      if (progressFallbackRef.current.timeout) {
-        clearTimeout(progressFallbackRef.current.timeout);
-        progressFallbackRef.current.timeout = null;
-      }
-      if (progressFallbackRef.current.timer) {
-        clearInterval(progressFallbackRef.current.timer);
-        progressFallbackRef.current.timer = null;
-      }
-      progressFallbackRef.current.value = 0;
+      clearProgressFallbackTimers();
       telemetryRef.current?.stopTimer("cloud_total");
       const summary = telemetryRef.current?.exportSummary();
       setTelemetrySummary(summary ?? null);
+      setGlobalTelemetrySummary(summary ?? null);
+      registerTelemetry(null);
       runApiUrlRef.current = null;
       if (stopRequestedRef.current && status !== "error") {
         setStatus("idle");
@@ -1026,13 +1140,17 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
     }
   }, [
     audioMetadata,
+    clearProgressFallbackTimers,
     combinedContext,
     isTranscribing,
+    isResettingSession,
     provider,
     previewUrl,
+    registerTelemetry,
     runMistralTranscription,
     runWhisperTranscription,
     resolvedSettings,
+    setGlobalTelemetrySummary,
     selectedFile,
     status,
   ]);
@@ -1048,6 +1166,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
     statusDetail,
     progress,
     isTranscribing,
+    isResettingSession,
     stopRequested,
     sessionContext,
     setSessionContext,
@@ -1066,6 +1185,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
     handleFileSelected,
     startTranscription,
     stopTranscription,
+    resetTranscriptionSession,
   };
 }
 

@@ -79,14 +79,28 @@ export function useLlmReports() {
       registerTelemetry(telemetry);
       setTelemetrySummary(null);
       let stage = "init";
+      const provider = llmApiProvider;
+      const sourceMode = input.source;
+      const activeModelId = activePipelineConfig.modelId.trim() || "unset";
       const markStage = (nextStage: string, data?: Record<string, unknown>) => {
         stage = nextStage;
-        telemetry.logEvent("LLM_RUN_STAGE", { stage: nextStage, ...(data ?? {}) });
-        logger.info("[llm-api] stage", { stage: nextStage, ...(data ?? {}) });
+        telemetry.logEvent("LLM_RUN_STAGE", {
+          stage: nextStage,
+          provider,
+          modelId: activeModelId,
+          sourceMode,
+          ...(data ?? {}),
+        });
+        logger.info("[llm-api] stage", {
+          stage: nextStage,
+          provider,
+          modelId: activeModelId,
+          sourceMode,
+          ...(data ?? {}),
+        });
       };
 
       try {
-        const provider = llmApiProvider;
         const hfToken = llmApiHfToken.trim();
         const mistralApiKey = cloudMistralApiKey.trim();
         const mistralApiUrl = cloudMistralApiUrl.trim();
@@ -95,12 +109,12 @@ export function useLlmReports() {
         const temperature = pipelineConfig.temperature;
         telemetry.logEvent("LLM_RUN_START", {
           provider,
-          sourceMode: input.source,
+          sourceMode,
           modelId: modelId || "unset",
         });
         logger.info("[llm-api] run start", {
           provider,
-          sourceMode: input.source,
+          sourceMode,
           modelId: modelId || "unset",
         });
 
@@ -317,13 +331,13 @@ export function useLlmReports() {
         telemetry.logEvent("LLM_RUN_DONE", {
           provider,
           modelId,
-          sourceMode: input.source,
+          sourceMode,
           formatCount: FORMAT_ORDER.length,
         });
         logger.info("[llm-api] run done", {
           provider,
           modelId,
-          sourceMode: input.source,
+          sourceMode,
           formatCount: FORMAT_ORDER.length,
         });
         setTelemetrySummary(telemetry.exportSummary());
@@ -332,16 +346,16 @@ export function useLlmReports() {
         logger.error("[llm-api] run failed", {
           stage,
           message,
-          provider: llmApiProvider,
-          modelId: activePipelineConfig.modelId,
-          sourceMode: input.source,
+          provider,
+          modelId: activeModelId,
+          sourceMode,
         });
         telemetry.logEvent("LLM_RUN_ERROR", {
           stage,
           message,
-          provider: llmApiProvider,
-          modelId: activePipelineConfig.modelId,
-          sourceMode: input.source,
+          provider,
+          modelId: activeModelId,
+          sourceMode,
         });
         setTelemetrySummary(telemetry.exportSummary());
         setLlmApiStatus("error", message);
@@ -387,32 +401,49 @@ export function useLlmReports() {
 
       setLlmApiStatus("formatting", `Preparation DOCX ${result.format}`);
       setLlmApiProgress(0.97);
+      try {
+        const blob = await buildReportDocx(result.report, {
+          format: result.format,
+          modelId: result.modelId,
+          generatedAt: result.generatedAt,
+          sourceMode: result.sourceMode,
+          sourceTokenCount: result.sourceTokenCount,
+        });
+        const filename = formatReportDocxFilename(format, new Date(result.generatedAt));
+        downloadDocxBlob(blob, filename);
 
-      const blob = await buildReportDocx(result.report, {
-        format: result.format,
-        modelId: result.modelId,
-        generatedAt: result.generatedAt,
-        sourceMode: result.sourceMode,
-        sourceTokenCount: result.sourceTokenCount,
-      });
-      const filename = formatReportDocxFilename(format, new Date(result.generatedAt));
-      downloadDocxBlob(blob, filename);
-
-      setLlmApiStatus("done", "DOCX telecharge");
-      setLlmApiProgress(1);
-      logger.info("[llm-api] docx download done", {
-        format: result.format,
-        modelId: result.modelId,
-        filename,
-      });
-      telemetry?.logEvent("LLM_DOCX_DOWNLOAD", {
-        format: result.format,
-        modelId: result.modelId,
-        filename,
-        status: "done",
-      });
-      if (telemetry) {
-        setTelemetrySummary(telemetry.exportSummary());
+        setLlmApiStatus("done", "DOCX telecharge");
+        setLlmApiProgress(1);
+        logger.info("[llm-api] docx download done", {
+          format: result.format,
+          modelId: result.modelId,
+          filename,
+        });
+        telemetry?.logEvent("LLM_DOCX_DOWNLOAD", {
+          format: result.format,
+          modelId: result.modelId,
+          filename,
+          status: "done",
+        });
+        if (telemetry) {
+          setTelemetrySummary(telemetry.exportSummary());
+        }
+      } catch (error) {
+        logger.error("[llm-api] docx download failed", {
+          format: result.format,
+          modelId: result.modelId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        telemetry?.logEvent("LLM_DOCX_DOWNLOAD", {
+          format: result.format,
+          modelId: result.modelId,
+          status: "error",
+          message: error instanceof Error ? error.message : String(error),
+        });
+        if (telemetry) {
+          setTelemetrySummary(telemetry.exportSummary());
+        }
+        throw error;
       }
     },
     [results, setLlmApiProgress, setLlmApiStatus, setTelemetrySummary]

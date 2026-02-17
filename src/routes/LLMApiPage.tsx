@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +18,7 @@ import {
   resolveModelTokenBudget,
 } from "@/lib/llm/modelCatalog";
 import { resolveActiveLlmPipelineConfig } from "@/lib/llm/providerSettings";
+import { emitLlmEvent } from "@/lib/llm/telemetrySession";
 import { parseTranscriptFile, type ParsedTranscriptFile } from "@/lib/transcript/parseTranscriptFile";
 import { estimateTokenCount } from "@/lib/tokens";
 import logger from "@/lib/logger";
@@ -70,6 +71,11 @@ function LLMApiPage() {
   const [isImporting, setIsImporting] = useState(false);
   const [importedFileMeta, setImportedFileMeta] = useState<ImportedFileMeta | null>(null);
   const sourceFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    logger.info("[llm-cloud][ui] page view", { route: "/llmapi", mode: "cloud" });
+    emitLlmEvent("LLM_CLOUD_PAGE_VIEW", { route: "/llmapi", mode: "cloud" });
+  }, []);
 
   const transcriptionText = useMemo(() => {
     return segments
@@ -134,10 +140,22 @@ function LLMApiPage() {
       modelId: activePipelineConfig.modelId,
       sourceTokenEstimate,
     });
+    emitLlmEvent("LLM_CLOUD_GENERATION_REQUESTED", {
+      provider: llmApiProvider,
+      sourceMode: source,
+      modelId: activePipelineConfig.modelId || "unset",
+      sourceTokenEstimate,
+    });
 
     if (isLlmTokenMissing) {
       logger.warn("[llm-api][ui] generation blocked: missing token", {
         provider: llmApiProvider,
+      });
+      emitLlmEvent("LLM_CLOUD_GENERATION_BLOCKED", {
+        provider: llmApiProvider,
+        sourceMode: source,
+        modelId: activePipelineConfig.modelId || "unset",
+        reason: "missing_token",
       });
       setLlmApiStatus("error", tokenRequiredMessage);
       toast(tokenRequiredMessage);
@@ -147,6 +165,12 @@ function LLMApiPage() {
     if (!pipelineConfigValid) {
       logger.warn("[llm-api][ui] generation blocked: invalid pipeline config", {
         modelId: activePipelineConfig.modelId,
+      });
+      emitLlmEvent("LLM_CLOUD_GENERATION_BLOCKED", {
+        provider: llmApiProvider,
+        sourceMode: source,
+        modelId: activePipelineConfig.modelId || "unset",
+        reason: "invalid_pipeline_config",
       });
       setLlmApiStatus("error", LLM_PIPELINE_CONFIG_REQUIRED_MESSAGE);
       toast(LLM_PIPELINE_CONFIG_REQUIRED_MESSAGE);
@@ -159,19 +183,57 @@ function LLMApiPage() {
   const handleProviderChange = (value: string) => {
     const nextProvider: LlmApiProvider = value === "mistral" ? "mistral" : "huggingface";
     logger.info("[llm-api][ui] provider changed", { previousProvider: llmApiProvider, nextProvider });
+    emitLlmEvent("LLM_CLOUD_PROVIDER_CHANGE", {
+      previousProvider: llmApiProvider,
+      nextProvider,
+      sourceMode: source,
+    });
     setLlmApiProvider(nextProvider);
+  };
+
+  const handleSourceChange = (value: string) => {
+    const nextSource = value === "text" ? "text" : "transcription";
+    logger.info("[llm-cloud][ui] source mode changed", {
+      previousSource: source,
+      nextSource,
+      provider: llmApiProvider,
+      modelId: activePipelineConfig.modelId || "unset",
+    });
+    emitLlmEvent("LLM_CLOUD_SOURCE_CHANGE", {
+      previousSource: source,
+      nextSource,
+      provider: llmApiProvider,
+      modelId: activePipelineConfig.modelId || "unset",
+    });
+    setSource(nextSource);
   };
 
   const runDownload = async (format: ReportResultKey) => {
     logger.info("[llm-api][ui] download requested", { format });
+    emitLlmEvent("LLM_CLOUD_DOWNLOAD_REQUESTED", {
+      format,
+      provider: llmApiProvider,
+      modelId: activePipelineConfig.modelId || "unset",
+    });
     try {
       await downloadDocx(format);
       toast(`DOCX ${format.toUpperCase()} telecharge.`);
       logger.info("[llm-api][ui] download completed", { format });
+      emitLlmEvent("LLM_CLOUD_DOWNLOAD_DONE", {
+        format,
+        provider: llmApiProvider,
+        modelId: activePipelineConfig.modelId || "unset",
+      });
     } catch (error) {
       toast((error as Error)?.message ?? "Impossible de telecharger le DOCX.");
       logger.error("[llm-api][ui] download failed", {
         format,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      emitLlmEvent("LLM_CLOUD_DOWNLOAD_FAILED", {
+        format,
+        provider: llmApiProvider,
+        modelId: activePipelineConfig.modelId || "unset",
         message: error instanceof Error ? error.message : String(error),
       });
     }
@@ -187,11 +249,34 @@ function LLMApiPage() {
       sizeBytes: file.size,
       fileType: file.type,
     });
+    emitLlmEvent("LLM_CLOUD_IMPORT_START", {
+      provider: llmApiProvider,
+      fileName: file.name,
+      sizeBytes: file.size,
+      fileType: file.type,
+      sourceMode: source,
+    });
 
     try {
       const parsed = await parseTranscriptFile(file);
       const importedText = parsed.text.trim();
       const tokenCount = estimateTokenCount(importedText);
+
+      if (source !== "text") {
+        logger.info("[llm-cloud][ui] source mode changed by import", {
+          previousSource: source,
+          nextSource: "text",
+          provider: llmApiProvider,
+          modelId: activePipelineConfig.modelId || "unset",
+        });
+        emitLlmEvent("LLM_CLOUD_SOURCE_CHANGE", {
+          previousSource: source,
+          nextSource: "text",
+          reason: "file_import",
+          provider: llmApiProvider,
+          modelId: activePipelineConfig.modelId || "unset",
+        });
+      }
 
       setManualText(importedText);
       setSource("text");
@@ -213,9 +298,22 @@ function LLMApiPage() {
         textLength: importedText.length,
         tokenCount,
       });
+      emitLlmEvent("LLM_CLOUD_IMPORT_SUCCESS", {
+        provider: llmApiProvider,
+        fileName: file.name,
+        format: parsed.format,
+        extraction: parsed.extraction,
+        textLength: importedText.length,
+        tokenCount,
+      });
     } catch (error) {
       toast((error as Error)?.message ?? "Impossible d'importer le fichier.");
       logger.error("[llm-api][ui] source file import failed", {
+        fileName: file.name,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      emitLlmEvent("LLM_CLOUD_IMPORT_FAILED", {
+        provider: llmApiProvider,
         fileName: file.name,
         message: error instanceof Error ? error.message : String(error),
       });
@@ -229,6 +327,30 @@ function LLMApiPage() {
 
   const triggerSourceFilePicker = () => {
     sourceFileInputRef.current?.click();
+  };
+
+  const handleResetSession = () => {
+    logger.info("[llm-cloud][ui] reset requested", {
+      provider: llmApiProvider,
+      sourceMode: source,
+      modelId: activePipelineConfig.modelId || "unset",
+    });
+    emitLlmEvent("LLM_CLOUD_RESET_REQUESTED", {
+      provider: llmApiProvider,
+      sourceMode: source,
+      modelId: activePipelineConfig.modelId || "unset",
+    });
+    resetLlmApiSession();
+    logger.info("[llm-cloud][ui] reset completed", {
+      provider: llmApiProvider,
+      sourceMode: source,
+      modelId: activePipelineConfig.modelId || "unset",
+    });
+    emitLlmEvent("LLM_CLOUD_RESET_DONE", {
+      provider: llmApiProvider,
+      sourceMode: source,
+      modelId: activePipelineConfig.modelId || "unset",
+    });
   };
 
   return (
@@ -335,7 +457,7 @@ function LLMApiPage() {
             <CardContent className="space-y-3">
               <div className="space-y-2">
                 <Label htmlFor="llm-source">Mode d'entree</Label>
-                <Select value={source} onValueChange={(value) => setSource(value as "transcription" | "text")}> 
+                <Select value={source} onValueChange={handleSourceChange}>
                   <SelectTrigger id="llm-source">
                     <SelectValue />
                   </SelectTrigger>
@@ -447,7 +569,7 @@ function LLMApiPage() {
                 <Button onClick={runGeneration} disabled={!canGenerate}>
                   Generer les 3 formats
                 </Button>
-                <Button variant="outline" onClick={resetLlmApiSession} disabled={isBusy}>
+                <Button variant="outline" onClick={handleResetSession} disabled={isBusy}>
                   Reinitialiser session LLM
                 </Button>
               </div>

@@ -2,9 +2,18 @@ import type {
   BackendImplementation,
   DedupeMode,
   LlmApiProvider,
+  LlmLocalModelSettings,
+  LlmLocalModelProfile,
   ModelDtype,
   PresetKey,
 } from "@/store/asr-store";
+import {
+  createDefaultLocalModelSettingsByProfile,
+  DEFAULT_LLM_LOCAL_MAX_TOKENS,
+  DEFAULT_LLM_LOCAL_MODEL_ID,
+  DEFAULT_LLM_LOCAL_PROFILE,
+  DEFAULT_LLM_LOCAL_TEMPERATURE,
+} from "@/lib/llm/localModelCatalog";
 import logger from "@/lib/logger";
 
 const STORAGE_KEY = "demeter-asr-settings";
@@ -150,6 +159,15 @@ export interface PersistedSettings {
   llmApiMistralModelId?: string;
   llmApiMistralTemperature?: number;
   llmApiMistralMaxTokens?: number;
+  // LLM local settings
+  llmLocalModelProfile?: LlmLocalModelProfile;
+  llmLocalModelId?: string;
+  llmLocalTemperature?: number;
+  llmLocalMaxTokens?: number;
+  llmLocalBackendPreference?: BackendImplementation;
+  llmLocalDtypeWebgpu?: ModelDtype;
+  llmLocalDtypeWasm?: ModelDtype;
+  llmLocalSettingsByProfile?: Record<LlmLocalModelProfile, LlmLocalModelSettings>;
   // Legacy shared llm pipeline settings (read-only fallback migration)
   llmApiModelId?: string;
   llmApiTemperature?: number;
@@ -316,4 +334,13 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   llmApiMistralModelId: "mistral-medium-latest",
   llmApiMistralTemperature: 0.2,
   llmApiMistralMaxTokens: 8192,
+  // llm local defaults
+  llmLocalModelProfile: DEFAULT_LLM_LOCAL_PROFILE,
+  llmLocalModelId: DEFAULT_LLM_LOCAL_MODEL_ID,
+  llmLocalTemperature: DEFAULT_LLM_LOCAL_TEMPERATURE,
+  llmLocalMaxTokens: DEFAULT_LLM_LOCAL_MAX_TOKENS,
+  llmLocalBackendPreference: "webgpu",
+  llmLocalDtypeWebgpu: "q4f16",
+  llmLocalDtypeWasm: "q8",
+  llmLocalSettingsByProfile: createDefaultLocalModelSettingsByProfile(),
 };

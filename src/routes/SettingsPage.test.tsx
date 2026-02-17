@@ -6,6 +6,20 @@ import { ThemeProvider } from "@/components/theme-provider";
 import SettingsPage from "@/routes/SettingsPage";
 
 describe("SettingsPage", () => {
+  it("opens llmlocal tab from query param", () => {
+    render(
+      <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">
+        <MemoryRouter initialEntries={["/settings?tab=llmlocal"]}>
+          <Routes>
+            <Route path="/settings" element={<SettingsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </ThemeProvider>
+    );
+
+    expect(screen.getByText("Pipeline /llmlocal")).toBeInTheDocument();
+  });
+
   it("opens llm tab from query param", () => {
     render(
       <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">

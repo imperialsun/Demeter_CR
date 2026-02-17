@@ -331,6 +331,26 @@ describe('SettingsPanel', () => {
     expect(screen.getByRole("tab", { name: "LLM Cloud" })).toBeInTheDocument();
   });
 
+  it("shows llm local tab by default", () => {
+    render(
+      <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">
+        <SettingsPanel />
+      </ThemeProvider>
+    );
+
+    expect(screen.getByRole("tab", { name: "LLM Local" })).toBeInTheDocument();
+  });
+
+  it("opens llm local tab when initialTab is llmlocal", () => {
+    render(
+      <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">
+        <SettingsPanel initialTab="llmlocal" />
+      </ThemeProvider>
+    );
+
+    expect(screen.getByText("Pipeline /llmlocal")).toBeInTheDocument();
+  });
+
   it("opens llm tab when initialTab is llm", () => {
     render(
       <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">

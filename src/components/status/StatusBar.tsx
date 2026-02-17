@@ -9,7 +9,9 @@ import { Loader2, PauseCircle, Play } from "lucide-react";
 interface StatusBarProps {
   onStop?: () => void;
   onStart?: () => void;
+  onResetSession?: () => void | Promise<void>;
   startDisabled?: boolean;
+  resetDisabled?: boolean;
   mode?: "upload" | "mic";
 }
 
@@ -23,7 +25,14 @@ const STATUS_LABELS: Record<string, { label: string; tone: "default" | "secondar
   error: { label: "Erreur", tone: "destructive" },
 };
 
-export function StatusBar({ onStop, onStart, startDisabled, mode = "upload" }: StatusBarProps) {
+export function StatusBar({
+  onStop,
+  onStart,
+  onResetSession,
+  startDisabled,
+  resetDisabled,
+  mode = "upload",
+}: StatusBarProps) {
   const {
     status,
     statusDetail,
@@ -163,8 +172,19 @@ export function StatusBar({ onStop, onStart, startDisabled, mode = "upload" }: S
               {stopRequested ? "Arrêt en cours…" : "Stop (fin du chunk)"}
             </Button>
           ) : null}
-
-
+          {mode === "upload" && onResetSession ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="whitespace-normal border-border bg-background/60 text-left leading-tight"
+              onClick={() => {
+                void onResetSession();
+              }}
+              disabled={Boolean(resetDisabled)}
+            >
+              Réinitialiser la session
+            </Button>
+          ) : null}
         </div>
       </CardContent>
     </Card>

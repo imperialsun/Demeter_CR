@@ -4,6 +4,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import LocalUploadPage from "@/routes/LocalUploadPage";
 import CloudUploadPage from "@/routes/CloudUploadPage";
 import LLMApiPage from "@/routes/LLMApiPage";
+import LLMLocalPage from "@/routes/LLMLocalPage";
 import SettingsPage from "@/routes/SettingsPage";
 import TelemetryPage from "@/routes/TelemetryPage";
 import LoginPage from "@/routes/LoginPage";
@@ -37,6 +38,7 @@ function App() {
         <Route path="/" element={<Navigate to="/localupload" replace />} />
         <Route path="/localupload" element={<LocalUploadPage />} />
         <Route path="/cloudupload" element={<CloudUploadPage />} />
+        <Route path="/llmlocal" element={<LLMLocalPage />} />
         <Route path="/llmapi" element={<LLMApiPage />} />
         <Route path="/upload" element={<Navigate to="/localupload" replace />} />
         <Route path="/mic" element={<Navigate to="/localupload" replace />} />

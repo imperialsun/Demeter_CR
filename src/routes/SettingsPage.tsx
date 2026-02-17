@@ -1,10 +1,10 @@
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { useSearchParams } from "react-router-dom";
 
-type SettingsTabQuery = "local" | "mic" | "cloud" | "llm";
+type SettingsTabQuery = "local" | "mic" | "cloud" | "llm" | "llmlocal";
 
 function normalizeSettingsTab(value: string | null): SettingsTabQuery {
-  if (value === "local" || value === "mic" || value === "cloud" || value === "llm") {
+  if (value === "local" || value === "mic" || value === "cloud" || value === "llm" || value === "llmlocal") {
     return value;
   }
   return "local";

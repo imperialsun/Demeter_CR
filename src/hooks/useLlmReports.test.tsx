@@ -9,19 +9,27 @@ const mocks = vi.hoisted(() => ({
   prepareLongInputForReportsMock: vi.fn(),
   getLlmHfClientMock: vi.fn(),
   generateWithChatThenFallbackTextMock: vi.fn(),
+  buildReportDocxMock: vi.fn(async () => new Blob(["docx"])),
+  downloadDocxBlobMock: vi.fn(),
 }));
 
 vi.mock("@/lib/llm/reportService", () => ({
-  generateReportDetailed: (...args: unknown[]) => mocks.generateReportDetailedMock(...args),
+  generateReportDetailed: mocks.generateReportDetailedMock,
 }));
 
 vi.mock("@/lib/llm/longInputPipeline", () => ({
-  prepareLongInputForReports: (...args: unknown[]) => mocks.prepareLongInputForReportsMock(...args),
+  prepareLongInputForReports: mocks.prepareLongInputForReportsMock,
 }));
 
 vi.mock("@/lib/llm/hfClient", () => ({
-  getLlmHfClient: (...args: unknown[]) => mocks.getLlmHfClientMock(...args),
-  generateWithChatThenFallbackText: (...args: unknown[]) => mocks.generateWithChatThenFallbackTextMock(...args),
+  getLlmHfClient: mocks.getLlmHfClientMock,
+  generateWithChatThenFallbackText: mocks.generateWithChatThenFallbackTextMock,
+}));
+
+vi.mock("@/lib/docx/reportDocx", () => ({
+  buildReportDocx: mocks.buildReportDocxMock,
+  downloadDocxBlob: mocks.downloadDocxBlobMock,
+  formatReportDocxFilename: () => "report.docx",
 }));
 
 describe("useLlmReports telemetry", () => {
@@ -30,6 +38,8 @@ describe("useLlmReports telemetry", () => {
     mocks.prepareLongInputForReportsMock.mockReset();
     mocks.getLlmHfClientMock.mockReset();
     mocks.generateWithChatThenFallbackTextMock.mockReset();
+    mocks.buildReportDocxMock.mockReset();
+    mocks.downloadDocxBlobMock.mockReset();
 
     useAsrStore.setState({
       llmApiProvider: "huggingface",
@@ -103,5 +113,42 @@ describe("useLlmReports telemetry", () => {
     expect(eventTypes).toContain("LLM_RUN_START");
     expect(eventTypes).toContain("LLM_RUN_ERROR");
     expect(useAsrStore.getState().llmApiStatus).toBe("error");
+  });
+
+  it("emits LLM_DOCX_DOWNLOAD events on success", async () => {
+    const { result } = renderHook(() => useLlmReports());
+
+    await act(async () => {
+      await result.current.generateAll({ source: "transcription" });
+    });
+
+    await act(async () => {
+      await result.current.downloadDocx("cri");
+    });
+
+    expect(mocks.buildReportDocxMock).toHaveBeenCalled();
+    expect(mocks.downloadDocxBlobMock).toHaveBeenCalled();
+
+    const summary = useAsrStore.getState().telemetrySummary;
+    const docxEvents = summary?.events.filter((event) => event.type === "LLM_DOCX_DOWNLOAD") ?? [];
+    expect(docxEvents.some((event) => event.data?.status === "start")).toBe(true);
+    expect(docxEvents.some((event) => event.data?.status === "done")).toBe(true);
+  });
+
+  it("emits LLM_DOCX_DOWNLOAD error event when formatting fails", async () => {
+    mocks.buildReportDocxMock.mockRejectedValueOnce(new Error("docx failed"));
+    const { result } = renderHook(() => useLlmReports());
+
+    await act(async () => {
+      await result.current.generateAll({ source: "transcription" });
+    });
+
+    await act(async () => {
+      await expect(result.current.downloadDocx("cri")).rejects.toThrow("docx failed");
+    });
+
+    const summary = useAsrStore.getState().telemetrySummary;
+    const docxEvents = summary?.events.filter((event) => event.type === "LLM_DOCX_DOWNLOAD") ?? [];
+    expect(docxEvents.some((event) => event.data?.status === "error")).toBe(true);
   });
 });
