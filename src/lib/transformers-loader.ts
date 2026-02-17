@@ -1,8 +1,11 @@
-import type { AutomaticSpeechRecognitionPipeline, Pipeline as GenericPipeline } from "@huggingface/transformers";
+import type { AutomaticSpeechRecognitionPipeline } from "@huggingface/transformers";
 import { setTransformersVersion } from "@/lib/telemetry";
 import logger from "@/lib/logger";
 
 
+type GenericPipeline = {
+  dispose?: () => void | Promise<void>;
+};
 
 type TransformersModule = typeof import("@huggingface/transformers");
 
@@ -16,14 +19,18 @@ async function ensureTransformersModule(): Promise<TransformersModule> {
   if (!transformersPromise) {
     logger.info("[asr][transformers-loader] loading transformers module");
     transformersPromise = import("@huggingface/transformers").then(async (module) => {
-      setTransformersVersion(typeof module.env?.version === "string" ? module.env.version : "unknown");
+      const version = resolveTransformersVersion(module);
+      setTransformersVersion(version);
       await ensureOrtPatched();
       configureEnvironment(module);
       logger.info("[asr][transformers-loader] transformers module ready", {
-        version: typeof module.env?.version === "string" ? module.env.version : "unknown",
+        version,
       });
       return module;
     }).catch((error) => {
+      // Reset cached promise so a subsequent user action can retry after transient
+      // failures (e.g. Vite dev server restart during dependency re-optimization).
+      transformersPromise = null;
       logger.error("[asr][transformers-loader] failed to load transformers module", {
         message: error instanceof Error ? error.message : String(error),
       });
@@ -42,13 +49,22 @@ async function ensureOrtPatched() {
   return ortPromise;
 }
 
+function resolveTransformersVersion(module: TransformersModule): string {
+  const version = (module as { env?: { version?: unknown } }).env?.version;
+  return typeof version === "string" ? version : "unknown";
+}
+
 function configureEnvironment(module: TransformersModule) {
   if (environmentConfigured) return;
-  const { env } = module;
+  const env = (module as { env?: unknown }).env;
+  if (!env || typeof env !== "object") {
+    logger.warn("[asr][transformers-loader] unable to configure environment: env object missing");
+    return;
+  }
   type BackendsMap = Record<string, Record<string, unknown>>;
-  const envMutable = env as unknown as {
-    allowLocalModels: boolean;
-    useBrowserCache: boolean;
+  const envMutable = env as {
+    allowLocalModels?: boolean;
+    useBrowserCache?: boolean;
     backends?: BackendsMap;
   };
   envMutable.allowLocalModels = false;
@@ -66,8 +82,8 @@ function configureEnvironment(module: TransformersModule) {
   wasmBackend.numThreads = 1;
   environmentConfigured = true;
   logger.info("[asr][transformers-loader] environment configured", {
-    allowLocalModels: envMutable.allowLocalModels,
-    useBrowserCache: envMutable.useBrowserCache,
+    allowLocalModels: envMutable.allowLocalModels ?? false,
+    useBrowserCache: envMutable.useBrowserCache ?? true,
     wasmProxy: wasmBackend.proxy,
     wasmUseJsep: wasmBackend.useJsep,
     wasmSimd: wasmBackend.simd,

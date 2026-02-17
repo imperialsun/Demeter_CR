@@ -8,3 +8,7 @@ export function randomBytes(length: number): Uint8Array {
   }
   throw new Error("WebCrypto n'est pas disponible pour générer des octets aléatoires.");
 }
+
+const cryptoShim = { randomBytes };
+
+export default cryptoShim;

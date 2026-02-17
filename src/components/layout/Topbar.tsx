@@ -331,9 +331,9 @@ export function Topbar() {
       </div>
     </header>
       {modelTestState.running || modelTestState.summaryOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs">
           <div className="absolute inset-0 opacity-30">
-            <div className="absolute left-0 top-0 h-full w-full animate-pulse bg-gradient-to-br from-emerald-500/20 via-sky-500/10 to-amber-400/20" />
+            <div className="absolute left-0 top-0 h-full w-full animate-pulse bg-linear-to-br from-emerald-500/20 via-sky-500/10 to-amber-400/20" />
           </div>
           <div className="relative mx-4 w-full max-w-4xl rounded-xl border bg-card/95 p-6 shadow-xl">
             <div className="flex flex-wrap items-start justify-between gap-4">

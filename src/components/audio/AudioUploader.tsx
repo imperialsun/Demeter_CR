@@ -131,7 +131,7 @@ export function AudioUploader({ onFileSelected, metadata, disabled, title, descr
           role="button"
           tabIndex={0}
           className={cn(
-            "flex min-h-[200px] cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-border bg-muted/30 p-6 text-center transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "flex min-h-[200px] cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-border bg-muted/30 p-6 text-center transition focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
             isDragging && !disabled ? "border-primary bg-primary/10" : "",
             disabled ? "cursor-not-allowed opacity-60" : ""
           )}

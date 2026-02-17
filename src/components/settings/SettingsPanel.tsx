@@ -1111,16 +1111,16 @@ export function SettingsPanel({
                 <SelectTrigger>
                   <SelectValue placeholder="Sélectionnez un preset" />
                 </SelectTrigger>
-                <SelectContent className="max-h-[24rem] w-[min(92vw,40rem)] min-w-[var(--radix-select-trigger-width)]">
+                <SelectContent className="max-h-96 w-[min(92vw,40rem)] min-w-(--radix-select-trigger-width)">
                 {presetOptions.map((preset) => {
                   const isBlocked = blockedPresetSet.has(preset.key);
                   return (
                     <SelectItem key={preset.key} value={preset.key} disabled={isBlocked} className="items-start py-2">
                       <div className="flex min-w-0 flex-col">
-                        <span className="font-medium whitespace-normal break-words">{preset.label}</span>
-                        <span className="text-xs text-muted-foreground whitespace-normal break-words">{preset.description}</span>
+                        <span className="font-medium whitespace-normal wrap-break-word">{preset.label}</span>
+                        <span className="text-xs text-muted-foreground whitespace-normal wrap-break-word">{preset.description}</span>
                         {isBlocked ? (
-                          <span className="text-xs text-destructive whitespace-normal break-words">Trop lourd pour ce poste (test)</span>
+                          <span className="text-xs text-destructive whitespace-normal wrap-break-word">Trop lourd pour ce poste (test)</span>
                         ) : null}
                       </div>
                     </SelectItem>
@@ -1128,8 +1128,8 @@ export function SettingsPanel({
                 })}
                   <SelectItem value="custom" className="items-start py-2">
                     <div className="flex min-w-0 flex-col">
-                      <span className="font-medium whitespace-normal break-words">Custom</span>
-                      <span className="text-xs text-muted-foreground whitespace-normal break-words">Renseignez un repo Hugging Face compatible.</span>
+                      <span className="font-medium whitespace-normal wrap-break-word">Custom</span>
+                      <span className="text-xs text-muted-foreground whitespace-normal wrap-break-word">Renseignez un repo Hugging Face compatible.</span>
                     </div>
                   </SelectItem>
                 </SelectContent>
@@ -2080,16 +2080,16 @@ export function SettingsPanel({
               <SelectTrigger>
                 <SelectValue placeholder="Sélectionnez un preset" />
               </SelectTrigger>
-              <SelectContent className="max-h-[24rem] w-[min(92vw,40rem)] min-w-[var(--radix-select-trigger-width)]">
+              <SelectContent className="max-h-96 w-[min(92vw,40rem)] min-w-(--radix-select-trigger-width)">
                 {presetOptions.map((preset) => {
                   const isBlocked = blockedPresetSet.has(preset.key);
                   return (
                     <SelectItem key={preset.key} value={preset.key} disabled={isBlocked} className="items-start py-2">
                       <div className="flex min-w-0 flex-col">
-                        <span className="font-medium whitespace-normal break-words">{preset.label}</span>
-                        <span className="text-xs text-muted-foreground whitespace-normal break-words">{preset.description}</span>
+                        <span className="font-medium whitespace-normal wrap-break-word">{preset.label}</span>
+                        <span className="text-xs text-muted-foreground whitespace-normal wrap-break-word">{preset.description}</span>
                         {isBlocked ? (
-                          <span className="text-xs text-destructive whitespace-normal break-words">Trop lourd pour ce poste (test)</span>
+                          <span className="text-xs text-destructive whitespace-normal wrap-break-word">Trop lourd pour ce poste (test)</span>
                         ) : null}
                       </div>
                     </SelectItem>
@@ -2097,8 +2097,8 @@ export function SettingsPanel({
                 })}
                 <SelectItem value="custom" className="items-start py-2">
                   <div className="flex min-w-0 flex-col">
-                    <span className="font-medium whitespace-normal break-words">Custom</span>
-                    <span className="text-xs text-muted-foreground whitespace-normal break-words">Renseignez un repo Hugging Face compatible.</span>
+                    <span className="font-medium whitespace-normal wrap-break-word">Custom</span>
+                    <span className="text-xs text-muted-foreground whitespace-normal wrap-break-word">Renseignez un repo Hugging Face compatible.</span>
                   </div>
                 </SelectItem>
               </SelectContent>

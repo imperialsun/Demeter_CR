@@ -18,13 +18,13 @@ export function BrandMark({ className, size = "sm", showTagline = false }: Brand
         src="/logo.png"
         alt="Logo Demeter Speech"
         className={cn(
-          "shrink-0 rounded-md border border-border/60 bg-background/70 p-1 object-contain shadow-sm",
+          "shrink-0 rounded-md border border-border/60 bg-background/70 p-1 object-contain shadow-xs",
           imageSizeClass
         )}
         loading="eager"
       />
       <div className="min-w-0">
-        <p className={cn("break-words whitespace-normal font-semibold leading-tight", titleSizeClass)}>
+        <p className={cn("wrap-break-word whitespace-normal font-semibold leading-tight", titleSizeClass)}>
           Demeter Speech
         </p>
         {showTagline ? <p className={cn("text-muted-foreground", taglineSizeClass)}>100% navigateur</p> : null}

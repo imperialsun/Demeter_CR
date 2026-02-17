@@ -219,7 +219,7 @@ function MicPage() {
         </div>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[320px,1fr]">
+      <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
         <div className="space-y-4">
           {showStatusBar ? (
             <>

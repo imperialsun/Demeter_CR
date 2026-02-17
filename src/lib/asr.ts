@@ -728,8 +728,8 @@ export function isModelTooLargeError(err: unknown): boolean {
       raw = String(err);
     }
     const s = raw.toLowerCase();
-    // include numeric error codes observed in the wild and common OOM messages
-    return /1261431424|out of memory|oom|insufficient memory|memory limit|cannot allocate|js_out_of_memory|wasm memory/i.test(s);
+    // Include known ONNX/WASM out-of-memory signatures (including OrtRun bad_alloc).
+    return /1261431424|out of memory|oom|insufficient memory|memory limit|cannot allocate|js_out_of_memory|wasm memory|std::bad_alloc|\bbad_alloc\b|error_code:\s*6\b/i.test(s);
   } catch (e) {
     void e;
     return false;

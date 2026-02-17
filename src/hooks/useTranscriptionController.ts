@@ -22,7 +22,12 @@ import { createSegmentCache } from "@/lib/segmenter";
 import { deleteSegment, deleteSessionSegments, getSegment } from "@/lib/segment-cache";
 import { TelemetryCollector } from "@/lib/telemetry";
 import type { TranscriptionSegment, WordSegment } from "@/lib/export";
-import { useAsrStore, type DedupeMode } from "@/store/asr-store";
+import {
+  MODEL_PRESETS,
+  resolveLighterPresetForMemoryFallback,
+  useAsrStore,
+  type DedupeMode,
+} from "@/store/asr-store";
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value));
@@ -1189,9 +1194,25 @@ export function useTranscriptionController() {
       logger.error(error);
       const message = (error as Error)?.message ?? String(error ?? "Erreur inconnue");
       if (isModelTooLargeError(error)) {
-        const friendly = "Erreur : modèle trop gros pour cette plateforme (mémoire insuffisante). Essayez un preset plus léger ou activez le mode single-thread.";
-        state.setStatus("error", friendly);
-        toast(friendly);
+        const fallbackPreset = resolveLighterPresetForMemoryFallback(state.activePreset, state.blockedPresets);
+        if (fallbackPreset) {
+          const previousPreset = state.activePreset;
+          state.setPreset(fallbackPreset);
+          logger.warn("[memory-fallback] switched upload preset after OOM", {
+            from: previousPreset,
+            to: fallbackPreset,
+            message,
+          });
+          const fallbackLabel = MODEL_PRESETS[fallbackPreset].label;
+          const friendly = `Erreur mémoire (modèle trop gros pour cette plateforme). Preset basculé automatiquement vers "${fallbackLabel}". Relancez la transcription.`;
+          state.setStatus("error", friendly);
+          toast(friendly);
+        } else {
+          const friendly =
+            "Erreur : modèle trop gros pour cette plateforme (mémoire insuffisante). Aucun preset plus léger n'est disponible, activez le mode single-thread ou utilisez un modèle custom plus petit.";
+          state.setStatus("error", friendly);
+          toast(friendly);
+        }
       } else {
         state.setStatus("error", message);
         toast(`Échec de la transcription : ${message}`);

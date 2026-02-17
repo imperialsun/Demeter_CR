@@ -124,6 +124,15 @@ export const MODEL_PRESETS: Record<Exclude<PresetKey, "custom">, ModelPreset> = 
 };
 
 const FALLBACK_PRESET: PresetKey = "balanced";
+const MEMORY_FALLBACK_PRESETS: Record<PresetKey, BuiltInPresetKey[]> = {
+  fast: [],
+  balanced: ["fast"],
+  medium: ["balanced", "fast"],
+  quality: ["medium", "balanced", "fast"],
+  mms: ["balanced", "fast"],
+  turbo: ["quality", "medium", "balanced", "fast"],
+  custom: ["balanced", "fast"],
+};
 const DEFAULT_MISTRAL_MODEL = "voxtral-mini-latest";
 const LEGACY_MISTRAL_MODEL = "voxtral-mini-transcribe-26-02";
 const DEFAULT_LLM_HF_MODEL_ID = "openai/gpt-oss-20b";
@@ -1389,6 +1398,20 @@ export function resolveModelId(activePreset: PresetKey, customModelId: string) {
     return MODEL_PRESETS.fast.modelId;
   }
   return MODEL_PRESETS[activePreset].modelId;
+}
+
+export function resolveLighterPresetForMemoryFallback(
+  activePreset: PresetKey,
+  blockedPresets: PresetKey[] = []
+): BuiltInPresetKey | null {
+  const blocked = new Set(blockedPresets);
+  const candidates = MEMORY_FALLBACK_PRESETS[activePreset] ?? [];
+  for (const preset of candidates) {
+    if (!blocked.has(preset)) {
+      return preset;
+    }
+  }
+  return null;
 }
 
 export function resolveModelDtype(activePreset: PresetKey, backend: BackendImplementation): ModelDtype | undefined {

@@ -8,7 +8,7 @@ import type { TranscriptionSegment } from "@/lib/export";
 import { TelemetryCollector } from "@/lib/telemetry";
 import { toast } from "@/components/ui/use-toast";
 import logger from "@/lib/logger";
-import { useAsrStore } from "@/store/asr-store";
+import { MODEL_PRESETS, resolveLighterPresetForMemoryFallback, useAsrStore } from "@/store/asr-store";
 import { getFfmpeg } from "@/lib/ffmpeg-loader";
 import { encodeWavBuffer, resampleMono } from "@/lib/audio";
 import {
@@ -830,10 +830,25 @@ export function useMicTranscription() {
       logger.error("[mic] transcription failed", error);
       const message = (error as Error)?.message ?? String(error);
       if (isModelTooLargeError(error)) {
-        const friendly =
-          "Erreur : modèle trop gros pour cette plateforme (mémoire insuffisante). Essayez un preset plus léger ou activez le mode single-thread.";
-        state.setStatus("error", friendly);
-        toast(friendly);
+        const fallbackPreset = resolveLighterPresetForMemoryFallback(state.micActivePreset, state.blockedPresets);
+        if (fallbackPreset) {
+          const previousPreset = state.micActivePreset;
+          state.setMicPreset(fallbackPreset);
+          logger.warn("[memory-fallback] switched mic preset after OOM", {
+            from: previousPreset,
+            to: fallbackPreset,
+            message,
+          });
+          const fallbackLabel = MODEL_PRESETS[fallbackPreset].label;
+          const friendly = `Erreur mémoire (modèle trop gros pour cette plateforme). Preset micro basculé automatiquement vers "${fallbackLabel}". Relancez l'enregistrement.`;
+          state.setStatus("error", friendly);
+          toast(friendly);
+        } else {
+          const friendly =
+            "Erreur : modèle trop gros pour cette plateforme (mémoire insuffisante). Aucun preset plus léger n'est disponible, activez le mode single-thread ou utilisez un modèle custom plus petit.";
+          state.setStatus("error", friendly);
+          toast(friendly);
+        }
       } else {
         state.setStatus("error", message);
         toast(`Échec de la transcription : ${message}`);

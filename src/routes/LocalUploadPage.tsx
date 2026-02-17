@@ -173,7 +173,7 @@ function LocalUploadPage() {
           />
         </div>
 
-      <div className="grid gap-6 xl:grid-cols-[360px,1fr]">
+      <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
         <div className="space-y-4">
           {memoryMode === "progressive" ? <SegmentationStatusPanel /> : null}
           {preprocessingMode === "full" ? <PreprocessingStatusPanel /> : null}

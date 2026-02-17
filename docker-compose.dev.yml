@@ -1,6 +1,6 @@
 services:
   transcode-dev:
-    image: node:20
+    image: node:25.6.1
     working_dir: /app
     restart: unless-stopped
     volumes:

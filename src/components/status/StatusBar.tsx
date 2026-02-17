@@ -135,7 +135,7 @@ export function StatusBar({ onStop, onStart, startDisabled, mode = "upload" }: S
             <p className="text-xs text-muted-foreground">Estimation restante : {etaDisplay}</p>
           ) : null}
         </div>
-        <div className="flex items-center gap-3 md:flex-shrink-0">
+        <div className="flex items-center gap-3 md:shrink-0">
           {!isTranscribing && onStart ? (
             <Button
               size="sm"

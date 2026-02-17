@@ -12,7 +12,7 @@ This is a browser-based audio transcription app (local and cloud), built with Re
 
 Demeter Speech permet de transcrire des fichiers audio avec deux approches :
 
-- **Mode local** : transcription dans le navigateur via `@huggingface/transformers` + `onnxruntime-web` (WebGPU ou WASM).
+- **Mode local** : transcription dans le navigateur via `@huggingface/transformers@next` (preview v4) + `onnxruntime-web` (WebGPU ou WASM).
 - **Mode cloud** : prétraitement local puis transcription via un provider distant (Gradio, Whisper API Hugging Face, Mistral Voxtral).
 
 L’interface propose aussi :
@@ -155,7 +155,7 @@ Chaque export inclut un en-tête avec :
 - Frontend : React 19, TypeScript, Vite, React Router.
 - State management : Zustand.
 - UI : TailwindCSS + Radix UI.
-- ASR local : `@huggingface/transformers`, `onnxruntime-web`.
+- ASR local : `@huggingface/transformers@next` (preview v4), `onnxruntime-web`.
 - Audio : Web Audio API + FFmpeg WASM.
 - Tests : Vitest + Testing Library.
 
@@ -325,7 +325,7 @@ npm run test:ci
 
 Demeter Speech is an in-browser transcription app with two execution modes:
 
-- **Local mode**: fully browser-side ASR using `@huggingface/transformers` + `onnxruntime-web` (WebGPU/WASM).
+- **Local mode**: fully browser-side ASR using `@huggingface/transformers@next` (v4 preview) + `onnxruntime-web` (WebGPU/WASM).
 - **Cloud mode**: local preprocessing + remote transcription provider (Gradio, Hugging Face Whisper API, Mistral Voxtral).
 
 The UI also includes:

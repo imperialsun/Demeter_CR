@@ -9,8 +9,14 @@ import { ThemeProvider } from '@/components/theme-provider';
 import { waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
+type MockMistralModel = {
+  id: string;
+  maxContextTokens?: number;
+  supportsChat: boolean;
+};
+
 const { fetchMistralModelsSafeMock } = vi.hoisted(() => ({
-  fetchMistralModelsSafeMock: vi.fn(async () => []),
+  fetchMistralModelsSafeMock: vi.fn<(...args: unknown[]) => Promise<MockMistralModel[]>>(async () => []),
 }));
 
 vi.mock('@/lib/backend-support', () => ({

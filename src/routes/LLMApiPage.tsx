@@ -240,7 +240,7 @@ function LLMApiPage() {
         </p>
       </header>
 
-      <div className="grid gap-6 xl:grid-cols-[380px,1fr]">
+      <div className="grid gap-6 xl:grid-cols-[380px_1fr]">
         <div className="space-y-4">
           <Card>
             <CardHeader>

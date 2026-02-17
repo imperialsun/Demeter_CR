@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile: build with Node, serve with Caddy (static files)
 
-FROM node:18-alpine AS builder
+FROM node:25.6.1-alpine AS builder
 WORKDIR /app
 
 # Install deps and build

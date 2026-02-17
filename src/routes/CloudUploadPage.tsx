@@ -225,7 +225,7 @@ function CloudUploadPage() {
         </Card>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[360px,1fr]">
+      <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
         <div className="space-y-4">
           <Card>
             <CardHeader>
