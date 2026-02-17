@@ -184,11 +184,35 @@ describe("useLlmLocalReports", () => {
     expect(calls.some((call) => call.modelId.includes("Qwen3") && call.appendNoThinkDirective)).toBe(true);
     expect(useAsrStore.getState().llmLocalModelProfile).toBe("qwen_1_7b");
     expect(useAsrStore.getState().llmLocalStatus).toBe("done");
+    expect(useAsrStore.getState().llmLocalModelSizeAlert).toMatchObject({
+      severity: "warning",
+    });
     const stageEvents = useAsrStore
       .getState()
       .telemetrySummary?.events.filter((event) => event.type === "LLM_RUN_STAGE")
       .map((event) => event.data?.stage);
     expect(stageEvents).toContain("fallback_profile_switch");
+  });
+
+  it("sets an error foreground alert when local memory failure is final", async () => {
+    useAsrStore.setState({
+      llmLocalModelProfile: "qwen_1_7b",
+      llmLocalModelId: "onnx-community/Qwen3-1.7B-ONNX",
+    } as any);
+
+    mocks.generateLocalReportDetailedMock.mockRejectedValue(new Error("std::bad_alloc"));
+
+    const { result } = renderHook(() => useLlmLocalReports());
+
+    await act(async () => {
+      await result.current.generateAll({ source: "transcription" });
+    });
+
+    const state = useAsrStore.getState();
+    expect(state.llmLocalStatus).toBe("error");
+    expect(state.llmLocalModelSizeAlert).toMatchObject({
+      severity: "error",
+    });
   });
 
   it("resets local llm session and disposes local generation pipelines", async () => {

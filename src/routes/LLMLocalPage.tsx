@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ForegroundAlertDialog } from "@/components/ui/ForegroundAlertDialog";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -45,10 +46,12 @@ function LLMLocalPage() {
   const llmLocalModelProfile = useAsrStore((state) => state.llmLocalModelProfile);
   const llmLocalModelId = useAsrStore((state) => state.llmLocalModelId);
   const llmLocalStatusDetail = useAsrStore((state) => state.llmLocalStatusDetail);
+  const llmLocalModelSizeAlert = useAsrStore((state) => state.llmLocalModelSizeAlert);
 
   const setLlmLocalModelProfile = useAsrStore((state) => state.setLlmLocalModelProfile);
   const setLlmLocalModelId = useAsrStore((state) => state.setLlmLocalModelId);
   const setLlmLocalStatus = useAsrStore((state) => state.setLlmLocalStatus);
+  const clearLlmLocalModelSizeAlert = useAsrStore((state) => state.clearLlmLocalModelSizeAlert);
 
   const { status, progress, results, isResettingSession, generateAll, resetSession, downloadDocx } = useLlmLocalReports();
 
@@ -470,54 +473,90 @@ function LLMLocalPage() {
                     </p>
                     <p>
                       Tokens source approx:{" "}
-                      <span className="font-medium text-foreground">{formatTokenCount(sourceTokenEstimate)}</span>
+                      <span className="font-medium text-foreground">{formatTokenCount(sourceTokenEstimate)}</span> tokens.
                     </p>
-                    {segments.length === 0 ? <p className="mt-2 text-destructive">Aucune transcription active dans la session.</p> : null}
+                    {!transcriptionText ? <p className="text-destructive">Aucune transcription active dans la session.</p> : null}
                   </div>
                 ) : (
-                  <>
-                    <div className="space-y-2">
-                      <Label htmlFor="llm-local-manual">Texte source</Label>
-                      <textarea
-                        id="llm-local-manual"
-                        className="min-h-40 w-full rounded-md border bg-background px-3 py-2 text-sm"
-                        placeholder="Collez ici votre source brute (compte rendu, transcription, notes)..."
-                        value={manualText}
-                        onChange={(event) => setManualText(event.target.value)}
-                      />
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button type="button" variant="outline" size="sm" onClick={triggerSourceFilePicker} disabled={isBusy || isImporting}>
-                        {isImporting ? "Import en cours..." : "Choisir un fichier"}
-                      </Button>
+                  <div className="space-y-3">
+                    <div className="rounded-md border bg-muted/20 p-3">
+                      <p className="text-sm font-medium text-foreground">Import de transcription</p>
+                      <p className="text-xs text-muted-foreground">
+                        Importez un fichier texte pour alimenter la generation des comptes rendus.
+                      </p>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <Button type="button" onClick={triggerSourceFilePicker} disabled={isImporting || isBusy}>
+                          {isImporting ? "Import en cours..." : "Choisir un fichier"}
+                        </Button>
+                        <span className="text-xs text-muted-foreground">
+                          {importedFileMeta ? importedFileMeta.name : "Aucun fichier importe"}
+                        </span>
+                      </div>
+                      <Label htmlFor="llm-local-source-file" className="sr-only">
+                        Importer un fichier transcription
+                      </Label>
                       <input
                         ref={sourceFileInputRef}
                         id="llm-local-source-file"
                         type="file"
-                        className="hidden"
                         accept={LLM_IMPORT_ACCEPT}
                         onChange={handleSourceFileImport}
-                        aria-label="Importer un fichier transcription"
+                        disabled={isImporting || isBusy}
+                        className="sr-only"
                       />
-                      {importedFileMeta ? <Badge variant="outline">{importedFileMeta.name}</Badge> : null}
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Formats acceptes: .txt, .srt, .vtt, .json. Taille max: 50 Mo.
+                      </p>
                     </div>
-                    <p className="text-xs text-muted-foreground">Formats supportes: TXT, SRT, VTT, JSON de transcription.</p>
-                  </>
+                    {!manualText.trim() ? (
+                      <p className="text-xs text-destructive">Importez un fichier pour lancer la generation.</p>
+                    ) : null}
+                    {importedFileMeta ? (
+                      <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
+                        <p>
+                          Fichier importe: <span className="font-medium text-foreground">{importedFileMeta.name}</span>
+                        </p>
+                        <p>
+                          Format detecte:{" "}
+                          <span className="font-medium text-foreground">{importedFileMeta.format.toUpperCase()}</span>
+                        </p>
+                        <p>
+                          Taille texte importee:{" "}
+                          <span className="font-medium text-foreground">
+                            {formatTokenCount(importedFileMeta.charCount)}
+                          </span>{" "}
+                          caracteres.
+                        </p>
+                        <p>
+                          Tokens du fichier importe approx:{" "}
+                          <span className="font-medium text-foreground">
+                            {formatTokenCount(importedFileMeta.tokenCount)}
+                          </span>{" "}
+                          tokens.
+                        </p>
+                        {typeof importedFileMeta.segmentCount === "number" ? (
+                          <p>
+                            Segments extraits:{" "}
+                            <span className="font-medium text-foreground">
+                              {formatTokenCount(importedFileMeta.segmentCount)}
+                            </span>
+                            .
+                          </p>
+                        ) : null}
+                        <p>
+                          Methode d'extraction:{" "}
+                          <span className="font-medium text-foreground">{importedFileMeta.extraction}</span>.
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
                 )}
 
-                <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
-                  <p>
-                    Tokens source approx: <span className="font-medium text-foreground">{formatTokenCount(sourceTokenEstimate)}</span>
+                {!sourceFitsModelContext ? (
+                  <p className="text-xs text-destructive">
+                    Source trop longue pour ce profil local. Raccourcissez la source ou passez a un profil avec plus de contexte.
                   </p>
-                  <p>
-                    Fenetre contexte: <span className="font-medium text-foreground">{formatTokenCount(tokenBudget.contextWindowTokens ?? 0)}</span>
-                  </p>
-                  {!sourceFitsModelContext ? (
-                    <p className="mt-2 text-destructive">
-                      Source trop longue pour ce profil local. Raccourcissez la source ou passez a un profil avec plus de contexte.
-                    </p>
-                  ) : null}
-                </div>
+                ) : null}
 
                 <div className="flex flex-wrap gap-2">
                   <Button onClick={runGeneration} disabled={!canGenerate}>
@@ -630,6 +669,13 @@ function LLMLocalPage() {
           }
           setPendingHeavyProfile(null);
         }}
+      />
+      <ForegroundAlertDialog
+        open={Boolean(llmLocalModelSizeAlert)}
+        title={llmLocalModelSizeAlert?.title ?? "Alerte modele local"}
+        description={llmLocalModelSizeAlert?.description ?? ""}
+        severity={llmLocalModelSizeAlert?.severity ?? "warning"}
+        onClose={clearLlmLocalModelSizeAlert}
       />
     </>
   );

@@ -8,6 +8,7 @@ import type { TranscriptionSegment } from "@/lib/export";
 import type { TelemetryCollector, ChunkTelemetry, TelemetrySummary } from "@/lib/telemetry";
 import type { ReportResult, ReportResultKey } from "@/lib/llm/reportSchema";
 import {
+  canonicalizeLocalLlmModelId,
   createDefaultLocalModelSettings,
   createDefaultLocalModelSettingsByProfile,
   DEFAULT_LLM_LOCAL_MAX_TOKENS,
@@ -62,6 +63,12 @@ export type CloudTranscriptionStatus =
 export type LlmApiStatus = "idle" | "preparing" | "generating" | "formatting" | "done" | "error";
 export type LlmApiProvider = "huggingface" | "mistral";
 export type LlmLocalModelProfile = "qwen_1_7b" | "ministral_3_3b";
+export type ModelSizeForegroundAlert = {
+  title: string;
+  description: string;
+  severity: "warning" | "error";
+  signature: string;
+};
 export interface LlmLocalModelSettings {
   modelId: string;
   temperature: number;
@@ -285,9 +292,9 @@ const normalizeLlmLocalModelId = (
   fallback: string
 ): string => {
   const trimmed = value?.trim() ?? "";
-  if (trimmed) return trimmed;
+  if (trimmed) return canonicalizeLocalLlmModelId(trimmed);
   const fallbackTrimmed = fallback.trim();
-  if (fallbackTrimmed) return fallbackTrimmed;
+  if (fallbackTrimmed) return canonicalizeLocalLlmModelId(fallbackTrimmed);
   return resolveLocalLlmModelId(profile);
 };
 
@@ -498,10 +505,13 @@ interface AsrConfigState {
   llmLocalDtypeWebgpu: ModelDtype;
   llmLocalDtypeWasm: ModelDtype;
   llmLocalSettingsByProfile: Record<LlmLocalModelProfile, LlmLocalModelSettings>;
+  llmLocalForceSingleThread: boolean;
   llmLocalStatus: LlmApiStatus;
   llmLocalStatusDetail?: string;
   llmLocalProgress: number;
   llmLocalResults: Partial<Record<ReportResultKey, ReportResult>>;
+  localUploadModelSizeAlert: ModelSizeForegroundAlert | null;
+  llmLocalModelSizeAlert: ModelSizeForegroundAlert | null;
   noiseCalibrationRequestedAt?: number | null;
   autoTunePreprocess: boolean;
   lastAutoTuneParams?: {
@@ -709,12 +719,17 @@ interface AsrConfigActions {
   setLlmLocalBackendPreference: (value: BackendImplementation) => void;
   setLlmLocalDtypeWebgpu: (value: ModelDtype) => void;
   setLlmLocalDtypeWasm: (value: ModelDtype) => void;
+  setLlmLocalForceSingleThread: (value: boolean) => void;
   setLlmLocalModelSettings: (profile: LlmLocalModelProfile, patch: Partial<LlmLocalModelSettings>) => void;
   resetLlmLocalModelSettings: (profile: LlmLocalModelProfile) => void;
   setLlmLocalStatus: (status: LlmApiStatus, detail?: string) => void;
   setLlmLocalProgress: (value: number) => void;
   setLlmLocalResult: (format: ReportResultKey, value: ReportResult) => void;
   setLlmLocalResults: (value: Partial<Record<ReportResultKey, ReportResult>>) => void;
+  setLocalUploadModelSizeAlert: (alert: ModelSizeForegroundAlert | null) => void;
+  clearLocalUploadModelSizeAlert: () => void;
+  setLlmLocalModelSizeAlert: (alert: ModelSizeForegroundAlert | null) => void;
+  clearLlmLocalModelSizeAlert: () => void;
   resetLlmLocalSession: () => void;
   setAutoTunePreprocess: (value: boolean) => void;
   setLastAutoTuneParams: (params: {
@@ -914,10 +929,13 @@ const initialState: AsrConfigState = {
   llmLocalBackendPreference: DEFAULT_LLM_LOCAL_BACKEND,
   llmLocalDtypeWebgpu: DEFAULT_LLM_LOCAL_DTYPE_WEBGPU,
   llmLocalDtypeWasm: DEFAULT_LLM_LOCAL_DTYPE_WASM,
+  llmLocalForceSingleThread: false,
   llmLocalStatus: "idle",
   llmLocalStatusDetail: undefined,
   llmLocalProgress: 0,
   llmLocalResults: {},
+  localUploadModelSizeAlert: null,
+  llmLocalModelSizeAlert: null,
   noiseCalibrationRequestedAt: null,
   segmentationStatus: "idle",
   segmentationProgress: 0,
@@ -1310,6 +1328,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       llmLocalBackendPreference,
       llmLocalDtypeWebgpu,
       llmLocalDtypeWasm,
+      llmLocalForceSingleThread: settings.llmLocalForceSingleThread ?? state.llmLocalForceSingleThread,
       autoTunePreprocess: settings.autoTunePreprocess ?? state.autoTunePreprocess,
       forceSingleThread: settings.forceSingleThread ?? state.forceSingleThread,
       enableWordTimestamps: settings.enableWordTimestamps ?? state.enableWordTimestamps,
@@ -1634,6 +1653,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         llmLocalDtypeWasm: updated.dtypeWasm,
       };
     }),
+  setLlmLocalForceSingleThread: (value) => set(() => ({ llmLocalForceSingleThread: value })),
   setLlmLocalModelSettings: (profile, patch) =>
     set((state) => {
       const normalizedProfile = normalizeLlmLocalModelProfile(profile, state.llmLocalModelProfile);
@@ -1697,12 +1717,17 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
   setLlmLocalResult: (format, value) =>
     set((state) => ({ llmLocalResults: { ...state.llmLocalResults, [format]: value } })),
   setLlmLocalResults: (value) => set(() => ({ llmLocalResults: value })),
+  setLocalUploadModelSizeAlert: (alert) => set(() => ({ localUploadModelSizeAlert: alert })),
+  clearLocalUploadModelSizeAlert: () => set(() => ({ localUploadModelSizeAlert: null })),
+  setLlmLocalModelSizeAlert: (alert) => set(() => ({ llmLocalModelSizeAlert: alert })),
+  clearLlmLocalModelSizeAlert: () => set(() => ({ llmLocalModelSizeAlert: null })),
   resetLlmLocalSession: () =>
     set(() => ({
       llmLocalStatus: "idle",
       llmLocalStatusDetail: undefined,
       llmLocalProgress: 0,
       llmLocalResults: {},
+      llmLocalModelSizeAlert: null,
     })),
   setAutoTunePreprocess: (value: boolean) => set(() => ({ autoTunePreprocess: value })),
   setLastAutoTuneParams: (params) => set(() => ({ lastAutoTuneParams: params })),
@@ -1742,6 +1767,8 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       llmLocalStatusDetail: undefined,
       llmLocalProgress: 0,
       llmLocalResults: {},
+      localUploadModelSizeAlert: null,
+      llmLocalModelSizeAlert: null,
       // Preserve debug toggle across session resets
       debugConfidence: state.debugConfidence,
       previewUrl: state.previewUrl,
@@ -1975,6 +2002,7 @@ useAsrStore.subscribe((state) => {
     llmLocalDtypeWebgpu: state.llmLocalDtypeWebgpu,
     llmLocalDtypeWasm: state.llmLocalDtypeWasm,
     llmLocalSettingsByProfile: state.llmLocalSettingsByProfile,
+    llmLocalForceSingleThread: state.llmLocalForceSingleThread,
     // whisper
     enableWordTimestamps: state.enableWordTimestamps,
     showSegmentConfidence: state.showSegmentConfidence,

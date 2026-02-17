@@ -74,4 +74,36 @@ describe('LocalUploadPage', () => {
 
     revokeSpy.mockRestore();
   });
+
+  it("shows a blocking model-size alert dialog when local upload alert is present", () => {
+    renderWithStore(<LocalUploadPage />, {
+      localUploadModelSizeAlert: {
+        title: "Modele trop gros",
+        description: "Memoire insuffisante.",
+        severity: "error",
+        signature: "localupload:test:error",
+      },
+    } as any);
+
+    expect(screen.getByRole("dialog", { name: "Modele trop gros" })).toBeInTheDocument();
+    expect(screen.getByText("Memoire insuffisante.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /compris/i })).toBeInTheDocument();
+  });
+
+  it("clears local upload model-size alert when acknowledged", async () => {
+    renderWithStore(<LocalUploadPage />, {
+      localUploadModelSizeAlert: {
+        title: "Modele trop gros",
+        description: "Memoire insuffisante.",
+        severity: "error",
+        signature: "localupload:test:error",
+      },
+    } as any);
+
+    fireEvent.click(screen.getByRole("button", { name: /compris/i }));
+
+    await waitFor(() => {
+      expect(useAsrStore.getState().localUploadModelSizeAlert).toBeNull();
+    });
+  });
 });

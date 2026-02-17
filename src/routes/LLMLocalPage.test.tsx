@@ -52,7 +52,7 @@ describe("LLMLocalPage", () => {
       webGpuSupported: true,
       wasmAvailable: true,
       llmLocalModelProfile: "qwen_1_7b",
-      llmLocalModelId: "onnx-community/Qwen3-1.7B-Instruct-2507-ONNX",
+      llmLocalModelId: "onnx-community/Qwen3-1.7B-ONNX",
       llmLocalTemperature: 0.2,
       llmLocalMaxTokens: 1024,
       llmLocalBackendPreference: "webgpu",
@@ -140,6 +140,19 @@ describe("LLMLocalPage", () => {
     );
   });
 
+  it("requires an imported file when source is texte libre", async () => {
+    renderPage();
+
+    const sourceSelect = screen.getByLabelText("Mode d'entree", { selector: "button#llm-local-source" });
+    fireEvent.click(sourceSelect);
+    fireEvent.click(await screen.findByText("Texte libre"));
+
+    const button = screen.getByRole("button", { name: /generer les 3 formats/i });
+    expect(button).toBeDisabled();
+    expect(screen.getByRole("button", { name: /choisir un fichier/i })).toBeInTheDocument();
+    expect(screen.getByText(/importez un fichier pour lancer la generation/i)).toBeInTheDocument();
+  });
+
   it("emits import telemetry events", async () => {
     parseTranscriptFileMock.mockResolvedValue({
       text: "Texte importe depuis fichier",
@@ -168,6 +181,37 @@ describe("LLMLocalPage", () => {
         expect.objectContaining({ fileName: "source.txt" })
       );
     });
+    expect(screen.getByText(/fichier importe:/i)).toBeInTheDocument();
+    expect(screen.getAllByText("source.txt").length).toBeGreaterThan(0);
+    expect(screen.getByText(/tokens du fichier importe approx/i)).toBeInTheDocument();
+  });
+
+  it("generates from imported file in texte libre mode", async () => {
+    parseTranscriptFileMock.mockResolvedValue({
+      text: "Texte importe depuis fichier",
+      format: "txt",
+      extraction: "plain",
+    });
+
+    renderPage();
+
+    const sourceSelect = screen.getByLabelText("Mode d'entree", { selector: "button#llm-local-source" });
+    fireEvent.click(sourceSelect);
+    fireEvent.click(await screen.findByText("Texte libre"));
+
+    const fileInput = screen.getByLabelText("Importer un fichier transcription", {
+      selector: "input#llm-local-source-file",
+    });
+    const file = new File(["dummy"], "source.txt", { type: "text/plain" });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    const generateButton = screen.getByRole("button", { name: /generer les 3 formats/i });
+    await waitFor(() => {
+      expect(generateButton).not.toBeDisabled();
+    });
+
+    await userEvent.click(generateButton);
+    expect(generateAll).toHaveBeenCalledWith({ source: "text", text: "Texte importe depuis fichier" });
   });
 
   it("emits local download telemetry events", async () => {
@@ -180,7 +224,7 @@ describe("LLMLocalPage", () => {
           sections: [{ heading: "Contexte", paragraphs: ["P1"] }],
         },
         rawResponse: "{}",
-        modelId: "onnx-community/Qwen3-1.7B-Instruct-2507-ONNX",
+        modelId: "onnx-community/Qwen3-1.7B-ONNX",
         generatedAt: new Date().toISOString(),
         sourceMode: "text",
         sourceTokenCount: 40,
@@ -200,5 +244,27 @@ describe("LLMLocalPage", () => {
       "LLM_LOCAL_DOWNLOAD_DONE",
       expect.objectContaining({ format: "cri" })
     );
+  });
+
+  it("shows and closes llm-local model-size foreground alert", async () => {
+    useAsrStore.setState({
+      llmLocalModelSizeAlert: {
+        title: "Modele local trop gros",
+        description: "Impossible de charger le modele sur ce poste.",
+        severity: "error",
+        signature: "llmlocal:test:error",
+      },
+    } as any);
+
+    renderPage();
+
+    expect(screen.getByRole("dialog", { name: "Modele local trop gros" })).toBeInTheDocument();
+    expect(screen.getByText("Impossible de charger le modele sur ce poste.")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /compris/i }));
+
+    await waitFor(() => {
+      expect(useAsrStore.getState().llmLocalModelSizeAlert).toBeNull();
+    });
   });
 });

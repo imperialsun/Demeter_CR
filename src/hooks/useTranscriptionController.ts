@@ -27,6 +27,7 @@ import {
   resolveLighterPresetForMemoryFallback,
   useAsrStore,
   type DedupeMode,
+  type ModelSizeForegroundAlert,
 } from "@/store/asr-store";
 
 function clamp01(value: number) {
@@ -885,6 +886,26 @@ export function useTranscriptionController() {
     clearErrorResetTimer();
     const runId = sharedRunIdRef.current + 1;
     sharedRunIdRef.current = runId;
+    state.clearLocalUploadModelSizeAlert();
+    let modelSizeAlertSeverityForRun: ModelSizeForegroundAlert["severity"] | null = null;
+    const setModelSizeAlertForRun = (
+      alert: Omit<ModelSizeForegroundAlert, "signature">
+    ) => {
+      if (modelSizeAlertSeverityForRun === "error") {
+        return;
+      }
+      if (modelSizeAlertSeverityForRun === alert.severity) {
+        return;
+      }
+      if (modelSizeAlertSeverityForRun && alert.severity !== "error") {
+        return;
+      }
+      modelSizeAlertSeverityForRun = alert.severity;
+      useAsrStore.getState().setLocalUploadModelSizeAlert({
+        ...alert,
+        signature: `localupload:${runId}:${alert.severity}`,
+      });
+    };
     const throwIfRunInvalidated = () => {
       if (runId !== sharedRunIdRef.current) {
         throw new DOMException("Run invalidated", "AbortError");
@@ -1240,11 +1261,21 @@ export function useTranscriptionController() {
             const friendly = `Erreur mémoire (modèle trop gros pour cette plateforme). Preset basculé automatiquement vers "${fallbackLabel}". Relancez la transcription.`;
             state.setStatus("error", friendly);
             toast(friendly);
+            setModelSizeAlertForRun({
+              severity: "warning",
+              title: "Modele trop gros pour ce preset",
+              description: friendly,
+            });
           } else {
             const friendly =
               "Erreur : modèle trop gros pour cette plateforme (mémoire insuffisante). Aucun preset plus léger n'est disponible, activez le mode single-thread ou utilisez un modèle custom plus petit.";
             state.setStatus("error", friendly);
             toast(friendly);
+            setModelSizeAlertForRun({
+              severity: "error",
+              title: "Modele trop gros pour la transcription locale",
+              description: friendly,
+            });
           }
         } else {
           state.setStatus("error", message);

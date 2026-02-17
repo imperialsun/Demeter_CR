@@ -1,6 +1,6 @@
 import { loadTransformers } from "@/lib/transformers-loader";
 import logger from "@/lib/logger";
-import type { BackendImplementation, ModelDtype } from "@/store/asr-store";
+import { useAsrStore, type BackendImplementation, type ModelDtype } from "@/store/asr-store";
 
 interface PipelineProgressPayload {
   progress?: number;
@@ -38,8 +38,14 @@ export interface GenerateLocalTextParams {
 
 const cachedPipelines = new Map<string, Promise<TextGenerationPipeline>>();
 
-function buildPipelineCacheKey(modelId: string, backend: BackendImplementation, dtype: ModelDtype): string {
-  return `${modelId}::${backend}::${dtype}`;
+function buildPipelineCacheKey(
+  modelId: string,
+  backend: BackendImplementation,
+  dtype: ModelDtype,
+  wasmThreads: number | null
+): string {
+  const threadsKey = backend === "wasm" ? `threads-${wasmThreads ?? 1}` : "threads-na";
+  return `${modelId}::${backend}::${dtype}::${threadsKey}`;
 }
 
 export async function generateLocalText(params: GenerateLocalTextParams): Promise<string> {
@@ -99,11 +105,15 @@ async function getOrCreatePipeline(params: {
   dtype: ModelDtype;
   onLoadProgress?: (payload: PipelineProgressPayload) => void;
 }) {
-  const cacheKey = buildPipelineCacheKey(params.modelId, params.backend, params.dtype);
+  const wasmThreads = params.backend === "wasm" ? resolveLocalWasmThreadCount() : null;
+  const cacheKey = buildPipelineCacheKey(params.modelId, params.backend, params.dtype, wasmThreads);
   const cached = cachedPipelines.get(cacheKey);
   if (cached) return cached;
 
-  const created = createPipeline(params).catch((error) => {
+  const created = createPipeline({
+    ...params,
+    wasmThreads,
+  }).catch((error) => {
     cachedPipelines.delete(cacheKey);
     throw error;
   });
@@ -116,12 +126,58 @@ async function createPipeline(params: {
   modelId: string;
   backend: BackendImplementation;
   dtype: ModelDtype;
+  wasmThreads: number | null;
   onLoadProgress?: (payload: PipelineProgressPayload) => void;
 }): Promise<TextGenerationPipeline> {
   const { pipeline } = await loadTransformers();
   const createPipeline = pipeline as unknown as CreatePipelineFn;
 
-  const pipelineOptions: Record<string, unknown> = {
+  const primaryWasmThreads = params.backend === "wasm" ? params.wasmThreads ?? 1 : null;
+  const pipelineOptions = buildPipelineOptions({
+    backend: params.backend,
+    dtype: params.dtype,
+    wasmThreads: primaryWasmThreads,
+    onLoadProgress: params.onLoadProgress,
+  });
+
+  logger.info("[llm-local] create text-generation pipeline", {
+    modelId: params.modelId,
+    backend: params.backend,
+    dtype: params.dtype,
+    wasmThreads: primaryWasmThreads,
+  });
+
+  try {
+    return await createPipeline("text-generation", params.modelId, pipelineOptions);
+  } catch (error) {
+    if (params.backend !== "wasm" || !primaryWasmThreads || primaryWasmThreads <= 1) {
+      throw error;
+    }
+
+    logger.warn("[llm-local] multithread init failed, retrying single-thread", {
+      modelId: params.modelId,
+      dtype: params.dtype,
+      attemptedThreads: primaryWasmThreads,
+      message: error instanceof Error ? error.message : String(error),
+    });
+
+    const fallbackOptions = buildPipelineOptions({
+      backend: params.backend,
+      dtype: params.dtype,
+      wasmThreads: 1,
+      onLoadProgress: params.onLoadProgress,
+    });
+    return createPipeline("text-generation", params.modelId, fallbackOptions);
+  }
+}
+
+function buildPipelineOptions(params: {
+  backend: BackendImplementation;
+  dtype: ModelDtype;
+  wasmThreads: number | null;
+  onLoadProgress?: (payload: PipelineProgressPayload) => void;
+}): Record<string, unknown> {
+  const options: Record<string, unknown> = {
     device: params.backend,
     progress_callback: (payload: PipelineProgressPayload) => {
       params.onLoadProgress?.(payload);
@@ -136,17 +192,17 @@ async function createPipeline(params: {
   };
 
   if (params.dtype !== "auto") {
-    pipelineOptions.dtype = params.dtype;
+    options.dtype = params.dtype;
   }
 
   if (params.backend === "wasm") {
-    pipelineOptions.session_options = {
+    options.session_options = {
       executionProviders: [
         {
           name: "wasm",
           options: {
             wasmPaths: "/onnx/",
-            numThreads: 1,
+            numThreads: params.wasmThreads ?? 1,
             proxy: true,
             simd: true,
             useJsep: false,
@@ -156,13 +212,25 @@ async function createPipeline(params: {
     };
   }
 
-  logger.info("[llm-local] create text-generation pipeline", {
-    modelId: params.modelId,
-    backend: params.backend,
-    dtype: params.dtype,
-  });
+  return options;
+}
 
-  return createPipeline("text-generation", params.modelId, pipelineOptions);
+function resolveLocalWasmThreadCount(): number {
+  const state = useAsrStore.getState();
+  if (state.llmLocalForceSingleThread) {
+    return 1;
+  }
+
+  const crossOriginIsolated = typeof window !== "undefined" && window.crossOriginIsolated === true;
+  if (!crossOriginIsolated) {
+    return 1;
+  }
+
+  if (typeof navigator === "undefined") {
+    return 1;
+  }
+
+  return Math.max(2, navigator.hardwareConcurrency || 2);
 }
 
 function extractGeneratedText(output: unknown): string {

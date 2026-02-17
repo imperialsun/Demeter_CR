@@ -7,6 +7,7 @@ import { PreprocessingStatusPanel } from "@/components/status/PreprocessingStatu
 import { ResultsTable } from "@/components/results/ResultsTable";
 import { ExportButtons } from "@/components/results/ExportButtons";
 import { Card, CardContent } from "@/components/ui/card";
+import { ForegroundAlertDialog } from "@/components/ui/ForegroundAlertDialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MODEL_PRESETS, useAsrStore } from "@/store/asr-store";
@@ -38,6 +39,8 @@ function LocalUploadPage() {
   const preprocessingMode = useAsrStore((state) => state.preprocessingMode);
   const memoryMode = useAsrStore((state) => state.memoryMode);
   const telemetry = useAsrStore((state) => state.telemetryCollector);
+  const localUploadModelSizeAlert = useAsrStore((state) => state.localUploadModelSizeAlert);
+  const clearLocalUploadModelSizeAlert = useAsrStore((state) => state.clearLocalUploadModelSizeAlert);
   // Read transcription confidence unconditionally to respect Hooks rules
   const transcriptionConfidence = useAsrStore((s) => s.transcriptionConfidence);
   const transcriptionConfidenceSource = useAsrStore((s) => s.transcriptionConfidenceSource);
@@ -145,7 +148,8 @@ function LocalUploadPage() {
   ]);
 
   return (
-    <div className="space-y-8">
+    <>
+      <div className="space-y-8">
       <header className="space-y-2">
         <h2 className="text-2xl font-semibold">Transcription locale</h2>
         <p className="text-muted-foreground">
@@ -252,7 +256,15 @@ function LocalUploadPage() {
           <ExportButtons segments={segments} telemetry={telemetrySummary ?? undefined} />
         </div>
       </div>
-    </div>
+      </div>
+      <ForegroundAlertDialog
+        open={Boolean(localUploadModelSizeAlert)}
+        title={localUploadModelSizeAlert?.title ?? "Alerte modele local"}
+        description={localUploadModelSizeAlert?.description ?? ""}
+        severity={localUploadModelSizeAlert?.severity ?? "warning"}
+        onClose={clearLocalUploadModelSizeAlert}
+      />
+    </>
   );
 }
 

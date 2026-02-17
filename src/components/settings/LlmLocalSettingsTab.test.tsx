@@ -28,6 +28,7 @@ describe("LlmLocalSettingsTab", () => {
       llmLocalDtypeWebgpu: defaults.qwen_1_7b.dtypeWebgpu,
       llmLocalDtypeWasm: defaults.qwen_1_7b.dtypeWasm,
       llmLocalSettingsByProfile: defaults,
+      llmLocalForceSingleThread: false,
     } as any);
   });
 
@@ -42,7 +43,7 @@ describe("LlmLocalSettingsTab", () => {
   it("renders qwen and ministral cards", () => {
     renderTab();
 
-    expect(screen.getByRole("heading", { name: "Qwen 3 1.7B Instruct" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Qwen 3 1.7B" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Ministral 3 3B Instruct" })).toBeInTheDocument();
   });
 
@@ -78,5 +79,18 @@ describe("LlmLocalSettingsTab", () => {
       screen.getByLabelText("Dtype WASM", { selector: "button#settings-llm-local-ministral_3_3b-dtype-wasm" })
     ).not.toBeDisabled();
     expect(screen.queryByText("WASM desactive: ce profil exige WebGPU.")).not.toBeInTheDocument();
+  });
+
+  it("toggles llm local multithread switch", async () => {
+    renderTab();
+
+    const toggle = screen.getByRole("switch", { name: "llm-local-multithread-switch" });
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    await userEvent.click(toggle);
+    expect(useAsrStore.getState().llmLocalForceSingleThread).toBe(true);
+
+    await userEvent.click(toggle);
+    expect(useAsrStore.getState().llmLocalForceSingleThread).toBe(false);
   });
 });

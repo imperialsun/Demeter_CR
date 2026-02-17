@@ -23,12 +23,16 @@ export function LlmLocalSettingsTab() {
   const {
     llmLocalModelProfile,
     llmLocalSettingsByProfile,
+    llmLocalForceSingleThread,
+    setLlmLocalForceSingleThread,
     setLlmLocalModelSettings,
     resetLlmLocalModelSettings,
   } = useAsrStore(
     useShallow((state) => ({
       llmLocalModelProfile: state.llmLocalModelProfile,
       llmLocalSettingsByProfile: state.llmLocalSettingsByProfile,
+      llmLocalForceSingleThread: state.llmLocalForceSingleThread,
+      setLlmLocalForceSingleThread: state.setLlmLocalForceSingleThread,
       setLlmLocalModelSettings: state.setLlmLocalModelSettings,
       resetLlmLocalModelSettings: state.resetLlmLocalModelSettings,
     }))
@@ -45,13 +49,27 @@ export function LlmLocalSettingsTab() {
             Reglages avances de generation locale par modele. Le profil actif se choisit sur /llmlocal.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-1 text-sm text-muted-foreground">
+        <CardContent className="space-y-3 text-sm text-muted-foreground">
           <p>
             Profil actif: <span className="font-medium text-foreground">{activeProfile.label}</span>
           </p>
           <p>
             Les backends restent automatiques sur /llmlocal (WebGPU puis WASM si autorise).
           </p>
+          <div className="flex items-center justify-between rounded-md border bg-muted/20 px-3 py-2">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">Multithread WASM (LLM local)</p>
+              <p className="text-xs text-muted-foreground">
+                Si desactive, /llmlocal utilise WASM en single-thread.
+              </p>
+            </div>
+            <Switch
+              className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+              aria-label="llm-local-multithread-switch"
+              checked={!llmLocalForceSingleThread}
+              onCheckedChange={(enabled) => setLlmLocalForceSingleThread(!enabled)}
+            />
+          </div>
         </CardContent>
       </Card>
 
@@ -183,6 +201,7 @@ function ModelSettingsCard({
             <p className="text-xs text-muted-foreground">Ajoute /no_think au prompt utilisateur pour ce profil.</p>
           </div>
           <Switch
+            className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
             aria-label={`append-no-think-${profileId}`}
             checked={settings.appendNoThinkDirective}
             onCheckedChange={(checked) => onChange({ appendNoThinkDirective: checked })}

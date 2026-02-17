@@ -37,15 +37,19 @@ export interface LocalLlmModelSettingsDefaults {
 }
 
 export const DEFAULT_LLM_LOCAL_PROFILE: LlmLocalModelProfile = "qwen_1_7b";
-export const DEFAULT_LLM_LOCAL_MODEL_ID = "onnx-community/Qwen3-1.7B-Instruct-2507-ONNX";
+export const DEFAULT_LLM_LOCAL_MODEL_ID = "onnx-community/Qwen3-1.7B-ONNX";
 export const DEFAULT_LLM_LOCAL_TEMPERATURE = 0.2;
 export const DEFAULT_LLM_LOCAL_MAX_TOKENS = 4096;
+
+const DEPRECATED_MODEL_ID_ALIASES: Record<string, string> = {
+  "onnx-community/Qwen3-1.7B-Instruct-2507-ONNX": "onnx-community/Qwen3-1.7B-ONNX",
+};
 
 const MODELS: LocalLlmModelProfile[] = [
   {
     id: "qwen_1_7b",
-    label: "Qwen 3 1.7B Instruct",
-    modelId: "onnx-community/Qwen3-1.7B-Instruct-2507-ONNX",
+    label: "Qwen 3 1.7B",
+    modelId: "onnx-community/Qwen3-1.7B-ONNX",
     description: "Profil standard local. Bon compromis qualite/latence pour CRI/CRO/CRS.",
     contextWindowTokens: 40_960,
     maxGenerationTokens: 4_096,
@@ -92,6 +96,11 @@ export function getLocalLlmModelProfile(profileId: LlmLocalModelProfile): LocalL
 
 export function resolveLocalLlmModelId(profileId: LlmLocalModelProfile): string {
   return getLocalLlmModelProfile(profileId).modelId;
+}
+
+export function canonicalizeLocalLlmModelId(modelId: string): string {
+  const trimmed = modelId.trim();
+  return DEPRECATED_MODEL_ID_ALIASES[trimmed] ?? trimmed;
 }
 
 export function resolveLocalLlmFallbackProfile(profileId: LlmLocalModelProfile): LlmLocalModelProfile | null {

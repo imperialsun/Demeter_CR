@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, act, waitFor } from "@testing-library/react";
 import { useAsrStore } from "@/store/asr-store";
-import { createAsrPipeline } from "@/lib/asr";
+import { createAsrPipeline, isModelTooLargeError } from "@/lib/asr";
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -199,5 +199,75 @@ describe("useTranscriptionController abort", () => {
       vi.advanceTimersByTime(1);
     });
     expect(useAsrStore.getState().status).toBe("idle");
+  });
+
+  it("raises warning foreground alert and switches preset on model-too-large with fallback", async () => {
+    vi.mocked(createAsrPipeline).mockRejectedValueOnce(new Error("std::bad_alloc"));
+    vi.mocked(isModelTooLargeError).mockReturnValue(true);
+
+    useAsrStore.setState({
+      activePreset: "balanced",
+      blockedPresets: [],
+    } as unknown as Partial<ReturnType<typeof useAsrStore.getState>>);
+
+    let startUpload: ((file: File) => Promise<void>) | null = null;
+
+    function TestComp({ onReady }: { onReady: (startFn: (file: File) => Promise<void>) => void }) {
+      const controller = useTranscriptionController();
+      onReady(controller.startUploadTranscription);
+      return null;
+    }
+
+    await act(async () => {
+      render(<TestComp onReady={(startFn) => { startUpload = startFn; }} />);
+    });
+
+    const file = new File([new ArrayBuffer(8)], "test.wav", { type: "audio/wav" });
+    if (!startUpload) throw new Error("transcription handler not obtained");
+
+    await act(async () => {
+      await startUpload!(file);
+    });
+
+    const state = useAsrStore.getState();
+    expect(state.activePreset).toBe("fast");
+    expect(state.localUploadModelSizeAlert).toMatchObject({
+      severity: "warning",
+    });
+  });
+
+  it("raises error foreground alert on model-too-large without fallback preset", async () => {
+    vi.mocked(createAsrPipeline).mockRejectedValueOnce(new Error("std::bad_alloc"));
+    vi.mocked(isModelTooLargeError).mockReturnValue(true);
+
+    useAsrStore.setState({
+      activePreset: "fast",
+      blockedPresets: [],
+    } as unknown as Partial<ReturnType<typeof useAsrStore.getState>>);
+
+    let startUpload: ((file: File) => Promise<void>) | null = null;
+
+    function TestComp({ onReady }: { onReady: (startFn: (file: File) => Promise<void>) => void }) {
+      const controller = useTranscriptionController();
+      onReady(controller.startUploadTranscription);
+      return null;
+    }
+
+    await act(async () => {
+      render(<TestComp onReady={(startFn) => { startUpload = startFn; }} />);
+    });
+
+    const file = new File([new ArrayBuffer(8)], "test.wav", { type: "audio/wav" });
+    if (!startUpload) throw new Error("transcription handler not obtained");
+
+    await act(async () => {
+      await startUpload!(file);
+    });
+
+    const state = useAsrStore.getState();
+    expect(state.activePreset).toBe("fast");
+    expect(state.localUploadModelSizeAlert).toMatchObject({
+      severity: "error",
+    });
   });
 });

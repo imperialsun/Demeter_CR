@@ -168,6 +168,7 @@ export interface PersistedSettings {
   llmLocalDtypeWebgpu?: ModelDtype;
   llmLocalDtypeWasm?: ModelDtype;
   llmLocalSettingsByProfile?: Record<LlmLocalModelProfile, LlmLocalModelSettings>;
+  llmLocalForceSingleThread?: boolean;
   // Legacy shared llm pipeline settings (read-only fallback migration)
   llmApiModelId?: string;
   llmApiTemperature?: number;
@@ -343,4 +344,5 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   llmLocalDtypeWebgpu: "q4f16",
   llmLocalDtypeWasm: "q8",
   llmLocalSettingsByProfile: createDefaultLocalModelSettingsByProfile(),
+  llmLocalForceSingleThread: false,
 };

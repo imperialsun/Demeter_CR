@@ -23,7 +23,7 @@ describe("localReportService", () => {
 
     const result = await generateLocalReportDetailed({
       format: "CRI",
-      modelId: "onnx-community/Qwen3-1.7B-Instruct-2507-ONNX",
+      modelId: "onnx-community/Qwen3-1.7B-ONNX",
       sourceText: "Source locale",
       backend: "webgpu",
       dtype: "q4f16",
@@ -51,7 +51,7 @@ describe("localReportService", () => {
 
     const result = await generateLocalReportDetailed({
       format: "CRS",
-      modelId: "onnx-community/Qwen3-1.7B-Instruct-2507-ONNX",
+      modelId: "onnx-community/Qwen3-1.7B-ONNX",
       sourceText: "Source locale",
       backend: "webgpu",
       dtype: "q4f16",

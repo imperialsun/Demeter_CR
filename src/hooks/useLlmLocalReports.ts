@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { useAsrStore } from "@/store/asr-store";
+import { useAsrStore, type ModelSizeForegroundAlert } from "@/store/asr-store";
 import { TelemetryCollector } from "@/lib/telemetry";
 import { reportFormatToKey, type ReportFormat, type ReportResult, type ReportResultKey } from "@/lib/llm/reportSchema";
 import { buildLongInputChunkPrompt, buildLongInputConsolidationPrompt } from "@/lib/llm/reportPrompts";
@@ -104,6 +104,22 @@ export function useLlmLocalReports() {
         if (isRunActive()) {
           setTelemetrySummary(summary);
         }
+      };
+      useAsrStore.getState().clearLlmLocalModelSizeAlert();
+      let modelSizeAlertSeverityForRun: ModelSizeForegroundAlert["severity"] | null = null;
+      const setModelSizeAlertForRun = (
+        alert: Omit<ModelSizeForegroundAlert, "signature">
+      ) => {
+        if (!isRunActive()) return;
+        if (modelSizeAlertSeverityForRun === "error") return;
+        if (modelSizeAlertSeverityForRun === alert.severity) return;
+        if (modelSizeAlertSeverityForRun && alert.severity !== "error") return;
+
+        modelSizeAlertSeverityForRun = alert.severity;
+        useAsrStore.getState().setLlmLocalModelSizeAlert({
+          ...alert,
+          signature: `llmlocal:${runId}:${alert.severity}`,
+        });
       };
 
       const telemetry = new TelemetryCollector();
@@ -445,6 +461,12 @@ export function useLlmLocalReports() {
           setModelProfileSafe(fallbackProfile);
           setModelIdSafe(fallbackModelId);
           setStatusSafe("preparing", "Erreur modele lourd, bascule vers Qwen 1.7B");
+          setModelSizeAlertForRun({
+            severity: "warning",
+            title: "Modele local trop gros, bascule automatique",
+            description:
+              "Le profil local lourd a manque de memoire. L'application a bascule automatiquement vers Qwen 1.7B.",
+          });
 
           try {
             await runWithProfile(fallbackProfile);
@@ -459,6 +481,13 @@ export function useLlmLocalReports() {
             const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
             logger.error("[llm-local] fallback run failed", { message: fallbackMessage });
             setStatusSafe("error", fallbackMessage);
+            if (isLocalFallbackError(fallbackError)) {
+              setModelSizeAlertForRun({
+                severity: "error",
+                title: "Modele local trop gros pour ce poste",
+                description: fallbackMessage,
+              });
+            }
             telemetry.logEvent("LLM_RUN_ERROR", {
               provider: "local",
               profileId: fallbackProfile,
@@ -484,6 +513,13 @@ export function useLlmLocalReports() {
           message,
         });
         setStatusSafe("error", message);
+        if (isLocalFallbackError(error)) {
+          setModelSizeAlertForRun({
+            severity: "error",
+            title: "Modele local trop gros pour ce poste",
+            description: message,
+          });
+        }
         setTelemetrySummarySafe(telemetry.exportSummary());
       }
     },
