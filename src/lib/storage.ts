@@ -17,6 +17,9 @@ import {
 import logger from "@/lib/logger";
 
 const STORAGE_KEY = "demeter-asr-settings";
+const SENSITIVE_SETTING_KEYS = ["cloudHfToken", "cloudMistralApiKey", "llmApiHfToken"] as const;
+
+type SensitiveSettingKey = (typeof SENSITIVE_SETTING_KEYS)[number];
 
 export interface PersistedSettings {
   activePreset: PresetKey;
@@ -175,12 +178,32 @@ export interface PersistedSettings {
   llmApiMaxTokens?: number;
 }
 
+function stripSensitiveSettings<T extends Partial<PersistedSettings>>(settings: T): T {
+  const sanitized = { ...settings };
+  for (const key of SENSITIVE_SETTING_KEYS) {
+    if (key in sanitized) {
+      delete sanitized[key as SensitiveSettingKey];
+    }
+  }
+  return sanitized;
+}
+
+function hasSensitiveSettings(settings: Partial<PersistedSettings>) {
+  return SENSITIVE_SETTING_KEYS.some((key) => key in settings);
+}
+
 export function loadSettings(): Partial<PersistedSettings> | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as PersistedSettings;
+    const parsed = JSON.parse(raw) as PersistedSettings;
+    const sanitized = stripSensitiveSettings(parsed);
+    // Backward compatibility: purge sensitive values from existing persisted blobs.
+    if (hasSensitiveSettings(parsed)) {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+    }
+    return sanitized;
   } catch (error) {
     logger.warn("Impossible de charger les paramètres depuis le stockage local", error);
     return null;
@@ -190,7 +213,8 @@ export function loadSettings(): Partial<PersistedSettings> | null {
 export function saveSettings(settings: PersistedSettings) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    const sanitized = stripSensitiveSettings(settings);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
   } catch (error) {
     logger.warn("Impossible d'enregistrer les paramètres", error);
   }

@@ -1,0 +1,6 @@
+name: demeter-codeql
+
+# Exclude vendored third-party runtime assets from static app code analysis.
+# These files are copied from upstream packages and not maintained in this repository.
+paths-ignore:
+  - public/ffmpeg/**

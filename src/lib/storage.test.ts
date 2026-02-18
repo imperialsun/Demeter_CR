@@ -77,6 +77,42 @@ describe('storage', () => {
     });
   });
 
+  it("does not persist sensitive cloud/llm tokens", () => {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      cloudHfToken: "hf_secret",
+      cloudMistralApiKey: "mistral_secret",
+      llmApiHfToken: "llm_secret",
+    };
+
+    saveSettings(settings);
+    const [, value] = (window.localStorage.setItem as any).mock.calls[0];
+    const persisted = JSON.parse(value);
+
+    expect(persisted.cloudHfToken).toBeUndefined();
+    expect(persisted.cloudMistralApiKey).toBeUndefined();
+    expect(persisted.llmApiHfToken).toBeUndefined();
+  });
+
+  it("strips legacy sensitive tokens when loading older persisted settings", () => {
+    const payload = {
+      ...DEFAULT_SETTINGS,
+      cloudHfToken: "hf_secret",
+      cloudMistralApiKey: "mistral_secret",
+      llmApiHfToken: "llm_secret",
+    };
+    window.localStorage.setItem(storageKey, JSON.stringify(payload));
+
+    const loaded = loadSettings();
+    expect(loaded?.cloudHfToken).toBeUndefined();
+    expect(loaded?.cloudMistralApiKey).toBeUndefined();
+    expect(loaded?.llmApiHfToken).toBeUndefined();
+    expect(window.localStorage.setItem).toHaveBeenCalledWith(
+      storageKey,
+      expect.not.stringContaining("mistral_secret")
+    );
+  });
+
   it('defines provider-specific llm pipeline defaults', () => {
     expect(DEFAULT_SETTINGS.llmApiHfModelId).toBeTruthy();
     expect(DEFAULT_SETTINGS.llmApiHfMaxTokens).toBeGreaterThan(0);

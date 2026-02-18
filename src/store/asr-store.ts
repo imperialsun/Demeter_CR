@@ -1945,9 +1945,7 @@ useAsrStore.subscribe((state) => {
     micForceSingleThread: state.micForceSingleThread,
     // cloud
     cloudApiUrl: state.cloudApiUrl,
-    cloudHfToken: state.cloudHfToken,
     cloudMistralApiUrl: state.cloudMistralApiUrl,
-    cloudMistralApiKey: state.cloudMistralApiKey,
     cloudMistralModel: state.cloudMistralModel,
     cloudMistralDiarizationEnabled: state.cloudMistralDiarizationEnabled,
     cloudWhisperChunkDurationSec: state.cloudWhisperChunkDurationSec,
@@ -1987,7 +1985,6 @@ useAsrStore.subscribe((state) => {
     cloudEnableWordTimestamps: state.cloudEnableWordTimestamps,
     cloudShowSegmentConfidence: state.cloudShowSegmentConfidence,
     llmApiProvider: state.llmApiProvider,
-    llmApiHfToken: state.llmApiHfToken,
     llmApiHfModelId: state.llmApiHfModelId,
     llmApiHfTemperature: state.llmApiHfTemperature,
     llmApiHfMaxTokens: state.llmApiHfMaxTokens,
