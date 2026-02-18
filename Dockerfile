@@ -25,8 +25,10 @@ COPY Caddyfile /etc/caddy/Caddyfile
 # Some VPS/container runtimes reject executing binaries with file capabilities
 # (common symptom: "exec /usr/bin/caddy: operation not permitted").
 # We do not need privileged ports here (app listens on 3000), so drop them.
-RUN apk add --no-cache libcap \
- && (setcap -r /usr/bin/caddy || true)
+# Install libcap only temporarily, then remove it to keep runtime surface smaller.
+RUN apk add --no-cache --virtual .cap-tools libcap \
+ && (setcap -r /usr/bin/caddy || true) \
+ && apk del .cap-tools
 
 # Some Caddy base variants may not expose a "caddy" passwd entry.
 # Ensure a non-root runtime user exists consistently.

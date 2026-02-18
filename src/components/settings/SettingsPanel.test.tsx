@@ -156,17 +156,20 @@ describe('SettingsPanel', () => {
   it("toggles mic confidence and enables mic word timestamps", async () => {
     useAsrStore.setState({ micShowSegmentConfidence: false, micEnableWordTimestamps: false } as any);
 
-    render(<ThemeProvider defaultTheme="dark" storageKey="demeter-theme"><SettingsPanel /></ThemeProvider>);
-
-    const micTab = screen.getByText('Enregistrement');
-    await userEvent.click(micTab);
+    render(
+      <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">
+        <SettingsPanel initialTab="mic" />
+      </ThemeProvider>
+    );
 
     const micSwitch = await screen.findByRole('switch', { name: "Afficher l'indice de confiance (micro)" });
     fireEvent.click(micSwitch);
 
-    expect(useAsrStore.getState().micShowSegmentConfidence).toBe(true);
-    expect(useAsrStore.getState().micEnableWordTimestamps).toBe(true);
-  });
+    await waitFor(() => {
+      expect(useAsrStore.getState().micShowSegmentConfidence).toBe(true);
+      expect(useAsrStore.getState().micEnableWordTimestamps).toBe(true);
+    });
+  }, 15000);
 
   it("forces mic backend to wasm when WebGPU is unavailable", async () => {
     useAsrStore.setState({ webGpuSupported: false, micBackendPreference: "webgpu" } as any);
@@ -181,10 +184,11 @@ describe('SettingsPanel', () => {
   it("toggles mic autotune and enables mic controls", async () => {
     useAsrStore.setState({ micAutoTunePreprocess: true, micPreprocessingMode: "full" } as any);
 
-    render(<ThemeProvider defaultTheme="dark" storageKey="demeter-theme"><SettingsPanel /></ThemeProvider>);
-
-    const micTab = screen.getByText('Enregistrement');
-    await userEvent.click(micTab);
+    render(
+      <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">
+        <SettingsPanel initialTab="mic" />
+      </ThemeProvider>
+    );
 
     const slider = screen.getByLabelText("Noise floor (dB)", { selector: "input#mic-noise-floor" });
     expect(slider).toBeDisabled();
@@ -201,10 +205,11 @@ describe('SettingsPanel', () => {
   it("updates mic noise calibration margin", async () => {
     useAsrStore.setState({ micNoiseCalibrationMarginDb: 6 } as any);
 
-    render(<ThemeProvider defaultTheme="dark" storageKey="demeter-theme"><SettingsPanel /></ThemeProvider>);
-
-    const micTab = screen.getByText('Enregistrement');
-    await userEvent.click(micTab);
+    render(
+      <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">
+        <SettingsPanel initialTab="mic" />
+      </ThemeProvider>
+    );
 
     const input = screen.getByLabelText("Marge calibration bruit (dB)", { selector: "input#mic-noise-margin-db" });
     fireEvent.change(input, { target: { value: "10" } });

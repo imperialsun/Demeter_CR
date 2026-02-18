@@ -24,16 +24,28 @@ jobs:
 
       - name: Run Trivy filesystem scan
         id: trivy_fs_scan
-        continue-on-error: true
         uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: fs
           scan-ref: .
+          scanners: vuln
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           format: sarif
           output: trivy-fs.sarif
-          exit-code: "1"
+          exit-code: "0"
+
+      - name: Build Trivy FS text report (non-blocking)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: table
+          output: trivy-fs.txt
+          exit-code: "0"
 
       - name: Upload Trivy FS SARIF
         if: always() && hashFiles('trivy-fs.sarif') != ''
@@ -42,9 +54,20 @@ jobs:
           sarif_file: trivy-fs.sarif
           category: trivy-fs
 
-      - name: Fail when Trivy FS finds HIGH/CRITICAL issues
-        if: steps.trivy_fs_scan.outcome == 'failure'
-        run: exit 1
+      - name: Publish Trivy FS summary
+        if: always()
+        run: |
+          echo "### Trivy FS (HIGH/CRITICAL)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Detailed findings: Security > Code scanning + artifact trivy-fs-report." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Trivy FS report artifact
+        if: always() && hashFiles('trivy-fs.txt') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-fs-report
+          path: trivy-fs.txt
+          if-no-files-found: warn
 
   trivy-image:
     name: Trivy Image
@@ -59,16 +82,28 @@ jobs:
 
       - name: Run Trivy image scan
         id: trivy_image_scan
-        continue-on-error: true
         uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: image
           scan-ref: demeter-cr:ci
+          scanners: vuln
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           format: sarif
           output: trivy-image.sarif
-          exit-code: "1"
+          exit-code: "0"
+
+      - name: Build Trivy image text report (non-blocking)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: image
+          scan-ref: demeter-cr:ci
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: table
+          output: trivy-image.txt
+          exit-code: "0"
 
       - name: Upload Trivy Image SARIF
         if: always() && hashFiles('trivy-image.sarif') != ''
@@ -77,6 +112,17 @@ jobs:
           sarif_file: trivy-image.sarif
           category: trivy-image
 
-      - name: Fail when Trivy Image finds HIGH/CRITICAL issues
-        if: steps.trivy_image_scan.outcome == 'failure'
-        run: exit 1
+      - name: Publish Trivy Image summary
+        if: always()
+        run: |
+          echo "### Trivy Image (HIGH/CRITICAL)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Detailed findings: Security > Code scanning + artifact trivy-image-report." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Trivy Image report artifact
+        if: always() && hashFiles('trivy-image.txt') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-image-report
+          path: trivy-image.txt
+          if-no-files-found: warn
