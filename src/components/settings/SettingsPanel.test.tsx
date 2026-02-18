@@ -478,4 +478,203 @@ describe('SettingsPanel', () => {
       expect(screen.getByText(/modeles detectes via/i)).toBeInTheDocument();
     });
   });
+
+  it("renders cloud full preprocessing controls and updates cloud segment toggles", async () => {
+    useAsrStore.setState({
+      cloudPreprocessingMode: "full",
+      cloudAutoTunePreprocess: false,
+      cloudPreprocessEnableFilters: true,
+      cloudPreprocessEnableLufs: true,
+      cloudPreprocessLimiterEnabled: true,
+      cloudPreprocessVadEnabled: true,
+      cloudPreprocessOverlapAdd: true,
+      cloudShowSegments: true,
+      cloudShowSegmentConfidence: false,
+      cloudEnableWordTimestamps: false,
+    } as any);
+
+    render(
+      <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">
+        <SettingsPanel initialTab="cloud" />
+      </ThemeProvider>
+    );
+
+    expect(screen.getByText("Pré-traitement cloud")).toBeInTheDocument();
+    expect(screen.getByLabelText("Passe-haut (Hz)", { selector: "input#cloud-pre-highpass" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Passe-bas (Hz)", { selector: "input#cloud-pre-lowpass" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Cible loudness (LUFS)", { selector: "input#cloud-pre-lufs-target" })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Noise floor (dB)", { selector: "input#cloud-noise-floor" }), {
+      target: { value: "-25" },
+    });
+    fireEvent.change(screen.getByLabelText("Réduction (dB)", { selector: "input#cloud-reduction-db" }), {
+      target: { value: "12" },
+    });
+    fireEvent.change(screen.getByLabelText("Lissage", { selector: "input#cloud-smoothing" }), {
+      target: { value: "0.7" },
+    });
+    fireEvent.change(screen.getByLabelText("Passe-haut (Hz)", { selector: "input#cloud-pre-highpass" }), {
+      target: { value: "110" },
+    });
+    fireEvent.change(screen.getByLabelText("Passe-bas (Hz)", { selector: "input#cloud-pre-lowpass" }), {
+      target: { value: "6800" },
+    });
+    fireEvent.change(screen.getByLabelText("Cible loudness (LUFS)", { selector: "input#cloud-pre-lufs-target" }), {
+      target: { value: "-18.5" },
+    });
+    fireEvent.change(screen.getByLabelText("Seuil limiteur (dBFS)", { selector: "input#cloud-pre-limiter-threshold" }), {
+      target: { value: "-2.1" },
+    });
+    fireEvent.change(screen.getByLabelText("Seuil VAD (dB)", { selector: "input#cloud-pre-vad-threshold" }), {
+      target: { value: "-38" },
+    });
+    fireEvent.change(screen.getByLabelText("Silence min (ms)", { selector: "input#cloud-pre-vad-min-silence" }), {
+      target: { value: "400" },
+    });
+    fireEvent.change(screen.getByLabelText("Durée calibration (s)", { selector: "input#cloud-calibration-seconds" }), {
+      target: { value: "3.5" },
+    });
+
+    const findSwitch = (label: string) =>
+      screen.getByText(label).closest("div")?.parentElement?.querySelector('[role="switch"]') as HTMLElement | null;
+
+    const filtersSwitch = findSwitch("Filtres passe-haut / passe-bas");
+    const lufsSwitch = findSwitch("Normalisation loudness (LUFS)");
+    const limiterSwitch = findSwitch("Limiteur doux");
+    const vadSwitch = findSwitch("Calibration VAD (silence)");
+    const overlapSwitch = findSwitch("Lissage overlap-add");
+    const autoTuneSwitch = screen.getByRole("switch", { name: "Autotune prétraitement (cloud)" });
+
+    expect(filtersSwitch).toBeTruthy();
+    expect(lufsSwitch).toBeTruthy();
+    expect(limiterSwitch).toBeTruthy();
+    expect(vadSwitch).toBeTruthy();
+    expect(overlapSwitch).toBeTruthy();
+
+    fireEvent.click(filtersSwitch!);
+    fireEvent.click(lufsSwitch!);
+    fireEvent.click(limiterSwitch!);
+    fireEvent.click(vadSwitch!);
+    fireEvent.click(overlapSwitch!);
+    fireEvent.click(autoTuneSwitch);
+
+    const segmentsCard = screen.getByText("Afficher le tableau des segments").closest("div")?.parentElement;
+    const confidenceCard = screen.getByText("Indice de confiance").closest("div")?.parentElement;
+    const wordsCard = screen.getByText("Timestamps mots").closest("div")?.parentElement;
+
+    const segmentsSwitch = segmentsCard?.querySelector('[role="switch"]') as HTMLElement | null;
+    const confidenceSwitch = confidenceCard?.querySelector('[role="switch"]') as HTMLElement | null;
+    const wordsSwitch = wordsCard?.querySelector('[role="switch"]') as HTMLElement | null;
+
+    expect(segmentsSwitch).toBeTruthy();
+    expect(confidenceSwitch).toBeTruthy();
+    expect(wordsSwitch).toBeTruthy();
+
+    fireEvent.click(segmentsSwitch!);
+    fireEvent.click(confidenceSwitch!);
+    fireEvent.click(wordsSwitch!);
+
+    await waitFor(() => {
+      const state = useAsrStore.getState();
+      expect(state.cloudShowSegments).toBe(false);
+      expect(state.cloudShowSegmentConfidence).toBe(true);
+      expect(state.cloudEnableWordTimestamps).toBe(true);
+      expect(state.cloudDenoiseNoiseFloorDb).toBe(-25);
+      expect(state.cloudPreprocessEnableFilters).toBe(false);
+      expect(state.cloudAutoTunePreprocess).toBe(true);
+    });
+  }, 15000);
+
+  it("updates cloud export toggles from cloud settings", async () => {
+    useAsrStore.setState({
+      cloudShowExportVtt: true,
+      cloudShowExportSrt: true,
+      cloudShowExportJson: true,
+      cloudShowExportTelemetry: true,
+    } as any);
+
+    render(
+      <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">
+        <SettingsPanel initialTab="cloud" />
+      </ThemeProvider>
+    );
+
+    const vttCard = screen.getByText("VTT").closest("div")?.parentElement;
+    const srtCard = screen.getByText("SRT").closest("div")?.parentElement;
+    const jsonCard = screen.getByText("JSON segments").closest("div")?.parentElement;
+    const telemetryCard = screen.getByText("Telemetry").closest("div")?.parentElement;
+
+    fireEvent.click(vttCard?.querySelector('[role="switch"]') as HTMLElement);
+    fireEvent.click(srtCard?.querySelector('[role="switch"]') as HTMLElement);
+    fireEvent.click(jsonCard?.querySelector('[role="switch"]') as HTMLElement);
+    fireEvent.click(telemetryCard?.querySelector('[role="switch"]') as HTMLElement);
+
+    await waitFor(() => {
+      const state = useAsrStore.getState();
+      expect(state.cloudShowExportVtt).toBe(false);
+      expect(state.cloudShowExportSrt).toBe(false);
+      expect(state.cloudShowExportJson).toBe(false);
+      expect(state.cloudShowExportTelemetry).toBe(false);
+    });
+  });
+
+  it("computes cache stats and renders cache details", async () => {
+    const originalCaches = (globalThis as any).caches;
+    const originalIndexedDb = (globalThis as any).indexedDB;
+    const originalNavigatorStorage = (navigator as any).storage;
+
+    Object.defineProperty(navigator, "storage", {
+      configurable: true,
+      value: {
+        estimate: vi.fn(async () => ({ usage: 12345 })),
+      },
+    });
+
+    Object.defineProperty(globalThis, "caches", {
+      configurable: true,
+      value: {
+        keys: vi.fn(async () => ["test-cache"]),
+        open: vi.fn(async () => ({
+          keys: vi.fn(async () => [new Request("https://cache.test/asset.js")]),
+          match: vi.fn(async () => new Response("cached", { headers: { "content-length": "6" } })),
+        })),
+      },
+    });
+
+    Object.defineProperty(globalThis, "indexedDB", {
+      configurable: true,
+      value: {
+        databases: vi.fn(async () => []),
+        open: vi.fn(() => {
+          throw new Error("indexeddb unavailable in test");
+        }),
+      },
+    });
+
+    render(
+      <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">
+        <SettingsPanel />
+      </ThemeProvider>
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "Rafraîchir" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("test-cache")).toBeInTheDocument();
+      expect(screen.getByText(/Total estimé/i)).toBeInTheDocument();
+    });
+
+    Object.defineProperty(globalThis, "caches", {
+      configurable: true,
+      value: originalCaches,
+    });
+    Object.defineProperty(globalThis, "indexedDB", {
+      configurable: true,
+      value: originalIndexedDb,
+    });
+    Object.defineProperty(navigator, "storage", {
+      configurable: true,
+      value: originalNavigatorStorage,
+    });
+  });
 });

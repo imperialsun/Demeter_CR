@@ -41,6 +41,12 @@ describe("auth", () => {
     expect(isPasswordValid("wrong-password")).toBe(false);
   });
 
+  it("rejects empty passwords and empty hash configuration", async () => {
+    const { isPasswordValid } = await loadAuth([]);
+    expect(isPasswordValid("")).toBe(false);
+    expect(isPasswordValid("any-value")).toBe(false);
+  });
+
   it("persists authentication state in localStorage", async () => {
     const { isAuthenticated, setAuthenticated } = await loadAuth([hashSync("x", 6)]);
 

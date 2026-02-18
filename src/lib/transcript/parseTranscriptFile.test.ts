@@ -111,4 +111,124 @@ A tous`,
     await expect(parseTranscriptFile(hugeFile)).rejects.toThrow("Fichier trop volumineux (max 50 Mo).");
     expect(textSpy).not.toHaveBeenCalled();
   });
+
+  it("rejects unsupported extensions", async () => {
+    const file = new File(["hello"], "source.pdf", { type: "application/pdf" });
+    await expect(parseTranscriptFile(file)).rejects.toThrow(/format non supporte/i);
+  });
+
+  it("rejects empty files", async () => {
+    const file = new File(["\r\n   \n"], "empty.txt", { type: "text/plain" });
+    await expect(parseTranscriptFile(file)).rejects.toThrow(/fichier vide/i);
+  });
+
+  it("rejects invalid json payloads", async () => {
+    const file = new File(["{not-json"], "broken.json", { type: "application/json" });
+    await expect(parseTranscriptFile(file)).rejects.toThrow(/json invalide/i);
+  });
+
+  it("parses json channels alternatives", async () => {
+    const file = new File(
+      [
+        JSON.stringify({
+          channels: [{ alternatives: [{ transcript: "Canal A" }, { transcript: "Canal B" }] }],
+        }),
+      ],
+      "channels.json",
+      { type: "application/json" }
+    );
+
+    const parsed = await parseTranscriptFile(file);
+    expect(parsed.extraction).toBe("results");
+    expect(parsed.segmentCount).toBe(2);
+    expect(parsed.text).toBe("Canal A\nCanal B");
+  });
+
+  it("falls back to nested text extraction within max depth", async () => {
+    const file = new File(
+      [
+        JSON.stringify({
+          a: {
+            b: {
+              c: {
+                d: {
+                  text: "Texte imbriqué",
+                },
+              },
+            },
+          },
+        }),
+      ],
+      "fallback.json",
+      { type: "application/json" }
+    );
+
+    const parsed = await parseTranscriptFile(file);
+    expect(parsed.extraction).toBe("fallback");
+    expect(parsed.text).toContain("Texte imbriqué");
+  });
+
+  it("uses FileReader fallback when file.text is unavailable", async () => {
+    const originalFileReader = globalThis.FileReader;
+    class MockFileReader {
+      public result: string | null = null;
+      public onerror: (() => void) | null = null;
+      public onload: (() => void) | null = null;
+
+      readAsText() {
+        this.result = "Bonjour via reader";
+        this.onload?.();
+      }
+    }
+
+    Object.defineProperty(globalThis, "FileReader", {
+      configurable: true,
+      value: MockFileReader,
+    });
+
+    const file = {
+      name: "reader.txt",
+      type: "text/plain",
+      size: 15,
+    } as unknown as File;
+
+    const parsed = await parseTranscriptFile(file);
+    expect(parsed.format).toBe("txt");
+    expect(parsed.text).toBe("Bonjour via reader");
+
+    Object.defineProperty(globalThis, "FileReader", {
+      configurable: true,
+      value: originalFileReader,
+    });
+  });
+
+  it("surfaces FileReader errors with a readable message", async () => {
+    const originalFileReader = globalThis.FileReader;
+    class MockFileReaderWithError {
+      public onerror: (() => void) | null = null;
+      public onload: (() => void) | null = null;
+
+      readAsText() {
+        this.onerror?.();
+      }
+    }
+
+    Object.defineProperty(globalThis, "FileReader", {
+      configurable: true,
+      value: MockFileReaderWithError,
+    });
+
+    const file = {
+      name: "reader-error.txt",
+      type: "text/plain",
+      size: 15,
+    } as unknown as File;
+
+    await expect(parseTranscriptFile(file)).rejects.toThrow(/impossible de lire le fichier/i);
+
+    Object.defineProperty(globalThis, "FileReader", {
+      configurable: true,
+      value: originalFileReader,
+    });
+  });
 });

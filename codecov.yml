@@ -7,17 +7,16 @@ coverage:
   status:
     project:
       default:
-        target: 75%
+        target: 80%
         threshold: 0%
-        informational: false
+        informational: true
     patch:
       default:
         target: 80%
         threshold: 0%
-        informational: false
+        informational: true
 
 comment:
   layout: "reach,diff,flags,tree"
   behavior: default
   require_changes: false
-

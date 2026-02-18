@@ -9,6 +9,36 @@ import * as rr from 'react-router-dom';
 import * as logger from '@/lib/logger';
 import { isProdEnv } from '@/lib/env';
 
+const modelTestHook = vi.hoisted(() => ({
+  runTest: vi.fn(),
+  stopTest: vi.fn(),
+  closeSummary: vi.fn(),
+  state: {
+    running: false,
+    summaryOpen: false,
+    stopRequested: false,
+    progress: 0,
+    progressLabel: undefined,
+    currentPreset: null,
+    currentBackend: null,
+    step: 0,
+    total: 0,
+    results: [] as Array<{
+      preset: string;
+      label: string;
+      backends: {
+        webgpu: { status: "ok" | "testing" | "pending" | "too_large" | "error" | "skipped" | "unavailable"; durationMs?: number; message?: string };
+        wasm: { status: "ok" | "testing" | "pending" | "too_large" | "error" | "skipped" | "unavailable"; durationMs?: number; message?: string };
+      };
+    }>,
+  },
+  summary: {
+    ok: 0,
+    blockedCount: 0,
+    errors: 0,
+  },
+}));
+
 // Mock react-router hooks used by the component
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async () => {
@@ -39,10 +69,30 @@ vi.mock('@/lib/env', () => ({
   getEnvMode: vi.fn(() => 'test'),
 }));
 
+vi.mock('@/hooks/useModelCompatibilityTest', () => ({
+  useModelCompatibilityTest: () => modelTestHook,
+}));
+
 describe('Topbar', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.mocked(isProdEnv).mockReturnValue(false);
+    modelTestHook.runTest.mockReset();
+    modelTestHook.stopTest.mockReset();
+    modelTestHook.closeSummary.mockReset();
+    modelTestHook.state.running = false;
+    modelTestHook.state.summaryOpen = false;
+    modelTestHook.state.stopRequested = false;
+    modelTestHook.state.progress = 0;
+    modelTestHook.state.progressLabel = undefined;
+    modelTestHook.state.currentPreset = null;
+    modelTestHook.state.currentBackend = null;
+    modelTestHook.state.step = 0;
+    modelTestHook.state.total = 0;
+    modelTestHook.state.results = [];
+    modelTestHook.summary.ok = 0;
+    modelTestHook.summary.blockedCount = 0;
+    modelTestHook.summary.errors = 0;
     // reset store defaults used by Topbar
     useAsrStore.setState({
       activePreset: 'fast',
@@ -89,7 +139,7 @@ describe('Topbar', () => {
 
   it('opens confirm and calls resetApp on confirm', async () => {
     const resetSpy = vi.fn();
-    useAsrStore.setState({ resetApp: resetSpy } as any);
+    useAsrStore.setState({ resetApp: resetSpy, wasmThreads: 4 } as any);
     const toastSpy = vi.spyOn(toastMod, 'toast').mockImplementation(() => 't-id' as any);
     vi.spyOn(backendSupport, 'initializeBackendSupport').mockResolvedValue(true);
 
@@ -104,6 +154,7 @@ describe('Topbar', () => {
 
     await waitFor(() => expect(resetSpy).toHaveBeenCalled());
     expect(toastSpy).toHaveBeenCalled();
+    expect(toastSpy).toHaveBeenCalledWith(expect.stringMatching(/multithread WASM actif/i));
   });
 
   it('toggles debug confidence via the debug button', () => {
@@ -183,5 +234,62 @@ describe('Topbar', () => {
     render(<Topbar />);
     expect(screen.queryByText('Exporter logs')).toBeNull();
     expect(screen.queryByText(/Debug conf/i)).toBeNull();
+  });
+
+  it("calls runTest when clicking model compatibility test button", () => {
+    render(<Topbar />);
+    fireEvent.click(screen.getByRole("button", { name: /tester les modèles/i }));
+    expect(modelTestHook.runTest).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows running model test modal and allows stop request", () => {
+    modelTestHook.state.running = true;
+    modelTestHook.state.summaryOpen = false;
+    modelTestHook.state.currentPreset = "fast";
+    modelTestHook.state.currentBackend = "webgpu";
+    modelTestHook.state.step = 1;
+    modelTestHook.state.total = 2;
+    modelTestHook.state.progress = 0.5;
+    modelTestHook.state.results = [
+      {
+        preset: "fast",
+        label: "Rapide",
+        backends: {
+          webgpu: { status: "ok", durationMs: 1100, message: "ok" },
+          wasm: { status: "too_large", durationMs: 300, message: "oom" },
+        },
+      },
+    ];
+
+    render(<Topbar />);
+
+    expect(screen.getByText(/test de compatibilité des modèles/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /stopper le test/i }));
+    expect(modelTestHook.stopTest).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows summary modal and closes it with validation button", () => {
+    modelTestHook.state.running = false;
+    modelTestHook.state.summaryOpen = true;
+    modelTestHook.state.progress = 1;
+    modelTestHook.state.results = [
+      {
+        preset: "fast",
+        label: "Rapide",
+        backends: {
+          webgpu: { status: "ok", durationMs: 900, message: "ok" },
+          wasm: { status: "error", durationMs: 200, message: "err" },
+        },
+      },
+    ];
+    modelTestHook.summary.ok = 1;
+    modelTestHook.summary.blockedCount = 0;
+    modelTestHook.summary.errors = 1;
+
+    render(<Topbar />);
+
+    expect(screen.getByText(/récapitulatif du test/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /valider et fermer/i }));
+    expect(modelTestHook.closeSummary).toHaveBeenCalledTimes(1);
   });
 });

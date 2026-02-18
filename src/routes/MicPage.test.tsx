@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import MicPage from './MicPage';
 import { useAsrStore } from '@/store/asr-store';
+import * as toastMod from '@/components/ui/use-toast';
 
 const micMock = {
   isRecording: false,
@@ -26,6 +27,14 @@ vi.mock('@/hooks/useMicTranscription', () => ({
 
 describe('MicPage', () => {
   beforeEach(() => {
+    micMock.startRecording.mockReset();
+    micMock.stopRecording.mockReset();
+    micMock.prepareRecordingWav.mockReset();
+    micMock.prepareRecordingWav.mockReturnValue(new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/wav' }));
+    micMock.prepareRecordingMp3.mockReset();
+    micMock.prepareRecordingMp3.mockResolvedValue(new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/mpeg' }));
+    micMock.calibrateSilenceThreshold.mockReset();
+
     micMock.isRecording = false;
     micMock.isStopping = false;
     micMock.pendingCount = 0;
@@ -168,5 +177,69 @@ describe('MicPage', () => {
 
     expect(useAsrStore.getState().stopRequested).toBe(true);
     expect(useAsrStore.getState().status).toBe('stopping');
+  });
+
+  it("starts recording when calibrated and idle", () => {
+    micMock.noiseCalibrated = true;
+    micMock.isRecording = false;
+
+    render(<MicPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Démarrer" }));
+
+    expect(micMock.startRecording).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops recording when already recording", () => {
+    micMock.noiseCalibrated = true;
+    micMock.isRecording = true;
+
+    render(<MicPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Arrêter" }));
+
+    expect(micMock.stopRecording).toHaveBeenCalledTimes(1);
+  });
+
+  it("triggers room-noise calibration from the calibration button", () => {
+    micMock.noiseCalibrated = false;
+    micMock.isCalibratingNoise = false;
+
+    render(<MicPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Initialiser bruit" }));
+
+    expect(micMock.calibrateSilenceThreshold).toHaveBeenCalledTimes(1);
+  });
+
+  it("prepares mp3 and shows download link on success", async () => {
+    micMock.hasRecording = true;
+    micMock.noiseCalibrated = true;
+    micMock.isRecording = false;
+    micMock.prepareRecordingMp3.mockResolvedValueOnce(new Blob(["mp3"], { type: "audio/mpeg" }));
+
+    const toastSpy = vi.spyOn(toastMod, "toast").mockImplementation(() => "toast-id" as any);
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:prepared-mp3");
+
+    render(<MicPage />);
+    fireEvent.click(screen.getByRole("button", { name: /Préparer MP3/i }));
+
+    await waitFor(() => {
+      expect(toastSpy).toHaveBeenCalledWith(expect.stringMatching(/MP3 prêt/i));
+      expect(screen.getByRole("link", { name: /Télécharger MP3/i })).toHaveAttribute("href", "blob:prepared-mp3");
+    });
+  });
+
+  it("shows toast with error message when mp3 preparation fails", async () => {
+    micMock.hasRecording = true;
+    micMock.noiseCalibrated = true;
+    micMock.isRecording = false;
+    micMock.prepareRecordingMp3.mockRejectedValueOnce(new Error("mp3 fail"));
+
+    const toastSpy = vi.spyOn(toastMod, "toast").mockImplementation(() => "toast-id" as any);
+
+    render(<MicPage />);
+    fireEvent.click(screen.getByRole("button", { name: /Préparer MP3/i }));
+
+    await waitFor(() => {
+      expect(toastSpy).toHaveBeenCalledWith("mp3 fail");
+    });
   });
 });

@@ -1,13 +1,18 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithStore } from '@/test/utils';
 import { useAsrStore } from '@/store/asr-store';
 import LocalUploadPage from './LocalUploadPage';
+import * as audioLib from '@/lib/audio';
 
 // Render helper sets store state directly for tests
 
 describe('LocalUploadPage', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('shows local transcription privacy notice', () => {
     renderWithStore(<LocalUploadPage />);
     expect(screen.getByText('Transcription locale')).toBeInTheDocument();
@@ -104,6 +109,46 @@ describe('LocalUploadPage', () => {
 
     await waitFor(() => {
       expect(useAsrStore.getState().localUploadModelSizeAlert).toBeNull();
+    });
+  });
+
+  it("stores selected file and generates preview url when selecting an upload", async () => {
+    vi.spyOn(audioLib, "probeAudioMetadata").mockResolvedValue({
+      durationSec: 42,
+      sampleRate: 16000,
+      channels: 1,
+      sizeBytes: 5,
+      mimeType: "audio/wav",
+      name: "picked.wav",
+    } as any);
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:picked-file");
+
+    renderWithStore(<LocalUploadPage />);
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["audio"], "picked.wav", { type: "audio/wav" });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    await waitFor(() => {
+      const state = useAsrStore.getState();
+      expect(state.uploadedFile?.name).toBe("picked.wav");
+      expect(state.previewUrl).toBe("blob:picked-file");
+      expect(state.status).toBe("idle");
+    });
+  });
+
+  it("sets error status when audio metadata probing fails", async () => {
+    vi.spyOn(audioLib, "probeAudioMetadata").mockRejectedValue(new Error("metadata failed"));
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:broken-file");
+
+    renderWithStore(<LocalUploadPage />);
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["audio"], "broken.wav", { type: "audio/wav" });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    await waitFor(() => {
+      const state = useAsrStore.getState();
+      expect(state.status).toBe("error");
+      expect(state.statusDetail).toMatch(/impossible d'analyser le fichier audio/i);
     });
   });
 });

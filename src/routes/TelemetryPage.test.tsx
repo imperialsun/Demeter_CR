@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
 import TelemetryPage from "@/routes/TelemetryPage";
@@ -103,5 +103,90 @@ describe("TelemetryPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /LOG_WARN/i }));
     expect(screen.getByTestId("location-search").textContent).toContain("tab=timeline");
+  });
+
+  it("clears telemetry query params when resetting filters", async () => {
+    useAsrStore.setState({
+      telemetrySummary: {
+        sessionId: "session-test",
+        createdAt: new Date("2026-02-17T12:00:00.000Z").toISOString(),
+        userAgent: "test-agent",
+        transformersVersion: "4.0.0",
+        backend: "wasm",
+        modelId: "Xenova/whisper-tiny",
+        timings: {},
+        chunks: [],
+        events: [{ type: "LOG_WARN", timestamp: 12, data: { provider: "cloud" } }],
+        memorySnapshots: [],
+        alerts: {},
+      },
+    } as never);
+
+    render(
+      <MemoryRouter initialEntries={["/telemetry?tab=alerts&scope=cloud&severity=warn&live=off"]}>
+        <Routes>
+          <Route
+            path="/telemetry"
+            element={(
+              <>
+                <TelemetryPage />
+                <LocationSearchProbe />
+              </>
+            )}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /reset filtres/i }));
+
+    await waitFor(() => {
+      const search = screen.getByTestId("location-search").textContent ?? "";
+      expect(search).not.toContain("tab=");
+      expect(search).not.toContain("scope=");
+      expect(search).not.toContain("severity=");
+      expect(search).not.toContain("live=");
+    });
+  });
+
+  it("removes live query param when switching back to default live mode", async () => {
+    useAsrStore.setState({
+      telemetrySummary: {
+        sessionId: "session-test",
+        createdAt: new Date("2026-02-17T12:00:00.000Z").toISOString(),
+        userAgent: "test-agent",
+        transformersVersion: "4.0.0",
+        backend: "wasm",
+        modelId: "Xenova/whisper-tiny",
+        timings: {},
+        chunks: [],
+        events: [{ type: "LOG_WARN", timestamp: 14, data: {} }],
+        memorySnapshots: [],
+        alerts: {},
+      },
+    } as never);
+
+    render(
+      <MemoryRouter initialEntries={["/telemetry?live=off"]}>
+        <Routes>
+          <Route
+            path="/telemetry"
+            element={(
+              <>
+                <TelemetryPage />
+                <LocationSearchProbe />
+              </>
+            )}
+          />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /reprendre live/i }));
+
+    await waitFor(() => {
+      const search = screen.getByTestId("location-search").textContent ?? "";
+      expect(search).not.toContain("live=");
+    });
   });
 });
