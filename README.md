@@ -1,5 +1,10 @@
 # Demeter Speech
 
+[![CI](https://github.com/imperialsun/Demeter_CR/actions/workflows/ci.yml/badge.svg)](https://github.com/imperialsun/Demeter_CR/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/imperialsun/Demeter_CR/branch/main/graph/badge.svg)](https://codecov.io/gh/imperialsun/Demeter_CR)
+[![Last commit](https://img.shields.io/github/last-commit/imperialsun/Demeter_CR)](https://github.com/imperialsun/Demeter_CR/commits/main)
+[![License](https://img.shields.io/github/license/imperialsun/Demeter_CR)](https://github.com/imperialsun/Demeter_CR/blob/main/LICENSE)
+
 Application web qui transcrit des fichiers audio en local (100% sur le poste) ou via des APIs cloud, puis permet de générer des comptes rendus médicaux structurés (CRI/CRO/CRS).  
 Elle propose aussi l’export des résultats (texte, sous-titres, JSON) et des réglages avancés pour la qualité, la performance et la confidentialité.
 

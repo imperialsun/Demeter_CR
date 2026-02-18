@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { createRequire } from 'node:module'
+import type { MinifyOptions } from 'terser'
 
 // https://vite.dev/config/
 const __filename = fileURLToPath(import.meta.url)
@@ -26,6 +27,17 @@ function resolveVendorChunk(id: string) {
     return 'vendor-docx'
   }
   return undefined
+}
+
+const terserOptions: MinifyOptions = {
+  compress: {
+    drop_debugger: true,
+    passes: 2,
+  },
+  mangle: true,
+  format: {
+    comments: false,
+  },
 }
 
 export default defineConfig(({ mode }) => {
@@ -74,16 +86,7 @@ export default defineConfig(({ mode }) => {
       sourcemap: false,
       manifest: true,
       minify: 'terser',
-      terserOptions: {
-        compress: {
-          drop_debugger: true,
-          passes: 2,
-        },
-        mangle: true,
-        format: {
-          comments: false,
-        },
-      } as any,
+      terserOptions,
       rollupOptions: {
         output: {
           manualChunks(id) {
