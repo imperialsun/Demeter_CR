@@ -304,14 +304,14 @@ npm run preview
 
 - Build multi-stage :
 - image Node pour compiler,
-- image Caddy pour servir le `dist/`.
+- image Nginx pour servir le `dist/`.
 - Argument build : `VITE_OBFUSCATE=1` pour activer l’obfuscation sélective en prod.
 - Port exposé : `3000`.
 
 #### Docker Compose (prod)
 
 - `transcode` :
-- sert l’app (Caddy),
+- sert l’app (Nginx),
 - labels Traefik pour HTTPS et routage.
 - `gradio-proxy` :
 - reverse proxy Nginx vers une instance Gradio distante.
@@ -366,7 +366,7 @@ DRY_RUN=1 ./deploy.sh
 - `src/store/asr-store.ts` : état global et persistance.
 - `public/onnx/` : assets ONNX WASM.
 - `public/ffmpeg/` : assets FFmpeg WASM.
-- `docker-compose*.yml`, `Dockerfile`, `Caddyfile` : exécution conteneurisée et headers.
+- `docker-compose*.yml`, `Dockerfile`, `docker/nginx/transcode.conf` : exécution conteneurisée et headers.
 
 ### 13) Tests et qualité
 
@@ -648,7 +648,7 @@ npm run preview
 
 - Multi-stage image:
 - Node build stage,
-- Caddy runtime stage serving static `dist`.
+- Nginx runtime stage serving static `dist`.
 - Build arg: `VITE_OBFUSCATE=1` enables selective production obfuscation.
 - Exposes `3000`.
 

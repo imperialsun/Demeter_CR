@@ -24,7 +24,7 @@ services:
       - "traefik.http.routers.transcode.tls.certresolver=le"
       - "traefik.http.routers.transcode.priority=1"
       - "traefik.http.services.transcode.loadbalancer.server.port=3000"
-      # Add secure headers as a Traefik middleware in case you prefer Traefik add them (redundant with Caddy headers)
+      # Add secure headers as a Traefik middleware in case you prefer Traefik add them (redundant with runtime headers)
       - "traefik.http.middlewares.transcode-secure-headers.headers.customResponseHeaders.Cross-Origin-Opener-Policy=same-origin"
       - "traefik.http.middlewares.transcode-secure-headers.headers.customResponseHeaders.Cross-Origin-Embedder-Policy=require-corp"
       - "traefik.http.middlewares.transcode-secure-headers.headers.customResponseHeaders.Cross-Origin-Resource-Policy=same-origin"
