@@ -23,6 +23,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Trivy filesystem scan
+        id: trivy_fs_scan
+        continue-on-error: true
         uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: fs
@@ -34,11 +36,15 @@ jobs:
           exit-code: "1"
 
       - name: Upload Trivy FS SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('trivy-fs.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-fs.sarif
           category: trivy-fs
+
+      - name: Fail when Trivy FS finds HIGH/CRITICAL issues
+        if: steps.trivy_fs_scan.outcome == 'failure'
+        run: exit 1
 
   trivy-image:
     name: Trivy Image
@@ -52,6 +58,8 @@ jobs:
         run: docker build -t demeter-cr:ci .
 
       - name: Run Trivy image scan
+        id: trivy_image_scan
+        continue-on-error: true
         uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: image
@@ -63,8 +71,12 @@ jobs:
           exit-code: "1"
 
       - name: Upload Trivy Image SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('trivy-image.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-image.sarif
           category: trivy-image
+
+      - name: Fail when Trivy Image finds HIGH/CRITICAL issues
+        if: steps.trivy_image_scan.outcome == 'failure'
+        run: exit 1
