@@ -1,9 +1,12 @@
 # Demeter Speech
 
 [![CI](https://github.com/imperialsun/Demeter_CR/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/imperialsun/Demeter_CR/actions/workflows/ci.yml)
+[![Prod Smoke](https://github.com/imperialsun/Demeter_CR/actions/workflows/prod-smoke.yml/badge.svg?branch=main)](https://github.com/imperialsun/Demeter_CR/actions/workflows/prod-smoke.yml)
+[![CodeQL](https://github.com/imperialsun/Demeter_CR/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/imperialsun/Demeter_CR/actions/workflows/codeql.yml)
+[![Trivy](https://github.com/imperialsun/Demeter_CR/actions/workflows/trivy.yml/badge.svg?branch=main)](https://github.com/imperialsun/Demeter_CR/actions/workflows/trivy.yml)
 [![Coverage](https://codecov.io/gh/imperialsun/Demeter_CR/branch/main/graph/badge.svg)](https://codecov.io/gh/imperialsun/Demeter_CR)
 [![Last commit](https://img.shields.io/github/last-commit/imperialsun/Demeter_CR)](https://github.com/imperialsun/Demeter_CR/commits/main)
-[![License](https://img.shields.io/github/license/imperialsun/Demeter_CR)](https://github.com/imperialsun/Demeter_CR/blob/main/LICENSE)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 Application web qui transcrit des fichiers audio en local (100% sur le poste) ou via des APIs cloud, puis permet de générer des comptes rendus de réunion structurés (CRI/CRO/CRS).  
 Elle propose aussi l’export des résultats (texte, sous-titres, JSON) et des réglages avancés pour la qualité, la performance et la confidentialité.
@@ -229,7 +232,18 @@ Chaque export inclut un en-tête avec :
 - paramètres actifs,
 - informations runtime (backend, modèle, etc.).
 
-### 6) Stack technique
+### 6) Sécurité
+
+- Workflows actifs : `Prod Smoke`, `CodeQL`, `Trivy`.
+- Politique vulnérabilités : Trivy bloque le pipeline sur `HIGH` et `CRITICAL`.
+- Liens sécurité :
+1. https://github.com/imperialsun/Demeter_CR/security
+2. https://github.com/imperialsun/Demeter_CR/security/code-scanning
+3. https://github.com/imperialsun/Demeter_CR/security/dependabot
+4. https://github.com/imperialsun/Demeter_CR/network/dependencies
+- Note : un badge peut afficher `no status` tant que le workflow n’a pas encore tourné au moins une fois.
+
+### 7) Stack technique
 
 - Frontend : React 19, TypeScript, Vite, React Router.
 - State management : Zustand.
@@ -238,7 +252,7 @@ Chaque export inclut un en-tête avec :
 - Audio : Web Audio API + FFmpeg WASM.
 - Tests : Vitest + Testing Library.
 
-### 7) Prérequis
+### 8) Prérequis
 
 - Node.js 18+ (Node 20 recommandé en local).
 - npm.
@@ -247,7 +261,7 @@ Chaque export inclut un en-tête avec :
 - `Cross-Origin-Opener-Policy: same-origin`
 - `Cross-Origin-Embedder-Policy: require-corp`
 
-### 8) Installation et lancement (local)
+### 9) Installation et lancement (local)
 
 ```bash
 npm ci
@@ -273,7 +287,7 @@ npm run build:prod
 npm run preview
 ```
 
-### 9) Scripts npm
+### 10) Scripts npm
 
 - `npm run dev` : serveur Vite dev.
 - `npm run build` : build TypeScript + Vite.
@@ -284,7 +298,7 @@ npm run preview
 - `npm run test:watch` : tests en watch.
 - `npm run test:ci` : tests + couverture.
 
-### 10) Docker et déploiement
+### 11) Docker et déploiement
 
 #### Dockerfile
 
@@ -344,7 +358,7 @@ DRY_RUN=1 ./deploy.sh
 ./deploy.sh user@host /chemin/remote
 ```
 
-### 11) Structure du dépôt (repères)
+### 12) Structure du dépôt (repères)
 
 - `src/routes/` : pages (login, local upload, cloud, llm cloud, settings, telemetry).
 - `src/hooks/` : orchestration des pipelines de transcription.
@@ -354,7 +368,7 @@ DRY_RUN=1 ./deploy.sh
 - `public/ffmpeg/` : assets FFmpeg WASM.
 - `docker-compose*.yml`, `Dockerfile`, `Caddyfile` : exécution conteneurisée et headers.
 
-### 12) Tests et qualité
+### 13) Tests et qualité
 
 Lancer les tests :
 
@@ -368,14 +382,14 @@ Couverture :
 npm run test:ci
 ```
 
-### 13) Limites connues et points d’attention
+### 14) Limites connues et points d’attention
 
 - Sécurité auth côté client uniquement (pas un remplacement d’auth serveur).
 - Le multithread WASM dépend fortement de l’isolation cross-origin.
 - Les modèles lourds peuvent saturer la mémoire GPU/CPU selon machine.
 - La route `/mic` redirige actuellement vers `/localupload` (mode micro non exposé dans la navigation principale).
 
-### 14) Dépannage rapide
+### 15) Dépannage rapide
 
 - **Erreur “Aucun backend utilisable”** :
 - vérifier `public/onnx/*`,
@@ -392,7 +406,7 @@ npm run test:ci
 - vérifier tokens API et quotas,
 - vérifier paramètres de chunking cloud.
 
-### 15) LLM Cloud (Formats CRI/CRO/CRS)
+### 16) LLM Cloud (Formats CRI/CRO/CRS)
 
 - Nouvelle route : `/llmapi` (menu latéral `LLM Cloud`).
 - Note : `LLM Cloud` utilise une API externe (provider distant) pour générer des comptes rendus de réunion.
@@ -562,7 +576,18 @@ Exports include header metadata:
 - active settings snapshot,
 - runtime context (backend/model).
 
-### 6) Tech stack
+### 6) Security
+
+- Active workflows: `Prod Smoke`, `CodeQL`, `Trivy`.
+- Vulnerability policy: Trivy blocks the pipeline on `HIGH` and `CRITICAL`.
+- Security links:
+1. https://github.com/imperialsun/Demeter_CR/security
+2. https://github.com/imperialsun/Demeter_CR/security/code-scanning
+3. https://github.com/imperialsun/Demeter_CR/security/dependabot
+4. https://github.com/imperialsun/Demeter_CR/network/dependencies
+- Note: a badge may show `no status` until the workflow has run at least once.
+
+### 7) Tech stack
 
 - React 19, TypeScript, Vite, React Router.
 - Zustand for state management.
@@ -571,7 +596,7 @@ Exports include header metadata:
 - Audio processing with Web Audio API + FFmpeg WASM.
 - Vitest + Testing Library.
 
-### 7) Requirements
+### 8) Requirements
 
 - Node.js 18+ (Node 20 recommended for local dev).
 - npm.
@@ -580,7 +605,7 @@ Exports include header metadata:
 - `Cross-Origin-Opener-Policy: same-origin`
 - `Cross-Origin-Embedder-Policy: require-corp`
 
-### 8) Local setup
+### 9) Local setup
 
 ```bash
 npm ci
@@ -606,7 +631,7 @@ npm run build:prod
 npm run preview
 ```
 
-### 9) npm scripts
+### 10) npm scripts
 
 - `npm run dev`
 - `npm run build`
@@ -617,7 +642,7 @@ npm run preview
 - `npm run test:watch`
 - `npm run test:ci`
 
-### 10) Docker and deployment
+### 11) Docker and deployment
 
 #### Dockerfile
 
@@ -667,7 +692,7 @@ DRY_RUN=1 ./deploy.sh
 ./deploy.sh user@host /remote/path
 ```
 
-### 11) Repository map
+### 12) Repository map
 
 - `src/routes/`: pages (login/local/cloud/llm cloud/settings/telemetry).
 - `src/hooks/`: orchestration logic for transcription flows.
@@ -677,21 +702,21 @@ DRY_RUN=1 ./deploy.sh
 - `public/ffmpeg/`: FFmpeg WASM assets.
 - Docker and proxy files at repo root.
 
-### 12) Testing
+### 13) Testing
 
 ```bash
 npm run test
 npm run test:ci
 ```
 
-### 13) Known limitations
+### 14) Known limitations
 
 - Client-side auth is not equivalent to server-side access control.
 - WASM multithreading depends on cross-origin isolation support.
 - Large models may exceed available GPU/CPU memory.
 - `/mic` currently redirects to `/localupload` (mic mode code exists but is not exposed in the main navigation).
 
-### 14) Quick troubleshooting
+### 15) Quick troubleshooting
 
 - **“No usable backend found”**:
 - verify `public/onnx/*`,
@@ -708,7 +733,7 @@ npm run test:ci
 - verify API token/key,
 - check provider quota and chunking values.
 
-### 15) LLM Cloud (CRI/CRO/CRS Formats)
+### 16) LLM Cloud (CRI/CRO/CRS Formats)
 
 - New route: `/llmapi` (sidebar entry `LLM Cloud`).
 - Note: `LLM Cloud` uses an external provider API to generate meeting reports.

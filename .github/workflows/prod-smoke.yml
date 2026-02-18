@@ -1,0 +1,107 @@
+name: Prod Smoke
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prod-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create external proxy network
+        run: docker network create proxy || true
+
+      - name: Validate compose config
+        run: docker compose -f docker-compose.yml config >/dev/null
+
+      - name: Start production services
+        run: docker compose -f docker-compose.yml up -d --build transcode gradio-proxy
+
+      - name: Wait for app availability
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:3000/index.html >/dev/null; then
+              echo "App is ready after ${i} attempts"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "App did not become ready in 120s"
+          exit 1
+
+      - name: Verify health and security headers
+        run: |
+          set -euo pipefail
+
+          assert_header() {
+            local url="$1"
+            local expected="$2"
+            local headers
+            headers="$(curl -fsSI "$url" | tr -d '\r')"
+            if ! echo "$headers" | grep -iF "$expected" >/dev/null; then
+              echo "Missing header '$expected' on $url"
+              echo "$headers"
+              exit 1
+            fi
+          }
+
+          index_status="$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/index.html)"
+          route_status="$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/localupload)"
+          test "$index_status" = "200"
+          test "$route_status" = "200"
+
+          assert_header "http://localhost:3000/index.html" "Cross-Origin-Opener-Policy: same-origin"
+          assert_header "http://localhost:3000/index.html" "Cross-Origin-Embedder-Policy: require-corp"
+          assert_header "http://localhost:3000/index.html" "Cross-Origin-Resource-Policy: same-origin"
+          assert_header "http://localhost:3000/index.html" "Cache-Control: no-cache"
+
+      - name: Verify cache policies for assets
+        run: |
+          set -euo pipefail
+
+          assert_header() {
+            local url="$1"
+            local expected="$2"
+            local headers
+            headers="$(curl -fsSI "$url" | tr -d '\r')"
+            if ! echo "$headers" | grep -iF "$expected" >/dev/null; then
+              echo "Missing header '$expected' on $url"
+              echo "$headers"
+              exit 1
+            fi
+          }
+
+          index_html="$(curl -fsS http://localhost:3000/index.html)"
+          asset_path="$(echo "$index_html" | grep -oE "/assets/[^\"'<> ]+\\.js" | head -n1 || true)"
+          if [ -z "$asset_path" ]; then
+            echo "Unable to find a hashed /assets/*.js path in index.html"
+            exit 1
+          fi
+
+          assert_header "http://localhost:3000${asset_path}" "Cache-Control: public, max-age=31536000, immutable"
+          assert_header "http://localhost:3000/onnx/ort-wasm-simd-threaded.wasm" "Cache-Control: public, max-age=86400, must-revalidate"
+          assert_header "http://localhost:3000/ffmpeg/ffmpeg-core.wasm" "Cache-Control: public, max-age=86400, must-revalidate"
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.yml logs --no-color
+
+      - name: Teardown
+        if: always()
+        run: |
+          docker compose -f docker-compose.yml down -v || true
+          docker network rm proxy || true
