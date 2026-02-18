@@ -20,23 +20,23 @@ vi.mock("@/routes/TelemetryPage", () => ({ default: () => <div>TelemetryStub</di
 vi.mock("@/routes/LoginPage", () => ({ default: () => <div>LoginStub</div> }));
 
 describe("App routing", () => {
-  it("registers /llmapi route", () => {
+  it("registers /llmapi route", async () => {
     render(
       <MemoryRouter initialEntries={["/llmapi"]}>
         <App />
       </MemoryRouter>
     );
 
-    expect(screen.getByText("LLMApiStub")).toBeInTheDocument();
+    expect(await screen.findByText("LLMApiStub")).toBeInTheDocument();
   });
 
-  it("registers /llmlocal route", () => {
+  it("registers /llmlocal route", async () => {
     render(
       <MemoryRouter initialEntries={["/llmlocal"]}>
         <App />
       </MemoryRouter>
     );
 
-    expect(screen.getByText("LLMLocalStub")).toBeInTheDocument();
+    expect(await screen.findByText("LLMLocalStub")).toBeInTheDocument();
   });
 });

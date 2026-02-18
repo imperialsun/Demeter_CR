@@ -360,6 +360,10 @@ function LLMApiPage() {
         <p className="text-muted-foreground">
           Generez les 3 formats CRI/CRO/CRS via provider LLM cloud, puis telechargez chaque compte rendu en DOCX.
         </p>
+        <p className="text-sm font-medium text-amber-700">
+          Note: ce module utilise une API externe du provider selectionne. Pour un equivalent local, utilisez LLM
+          Local (/llmlocal).
+        </p>
       </header>
 
       <div className="grid gap-6 xl:grid-cols-[380px_1fr]">

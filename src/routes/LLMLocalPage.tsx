@@ -387,6 +387,9 @@ function LLMLocalPage() {
           <p className="text-muted-foreground">
             Generez les 3 formats CRI/CRO/CRS localement dans le navigateur, puis telechargez chaque compte rendu en DOCX.
           </p>
+          <p className="text-sm font-medium text-emerald-600">
+            Traitement 100% local sur ce poste: aucune donnee n'est partagee en dehors de ce poste.
+          </p>
         </header>
 
         <div className="grid gap-6 xl:grid-cols-[380px_1fr]">

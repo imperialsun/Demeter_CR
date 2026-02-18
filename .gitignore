@@ -16,6 +16,7 @@ dist-ssr/
 .env
 .env.local
 .env.*.local
+.env.production.local
 
 # Caches / temp
 .vscode/*
@@ -39,3 +40,5 @@ transcriptions/
 *.sln
 *.sw?
 worktrees/
+docker-compose.install.override.yml
+docker/gradio-proxy/nginx.generated.conf

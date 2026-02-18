@@ -1,14 +1,15 @@
-import { Suspense } from "react";
+import { Suspense, lazy } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 import LocalUploadPage from "@/routes/LocalUploadPage";
-import CloudUploadPage from "@/routes/CloudUploadPage";
-import LLMApiPage from "@/routes/LLMApiPage";
-import LLMLocalPage from "@/routes/LLMLocalPage";
-import SettingsPage from "@/routes/SettingsPage";
-import TelemetryPage from "@/routes/TelemetryPage";
 import LoginPage from "@/routes/LoginPage";
 import { isAuthenticated } from "@/lib/auth";
+
+const CloudUploadPage = lazy(() => import("@/routes/CloudUploadPage"));
+const LLMApiPage = lazy(() => import("@/routes/LLMApiPage"));
+const LLMLocalPage = lazy(() => import("@/routes/LLMLocalPage"));
+const SettingsPage = lazy(() => import("@/routes/SettingsPage"));
+const TelemetryPage = lazy(() => import("@/routes/TelemetryPage"));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const location = useLocation();

@@ -1,8 +1,19 @@
 services:
   transcode:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_OBFUSCATE: "1"
     image: transcode:latest
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /config
+      - /data
+    cap_drop:
+      - ALL
     ports:
       - "3000:3000"
     labels:

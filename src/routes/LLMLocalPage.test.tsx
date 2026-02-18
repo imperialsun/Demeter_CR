@@ -94,6 +94,12 @@ describe("LLMLocalPage", () => {
     });
   });
 
+  it("shows local privacy notice for llm local mode", () => {
+    renderPage();
+    expect(screen.getByText(/traitement 100% local sur ce poste/i)).toBeInTheDocument();
+    expect(screen.getByText(/aucune donnee n'est partagee en dehors de ce poste/i)).toBeInTheDocument();
+  });
+
   it("renders local model profile selector", () => {
     renderPage();
     expect(screen.getByLabelText("Profil modele", { selector: "button#llm-local-profile" })).toBeInTheDocument();

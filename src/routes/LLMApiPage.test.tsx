@@ -92,6 +92,12 @@ describe("LLMApiPage", () => {
     });
   });
 
+  it("shows cloud external api note with local equivalent", () => {
+    renderPage();
+    expect(screen.getByText(/module utilise une api externe/i)).toBeInTheDocument();
+    expect(screen.getByText(/llm local \(\/llmlocal\)/i)).toBeInTheDocument();
+  });
+
   it("requires an imported file when source is texte libre", async () => {
     renderPage();
 

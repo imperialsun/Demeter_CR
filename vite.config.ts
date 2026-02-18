@@ -9,6 +9,25 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 const require = createRequire(import.meta.url)
 
+function resolveVendorChunk(id: string) {
+  if (!id.includes('/node_modules/')) return undefined
+  if (
+    id.includes('/node_modules/@huggingface/transformers/') ||
+    id.includes('/node_modules/onnxruntime-web/') ||
+    id.includes('/node_modules/@huggingface/inference/') ||
+    id.includes('/node_modules/@gradio/client/')
+  ) {
+    return 'vendor-asr'
+  }
+  if (id.includes('/node_modules/@ffmpeg/')) {
+    return 'vendor-ffmpeg'
+  }
+  if (id.includes('/node_modules/docx/')) {
+    return 'vendor-docx'
+  }
+  return undefined
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const rawPasswords = (env.LOGIN_PASSWORDS ?? env.LOGIN_PASSWORD ?? '').trim()
@@ -49,6 +68,28 @@ export default defineConfig(({ mode }) => {
       alias: {
         '@': resolve(__dirname, 'src'),
         crypto: resolve(__dirname, 'src/shims/crypto.ts'),
+      },
+    },
+    build: {
+      sourcemap: false,
+      manifest: true,
+      minify: 'terser',
+      terserOptions: {
+        compress: {
+          drop_debugger: true,
+          passes: 2,
+        },
+        mangle: true,
+        format: {
+          comments: false,
+        },
+      } as any,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            return resolveVendorChunk(id)
+          },
+        },
       },
     },
     // For multithreaded WASM we need cross-origin isolation (COOP/COEP).

@@ -1,8 +1,80 @@
 # Demeter Speech
 
-Application web de transcription audio (locale et cloud), développée avec React + TypeScript + Vite.
+Application web qui transcrit des fichiers audio en local (100% sur le poste) ou via des APIs cloud, puis permet de générer des comptes rendus médicaux structurés (CRI/CRO/CRS).  
+Elle propose aussi l’export des résultats (texte, sous-titres, JSON) et des réglages avancés pour la qualité, la performance et la confidentialité.
 
-This is a browser-based audio transcription app (local and cloud), built with React + TypeScript + Vite.
+Browser-based app that transcribes audio locally or through cloud APIs, then generates structured medical reports (CRI/CRO/CRS).  
+It also includes export features (text, subtitles, JSON) and advanced settings for quality, performance, and privacy.
+
+## J'ai la flemme (install en 1 ligne)
+
+```bash
+chmod +x install.sh && ./install.sh
+```
+
+## Je fais l'install comme un grand (prod manuelle)
+
+### 1) Prérequis
+
+- Docker installé (Engine + Compose plugin).
+- Un reverse proxy Traefik opérationnel si tu utilises les labels `Host(...)`.
+- Le réseau Docker externe `proxy` doit exister (une seule fois) :
+
+```bash
+docker network create proxy
+```
+
+### 2) Ce qu'il faut modifier avant le déploiement
+
+- **Domaine app** :
+- Si tu gardes `transcode.demeter-sante.fr`, ne change rien.
+- Si tu utilises un autre domaine, remplace `transcode.demeter-sante.fr` dans `docker-compose.yml` sur les 3 labels:
+- `traefik.http.routers.transcode.rule`
+- `traefik.http.routers.transcode-gradio.rule`
+- `traefik.http.routers.transcode-gradio-ui.rule`
+
+- **URL Gradio distante** :
+- Modifie `docker/gradio-proxy/nginx.conf` :
+- `proxy_pass https://...`
+- `proxy_set_header Host ...`
+
+- **Mot de passe de connexion (important)** :
+- Sans config explicite, le build peut retomber sur une valeur de démo.
+- Ajoute `LOGIN_PASSWORDS` dans les args build de `docker-compose.yml` :
+
+```yaml
+services:
+  transcode:
+    build:
+      args:
+        VITE_OBFUSCATE: "1"
+        LOGIN_PASSWORDS: "ChangeMoiMaintenant!"
+```
+
+- **Obfuscation** :
+- `VITE_OBFUSCATE: "1"` = activée (recommandé prod).
+- `VITE_OBFUSCATE: "0"` = désactivée.
+
+### 3) Déployer
+
+```bash
+docker compose up --build -d
+```
+
+### 4) Vérifier
+
+```bash
+docker compose ps
+docker compose logs -f transcode
+curl -I http://localhost:3000
+```
+
+### 5) Mettre à jour / arrêter
+
+```bash
+docker compose up --build -d
+docker compose down
+```
 
 ---
 
@@ -190,6 +262,7 @@ Build production :
 
 ```bash
 npm run build
+npm run build:prod
 npm run preview
 ```
 
@@ -197,6 +270,7 @@ npm run preview
 
 - `npm run dev` : serveur Vite dev.
 - `npm run build` : build TypeScript + Vite.
+- `npm run build:prod` : build production + obfuscation sélective (`VITE_OBFUSCATE=0` pour désactiver).
 - `npm run preview` : preview build.
 - `npm run lint` : lint ESLint.
 - `npm run test` : tests unitaires.
@@ -210,6 +284,7 @@ npm run preview
 - Build multi-stage :
 - image Node pour compiler,
 - image Caddy pour servir le `dist/`.
+- Argument build : `VITE_OBFUSCATE=1` pour activer l’obfuscation sélective en prod.
 - Port exposé : `3000`.
 
 #### Docker Compose (prod)
@@ -225,6 +300,19 @@ Commande :
 ```bash
 docker compose up --build -d
 ```
+
+Option script interactif (facultatif) :
+
+```bash
+./install.sh
+```
+
+Important :
+
+- Le lancement direct `docker compose up --build -d` reste supporté sans script.
+- `install.sh` génère uniquement des overrides runtime (`docker-compose.install.override.yml`, `.env.production.local`, `docker/gradio-proxy/nginx.generated.conf`) et ne modifie pas `docker-compose.yml`.
+- Valeurs par défaut du script : URL app `transcode.demeter-sante.fr`, URL Gradio `https://4e47b675ea4015a607.gradio.live`, obfuscation `1`.
+- `install.sh` passe aussi `LOGIN_PASSWORDS` au build via `--env-file .env.production.local`.
 
 #### Docker Compose (dev)
 
@@ -300,6 +388,8 @@ npm run test:ci
 ### 15) LLM Cloud (Formats CRI/CRO/CRS)
 
 - Nouvelle route : `/llmapi` (menu latéral `LLM Cloud`).
+- Note : `LLM Cloud` utilise une API externe (provider distant) pour generer les comptes rendus.
+- Equivalent local : utilisez `/llmlocal` pour executer le module sans API externe.
 - Source au choix :
 - transcription de session (`segments`),
 - texte libre collé manuellement.
@@ -503,6 +593,7 @@ Build and preview:
 
 ```bash
 npm run build
+npm run build:prod
 npm run preview
 ```
 
@@ -510,6 +601,7 @@ npm run preview
 
 - `npm run dev`
 - `npm run build`
+- `npm run build:prod` (production build + selective obfuscation, disable with `VITE_OBFUSCATE=0`)
 - `npm run preview`
 - `npm run lint`
 - `npm run test`
@@ -523,6 +615,7 @@ npm run preview
 - Multi-stage image:
 - Node build stage,
 - Caddy runtime stage serving static `dist`.
+- Build arg: `VITE_OBFUSCATE=1` enables selective production obfuscation.
 - Exposes `3000`.
 
 #### Production compose
@@ -533,6 +626,19 @@ npm run preview
 ```bash
 docker compose up --build -d
 ```
+
+Optional interactive helper script:
+
+```bash
+./install.sh
+```
+
+Important:
+
+- Direct launch with `docker compose up --build -d` remains supported without the script.
+- `install.sh` only creates runtime override files (`docker-compose.install.override.yml`, `.env.production.local`, `docker/gradio-proxy/nginx.generated.conf`) and does not edit `docker-compose.yml`.
+- Script defaults: app URL `transcode.demeter-sante.fr`, Gradio upstream `https://4e47b675ea4015a607.gradio.live`, obfuscation `1`.
+- `install.sh` also forwards `LOGIN_PASSWORDS` to the build through `--env-file .env.production.local`.
 
 #### Dev compose
 
@@ -596,6 +702,8 @@ npm run test:ci
 ### 15) LLM Cloud (CRI/CRO/CRS Formats)
 
 - New route: `/llmapi` (sidebar entry `LLM Cloud`).
+- Note: `LLM Cloud` uses an external provider API to generate reports.
+- Local equivalent: use `/llmlocal` to run the module without an external API.
 - Input source options:
 - session transcription (`segments`),
 - manually pasted free text.
