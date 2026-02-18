@@ -27,6 +27,8 @@ describe("extractSegmentBlob", () => {
     mocks.ffmpeg.exec.mockClear();
     mocks.ffmpeg.readFile.mockClear();
     mocks.ffmpeg.deleteFile.mockClear();
+    mocks.ffmpeg.exec.mockResolvedValue(0);
+    mocks.ffmpeg.readFile.mockResolvedValue(new Uint8Array([1, 2, 3]));
   });
 
   it("extracts a segment with copy mode", async () => {
@@ -43,5 +45,23 @@ describe("extractSegmentBlob", () => {
     const result = await extractSegmentBlob(file, { index: 1, startSec: 0, endSec: 10 });
     expect(result.mimeType).toBe("audio/webm;codecs=opus");
     expect(mocks.ffmpeg.exec).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses mime extension over file name extension mismatch", async () => {
+    const file = new File([""], "test.wav", { type: "audio/mpeg" });
+    const result = await extractSegmentBlob(file, { index: 2, startSec: 0, endSec: 10 });
+    expect(result.name.endsWith(".mp3")).toBe(true);
+    expect(result.mimeType).toBe("audio/mpeg");
+  });
+
+  it("throws when copy and fallback both fail", async () => {
+    mocks.ffmpeg.exec.mockResolvedValueOnce(1).mockResolvedValueOnce(2);
+    const file = new File([""], "test.mp3", { type: "audio/mpeg" });
+
+    await expect(extractSegmentBlob(file, { index: 3, startSec: 0, endSec: 10 })).rejects.toThrow(
+      "ffmpeg failed with code 2"
+    );
+    expect(mocks.ffmpeg.unmount).toHaveBeenCalled();
+    expect(mocks.ffmpeg.deleteDir).toHaveBeenCalled();
   });
 });

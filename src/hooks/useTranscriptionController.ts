@@ -29,10 +29,16 @@ import {
   type DedupeMode,
   type ModelSizeForegroundAlert,
 } from "@/store/asr-store";
-
-function clamp01(value: number) {
-  return Math.max(0, Math.min(1, value));
-}
+import {
+  accumulateConfidenceFromSegments,
+  isRunInvalidated,
+  resolveOverallConfidence,
+  resolveMemoryModeForDuration,
+  shouldEmitThrottledUpdate,
+  trimChunkOverlap,
+  trimDebrisPrefix,
+  shouldStopRun,
+} from "@/hooks/useTranscriptionController.steps";
 
 const sharedAbortRef: { current: AbortController | null } = { current: null };
 const sharedRunIdRef: { current: number } = { current: 0 };
@@ -82,31 +88,19 @@ export function useTranscriptionController() {
     fallbackText?: string,
     fallbackDurationSec?: number
   ) => {
-    const acc = confidenceAccumulatorRef.current;
-    for (const seg of newSegments) {
-      const conf = seg.confidence;
-      if (typeof conf !== "number" || Number.isNaN(conf)) continue;
-      const dur = Math.max(0.001, seg.end - seg.start);
-      acc.totalDur += dur;
-      acc.weightedSum += conf * dur;
-      if (seg.confidenceSource === "estimated") acc.estimatedDur += dur;
-      else if (seg.confidenceSource === "model") acc.modelDur += dur;
-    }
+    confidenceAccumulatorRef.current = accumulateConfidenceFromSegments(
+      confidenceAccumulatorRef.current,
+      newSegments
+    );
+    const { overall, source } = resolveOverallConfidence({
+      accumulator: confidenceAccumulatorRef.current,
+      fallbackText,
+      fallbackDurationSec,
+      estimateFromText: estimateConfidenceFromText,
+    });
 
-    let overall: number | null = null;
-    let source: "model" | "estimated" | null = null;
-    if (acc.totalDur > 0) {
-      overall = clamp01(acc.weightedSum / acc.totalDur);
-      source = acc.estimatedDur > acc.modelDur ? "estimated" : "model";
-    } else if (fallbackText && fallbackText.trim().length) {
-      try {
-        const dur = Math.max(0.001, fallbackDurationSec ?? 0.001);
-        overall = clamp01(estimateConfidenceFromText(fallbackText, dur));
-        source = "estimated";
-        logger.info("Computed overall from chunk text (fallback)", { chunkIndex, overall });
-      } catch (err) {
-        void err;
-      }
+    if (source === "estimated" && fallbackText && fallbackText.trim().length) {
+      logger.info("Computed overall from chunk text (fallback)", { chunkIndex, overall });
     }
 
     useAsrStore.getState().setTranscriptionConfidence(overall);
@@ -117,7 +111,13 @@ export function useTranscriptionController() {
 
   const setProgressThrottled = (value: number, force = false) => {
     const now = Date.now();
-    if (force || value <= 0 || value >= 1 || now - progressThrottleRef.current >= throttleMs) {
+    if (shouldEmitThrottledUpdate({
+      now,
+      lastTimestamp: progressThrottleRef.current,
+      value,
+      throttleMs,
+      force,
+    })) {
       progressThrottleRef.current = now;
       useAsrStore.getState().setProgress(value);
     }
@@ -125,7 +125,13 @@ export function useTranscriptionController() {
 
   const setSegmentationProgressThrottled = (value: number, force = false) => {
     const now = Date.now();
-    if (force || value <= 0 || value >= 1 || now - segmentationThrottleRef.current >= throttleMs) {
+    if (shouldEmitThrottledUpdate({
+      now,
+      lastTimestamp: segmentationThrottleRef.current,
+      value,
+      throttleMs,
+      force,
+    })) {
       segmentationThrottleRef.current = now;
       useAsrStore.getState().setSegmentationProgress(value);
     }
@@ -133,7 +139,13 @@ export function useTranscriptionController() {
 
   const setPreprocessingProgressThrottled = (value: number, force = false) => {
     const now = Date.now();
-    if (force || value <= 0 || value >= 1 || now - preprocessThrottleRef.current >= throttleMs) {
+    if (shouldEmitThrottledUpdate({
+      now,
+      lastTimestamp: preprocessThrottleRef.current,
+      value,
+      throttleMs,
+      force,
+    })) {
       preprocessThrottleRef.current = now;
       useAsrStore.getState().setPreprocessingProgress(value);
     }
@@ -907,7 +919,7 @@ export function useTranscriptionController() {
       });
     };
     const throwIfRunInvalidated = () => {
-      if (runId !== sharedRunIdRef.current) {
+      if (isRunInvalidated(runId, sharedRunIdRef.current)) {
         throw new DOMException("Run invalidated", "AbortError");
       }
     };
@@ -944,15 +956,17 @@ export function useTranscriptionController() {
     const source = { id: crypto.randomUUID(), label: file.name, type: "file" as const };
     state.registerAudioSource(source, metadata);
 
-    const autoProgressiveThresholdSec = 15 * 60;
-    let effectiveMemoryMode = state.memoryMode;
-    if (metadata.durationSec > autoProgressiveThresholdSec && state.memoryMode === "full") {
-      effectiveMemoryMode = "progressive";
+    const memoryModeResolution = resolveMemoryModeForDuration({
+      durationSec: metadata.durationSec,
+      requestedMode: state.memoryMode,
+    });
+    const effectiveMemoryMode = memoryModeResolution.mode;
+    if (memoryModeResolution.switched) {
       state.setMemoryMode("progressive");
       toast("Audio > 15 min : passage automatique en mode progressif.");
       logger.info("[memory-mode] auto switched to progressive", {
         durationSec: metadata.durationSec,
-        thresholdSec: autoProgressiveThresholdSec,
+        thresholdSec: memoryModeResolution.thresholdSec,
       });
     }
 
@@ -1368,10 +1382,11 @@ export function useTranscriptionController() {
 
   function shouldStopAfterChunk(runId?: number) {
     const snapshot = useAsrStore.getState();
-    if (typeof runId === "number" && runId !== sharedRunIdRef.current) {
-      return true;
-    }
-    return snapshot.stopRequested;
+    return shouldStopRun({
+      runId,
+      currentRunId: sharedRunIdRef.current,
+      stopRequested: snapshot.stopRequested,
+    });
   }
 
   function teleportStateToReady() {
@@ -1577,303 +1592,4 @@ export function normaliseSegments(
     idx += 1;
   }
   return segments;
-}
-
-function trimChunkOverlap(
-  previousText: string | undefined,
-  currentText: string,
-  mode: DedupeMode
-): { text: string; overlapWords: number; removedTokens: number } {
-  if (mode === "fuzzy") {
-    return trimChunkOverlapFuzzy(previousText, currentText);
-  }
-  return trimChunkOverlapExact(previousText, currentText);
-}
-
-const MAX_OVERLAP_TOKENS = 30;
-const MIN_OVERLAP_TOKENS = 2;
-const MAX_PREFIX_OFFSET = 2;
-const FUZZY_TOKEN_THRESHOLD = 0.75;
-const FUZZY_CHAR_THRESHOLD = 0.78;
-const MAX_DEBRIS_PREFIX_TOKENS = 3;
-const MIN_DEBRIS_REMAINING_TOKENS = 2;
-const CONTINUATION_TOKENS = new Set([
-  "de",
-  "du",
-  "des",
-  "d",
-  "l",
-  "la",
-  "le",
-  "les",
-  "que",
-  "qui",
-  "pour",
-  "avec",
-  "dans",
-  "sur",
-  "en",
-  "au",
-  "aux",
-]);
-const VERB_LIKE_TOKENS = new Set([
-  "est",
-  "sont",
-  "ete",
-  "etaient",
-  "etait",
-  "a",
-  "ont",
-  "avait",
-  "avaient",
-  "sera",
-  "seront",
-  "etre",
-  "avoir",
-  "fait",
-  "font",
-  "faisait",
-  "faisaient",
-  "dit",
-  "disent",
-  "peut",
-  "peuvent",
-  "doit",
-  "doivent",
-  "va",
-  "vont",
-  "allait",
-  "allaient",
-]);
-
-function trimChunkOverlapExact(previousText: string | undefined, currentText: string): { text: string; overlapWords: number; removedTokens: number } {
-  const candidate = currentText.trim();
-  if (!candidate.length) {
-    return { text: "", overlapWords: 0, removedTokens: 0 };
-  }
-  if (!previousText) {
-    return { text: candidate, overlapWords: 0, removedTokens: 0 };
-  }
-
-  const prevTrimmed = previousText.trim();
-  if (!prevTrimmed.length) {
-    return { text: candidate, overlapWords: 0, removedTokens: 0 };
-  }
-  if (candidate === prevTrimmed) {
-    const count = candidate.split(/\s+/).length;
-    return { text: "", overlapWords: count, removedTokens: count };
-  }
-
-  const prevRawTokens = prevTrimmed.split(/\s+/);
-  const currentRawTokens = candidate.split(/\s+/);
-  const prevTokens = prevRawTokens.map((token) => normalizeToken(token));
-  const currentTokens = currentRawTokens.map((token) => normalizeToken(token));
-  const prevFiltered = prevTokens
-    .map((token, index) => ({ token, index }))
-    .filter((item) => item.token.length);
-  const currentFiltered = currentTokens
-    .map((token, index) => ({ token, index }))
-    .filter((item) => item.token.length);
-  const overlap = findOverlap(prevFiltered, currentFiltered, "exact");
-  if (overlap) {
-    return {
-      text: currentRawTokens.slice(overlap.lastOverlapIndex + 1).join(" "),
-      overlapWords: overlap.overlapWords,
-      removedTokens: overlap.removedTokens,
-    };
-  }
-
-  return { text: candidate, overlapWords: 0, removedTokens: 0 };
-}
-
-function trimChunkOverlapFuzzy(previousText: string | undefined, currentText: string): { text: string; overlapWords: number; removedTokens: number } {
-  const candidate = currentText.trim();
-  if (!candidate.length) {
-    return { text: "", overlapWords: 0, removedTokens: 0 };
-  }
-  if (!previousText) {
-    return { text: candidate, overlapWords: 0, removedTokens: 0 };
-  }
-
-  const prevTrimmed = previousText.trim();
-  if (!prevTrimmed.length) {
-    return { text: candidate, overlapWords: 0, removedTokens: 0 };
-  }
-  if (candidate === prevTrimmed) {
-    const count = candidate.split(/\s+/).length;
-    return { text: "", overlapWords: count, removedTokens: count };
-  }
-
-  const prevRawTokens = prevTrimmed.split(/\s+/);
-  const currentRawTokens = candidate.split(/\s+/);
-  const prevTokens = prevRawTokens.map((token) => normalizeToken(token));
-  const currentTokens = currentRawTokens.map((token) => normalizeToken(token));
-  const prevFiltered = prevTokens
-    .map((token, index) => ({ token, index }))
-    .filter((item) => item.token.length);
-  const currentFiltered = currentTokens
-    .map((token, index) => ({ token, index }))
-    .filter((item) => item.token.length);
-  const overlap = findOverlap(prevFiltered, currentFiltered, "fuzzy");
-  if (overlap) {
-    return {
-      text: currentRawTokens.slice(overlap.lastOverlapIndex + 1).join(" "),
-      overlapWords: overlap.overlapWords,
-      removedTokens: overlap.removedTokens,
-    };
-  }
-
-  return { text: candidate, overlapWords: 0, removedTokens: 0 };
-}
-
-type FilteredToken = { token: string; index: number };
-
-function findOverlap(prevFiltered: FilteredToken[], currentFiltered: FilteredToken[], mode: "exact" | "fuzzy") {
-  const maxOverlap = Math.min(prevFiltered.length, currentFiltered.length, MAX_OVERLAP_TOKENS);
-  for (let size = maxOverlap; size >= MIN_OVERLAP_TOKENS; size -= 1) {
-    const prevSlice = prevFiltered.slice(prevFiltered.length - size);
-    const maxOffset = Math.min(MAX_PREFIX_OFFSET, currentFiltered.length - size);
-    for (let offset = 0; offset <= maxOffset; offset += 1) {
-      const currentSlice = currentFiltered.slice(offset, offset + size);
-      if (!currentSlice.length) continue;
-      if (!slicesMatch(prevSlice, currentSlice, mode)) continue;
-      const lastOverlapIndex = currentSlice[size - 1]!.index;
-      return {
-        overlapWords: size,
-        lastOverlapIndex,
-        removedTokens: lastOverlapIndex + 1,
-      };
-    }
-  }
-  return null;
-}
-
-function slicesMatch(prevSlice: FilteredToken[], currentSlice: FilteredToken[], mode: "exact" | "fuzzy"): boolean {
-  if (mode === "exact") {
-    for (let i = 0; i < prevSlice.length; i += 1) {
-      if (prevSlice[i]!.token !== currentSlice[i]!.token) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  let matches = 0;
-  for (let i = 0; i < prevSlice.length; i += 1) {
-    if (areTokensSimilar(prevSlice[i]!.token, currentSlice[i]!.token)) {
-      matches += 1;
-    }
-  }
-  const similarity = matches / prevSlice.length;
-  if (similarity >= FUZZY_TOKEN_THRESHOLD) {
-    return true;
-  }
-
-  const prevStr = prevSlice.map((item) => item.token).join(" ");
-  const currentStr = currentSlice.map((item) => item.token).join(" ");
-  return diceCoefficient(prevStr, currentStr) >= FUZZY_CHAR_THRESHOLD;
-}
-
-function normalizeToken(token: string): string {
-  try {
-    return token
-      .toLowerCase()
-      .normalize("NFKD")
-      .replace(/[^\p{L}\p{N}]+/gu, "");
-  } catch (err) {
-    void err;
-    return token.toLowerCase().replace(/[^a-z0-9]+/gi, "");
-  }
-}
-
-function trimDebrisPrefix(previousText: string | undefined, currentText: string): { text: string; removedTokens: number } {
-  const candidate = currentText.trim();
-  if (!candidate.length || !previousText) {
-    return { text: candidate, removedTokens: 0 };
-  }
-  if (endsWithTerminalPunctuation(previousText)) {
-    return { text: candidate, removedTokens: 0 };
-  }
-  if (!endsWithContinuation(previousText)) {
-    return { text: candidate, removedTokens: 0 };
-  }
-
-  const rawTokens = candidate.split(/\s+/);
-  if (rawTokens.length <= MAX_DEBRIS_PREFIX_TOKENS) {
-    return { text: candidate, removedTokens: 0 };
-  }
-
-  const firstToken = rawTokens[0] ?? "";
-  if (startsWithUppercase(firstToken)) {
-    return { text: candidate, removedTokens: 0 };
-  }
-
-  const prefixTokens = rawTokens.slice(0, MAX_DEBRIS_PREFIX_TOKENS);
-  const normalizedPrefix = prefixTokens.map((token) => normalizeToken(token)).filter((token) => token.length);
-  if (normalizedPrefix.some((token) => isVerbLike(token))) {
-    return { text: candidate, removedTokens: 0 };
-  }
-
-  if (rawTokens.length - prefixTokens.length < MIN_DEBRIS_REMAINING_TOKENS) {
-    return { text: candidate, removedTokens: 0 };
-  }
-
-  return { text: rawTokens.slice(prefixTokens.length).join(" "), removedTokens: prefixTokens.length };
-}
-
-function endsWithTerminalPunctuation(text: string): boolean {
-  return /[.!?…]$/.test(text.trim());
-}
-
-function endsWithContinuation(text: string): boolean {
-  const trimmed = text.trim().toLowerCase();
-  if (!trimmed) return false;
-  if (/(?:d|l|qu|s)['’]$/.test(trimmed)) {
-    return true;
-  }
-  const lastRaw = trimmed.split(/\s+/).pop() ?? "";
-  const normalized = normalizeToken(lastRaw);
-  return CONTINUATION_TOKENS.has(normalized);
-}
-
-function startsWithUppercase(token: string): boolean {
-  return /^[A-ZÀ-ÖØ-Ý]/.test(token);
-}
-
-function isVerbLike(token: string): boolean {
-  if (!token) return false;
-  if (VERB_LIKE_TOKENS.has(token)) return true;
-  return token.endsWith("er") || token.endsWith("ir") || token.endsWith("re");
-}
-
-function areTokensSimilar(a: string, b: string): boolean {
-  if (!a || !b) return false;
-  if (a === b) return true;
-  if (a.length <= 3 || b.length <= 3) return false;
-  if (a.startsWith(b) || b.startsWith(a)) return true;
-  return diceCoefficient(a, b) >= 0.72;
-}
-
-function diceCoefficient(a: string, b: string): number {
-  if (a.length < 2 || b.length < 2) return 0;
-  const aBigrams = new Map<string, number>();
-  for (let i = 0; i < a.length - 1; i += 1) {
-    const gram = a.slice(i, i + 2);
-    aBigrams.set(gram, (aBigrams.get(gram) ?? 0) + 1);
-  }
-  let intersection = 0;
-  for (let i = 0; i < b.length - 1; i += 1) {
-    const gram = b.slice(i, i + 2);
-    const count = aBigrams.get(gram);
-    if (count) {
-      intersection += 1;
-      if (count === 1) {
-        aBigrams.delete(gram);
-      } else {
-        aBigrams.set(gram, count - 1);
-      }
-    }
-  }
-  const total = (a.length - 1) + (b.length - 1);
-  return total > 0 ? (2 * intersection) / total : 0;
 }

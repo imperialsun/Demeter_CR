@@ -18,6 +18,13 @@ import type {
 } from "@/lib/transformers-loader";
 import { detectWebGpuSupport } from "@/lib/backend-support";
 import { cleanTranscriptText } from "@/lib/text-cleanup";
+import {
+  isModelTooLargeMessage,
+  normalizePipelineOutput,
+  resolveBackendSelectionErrorMessage,
+  resolveWasmExecutionOptions,
+  type PipelineInvokeResult,
+} from "@/lib/asr-internals";
 
 interface PipelineProgressPayload {
   progress?: number;
@@ -26,22 +33,6 @@ interface PipelineProgressPayload {
 }
 
 import type { WordSegment } from "@/lib/export";
-
-interface PipelineInvokeChunk {
-  text?: string;
-  timestamp?: [number, number];
-  probability?: number;
-  // some pipelines include per-word timestamps inside each chunk
-  words?: Array<{ word?: string; start?: number; end?: number; timestamp?: [number, number]; probability?: number; score?: number }>;
-}
-
-interface PipelineInvokeResult {
-  text?: string;
-  chunks?: PipelineInvokeChunk[];
-  // top-level words array is also possible
-  words?: Array<{ word?: string; start?: number; end?: number; timestamp?: [number, number]; probability?: number; score?: number }>;
-  [key: string]: unknown;
-}
 
 export interface CreatePipelineOptions {
   modelPreset: PresetKey;
@@ -151,19 +142,17 @@ export async function createAsrPipeline({
   let triedWasmNoThreads = false;
 
   function computeWasmOptions() {
-    const forceSingle = typeof forceSingleThread === "boolean" ? forceSingleThread : useAsrStore.getState().forceSingleThread;
-    const crossIsolated = typeof window !== "undefined" && ((window as unknown) as { crossOriginIsolated?: boolean }).crossOriginIsolated === true;
-    let numThreads = 1;
-    if (!forceSingle && crossIsolated && typeof navigator !== "undefined") {
-      numThreads = Math.max(2, navigator.hardwareConcurrency || 2);
-    }
-    return {
-      wasmPaths: WASM_PATH,
-      numThreads,
-      proxy: true,
-      simd: true,
-      useJsep: false,
-    } as const;
+    const forceSingle =
+      typeof forceSingleThread === "boolean" ? forceSingleThread : useAsrStore.getState().forceSingleThread;
+    const crossIsolated =
+      typeof window !== "undefined" &&
+      ((window as unknown) as { crossOriginIsolated?: boolean }).crossOriginIsolated === true;
+    return resolveWasmExecutionOptions({
+      forceSingleThread: forceSingle,
+      crossOriginIsolated: crossIsolated,
+      hardwareConcurrency: typeof navigator !== "undefined" ? navigator.hardwareConcurrency : undefined,
+      wasmPath: WASM_PATH,
+    });
   }
 
   for (const backend of backends) {
@@ -395,12 +384,11 @@ export async function createAsrPipeline({
   // Provide a clearer error for the common case where no runtime backend is available
   const webGpuAvailableFinal = webGpuAvailable;
   const wasmAvailableFinal = useAsrStore.getState().wasmAvailable;
-  let finalMessage = (lastError as Error)?.message ?? "Impossible de charger le pipeline ASR";
-  if (!webGpuAvailableFinal && !wasmAvailableFinal) {
-    finalMessage = "Aucun backend utilisable trouvé : WebGPU non supporté et fichiers WASM manquants ou inaccessibles (/onnx/). Vérifiez que les assets WASM ont bien été déployés et que les en-têtes COOP/COEP sont configurés pour permettre WASM multithread (SharedArrayBuffer).";
-  } else if (!webGpuAvailableFinal && wasmAvailableFinal && lastError && (lastError as Error).message.includes("WASM")) {
-    finalMessage = `Erreur d'initialisation WASM : ${(lastError as Error).message}. Vérifiez la disponibilité des assets et les en-têtes COOP/COEP.`;
-  }
+  const finalMessage = resolveBackendSelectionErrorMessage({
+    lastError,
+    webGpuAvailable: webGpuAvailableFinal,
+    wasmAvailable: wasmAvailableFinal,
+  });
 
   logger.error("ASR backend selection failed", { webGpuAvailable: webGpuAvailableFinal, wasmAvailable: wasmAvailableFinal, lastError });
   telemetry?.logEvent("ERROR", { stage: "select_backend", webGpuAvailable: webGpuAvailableFinal, wasmAvailable: wasmAvailableFinal, message: finalMessage });
@@ -551,10 +539,14 @@ export async function transcribeChunk({
       logger.warn("Failed to log ASR raw result safely", err);
   }
 
-  const normalizeWhitespace = (value: string | undefined | null) =>
-    typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
   const cleanIntraChunk = useAsrStore.getState().cleanIntraChunk;
-  const cleanedText = cleanIntraChunk ? cleanTranscriptText(result.text) : normalizeWhitespace(result.text);
+  const normalized = normalizePipelineOutput({
+    result,
+    chunk,
+    cleanIntraChunk,
+    cleanText: cleanTranscriptText,
+  });
+  const cleanedText = normalized.cleanedText;
   logger.info("ASR chunk transcript", {
     id: chunk.id,
     index: chunk.index,
@@ -564,79 +556,7 @@ export async function transcribeChunk({
   const processingMs = performance.now() - startTime;
   telemetry?.stopTimer(`chunk_${chunk.index}`);
 
-  let outputSegments = Array.isArray(result.chunks)
-    ? result.chunks
-        .map((segment) => {
-          const timestamp = Array.isArray(segment.timestamp) ? segment.timestamp : undefined;
-          const rawStart = timestamp?.[0] ?? 0;
-          const rawEnd = timestamp?.[1] ?? chunk.end - chunk.start;
-          const sanitized = cleanIntraChunk ? cleanTranscriptText(segment.text) : normalizeWhitespace(segment.text);
-
-          // map any word-level timestamps inside this chunk segment
-          const rawWordsField = (segment as unknown as Record<string, unknown>)["words"];
-          const words: WordSegment[] | undefined = Array.isArray(rawWordsField)
-            ? (rawWordsField as Array<Record<string, unknown>>)
-                .map((wObj) => {
-                  const w = wObj as Record<string, unknown>;
-                  const wStart = typeof w.start === "number" ? w.start : (Array.isArray(w.timestamp) && typeof (w.timestamp as unknown[])[0] === "number" ? (w.timestamp as unknown[])[0] as number : 0);
-                  const wEnd = typeof w.end === "number" ? w.end : (Array.isArray(w.timestamp) && typeof (w.timestamp as unknown[])[1] === "number" ? (w.timestamp as unknown[])[1] as number : wStart);
-                  const wordText = typeof (w.word ?? w.text) === "string" ? String(w.word ?? w.text) : "";
-                  const prob = typeof w.probability === "number" ? w.probability : typeof w.score === "number" ? w.score : undefined;
-                  return {
-                    word: wordText,
-                    start: chunk.start + wStart,
-                    end: chunk.start + wEnd,
-                    confidence: prob as number | undefined,
-                  } as WordSegment;
-                })
-                .filter((w) => w.word.length > 0)
-            : undefined;
-
-          return {
-            start: chunk.start + rawStart,
-            end: chunk.start + rawEnd,
-            text: sanitized,
-            confidence: segment.probability,
-            words,
-          };
-        })
-        .filter((segment) => segment.text.length > 0)
-    : [
-        {
-          start: chunk.start,
-          end: chunk.end,
-          text: cleanedText,
-          // if pipeline provided top-level words, map them
-          words: Array.isArray(result.words)
-            ? (result.words as Array<Record<string, unknown>>)
-                .map((wObj) => {
-                  const w = wObj as Record<string, unknown>;
-                  const wStart = typeof w.start === "number" ? w.start : (Array.isArray(w.timestamp) && typeof (w.timestamp as unknown[])[0] === "number" ? (w.timestamp as unknown[])[0] as number : 0);
-                  const wEnd = typeof w.end === "number" ? w.end : (Array.isArray(w.timestamp) && typeof (w.timestamp as unknown[])[1] === "number" ? (w.timestamp as unknown[])[1] as number : wStart);
-                  const wordText = typeof (w.word ?? w.text) === "string" ? String(w.word ?? w.text) : "";
-                  const prob = typeof w.probability === "number" ? w.probability : typeof w.score === "number" ? w.score : undefined;
-                  return {
-                    word: wordText,
-                    start: chunk.start + wStart,
-                    end: chunk.start + wEnd,
-                    confidence: prob as number | undefined,
-                  } as WordSegment;
-                })
-                .filter((w) => w.word.length > 0)
-            : undefined,
-        },
-      ];
-
-  if (outputSegments.length === 0) {
-    outputSegments = [
-      {
-        start: chunk.start,
-        end: chunk.end,
-        text: cleanedText,
-        words: undefined,
-      },
-    ];
-  }
+  const outputSegments = normalized.segments;
 
   const chunkDuration = Math.max(0.1, chunk.end - chunk.start);
   const realtimeFactor = processingMs / 1000 / chunkDuration;
@@ -727,9 +647,8 @@ export function isModelTooLargeError(err: unknown): boolean {
     } else {
       raw = String(err);
     }
-    const s = raw.toLowerCase();
     // Include known ONNX/WASM out-of-memory signatures (including OrtRun bad_alloc).
-    return /1261431424|out of memory|oom|insufficient memory|memory limit|cannot allocate|js_out_of_memory|wasm memory|std::bad_alloc|\bbad_alloc\b|error_code:\s*6\b/i.test(s);
+    return isModelTooLargeMessage(raw.toLowerCase());
   } catch (e) {
     void e;
     return false;

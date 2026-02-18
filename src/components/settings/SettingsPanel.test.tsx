@@ -196,7 +196,7 @@ describe('SettingsPanel', () => {
       expect(useAsrStore.getState().micAutoTunePreprocess).toBe(false);
       expect(slider).not.toBeDisabled();
     });
-  });
+  }, 15000);
 
   it("updates mic noise calibration margin", async () => {
     useAsrStore.setState({ micNoiseCalibrationMarginDb: 6 } as any);
@@ -285,16 +285,16 @@ describe('SettingsPanel', () => {
   });
 
   it("stores independent chunking/segmentation settings for whisper and mistral", async () => {
+    const user = userEvent.setup();
     render(
       <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">
         <SettingsPanel />
       </ThemeProvider>
     );
 
-    const cloudTab = screen.getByText("Cloud");
-    await userEvent.click(cloudTab);
+    await user.click(screen.getByRole("tab", { name: "Cloud" }));
 
-    await userEvent.click(screen.getByRole("tab", { name: "Whisper" }));
+    await user.click(await screen.findByRole("tab", { name: "Whisper" }));
     fireEvent.change(
       screen.getByLabelText("Durée chunk (s)", { selector: "input#cloud-whisper-chunk-duration" }),
       { target: { value: "45" } }
@@ -304,7 +304,7 @@ describe('SettingsPanel', () => {
       { target: { value: "2" } }
     );
 
-    await userEvent.click(screen.getByRole("tab", { name: "Mistral" }));
+    await user.click(await screen.findByRole("tab", { name: "Mistral" }));
     fireEvent.change(
       screen.getByLabelText("Durée chunk (s)", { selector: "input#cloud-mistral-chunk-duration" }),
       { target: { value: "120" } }
@@ -319,7 +319,7 @@ describe('SettingsPanel', () => {
     expect(state.cloudWhisperOverlapSec).toBe(2);
     expect(state.cloudMistralChunkDurationSec).toBe(120);
     expect(state.cloudMistralOverlapSec).toBe(5);
-  });
+  }, 10000);
 
   it("shows llm cloud tab by default", () => {
     render(

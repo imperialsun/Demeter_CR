@@ -1,14 +1,14 @@
 # Demeter Speech
 
-[![CI](https://github.com/imperialsun/Demeter_CR/actions/workflows/ci.yml/badge.svg)](https://github.com/imperialsun/Demeter_CR/actions/workflows/ci.yml)
+[![CI](https://github.com/imperialsun/Demeter_CR/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/imperialsun/Demeter_CR/actions/workflows/ci.yml)
 [![Coverage](https://codecov.io/gh/imperialsun/Demeter_CR/branch/main/graph/badge.svg)](https://codecov.io/gh/imperialsun/Demeter_CR)
 [![Last commit](https://img.shields.io/github/last-commit/imperialsun/Demeter_CR)](https://github.com/imperialsun/Demeter_CR/commits/main)
 [![License](https://img.shields.io/github/license/imperialsun/Demeter_CR)](https://github.com/imperialsun/Demeter_CR/blob/main/LICENSE)
 
-Application web qui transcrit des fichiers audio en local (100% sur le poste) ou via des APIs cloud, puis permet de générer des comptes rendus médicaux structurés (CRI/CRO/CRS).  
+Application web qui transcrit des fichiers audio en local (100% sur le poste) ou via des APIs cloud, puis permet de générer des comptes rendus de réunion structurés (CRI/CRO/CRS).  
 Elle propose aussi l’export des résultats (texte, sous-titres, JSON) et des réglages avancés pour la qualité, la performance et la confidentialité.
 
-Browser-based app that transcribes audio locally or through cloud APIs, then generates structured medical reports (CRI/CRO/CRS).  
+Browser-based app that transcribes audio locally or through cloud APIs, then generates structured meeting reports (CRI/CRO/CRS).  
 It also includes export features (text, subtitles, JSON) and advanced settings for quality, performance, and privacy.
 
 ## J'ai la flemme (install en 1 ligne)
@@ -91,6 +91,8 @@ Demeter Speech permet de transcrire des fichiers audio avec deux approches :
 
 - **Mode local** : transcription dans le navigateur via `@huggingface/transformers@next` (preview v4) + `onnxruntime-web` (WebGPU ou WASM).
 - **Mode cloud** : prétraitement local puis transcription via un provider distant (Gradio, Whisper API Hugging Face, Mistral Voxtral).
+
+L'application est conçue pour des comptes rendus de réunion.
 
 L’interface propose aussi :
 
@@ -393,7 +395,7 @@ npm run test:ci
 ### 15) LLM Cloud (Formats CRI/CRO/CRS)
 
 - Nouvelle route : `/llmapi` (menu latéral `LLM Cloud`).
-- Note : `LLM Cloud` utilise une API externe (provider distant) pour generer les comptes rendus.
+- Note : `LLM Cloud` utilise une API externe (provider distant) pour générer des comptes rendus de réunion.
 - Equivalent local : utilisez `/llmlocal` pour executer le module sans API externe.
 - Source au choix :
 - transcription de session (`segments`),
@@ -422,6 +424,8 @@ Demeter Speech is an in-browser transcription app with two execution modes:
 
 - **Local mode**: fully browser-side ASR using `@huggingface/transformers@next` (v4 preview) + `onnxruntime-web` (WebGPU/WASM).
 - **Cloud mode**: local preprocessing + remote transcription provider (Gradio, Hugging Face Whisper API, Mistral Voxtral).
+
+The app is designed for meeting reports.
 
 The UI also includes:
 
@@ -707,7 +711,7 @@ npm run test:ci
 ### 15) LLM Cloud (CRI/CRO/CRS Formats)
 
 - New route: `/llmapi` (sidebar entry `LLM Cloud`).
-- Note: `LLM Cloud` uses an external provider API to generate reports.
+- Note: `LLM Cloud` uses an external provider API to generate meeting reports.
 - Local equivalent: use `/llmlocal` to run the module without an external API.
 - Input source options:
 - session transcription (`segments`),

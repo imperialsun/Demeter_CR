@@ -2,6 +2,7 @@
   "name": "test-transformer-js",
   "private": true,
   "version": "0.0.0",
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "engines": {
     "node": ">=25.0.0 <26"
@@ -16,7 +17,7 @@
     "lint": "eslint .",
     "test": "vitest --run",
     "test:watch": "vitest",
-    "test:ci": "npm run audit:observability && vitest --run --coverage",
+    "test:ci": "npm run audit:observability && vitest --run --coverage --maxWorkers=4",
     "preview": "vite preview"
   },
   "dependencies": {

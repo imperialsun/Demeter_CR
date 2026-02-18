@@ -33,12 +33,18 @@ jobs:
       - name: Test with coverage
         run: npm run test:ci
 
+      - name: Build coverage hotspots report
+        if: always()
+        run: node scripts/coverage-hotspots.mjs
+
       - name: Upload coverage artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-lcov
-          path: coverage/lcov.info
+          name: coverage-report
+          path: |
+            coverage/lcov.info
+            coverage/hotspots.txt
           if-no-files-found: warn
 
       - name: Upload to Codecov
