@@ -19,9 +19,17 @@ const { fetchMistralModelsSafeMock } = vi.hoisted(() => ({
   fetchMistralModelsSafeMock: vi.fn<(...args: unknown[]) => Promise<MockMistralModel[]>>(async () => []),
 }));
 
+const { clearSecureTokensMock } = vi.hoisted(() => ({
+  clearSecureTokensMock: vi.fn<() => Promise<void>>(async () => {}),
+}));
+
 vi.mock('@/lib/backend-support', () => ({
   initializeBackendSupport: vi.fn(async () => true),
   resetWebGpuSupportCache: vi.fn(),
+}));
+
+vi.mock('@/lib/secure-token-vault', () => ({
+  clearSecureTokens: (...args: unknown[]) => clearSecureTokensMock(...args),
 }));
 
 vi.mock('@/lib/llm/mistralModelsClient', () => ({
@@ -40,10 +48,10 @@ describe('SettingsPanel', () => {
     useAsrStore.setState({
       showSegmentConfidence: false,
       enableWordTimestamps: false,
-      cloudMistralApiKey: "",
+      mistralApiKey: "",
       cloudMistralApiUrl: "https://api.mistral.ai",
       llmApiProvider: "huggingface",
-      llmApiHfToken: "",
+      hfApiToken: "",
       llmApiHfModelId: "openai/gpt-oss-20b",
       llmApiHfTemperature: 0.2,
       llmApiHfMaxTokens: 1024,
@@ -55,6 +63,8 @@ describe('SettingsPanel', () => {
     } as any);
     fetchMistralModelsSafeMock.mockReset();
     fetchMistralModelsSafeMock.mockResolvedValue([]);
+    clearSecureTokensMock.mockReset();
+    clearSecureTokensMock.mockResolvedValue();
   });
 
   afterEach(() => {
@@ -150,6 +160,7 @@ describe('SettingsPanel', () => {
     // Wait for async to complete
     await waitFor(() => expect(keysSpy).toHaveBeenCalled());
     expect(deleteSpy).toHaveBeenCalledWith('test-cache');
+    expect(clearSecureTokensMock).toHaveBeenCalledTimes(1);
     expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('Cache vidé'));
   });
 
@@ -267,7 +278,7 @@ describe('SettingsPanel', () => {
     const input = screen.getByLabelText("Token Hugging Face (Whisper)", { selector: "input#cloud-hf-token" });
     fireEvent.change(input, { target: { value: "hf_test_token" } });
 
-    expect(useAsrStore.getState().cloudHfToken).toBe("hf_test_token");
+    expect(useAsrStore.getState().hfApiToken).toBe("hf_test_token");
   });
 
   it("updates cloud mistral token from settings", async () => {
@@ -286,7 +297,7 @@ describe('SettingsPanel', () => {
       { target: { value: "mistral_secret" } }
     );
 
-    expect(useAsrStore.getState().cloudMistralApiKey).toBe("mistral_secret");
+    expect(useAsrStore.getState().mistralApiKey).toBe("mistral_secret");
   });
 
   it("stores independent chunking/segmentation settings for whisper and mistral", async () => {
@@ -460,7 +471,7 @@ describe('SettingsPanel', () => {
     useAsrStore.setState({
       llmApiProvider: "huggingface",
       llmApiMistralModelId: "mistral-medium-latest",
-      cloudMistralApiKey: "mistral_key",
+      mistralApiKey: "mistral_key",
       cloudMistralApiUrl: "https://api.mistral.ai",
     } as any);
 

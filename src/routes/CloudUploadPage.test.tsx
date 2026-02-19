@@ -29,8 +29,8 @@ describe("CloudUploadPage", () => {
   it("shows inline alert when whisper token is missing", () => {
     renderWithStore(<CloudUploadPage />, {
       cloudApiUrl: "https://cloud.example",
-      cloudHfToken: "",
-      cloudMistralApiKey: "mistral_secret",
+      hfApiToken: "",
+      mistralApiKey: "mistral_secret",
     });
 
     const providerSelect = screen.getByRole("combobox", { name: /provider/i });
@@ -43,8 +43,8 @@ describe("CloudUploadPage", () => {
   it("shows inline alert when mistral token is missing", () => {
     renderWithStore(<CloudUploadPage />, {
       cloudApiUrl: "https://cloud.example",
-      cloudHfToken: "hf_token",
-      cloudMistralApiKey: "",
+      hfApiToken: "hf_token",
+      mistralApiKey: "",
     });
 
     const providerSelect = screen.getByRole("combobox", { name: /provider/i });
@@ -57,7 +57,7 @@ describe("CloudUploadPage", () => {
   it("shows diarization switch when provider is mistral", () => {
     renderWithStore(<CloudUploadPage />, {
       cloudApiUrl: "https://cloud.example",
-      cloudMistralApiKey: "mistral_secret",
+      mistralApiKey: "mistral_secret",
       cloudMistralDiarizationEnabled: true,
     });
 
@@ -72,8 +72,8 @@ describe("CloudUploadPage", () => {
   it("does not show diarization switch when provider is whisper", () => {
     renderWithStore(<CloudUploadPage />, {
       cloudApiUrl: "https://cloud.example",
-      cloudHfToken: "hf_token",
-      cloudMistralApiKey: "mistral_secret",
+      hfApiToken: "hf_token",
+      mistralApiKey: "mistral_secret",
       cloudMistralDiarizationEnabled: true,
     });
 
@@ -88,7 +88,7 @@ describe("CloudUploadPage", () => {
   it("updates store when toggling mistral diarization switch", () => {
     renderWithStore(<CloudUploadPage />, {
       cloudApiUrl: "https://cloud.example",
-      cloudMistralApiKey: "mistral_secret",
+      mistralApiKey: "mistral_secret",
       cloudMistralDiarizationEnabled: true,
     });
 

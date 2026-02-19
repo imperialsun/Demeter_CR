@@ -51,7 +51,7 @@ describe("LLMApiPage", () => {
 
     useAsrStore.setState({
       llmApiProvider: "huggingface",
-      llmApiHfToken: "hf_test",
+      hfApiToken: "hf_test",
       llmApiHfModelId: "openai/gpt-oss-20b",
       llmApiHfTemperature: 0.2,
       llmApiHfMaxTokens: 1024,
@@ -60,7 +60,7 @@ describe("LLMApiPage", () => {
       llmApiMistralMaxTokens: 8192,
       llmApiStatusDetail: undefined,
       llmApiResults: {},
-      cloudMistralApiKey: "",
+      mistralApiKey: "",
       cloudMistralApiUrl: "https://api.mistral.ai",
       segments: [{ text: "Segment 1" }, { text: "Segment 2" }],
     } as any);
@@ -140,7 +140,7 @@ describe("LLMApiPage", () => {
   });
 
   it("shows inline alert when llm token is missing", () => {
-    useAsrStore.setState({ llmApiHfToken: "" } as any);
+    useAsrStore.setState({ hfApiToken: "" } as any);
 
     renderPage();
 
@@ -148,7 +148,7 @@ describe("LLMApiPage", () => {
   });
 
   it("shows toast and blocks generation when llm token is missing", async () => {
-    useAsrStore.setState({ llmApiHfToken: "" } as any);
+    useAsrStore.setState({ hfApiToken: "" } as any);
 
     renderPage();
 
@@ -186,7 +186,7 @@ describe("LLMApiPage", () => {
   it("shows inline alert when mistral token is missing", () => {
     useAsrStore.setState({
       llmApiProvider: "mistral",
-      cloudMistralApiKey: "",
+      mistralApiKey: "",
       llmApiMistralModelId: "mistral-medium-latest",
     } as any);
 
@@ -198,7 +198,7 @@ describe("LLMApiPage", () => {
   it("shows toast and blocks generation when mistral token is missing", async () => {
     useAsrStore.setState({
       llmApiProvider: "mistral",
-      cloudMistralApiKey: "",
+      mistralApiKey: "",
       llmApiMistralModelId: "mistral-medium-latest",
     } as any);
 

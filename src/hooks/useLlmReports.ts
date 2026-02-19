@@ -40,7 +40,7 @@ type GenerateInput = { source: "transcription" | "text"; text?: string };
 export function useLlmReports() {
   const segments = useAsrStore((state) => state.segments);
 
-  const llmApiHfToken = useAsrStore((state) => state.llmApiHfToken);
+  const hfApiToken = useAsrStore((state) => state.hfApiToken);
   const llmApiProvider = useAsrStore((state) => state.llmApiProvider);
   const llmApiHfModelId = useAsrStore((state) => state.llmApiHfModelId);
   const llmApiHfTemperature = useAsrStore((state) => state.llmApiHfTemperature);
@@ -48,7 +48,7 @@ export function useLlmReports() {
   const llmApiMistralModelId = useAsrStore((state) => state.llmApiMistralModelId);
   const llmApiMistralTemperature = useAsrStore((state) => state.llmApiMistralTemperature);
   const llmApiMistralMaxTokens = useAsrStore((state) => state.llmApiMistralMaxTokens);
-  const cloudMistralApiKey = useAsrStore((state) => state.cloudMistralApiKey);
+  const mistralApiKey = useAsrStore((state) => state.mistralApiKey);
   const cloudMistralApiUrl = useAsrStore((state) => state.cloudMistralApiUrl);
 
   const status = useAsrStore((state) => state.llmApiStatus);
@@ -101,8 +101,8 @@ export function useLlmReports() {
       };
 
       try {
-        const hfToken = llmApiHfToken.trim();
-        const mistralApiKey = cloudMistralApiKey.trim();
+        const hfToken = hfApiToken.trim();
+        const mistralKey = mistralApiKey.trim();
         const mistralApiUrl = cloudMistralApiUrl.trim();
         const pipelineConfig = activePipelineConfig;
         const modelId = pipelineConfig.modelId.trim();
@@ -121,7 +121,7 @@ export function useLlmReports() {
         if (provider === "huggingface" && !hfToken) {
           throw new Error("Renseignez un token Hugging Face.");
         }
-        if (provider === "mistral" && !mistralApiKey) {
+        if (provider === "mistral" && !mistralKey) {
           throw new Error("Renseignez une cle API Mistral.");
         }
 
@@ -141,7 +141,7 @@ export function useLlmReports() {
           configuredMaxTokens = Math.max(FALLBACK_MISTRAL_MAX_TOKENS, configuredMaxTokens);
           const models = await fetchMistralModelsSafe({
             apiUrl: mistralApiUrl,
-            apiKey: mistralApiKey,
+            apiKey: mistralKey,
           });
           const modelMetadata = findMistralModelMetadata(models, modelId);
           if (modelMetadata?.maxContextTokens) {
@@ -197,7 +197,7 @@ export function useLlmReports() {
 
           const generation = await generateWithMistralChat({
             apiUrl: mistralApiUrl,
-            apiKey: mistralApiKey,
+            apiKey: mistralKey,
             modelId,
             systemPrompt: params.systemPrompt,
             userPrompt: params.userPrompt,
@@ -301,7 +301,7 @@ export function useLlmReports() {
                   sourceText: prepared.text,
                   temperature,
                   maxTokens: effectiveGenerationMaxTokens,
-                  mistralApiKey,
+                  mistralApiKey: mistralKey,
                   mistralApiUrl,
                 });
 
@@ -362,10 +362,10 @@ export function useLlmReports() {
       }
     },
     [
-      cloudMistralApiKey,
+      mistralApiKey,
       cloudMistralApiUrl,
       llmApiProvider,
-      llmApiHfToken,
+      hfApiToken,
       llmApiHfModelId,
       llmApiHfTemperature,
       llmApiHfMaxTokens,

@@ -83,30 +83,39 @@ describe('storage', () => {
       cloudHfToken: "hf_secret",
       cloudMistralApiKey: "mistral_secret",
       llmApiHfToken: "llm_secret",
+      hfApiToken: "hf_secret_unified",
+      mistralApiKey: "mistral_secret_unified",
     };
 
     saveSettings(settings);
     const [, value] = (window.localStorage.setItem as any).mock.calls[0];
     const persisted = JSON.parse(value);
 
+    expect(persisted.hfApiToken).toBeUndefined();
+    expect(persisted.mistralApiKey).toBeUndefined();
     expect(persisted.cloudHfToken).toBeUndefined();
     expect(persisted.cloudMistralApiKey).toBeUndefined();
     expect(persisted.llmApiHfToken).toBeUndefined();
   });
 
-  it("strips legacy sensitive tokens when loading older persisted settings", () => {
+  it("strips sensitive tokens when loading persisted settings", () => {
     const payload = {
       ...DEFAULT_SETTINGS,
       cloudHfToken: "hf_secret",
       cloudMistralApiKey: "mistral_secret",
       llmApiHfToken: "llm_secret",
+      hfApiToken: "hf_secret_unified",
+      mistralApiKey: "mistral_secret_unified",
     };
     window.localStorage.setItem(storageKey, JSON.stringify(payload));
 
     const loaded = loadSettings();
-    expect(loaded?.cloudHfToken).toBeUndefined();
-    expect(loaded?.cloudMistralApiKey).toBeUndefined();
-    expect(loaded?.llmApiHfToken).toBeUndefined();
+    const loadedRecord = loaded as Record<string, unknown>;
+    expect(loadedRecord.cloudHfToken).toBeUndefined();
+    expect(loadedRecord.cloudMistralApiKey).toBeUndefined();
+    expect(loadedRecord.llmApiHfToken).toBeUndefined();
+    expect(loadedRecord.hfApiToken).toBeUndefined();
+    expect(loadedRecord.mistralApiKey).toBeUndefined();
     expect(window.localStorage.setItem).toHaveBeenCalledWith(
       storageKey,
       expect.not.stringContaining("mistral_secret")

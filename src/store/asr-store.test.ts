@@ -1,4 +1,6 @@
 import { beforeEach, afterEach, describe, it, expect } from "vitest";
+import { waitFor } from "@testing-library/react";
+import { indexedDB as fakeIndexedDb } from "fake-indexeddb";
 import {
   type AsrConfigStore,
   MODEL_PRESETS,
@@ -9,6 +11,7 @@ import {
   resolveModelId,
 } from "./asr-store";
 import { DEFAULT_SETTINGS, loadSettings } from "@/lib/storage";
+import { clearSecureTokens, loadSecureTokens, saveSecureTokens } from "@/lib/secure-token-vault";
 import {
   createDefaultLocalModelSettingsByProfile,
   getLocalLlmModelProfile,
@@ -262,5 +265,117 @@ describe("llm provider config hydration", () => {
     expect(state.llmLocalTemperature).toBe(0.25);
     expect(state.llmLocalMaxTokens).toBe(2048);
     expect(state.llmLocalModelId).toBe(state.llmLocalSettingsByProfile.ministral_3_3b.modelId);
+  });
+});
+
+describe("secure token vault hydration", () => {
+  const storageKey = "demeter-asr-settings";
+  let originalIndexedDb: IDBFactory | undefined;
+  let originalLocalStorage: Storage | undefined;
+
+  beforeEach(async () => {
+    originalIndexedDb = globalThis.indexedDB;
+    Object.defineProperty(globalThis, "indexedDB", {
+      value: fakeIndexedDb,
+      configurable: true,
+    });
+
+    originalLocalStorage = window.localStorage;
+    const store: Record<string, string> = {};
+    const localStorageMock = {
+      getItem: (key: string) => (key in store ? store[key]! : null),
+      setItem: (key: string, value: string) => {
+        store[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete store[key];
+      },
+      clear: () => {
+        for (const key of Object.keys(store)) {
+          delete store[key];
+        }
+      },
+      key: (index: number) => Object.keys(store)[index] ?? null,
+      get length() {
+        return Object.keys(store).length;
+      },
+    };
+    Object.defineProperty(window, "localStorage", {
+      value: localStorageMock,
+      configurable: true,
+    });
+
+    await clearSecureTokens();
+    window.localStorage.clear();
+    useAsrStore.getState().resetApp();
+    useAsrStore.setState({ hasHydrated: false } as Partial<AsrConfigStore>);
+  });
+
+  afterEach(async () => {
+    await clearSecureTokens();
+    if (originalIndexedDb) {
+      Object.defineProperty(globalThis, "indexedDB", {
+        value: originalIndexedDb,
+        configurable: true,
+      });
+    }
+    if (originalLocalStorage) {
+      Object.defineProperty(window, "localStorage", {
+        value: originalLocalStorage,
+        configurable: true,
+      });
+    }
+  });
+
+  it("restores secure tokens from vault and keeps local storage sensitive-free", async () => {
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        ...DEFAULT_SETTINGS,
+        hfApiToken: "hf_local_storage",
+        mistralApiKey: "mistral_local_storage",
+      })
+    );
+    await saveSecureTokens({
+      hfApiToken: "hf_secure",
+      mistralApiKey: "mistral_secure",
+    });
+
+    useAsrStore.getState().hydrateFromStorage();
+
+    await waitFor(() => {
+      const state = useAsrStore.getState();
+      expect(state.hfApiToken).toBe("hf_secure");
+      expect(state.mistralApiKey).toBe("mistral_secure");
+    });
+
+    const persisted = JSON.parse(window.localStorage.getItem(storageKey) ?? "{}") as Record<string, unknown>;
+    expect(persisted.hfApiToken).toBeUndefined();
+    expect(persisted.mistralApiKey).toBeUndefined();
+    expect(persisted.cloudHfToken).toBeUndefined();
+    expect(persisted.cloudMistralApiKey).toBeUndefined();
+  });
+
+  it("clears secure tokens from vault on resetApp", async () => {
+    await saveSecureTokens({
+      hfApiToken: "hf_secure",
+      mistralApiKey: "mistral_secure",
+    });
+
+    useAsrStore.setState({
+      hfApiToken: "hf_secure",
+      mistralApiKey: "mistral_secure",
+      hasHydrated: true,
+    } as Partial<AsrConfigStore>);
+
+    useAsrStore.getState().resetApp();
+
+    await waitFor(async () => {
+      await expect(loadSecureTokens()).resolves.toBeNull();
+    });
+
+    const state = useAsrStore.getState();
+    expect(state.hfApiToken).toBe("");
+    expect(state.mistralApiKey).toBe("");
   });
 });

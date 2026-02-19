@@ -227,9 +227,9 @@ describe("asr-store mutation guards", () => {
 
     state.setCloudStatus("transcribing");
     state.setCloudApiUrl("https://api.local/gradio");
-    state.setCloudHfToken("hf-token");
+    state.setHfApiToken("hf-token");
     state.setCloudMistralApiUrl("https://mistral.local");
-    state.setCloudMistralApiKey("secret");
+    state.setMistralApiKey("secret");
     state.setCloudMistralModel("voxtral-mini-latest");
     state.setCloudMistralDiarizationEnabled(false);
     state.setCloudWhisperChunking({ chunkDurationSec: 55, overlapSec: 0.1 });
@@ -287,7 +287,7 @@ describe("asr-store mutation guards", () => {
   it("applies llm api/local setters, session reset and app reset", () => {
     const state = useAsrStore.getState();
     state.setLlmApiProvider("mistral");
-    state.setLlmApiHfToken("hf");
+    state.setHfApiToken("hf");
     state.setLlmApiHfModelId("openai/gpt-oss-120b");
     state.setLlmApiHfTemperature(10);
     state.setLlmApiHfMaxTokens(42);

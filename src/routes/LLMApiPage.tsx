@@ -47,7 +47,7 @@ type ImportedFileMeta = {
 function LLMApiPage() {
   const segments = useAsrStore((state) => state.segments);
   const llmApiProvider = useAsrStore((state) => state.llmApiProvider);
-  const llmApiHfToken = useAsrStore((state) => state.llmApiHfToken);
+  const hfApiToken = useAsrStore((state) => state.hfApiToken);
   const llmApiHfModelId = useAsrStore((state) => state.llmApiHfModelId);
   const llmApiHfTemperature = useAsrStore((state) => state.llmApiHfTemperature);
   const llmApiHfMaxTokens = useAsrStore((state) => state.llmApiHfMaxTokens);
@@ -55,13 +55,13 @@ function LLMApiPage() {
   const llmApiMistralTemperature = useAsrStore((state) => state.llmApiMistralTemperature);
   const llmApiMistralMaxTokens = useAsrStore((state) => state.llmApiMistralMaxTokens);
   const llmApiStatusDetail = useAsrStore((state) => state.llmApiStatusDetail);
-  const cloudMistralApiKey = useAsrStore((state) => state.cloudMistralApiKey);
+  const mistralApiKey = useAsrStore((state) => state.mistralApiKey);
 
   const setLlmApiProvider = useAsrStore((state) => state.setLlmApiProvider);
-  const setLlmApiHfToken = useAsrStore((state) => state.setLlmApiHfToken);
+  const setHfApiToken = useAsrStore((state) => state.setHfApiToken);
   const setLlmApiStatus = useAsrStore((state) => state.setLlmApiStatus);
   const resetLlmApiSession = useAsrStore((state) => state.resetLlmApiSession);
-  const setCloudMistralApiKey = useAsrStore((state) => state.setCloudMistralApiKey);
+  const setMistralApiKey = useAsrStore((state) => state.setMistralApiKey);
 
   const { status, progress, results, generateAll, downloadDocx } = useLlmReports();
 
@@ -126,7 +126,7 @@ function LLMApiPage() {
   const tokenRequiredMessage =
     llmApiProvider === "huggingface" ? LLM_HF_TOKEN_REQUIRED_MESSAGE : LLM_MISTRAL_TOKEN_REQUIRED_MESSAGE;
   const isLlmTokenMissing =
-    llmApiProvider === "huggingface" ? llmApiHfToken.trim().length === 0 : cloudMistralApiKey.trim().length === 0;
+    llmApiProvider === "huggingface" ? hfApiToken.trim().length === 0 : mistralApiKey.trim().length === 0;
   const pipelineConfigValid = activePipelineConfig.modelId.trim().length > 0;
   const sourceFitsModelContext = !tokenBudget.blockedByContext;
   const canGenerate = !isBusy && !isImporting && hasSource && sourceFitsModelContext && pipelineConfigValid;
@@ -393,8 +393,8 @@ function LLMApiPage() {
                   <Input
                     id="llm-api-token"
                     type="password"
-                    value={llmApiHfToken}
-                    onChange={(event) => setLlmApiHfToken(event.target.value)}
+                    value={hfApiToken}
+                    onChange={(event) => setHfApiToken(event.target.value)}
                     placeholder="hf_..."
                     autoComplete="off"
                   />
@@ -406,8 +406,8 @@ function LLMApiPage() {
                   <Input
                     id="llm-mistral-api-key"
                     type="password"
-                    value={cloudMistralApiKey}
-                    onChange={(event) => setCloudMistralApiKey(event.target.value)}
+                    value={mistralApiKey}
+                    onChange={(event) => setMistralApiKey(event.target.value)}
                     placeholder="mistral_..."
                     autoComplete="off"
                   />

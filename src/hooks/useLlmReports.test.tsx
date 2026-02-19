@@ -43,7 +43,7 @@ describe("useLlmReports telemetry", () => {
 
     useAsrStore.setState({
       llmApiProvider: "huggingface",
-      llmApiHfToken: "hf_test_token",
+      hfApiToken: "hf_test_token",
       llmApiHfModelId: "openai/gpt-oss-20b",
       llmApiHfTemperature: 0.2,
       llmApiHfMaxTokens: 8192,
@@ -54,7 +54,7 @@ describe("useLlmReports telemetry", () => {
       llmApiStatusDetail: undefined,
       llmApiProgress: 0,
       llmApiResults: {},
-      cloudMistralApiKey: "",
+      mistralApiKey: "",
       cloudMistralApiUrl: "https://api.mistral.ai",
       telemetryCollector: null,
       telemetrySummary: null,

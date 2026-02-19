@@ -74,9 +74,9 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
   });
 
   const cloudApiUrl = useAsrStore((s) => s.cloudApiUrl);
-  const cloudHfToken = useAsrStore((s) => s.cloudHfToken);
+  const hfApiToken = useAsrStore((s) => s.hfApiToken);
   const cloudMistralApiUrl = useAsrStore((s) => s.cloudMistralApiUrl);
-  const cloudMistralApiKey = useAsrStore((s) => s.cloudMistralApiKey);
+  const mistralApiKey = useAsrStore((s) => s.mistralApiKey);
   const cloudMistralModel = useAsrStore((s) => s.cloudMistralModel);
   const cloudMistralDiarizationEnabled = useAsrStore((s) => s.cloudMistralDiarizationEnabled);
   const cloudMaxTokens = useAsrStore((s) => s.cloudMaxTokens);
@@ -313,7 +313,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
     preprocessSettings: CloudPreprocessSettings;
   }) => {
     const { runId, settings, metadata, telemetry, preprocessSettings } = args;
-    const token = cloudHfToken.trim();
+    const token = hfApiToken.trim();
     if (!token) {
       const message = "Token Hugging Face manquant";
       telemetry.recordAlert("CLOUD_WHISPER_TOKEN_MISSING", { message });
@@ -484,7 +484,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
     setProgress(1);
     setStatus("done");
     setStatusDetail("Transcription terminée");
-  }, [cloudHfToken, combinedContext, resolvedSettings, selectedFile]);
+  }, [hfApiToken, combinedContext, resolvedSettings, selectedFile]);
 
   const runMistralTranscription = useCallback(async (args: {
     runId: number;
@@ -494,7 +494,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
     preprocessSettings: CloudPreprocessSettings;
   }) => {
     const { runId, settings, metadata, telemetry, preprocessSettings } = args;
-    const apiKey = cloudMistralApiKey.trim();
+    const apiKey = mistralApiKey.trim();
     const apiUrl = cloudMistralApiUrl.trim();
     const model = cloudMistralModel.trim() || "voxtral-mini-latest";
 
@@ -667,7 +667,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
     setStatus("done");
     setStatusDetail("Transcription terminée");
   }, [
-    cloudMistralApiKey,
+    mistralApiKey,
     cloudMistralDiarizationEnabled,
     cloudMistralApiUrl,
     cloudMistralModel,

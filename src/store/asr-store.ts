@@ -1,6 +1,17 @@
 import { create } from "zustand";
 import logger from "@/lib/logger";
-import { loadSettings, saveSettings, type PersistedSettings, DEFAULT_SETTINGS } from "@/lib/storage";
+import {
+  loadSettings,
+  saveSettings,
+  type PersistedSettings,
+  DEFAULT_SETTINGS,
+} from "@/lib/storage";
+import {
+  clearSecureTokens,
+  loadSecureTokens,
+  saveSecureTokens,
+  type SecureTokens,
+} from "@/lib/secure-token-vault";
 import type { AudioMetadata } from "@/lib/audio";
 import { computeDefaultOverlap } from "@/lib/chunking";
 import type { ChunkDefinition } from "@/lib/chunking";
@@ -343,6 +354,17 @@ const normalizeLlmLocalSettingsByProfile = (
   return normalized;
 };
 
+function normalizeSecureTokens(input: Partial<SecureTokens> | null | undefined): SecureTokens {
+  return {
+    hfApiToken: typeof input?.hfApiToken === "string" ? input.hfApiToken : "",
+    mistralApiKey: typeof input?.mistralApiKey === "string" ? input.mistralApiKey : "",
+  };
+}
+
+function hasAnySecureToken(tokens: SecureTokens) {
+  return tokens.hfApiToken.trim().length > 0 || tokens.mistralApiKey.trim().length > 0;
+}
+
 type SessionSource = {
   id: string;
   label: string;
@@ -442,9 +464,9 @@ interface AsrConfigState {
   micForceSingleThread: boolean;
   // Cloud-specific settings
   cloudApiUrl: string;
-  cloudHfToken: string;
+  hfApiToken: string;
   cloudMistralApiUrl: string;
-  cloudMistralApiKey: string;
+  mistralApiKey: string;
   cloudMistralModel: string;
   cloudMistralDiarizationEnabled: boolean;
   cloudWhisperChunkDurationSec: number;
@@ -485,7 +507,6 @@ interface AsrConfigState {
   cloudShowSegmentConfidence: boolean;
   // LLM API specific settings/runtime
   llmApiProvider: LlmApiProvider;
-  llmApiHfToken: string;
   llmApiHfModelId: string;
   llmApiHfTemperature: number;
   llmApiHfMaxTokens: number;
@@ -650,9 +671,9 @@ interface AsrConfigActions {
   setMicForceSingleThread: (value: boolean) => void;
   setCloudStatus: (status: CloudTranscriptionStatus, detail?: string) => void;
   setCloudApiUrl: (value: string) => void;
-  setCloudHfToken: (value: string) => void;
+  setHfApiToken: (value: string) => void;
   setCloudMistralApiUrl: (value: string) => void;
-  setCloudMistralApiKey: (value: string) => void;
+  setMistralApiKey: (value: string) => void;
   setCloudMistralModel: (value: string) => void;
   setCloudMistralDiarizationEnabled: (value: boolean) => void;
   setCloudWhisperChunking: (params: Partial<{
@@ -700,7 +721,6 @@ interface AsrConfigActions {
   setCloudEnableWordTimestamps: (value: boolean) => void;
   setCloudShowSegmentConfidence: (value: boolean) => void;
   setLlmApiProvider: (value: LlmApiProvider) => void;
-  setLlmApiHfToken: (value: string) => void;
   setLlmApiHfModelId: (value: string) => void;
   setLlmApiHfTemperature: (value: number) => void;
   setLlmApiHfMaxTokens: (value: number) => void;
@@ -868,9 +888,9 @@ const initialState: AsrConfigState = {
   micShowSegmentConfidence: false,
   micForceSingleThread: false,
   cloudApiUrl: "https://transcode.demeter-sante.fr/gradio",
-  cloudHfToken: "",
+  hfApiToken: "",
   cloudMistralApiUrl: "https://api.mistral.ai",
-  cloudMistralApiKey: "",
+  mistralApiKey: "",
   cloudMistralModel: DEFAULT_MISTRAL_MODEL,
   cloudMistralDiarizationEnabled: true,
   cloudWhisperChunkDurationSec: 30,
@@ -910,7 +930,6 @@ const initialState: AsrConfigState = {
   cloudEnableWordTimestamps: false,
   cloudShowSegmentConfidence: false,
   llmApiProvider: "huggingface",
-  llmApiHfToken: "",
   llmApiHfModelId: DEFAULT_LLM_HF_MODEL_ID,
   llmApiHfTemperature: DEFAULT_LLM_HF_TEMPERATURE,
   llmApiHfMaxTokens: DEFAULT_LLM_HF_MAX_TOKENS,
@@ -1043,9 +1062,29 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
   setShowExportJson: (value) => set(() => ({ showExportJson: value })),
   setShowExportTelemetry: (value) => set(() => ({ showExportTelemetry: value })),
   hydrateFromStorage: () => {
+    const syncSecureTokensFromVault = async () => {
+      const secureTokens = normalizeSecureTokens(await loadSecureTokens());
+      lastPersistedSecureTokens = secureTokens;
+      if (hasAnySecureToken(secureTokens)) {
+        set(() => ({
+          hfApiToken: secureTokens.hfApiToken,
+          mistralApiKey: secureTokens.mistralApiKey,
+        }));
+      }
+    };
     const settings = loadSettings();
     if (!settings) {
-      set(() => ({ hasHydrated: true }));
+      const currentTokens = normalizeSecureTokens({
+        hfApiToken: get().hfApiToken,
+        mistralApiKey: get().mistralApiKey,
+      });
+      lastPersistedSecureTokens = currentTokens;
+      set(() => ({
+        hasHydrated: true,
+        hfApiToken: currentTokens.hfApiToken,
+        mistralApiKey: currentTokens.mistralApiKey,
+      }));
+      void syncSecureTokensFromVault();
       return;
     }
     const modelQuantizationOverrides = sanitizePresetQuantizationOverrides(
@@ -1177,6 +1216,11 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       );
       const llmLocalDtypeWebgpu = activeLlmLocalSettings.dtypeWebgpu;
       const llmLocalDtypeWasm = activeLlmLocalSettings.dtypeWasm;
+      const hydratedSecureTokens = normalizeSecureTokens({
+        hfApiToken: state.hfApiToken,
+        mistralApiKey: state.mistralApiKey,
+      });
+      lastPersistedSecureTokens = hydratedSecureTokens;
 
       return {
       ...state,
@@ -1268,9 +1312,9 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       micShowSegmentConfidence: settings.micShowSegmentConfidence ?? state.micShowSegmentConfidence,
       micForceSingleThread: settings.micForceSingleThread ?? state.micForceSingleThread,
       cloudApiUrl: normalizedCloudApiUrl,
-      cloudHfToken: settings.cloudHfToken ?? state.cloudHfToken,
+      hfApiToken: hydratedSecureTokens.hfApiToken,
       cloudMistralApiUrl: settings.cloudMistralApiUrl ?? state.cloudMistralApiUrl,
-      cloudMistralApiKey: settings.cloudMistralApiKey ?? state.cloudMistralApiKey,
+      mistralApiKey: hydratedSecureTokens.mistralApiKey,
       cloudMistralModel: normalizedCloudMistralModel,
       cloudMistralDiarizationEnabled:
         settings.cloudMistralDiarizationEnabled ?? state.cloudMistralDiarizationEnabled,
@@ -1313,7 +1357,6 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       cloudEnableWordTimestamps: settings.cloudEnableWordTimestamps ?? state.cloudEnableWordTimestamps,
       cloudShowSegmentConfidence: settings.cloudShowSegmentConfidence ?? state.cloudShowSegmentConfidence,
       llmApiProvider: persistedLlmProvider,
-      llmApiHfToken: settings.llmApiHfToken ?? state.llmApiHfToken,
       llmApiHfModelId,
       llmApiHfTemperature,
       llmApiHfMaxTokens,
@@ -1335,6 +1378,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       showSegmentConfidence: settings.showSegmentConfidence ?? state.showSegmentConfidence,
     };
     });
+    void syncSecureTokensFromVault();
   },
   registerTelemetry: (collector) => set(() => ({ telemetryCollector: collector })),
   registerAudioSource: (source, metadata) =>
@@ -1431,9 +1475,9 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       cloudStatusDetail: detail ?? undefined,
     })),
   setCloudApiUrl: (value) => set(() => ({ cloudApiUrl: value })),
-  setCloudHfToken: (value) => set(() => ({ cloudHfToken: value })),
+  setHfApiToken: (value) => set(() => ({ hfApiToken: value })),
   setCloudMistralApiUrl: (value) => set(() => ({ cloudMistralApiUrl: value })),
-  setCloudMistralApiKey: (value) => set(() => ({ cloudMistralApiKey: value })),
+  setMistralApiKey: (value) => set(() => ({ mistralApiKey: value })),
   setCloudMistralModel: (value) => set(() => ({ cloudMistralModel: value })),
   setCloudMistralDiarizationEnabled: (value) => set(() => ({ cloudMistralDiarizationEnabled: value })),
   setCloudWhisperChunking: (params) =>
@@ -1486,7 +1530,6 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
   setCloudEnableWordTimestamps: (value) => set(() => ({ cloudEnableWordTimestamps: value })),
   setCloudShowSegmentConfidence: (value) => set(() => ({ cloudShowSegmentConfidence: value })),
   setLlmApiProvider: (value) => set(() => ({ llmApiProvider: value })),
-  setLlmApiHfToken: (value) => set(() => ({ llmApiHfToken: value })),
   setLlmApiHfModelId: (value) => set(() => ({ llmApiHfModelId: value })),
   setLlmApiHfTemperature: (value) =>
     set(() => ({ llmApiHfTemperature: normalizeLlmTemperature(value, DEFAULT_LLM_HF_TEMPERATURE) })),
@@ -1783,6 +1826,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         // Use logger so debug toggle controls this output
         logger.warn("resetApp: failed to persist default settings", e);
       }
+      void clearSecureTokens();
       return {
         ...initialState,
         hasHydrated: true,
@@ -1860,6 +1904,8 @@ export function resolveEffectiveModelDtype(
   }
   return overrides?.[activePreset]?.[backend] ?? MODEL_PRESETS[activePreset].quantization[backend];
 }
+
+let lastPersistedSecureTokens: SecureTokens = normalizeSecureTokens(null);
 
 useAsrStore.subscribe((state) => {
   if (!state.hasHydrated) {
@@ -2009,4 +2055,19 @@ useAsrStore.subscribe((state) => {
     debugConfidence: state.debugConfidence,
   };
   saveSettings(payload);
+  const secureTokens = normalizeSecureTokens({
+    hfApiToken: state.hfApiToken,
+    mistralApiKey: state.mistralApiKey,
+  });
+  const secureTokensChanged =
+    secureTokens.hfApiToken !== lastPersistedSecureTokens.hfApiToken ||
+    secureTokens.mistralApiKey !== lastPersistedSecureTokens.mistralApiKey;
+  if (secureTokensChanged) {
+    lastPersistedSecureTokens = secureTokens;
+    if (hasAnySecureToken(secureTokens)) {
+      void saveSecureTokens(secureTokens);
+    } else {
+      void clearSecureTokens();
+    }
+  }
 });

@@ -28,10 +28,10 @@ function CloudUploadPage() {
   const usesContext = provider === "gradio";
   const telemetry = useAsrStore((state) => state.telemetryCollector);
   const cloudContextPreset = useAsrStore((state) => state.cloudContextPreset);
-  const cloudHfToken = useAsrStore((state) => state.cloudHfToken);
-  const setCloudHfToken = useAsrStore((state) => state.setCloudHfToken);
-  const cloudMistralApiKey = useAsrStore((state) => state.cloudMistralApiKey);
-  const setCloudMistralApiKey = useAsrStore((state) => state.setCloudMistralApiKey);
+  const hfApiToken = useAsrStore((state) => state.hfApiToken);
+  const setHfApiToken = useAsrStore((state) => state.setHfApiToken);
+  const mistralApiKey = useAsrStore((state) => state.mistralApiKey);
+  const setMistralApiKey = useAsrStore((state) => state.setMistralApiKey);
   const cloudMistralDiarizationEnabled = useAsrStore((state) => state.cloudMistralDiarizationEnabled);
   const setCloudMistralDiarizationEnabled = useAsrStore((state) => state.setCloudMistralDiarizationEnabled);
   const cloudShowSegments = useAsrStore((state) => state.cloudShowSegments);
@@ -86,8 +86,8 @@ function CloudUploadPage() {
         return { label: "En attente", tone: "secondary" as const };
     }
   }, [status]);
-  const isWhisperTokenMissing = isWhisper && cloudHfToken.trim().length === 0;
-  const isMistralTokenMissing = isMistral && cloudMistralApiKey.trim().length === 0;
+  const isWhisperTokenMissing = isWhisper && hfApiToken.trim().length === 0;
+  const isMistralTokenMissing = isMistral && mistralApiKey.trim().length === 0;
   const percent = Math.round(progress * 100);
   return (
     <div className="space-y-8">
@@ -138,12 +138,12 @@ function CloudUploadPage() {
             <Input
               id="cloud-provider-token-session"
               type="password"
-              value={isWhisper ? cloudHfToken : cloudMistralApiKey}
+              value={isWhisper ? hfApiToken : mistralApiKey}
               onChange={(event) => {
                 if (isWhisper) {
-                  setCloudHfToken(event.target.value);
+                  setHfApiToken(event.target.value);
                 } else {
-                  setCloudMistralApiKey(event.target.value);
+                  setMistralApiKey(event.target.value);
                 }
               }}
               placeholder={isWhisper ? "hf_..." : "...."}

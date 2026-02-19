@@ -25,44 +25,44 @@ import {
 export function LlmCloudSettingsTab() {
   const {
     llmApiProvider,
-    llmApiHfToken,
+    hfApiToken,
     llmApiHfModelId,
     llmApiHfTemperature,
     llmApiHfMaxTokens,
     llmApiMistralModelId,
     llmApiMistralTemperature,
     llmApiMistralMaxTokens,
-    cloudMistralApiKey,
+    mistralApiKey,
     cloudMistralApiUrl,
-    setLlmApiHfToken,
+    setHfApiToken,
     setLlmApiHfModelId,
     setLlmApiHfTemperature,
     setLlmApiHfMaxTokens,
     setLlmApiMistralModelId,
     setLlmApiMistralTemperature,
     setLlmApiMistralMaxTokens,
-    setCloudMistralApiKey,
+    setMistralApiKey,
     setCloudMistralApiUrl,
   } = useAsrStore(
     useShallow((state) => ({
       llmApiProvider: state.llmApiProvider,
-      llmApiHfToken: state.llmApiHfToken,
+      hfApiToken: state.hfApiToken,
       llmApiHfModelId: state.llmApiHfModelId,
       llmApiHfTemperature: state.llmApiHfTemperature,
       llmApiHfMaxTokens: state.llmApiHfMaxTokens,
       llmApiMistralModelId: state.llmApiMistralModelId,
       llmApiMistralTemperature: state.llmApiMistralTemperature,
       llmApiMistralMaxTokens: state.llmApiMistralMaxTokens,
-      cloudMistralApiKey: state.cloudMistralApiKey,
+      mistralApiKey: state.mistralApiKey,
       cloudMistralApiUrl: state.cloudMistralApiUrl,
-      setLlmApiHfToken: state.setLlmApiHfToken,
+      setHfApiToken: state.setHfApiToken,
       setLlmApiHfModelId: state.setLlmApiHfModelId,
       setLlmApiHfTemperature: state.setLlmApiHfTemperature,
       setLlmApiHfMaxTokens: state.setLlmApiHfMaxTokens,
       setLlmApiMistralModelId: state.setLlmApiMistralModelId,
       setLlmApiMistralTemperature: state.setLlmApiMistralTemperature,
       setLlmApiMistralMaxTokens: state.setLlmApiMistralMaxTokens,
-      setCloudMistralApiKey: state.setCloudMistralApiKey,
+      setMistralApiKey: state.setMistralApiKey,
       setCloudMistralApiUrl: state.setCloudMistralApiUrl,
     }))
   );
@@ -70,13 +70,13 @@ export function LlmCloudSettingsTab() {
   const [mistralModels, setMistralModels] = useState<MistralModelMetadata[]>([]);
   const [isMistralModelsLoading, setIsMistralModelsLoading] = useState(false);
   const mistralCredentialsReady =
-    cloudMistralApiKey.trim().length > 0 && cloudMistralApiUrl.trim().length > 0;
+    mistralApiKey.trim().length > 0 && cloudMistralApiUrl.trim().length > 0;
   const availableMistralModels = useMemo(() => mistralModels, [mistralModels]);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const key = cloudMistralApiKey.trim();
+      const key = mistralApiKey.trim();
       const apiUrl = cloudMistralApiUrl.trim();
       if (!key || !apiUrl) {
         if (!cancelled) {
@@ -108,7 +108,7 @@ export function LlmCloudSettingsTab() {
     return () => {
       cancelled = true;
     };
-  }, [cloudMistralApiKey, cloudMistralApiUrl]);
+  }, [mistralApiKey, cloudMistralApiUrl]);
 
   const selectedSuggestedModel = useMemo(
     () => findSuggestedReportModel(llmApiHfModelId),
@@ -177,8 +177,8 @@ export function LlmCloudSettingsTab() {
               <Input
                 id="settings-llm-hf-token"
                 type="password"
-                value={llmApiHfToken}
-                onChange={(event) => setLlmApiHfToken(event.target.value)}
+                value={hfApiToken}
+                onChange={(event) => setHfApiToken(event.target.value)}
                 placeholder="hf_..."
                 autoComplete="off"
               />
@@ -283,8 +283,8 @@ export function LlmCloudSettingsTab() {
               <Input
                 id="settings-llm-mistral-api-key"
                 type="password"
-                value={cloudMistralApiKey}
-                onChange={(event) => setCloudMistralApiKey(event.target.value)}
+                value={mistralApiKey}
+                onChange={(event) => setMistralApiKey(event.target.value)}
                 placeholder="mistral_..."
                 autoComplete="off"
               />

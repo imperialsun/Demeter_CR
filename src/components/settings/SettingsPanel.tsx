@@ -35,6 +35,7 @@ import { computeDefaultOverlap } from "@/lib/chunking";
 import { cn } from "@/lib/utils";
 import { testWasmMultithreadSupport } from "@/lib/backend-support";
 import logger from "@/lib/logger";
+import { clearSecureTokens } from "@/lib/secure-token-vault";
 import { LlmCloudSettingsTab } from "@/components/settings/LlmCloudSettingsTab";
 import { LlmLocalSettingsTab } from "@/components/settings/LlmLocalSettingsTab";
 
@@ -273,7 +274,7 @@ export function SettingsPanel({
     cloudTopP,
     cloudDoSample,
     cloudContextPreset,
-    cloudMistralApiKey,
+    mistralApiKey,
     cloudWhisperChunkDurationSec,
     cloudWhisperOverlapSec,
     cloudMistralChunkDurationSec,
@@ -305,10 +306,10 @@ export function SettingsPanel({
     cloudAutoTunePreprocess,
     cloudEnableWordTimestamps,
     cloudShowSegmentConfidence,
-    cloudHfToken,
+    hfApiToken,
     setCloudApiUrl,
-    setCloudHfToken,
-    setCloudMistralApiKey,
+    setHfApiToken,
+    setMistralApiKey,
     setCloudWhisperChunking,
     setCloudMistralChunking,
     setCloudMaxTokens,
@@ -335,7 +336,7 @@ export function SettingsPanel({
       cloudTopP: state.cloudTopP,
       cloudDoSample: state.cloudDoSample,
       cloudContextPreset: state.cloudContextPreset,
-      cloudMistralApiKey: state.cloudMistralApiKey,
+      mistralApiKey: state.mistralApiKey,
       cloudWhisperChunkDurationSec: state.cloudWhisperChunkDurationSec,
       cloudWhisperOverlapSec: state.cloudWhisperOverlapSec,
       cloudMistralChunkDurationSec: state.cloudMistralChunkDurationSec,
@@ -367,10 +368,10 @@ export function SettingsPanel({
       cloudAutoTunePreprocess: state.cloudAutoTunePreprocess,
       cloudEnableWordTimestamps: state.cloudEnableWordTimestamps,
       cloudShowSegmentConfidence: state.cloudShowSegmentConfidence,
-      cloudHfToken: state.cloudHfToken,
+      hfApiToken: state.hfApiToken,
       setCloudApiUrl: state.setCloudApiUrl,
-      setCloudHfToken: state.setCloudHfToken,
-      setCloudMistralApiKey: state.setCloudMistralApiKey,
+      setHfApiToken: state.setHfApiToken,
+      setMistralApiKey: state.setMistralApiKey,
       setCloudWhisperChunking: state.setCloudWhisperChunking,
       setCloudMistralChunking: state.setCloudMistralChunking,
       setCloudMaxTokens: state.setCloudMaxTokens,
@@ -690,6 +691,7 @@ export function SettingsPanel({
 
       // Clear local/session storage
       try {
+        await clearSecureTokens();
         if (typeof localStorage !== "undefined") localStorage.clear();
         if (typeof sessionStorage !== "undefined") sessionStorage.clear();
       } catch (err) {
@@ -2742,8 +2744,8 @@ export function SettingsPanel({
                       <Input
                         id="cloud-hf-token"
                         type="password"
-                        value={cloudHfToken}
-                        onChange={(event) => setCloudHfToken(event.target.value)}
+                        value={hfApiToken}
+                        onChange={(event) => setHfApiToken(event.target.value)}
                         placeholder="hf_..."
                         autoComplete="off"
                       />
@@ -2829,8 +2831,8 @@ export function SettingsPanel({
                       <Input
                         id="cloud-mistral-api-key"
                         type="password"
-                        value={cloudMistralApiKey}
-                        onChange={(event) => setCloudMistralApiKey(event.target.value)}
+                        value={mistralApiKey}
+                        onChange={(event) => setMistralApiKey(event.target.value)}
                         placeholder="..."
                         autoComplete="off"
                       />

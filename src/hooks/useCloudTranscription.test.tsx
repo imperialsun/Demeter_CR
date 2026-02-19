@@ -149,8 +149,8 @@ describe("useCloudTranscription", () => {
     useAsrStore.getState().resetApp();
     useAsrStore.setState({
       cloudApiUrl: "https://api.example.com",
-      cloudHfToken: "",
-      cloudMistralApiKey: "",
+      hfApiToken: "",
+      mistralApiKey: "",
       cloudMistralApiUrl: "https://mistral.example.com",
       cloudMistralModel: "voxtral-mini-latest",
       cloudMistralDiarizationEnabled: true,
@@ -225,7 +225,7 @@ describe("useCloudTranscription", () => {
 
   it("completes a whisper transcription run with chunked segments", async () => {
     useAsrStore.setState({
-      cloudHfToken: "hf_token",
+      hfApiToken: "hf_token",
       cloudWhisperChunkDurationSec: 5,
       cloudWhisperOverlapSec: 0,
       cloudEnableWordTimestamps: true,
@@ -264,7 +264,7 @@ describe("useCloudTranscription", () => {
 
   it("completes a mistral transcription run and forwards diarization", async () => {
     useAsrStore.setState({
-      cloudMistralApiKey: "mistral_secret",
+      mistralApiKey: "mistral_secret",
       cloudMistralApiUrl: "https://mistral.example.com",
       cloudMistralModel: "voxtral-mini-latest",
       cloudMistralChunkDurationSec: 5,

@@ -17,9 +17,13 @@ import {
 import logger from "@/lib/logger";
 
 const STORAGE_KEY = "demeter-asr-settings";
-const SENSITIVE_SETTING_KEYS = ["cloudHfToken", "cloudMistralApiKey", "llmApiHfToken"] as const;
-
-type SensitiveSettingKey = (typeof SENSITIVE_SETTING_KEYS)[number];
+const SENSITIVE_SETTING_KEYS = [
+  "hfApiToken",
+  "mistralApiKey",
+  "cloudHfToken",
+  "cloudMistralApiKey",
+  "llmApiHfToken",
+] as const;
 
 export interface PersistedSettings {
   activePreset: PresetKey;
@@ -112,9 +116,7 @@ export interface PersistedSettings {
   micForceSingleThread?: boolean;
   // Cloud-specific settings
   cloudApiUrl?: string;
-  cloudHfToken?: string;
   cloudMistralApiUrl?: string;
-  cloudMistralApiKey?: string;
   cloudMistralModel?: string;
   cloudMistralDiarizationEnabled?: boolean;
   cloudWhisperChunkDurationSec?: number;
@@ -155,7 +157,6 @@ export interface PersistedSettings {
   cloudShowSegmentConfidence?: boolean;
   // LLM API settings
   llmApiProvider?: LlmApiProvider;
-  llmApiHfToken?: string;
   llmApiHfModelId?: string;
   llmApiHfTemperature?: number;
   llmApiHfMaxTokens?: number;
@@ -178,26 +179,32 @@ export interface PersistedSettings {
   llmApiMaxTokens?: number;
 }
 
-function stripSensitiveSettings<T extends Partial<PersistedSettings>>(settings: T): T {
-  const sanitized = { ...settings };
+function stripSensitiveSettings<T extends object>(settings: T): T {
+  const sanitized = { ...settings } as Record<string, unknown>;
   for (const key of SENSITIVE_SETTING_KEYS) {
     if (key in sanitized) {
-      delete sanitized[key as SensitiveSettingKey];
+      delete sanitized[key];
     }
   }
-  return sanitized;
+  return sanitized as T;
 }
 
-function hasSensitiveSettings(settings: Partial<PersistedSettings>) {
+function hasSensitiveSettings(settings: object) {
   return SENSITIVE_SETTING_KEYS.some((key) => key in settings);
+}
+
+function parseStoredSettings(): PersistedSettings | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(STORAGE_KEY);
+  if (!raw) return null;
+  return JSON.parse(raw) as PersistedSettings;
 }
 
 export function loadSettings(): Partial<PersistedSettings> | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as PersistedSettings;
+    const parsed = parseStoredSettings();
+    if (!parsed) return null;
     const sanitized = stripSensitiveSettings(parsed);
     // Backward compatibility: purge sensitive values from existing persisted blobs.
     if (hasSensitiveSettings(parsed)) {
@@ -309,9 +316,7 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   micForceSingleThread: false,
   // cloud defaults
   cloudApiUrl: "https://transcode.demeter-sante.fr/gradio",
-  cloudHfToken: "",
   cloudMistralApiUrl: "https://api.mistral.ai",
-  cloudMistralApiKey: "",
   cloudMistralModel: "voxtral-mini-latest",
   cloudMistralDiarizationEnabled: true,
   cloudWhisperChunkDurationSec: 30,
@@ -352,7 +357,6 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   cloudShowSegmentConfidence: false,
   // llm cloud defaults
   llmApiProvider: "huggingface",
-  llmApiHfToken: "",
   llmApiHfModelId: "openai/gpt-oss-20b",
   llmApiHfTemperature: 0.2,
   llmApiHfMaxTokens: 131072,
