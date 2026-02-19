@@ -234,11 +234,11 @@ function truncateForTelemetry(value: string): { preview: string; totalLength: nu
 
 function emitTelemetry(level: LogLevel, args: unknown[]) {
   if (!telemetryProvider) return;
-  let telemetry: TelemetryCollector | null = null;
+  let telemetry: TelemetryCollector | null;
   try {
     telemetry = telemetryProvider();
   } catch {
-    telemetry = null;
+    return;
   }
   if (!telemetry) return;
 

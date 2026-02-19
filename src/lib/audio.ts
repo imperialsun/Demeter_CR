@@ -54,11 +54,10 @@ export async function decodeFileFully(
     targetSampleRate,
   });
 
-  let arrayBuffer: ArrayBuffer | null = await file.arrayBuffer();
+  const arrayBuffer = await file.arrayBuffer();
   const ctx = new AudioContext();
   logger.info("[decode-full] audio context created", { sampleRate: ctx.sampleRate });
-  let audioBuffer: AudioBuffer | null = await ctx.decodeAudioData(arrayBuffer.slice(0));
-  arrayBuffer = null;
+  const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
   if (!audioBuffer) {
     throw new Error("Échec du décodage audio.");
   }
@@ -79,11 +78,9 @@ export async function decodeFileFully(
   const audioBufferFrames = audioBuffer.length;
   const audioBufferChannels = audioBuffer.numberOfChannels;
   const audioBufferSampleRate = audioBuffer.sampleRate;
-  let mono = mixToMono(audioBuffer);
+  const mono = mixToMono(audioBuffer);
   logger.info("[decode-full] mixed to mono", { frames: mono.length });
   const pcm = await resampleMono(mono, audioBufferSampleRate, targetSampleRate);
-  mono = new Float32Array(0);
-  audioBuffer = null;
   telemetry?.snapshotMemory("FULL_DECODE_AFTER_RELEASE");
   logger.info("[decode-full] released intermediate buffers");
   logger.info("[decode-full] resampled", {
@@ -373,11 +370,10 @@ export async function decodeCompressedBlobToPcm(
   telemetry?.startTimer("decode_audio_total");
   telemetry?.logEvent("START_DECODE", { strategy: "segment_blob" });
 
-  let arrayBuffer: ArrayBuffer | null = await blob.arrayBuffer();
+  const arrayBuffer = await blob.arrayBuffer();
   const ctx = new AudioContext();
   logger.info("[decode-blob] audio context created", { sampleRate: ctx.sampleRate });
-  let audioBuffer: AudioBuffer | null = await ctx.decodeAudioData(arrayBuffer.slice(0));
-  arrayBuffer = null;
+  const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
   if (!audioBuffer) {
     throw new Error("Échec du décodage du segment.");
   }
@@ -387,10 +383,8 @@ export async function decodeCompressedBlobToPcm(
     sampleRate: audioBuffer.sampleRate,
   };
   const audioBufferSampleRate = audioBuffer.sampleRate;
-  let mono = mixToMono(audioBuffer);
+  const mono = mixToMono(audioBuffer);
   const pcm = await resampleMono(mono, audioBufferSampleRate, targetSampleRate);
-  mono = new Float32Array(0);
-  audioBuffer = null;
   telemetry?.snapshotMemory("SEGMENT_DECODE_AFTER_RELEASE");
   logger.info("[decode-blob] released intermediate buffers");
   await ctx.close();

@@ -156,7 +156,8 @@ export async function generateWithChatThenFallbackText(
             throw new Error(
               `Le modele ${modelId} est servi en mode conversation uniquement chez ce provider. La generation text-generation n'est pas disponible. Echec chat: ${toErrorMessage(
                 retryChatError
-              )}`
+              )}`,
+              { cause: retryChatError }
             );
           }
         }
@@ -165,7 +166,9 @@ export async function generateWithChatThenFallbackText(
 
       const content = extractGeneratedText(textResponse);
       if (!content) {
-        throw new Error("Le modele a retourne une reponse textGeneration vide.");
+        throw new Error("Le modele a retourne une reponse textGeneration vide.", {
+          cause: chatError,
+        });
       }
       logger.info("[llm-api] textGeneration success", {
         modelId,
@@ -190,7 +193,8 @@ export async function generateWithChatThenFallbackText(
       } catch (fallbackError) {
         if (isMissingProviderInfoError(fallbackError) || isNoHfInferenceProviderError(fallbackError)) {
           throw new Error(
-            `Votre compte Hugging Face n'a pas acces aux Inference Providers (PRO requis) et ${modelId} n'est pas disponible sur hf-inference. Choisissez un autre modele ou activez PRO.`
+            `Votre compte Hugging Face n'a pas acces aux Inference Providers (PRO requis) et ${modelId} n'est pas disponible sur hf-inference. Choisissez un autre modele ou activez PRO.`,
+            { cause: fallbackError }
           );
         }
         throw fallbackError;
@@ -199,7 +203,8 @@ export async function generateWithChatThenFallbackText(
 
     if (isMissingProviderInfoError(error)) {
       throw new Error(
-        `Aucun provider HF Inference n'est disponible pour ${modelId}. Essayez un autre modele suggere (ex: openai/gpt-oss-120b) ou utilisez un endpoint dedie.`
+        `Aucun provider HF Inference n'est disponible pour ${modelId}. Essayez un autre modele suggere (ex: openai/gpt-oss-120b) ou utilisez un endpoint dedie.`,
+        { cause: error }
       );
     }
     throw error;

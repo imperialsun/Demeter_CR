@@ -68,7 +68,7 @@ async function decodeWithFfmpeg(file: File, telemetry?: TelemetryCollector): Pro
     sizeBytes: file.size,
   });
 
-  let bytes: Uint8Array | null = null;
+  let bytes: Uint8Array;
   try {
     const inputBytes = await readFileBytes(file);
     if (hasLegacyFs) {
@@ -142,10 +142,6 @@ async function decodeWithFfmpeg(file: File, telemetry?: TelemetryCollector): Pro
     telemetry?.logEvent("ERROR", { context: "cloud_decode_ffmpeg", message: (err as Error)?.message });
     logger.error("[cloud][decode-ffmpeg] failed", err);
     throw err;
-  }
-
-  if (!bytes) {
-    throw new Error("ffmpeg output missing");
   }
 
   const pcm = decodePcm16le(bytes);

@@ -785,7 +785,6 @@ export function useMicTranscription() {
   const processTranscriptionQueue = useCallback(async () => {
     if (queueProcessingRef.current) return;
     queueProcessingRef.current = true;
-    let shouldContinue = false;
     try {
       const pipeline = await ensurePipeline();
       logger.info("[mic][queue] pump start", { pendingChunks: pendingChunksRef.current.length });
@@ -863,9 +862,8 @@ export function useMicTranscription() {
       await cleanupCapture();
     } finally {
       queueProcessingRef.current = false;
-      shouldContinue = pendingChunksRef.current.length > 0;
     }
-    if (shouldContinue) {
+    if (pendingChunksRef.current.length > 0) {
       void processTranscriptionQueue();
       return;
     }
@@ -954,7 +952,7 @@ export function useMicTranscription() {
       if (!sampleRate || buffer.length === 0) return;
 
       const durationSec = buffer.length / sampleRate;
-      let segments: SegmentWindow[] = [];
+      let segments: SegmentWindow[];
 
       if (state.micSegmentationMode === "silence") {
         logger.debug("[mic][segment] detect(silence) start", {

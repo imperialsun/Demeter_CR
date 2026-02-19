@@ -747,7 +747,7 @@ export function computePreprocessParams(
   else noiseFloorDb = -20;
 
   // reduction: 6..14 dB
-  let reductionDb = 10;
+  let reductionDb: number;
   if (snrDb >= 20) reductionDb = 6;
   else if (snrDb >= 10) reductionDb = 8;
   else if (snrDb >= 0) reductionDb = 10;
@@ -757,7 +757,7 @@ export function computePreprocessParams(
   let smoothing = 0.9 - snrDb / 40; // lower SNR -> higher smoothing
   smoothing = Math.min(0.98, Math.max(0.6, smoothing));
 
-  let targetLufs = DEFAULT_LUFS_TARGET;
+  let targetLufs: number;
   if (snrDb >= 20) targetLufs = -23;
   else if (snrDb >= 10) targetLufs = -21;
   else if (snrDb >= 0) targetLufs = -20;
