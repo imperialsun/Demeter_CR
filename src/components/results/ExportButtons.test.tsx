@@ -22,6 +22,11 @@ describe('ExportButtons', () => {
       showExportSrt: true,
       showExportJson: true,
       showExportTelemetry: true,
+      runExportHeaders: {
+        upload: null,
+        mic: null,
+        cloud: null,
+      },
     } as any);
   });
 
@@ -84,5 +89,45 @@ describe('ExportButtons', () => {
     expect(screen.queryByText('JSON')).toBeNull();
     expect(screen.queryByText('Telemetry')).toBeNull();
     expect(screen.getByText('SRT')).toBeTruthy();
+  });
+
+  it('uses run snapshot header so exports reflect effective run settings', () => {
+    const segments: any[] = [{ index: 0, start: 0, end: 1, text: 'a' }];
+    useAsrStore.setState({
+      activePreset: 'quality',
+      runExportHeaders: {
+        upload: {
+          exportedAt: '2026-02-19T00:00:00.000Z',
+          mode: 'upload',
+          settings: {
+            file: {
+              modelPreset: 'fast',
+              memoryModeEffective: 'progressive',
+            },
+          },
+          runtime: {
+            activeBackend: 'wasm',
+          },
+        },
+        mic: null,
+        cloud: null,
+      },
+    } as any);
+
+    render(<ExportButtons segments={segments} mode="upload" />);
+    fireEvent.click(screen.getByText('JSON'));
+
+    expect((exportLib.serializeSegmentsJson as any)).toHaveBeenCalled();
+    const jsonCalls = (exportLib.serializeSegmentsJson as any).mock.calls;
+    const header = jsonCalls[jsonCalls.length - 1][1];
+    expect(header.mode).toBe('upload');
+    expect(header.settings.file).toEqual({
+      modelPreset: 'fast',
+      memoryModeEffective: 'progressive',
+    });
+    expect(header.settings.mic).toBeUndefined();
+    expect(header.settings.cloud).toBeUndefined();
+    expect(header.runtime).toEqual({ activeBackend: 'wasm' });
+    expect(typeof header.exportedAt).toBe('string');
   });
 });

@@ -24,8 +24,8 @@ export interface ExportHeader {
   exportedAt: string;
   mode: "upload" | "mic" | "cloud";
   settings: {
-    file: Record<string, unknown>;
-    mic: Record<string, unknown>;
+    file?: Record<string, unknown>;
+    mic?: Record<string, unknown>;
     cloud?: Record<string, unknown>;
   };
   runtime?: Record<string, unknown>;

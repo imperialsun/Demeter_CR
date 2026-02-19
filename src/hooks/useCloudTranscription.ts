@@ -541,6 +541,8 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
 
     const allSegments: TranscriptionSegment[] = [];
     let nextIndex = 0;
+    let mistralDiarizationEffective = cloudMistralDiarizationEnabled;
+    let mistralDiarizationFallbackChunks = 0;
 
     for (let segmentIndex = 0; segmentIndex < totalSegments; segmentIndex += 1) {
       const segment = plan[segmentIndex];
@@ -622,6 +624,28 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
           model,
           file: processedFile,
           diarize: cloudMistralDiarizationEnabled,
+          onDiarizationResolved: ({ requestedDiarize, effectiveDiarize, fallbackApplied }) => {
+            if (fallbackApplied) {
+              mistralDiarizationFallbackChunks += 1;
+            }
+            if (!effectiveDiarize) {
+              mistralDiarizationEffective = false;
+            }
+            const currentHeader = useAsrStore.getState().runExportHeaders.cloud;
+            if (!currentHeader || currentHeader.mode !== "cloud") return;
+            settings.setRunExportHeader("cloud", {
+              ...currentHeader,
+              settings: {
+                ...currentHeader.settings,
+                cloud: {
+                  ...currentHeader.settings.cloud,
+                  mistralDiarizationRequested: requestedDiarize,
+                  mistralDiarizationEffective: mistralDiarizationEffective,
+                  mistralDiarizationFallbackChunks,
+                },
+              },
+            });
+          },
         },
         telemetry
       );
@@ -757,6 +781,88 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
         preprocessOverlapSec: settings.cloudPreprocessOverlapSec,
         autoTunePreprocess: settings.cloudAutoTunePreprocess,
       };
+
+      const commonCloudPreprocessSettings = {
+        preprocessingMode: settings.cloudPreprocessingMode,
+        autoTunePreprocess: settings.cloudAutoTunePreprocess,
+        denoiseNoiseFloorDb: settings.cloudDenoiseNoiseFloorDb,
+        denoiseReductionDb: settings.cloudDenoiseReductionDb,
+        denoiseSmoothing: settings.cloudDenoiseSmoothing,
+        denoiseCalibrationSeconds: settings.cloudDenoiseCalibrationSeconds,
+        preprocessEnableFilters: settings.cloudPreprocessEnableFilters,
+        preprocessHighpassHz: settings.cloudPreprocessHighpassHz,
+        preprocessLowpassHz: settings.cloudPreprocessLowpassHz,
+        preprocessEnableLufs: settings.cloudPreprocessEnableLufs,
+        preprocessTargetLufs: settings.cloudPreprocessTargetLufs,
+        preprocessLimiterEnabled: settings.cloudPreprocessLimiterEnabled,
+        preprocessLimiterThresholdDb: settings.cloudPreprocessLimiterThresholdDb,
+        preprocessLimiterSoftness: settings.cloudPreprocessLimiterSoftness,
+        preprocessVadEnabled: settings.cloudPreprocessVadEnabled,
+        preprocessVadThresholdDb: settings.cloudPreprocessVadThresholdDb,
+        preprocessVadMinSilenceMs: settings.cloudPreprocessVadMinSilenceMs,
+        preprocessOverlapAdd: settings.cloudPreprocessOverlapAdd,
+        preprocessOverlapBlockSec: settings.cloudPreprocessOverlapBlockSec,
+        preprocessOverlapSec: settings.cloudPreprocessOverlapSec,
+      };
+
+      const cloudSettingsForExport = isWhisper
+        ? {
+            provider: "whisper",
+            model: "openai/whisper-large-v3-turbo",
+            maxTokens: resolvedSettings.maxTokens,
+            temperature: resolvedSettings.temperature,
+            topP: resolvedSettings.topP,
+            doSample: resolvedSettings.doSample,
+            chunkDurationSec: settings.cloudWhisperChunkDurationSec,
+            overlapSec: settings.cloudWhisperOverlapSec,
+            includeWordTimestamps: settings.cloudEnableWordTimestamps,
+            contextUsed: false,
+            ...commonCloudPreprocessSettings,
+          }
+        : isMistral
+          ? {
+              provider: "mistral",
+              apiUrl: settings.cloudMistralApiUrl,
+              model: settings.cloudMistralModel,
+              mistralDiarizationRequested: settings.cloudMistralDiarizationEnabled,
+              mistralDiarizationEffective: settings.cloudMistralDiarizationEnabled,
+              mistralDiarizationFallbackChunks: 0,
+              chunkDurationSec: settings.cloudMistralChunkDurationSec,
+              overlapSec: settings.cloudMistralOverlapSec,
+              includeWordTimestamps: settings.cloudEnableWordTimestamps,
+              contextUsed: false,
+              ...commonCloudPreprocessSettings,
+            }
+          : {
+              provider: "gradio",
+              apiUrl: resolvedSettings.apiUrl,
+              maxTokens: resolvedSettings.maxTokens,
+              temperature: resolvedSettings.temperature,
+              topP: resolvedSettings.topP,
+              doSample: resolvedSettings.doSample,
+              contextUsed: Boolean(combinedContext.trim().length),
+              contextLength: combinedContext.trim().length,
+              contextPresetConfigured: Boolean(settings.cloudContextPreset.trim().length),
+              ...commonCloudPreprocessSettings,
+            };
+
+      settings.setRunExportHeader("cloud", {
+        exportedAt: new Date().toISOString(),
+        mode: "cloud",
+        settings: {
+          cloud: cloudSettingsForExport,
+        },
+        runtime: {
+          runId,
+          provider,
+          fileName: selectedFile.name,
+          fileType: selectedFile.type || "application/octet-stream",
+          fileSizeBytes: selectedFile.size,
+          durationSec: metadata.durationSec,
+          sampleRate: metadata.sampleRate,
+          settingSources: resolvedSettings.sources,
+        },
+      });
 
       if (isWhisper) {
         await runWhisperTranscription({

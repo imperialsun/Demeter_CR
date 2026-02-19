@@ -16,6 +16,11 @@ type MistralTranscriptionRequest = {
   model: string;
   file: File;
   diarize?: boolean;
+  onDiarizationResolved?: (info: {
+    requestedDiarize: boolean;
+    effectiveDiarize: boolean;
+    fallbackApplied: boolean;
+  }) => void;
   signal?: AbortSignal;
 };
 
@@ -163,6 +168,11 @@ export async function transcribeWithMistral(
       response = await send(false);
       if (response.ok) {
         const json = (await response.json()) as MistralTranscriptionResponse;
+        request.onDiarizationResolved?.({
+          requestedDiarize: diarize,
+          effectiveDiarize: false,
+          fallbackApplied: true,
+        });
         logger.info("[cloud][mistral] request done", {
           hasText: typeof json?.text === "string" && json.text.trim().length > 0,
           hasSegments: Array.isArray(json?.segments),
@@ -186,6 +196,11 @@ export async function transcribeWithMistral(
   }
 
   const json = (await response.json()) as MistralTranscriptionResponse;
+  request.onDiarizationResolved?.({
+    requestedDiarize: diarize,
+    effectiveDiarize: diarize,
+    fallbackApplied: false,
+  });
   logger.info("[cloud][mistral] request done", {
     hasText: typeof json?.text === "string" && json.text.trim().length > 0,
     hasSegments: Array.isArray(json?.segments),

@@ -24,6 +24,7 @@ import { TelemetryCollector } from "@/lib/telemetry";
 import type { TranscriptionSegment, WordSegment } from "@/lib/export";
 import {
   MODEL_PRESETS,
+  resolveModelId,
   resolveLighterPresetForMemoryFallback,
   useAsrStore,
   type DedupeMode,
@@ -970,6 +971,65 @@ export function useTranscriptionController() {
       });
     }
 
+    state.setRunExportHeader("upload", {
+      exportedAt: new Date().toISOString(),
+      mode: "upload",
+      settings: {
+        file: {
+          modelPreset: state.activePreset,
+          customModelId: state.customModelId,
+          requestedModelId: resolveModelId(state.activePreset, state.customModelId),
+          backendPreference: state.backendPreference,
+          forceSingleThread: state.forceSingleThread,
+          memoryModeRequested: state.memoryMode,
+          memoryModeEffective: effectiveMemoryMode,
+          chunkStrategy: state.chunkStrategy,
+          segmentationMode: state.segmentationMode,
+          dedupeMode: state.dedupeMode,
+          cleanIntraChunk: state.cleanIntraChunk,
+          chunkDurationSec: state.chunkDurationSec,
+          overlapSec: state.overlapSec,
+          progressiveSegmentDurationSec: state.progressiveSegmentDurationSec,
+          silenceThresholdDb: state.silenceThresholdDb,
+          minSilenceMs: state.minSilenceMs,
+          minChunkMs: state.minChunkMs,
+          maxChunkMs: state.maxChunkMs,
+          preprocessingMode: state.preprocessingMode,
+          autoTunePreprocess: state.autoTunePreprocess,
+          denoiseNoiseFloorDb: state.denoiseNoiseFloorDb,
+          denoiseReductionDb: state.denoiseReductionDb,
+          denoiseSmoothing: state.denoiseSmoothing,
+          denoiseCalibrationSeconds: state.denoiseCalibrationSeconds,
+          preprocessEnableFilters: state.preprocessEnableFilters,
+          preprocessHighpassHz: state.preprocessHighpassHz,
+          preprocessLowpassHz: state.preprocessLowpassHz,
+          preprocessEnableLufs: state.preprocessEnableLufs,
+          preprocessTargetLufs: state.preprocessTargetLufs,
+          preprocessLimiterEnabled: state.preprocessLimiterEnabled,
+          preprocessLimiterThresholdDb: state.preprocessLimiterThresholdDb,
+          preprocessLimiterSoftness: state.preprocessLimiterSoftness,
+          preprocessVadEnabled: state.preprocessVadEnabled,
+          preprocessVadThresholdDb: state.preprocessVadThresholdDb,
+          preprocessVadMinSilenceMs: state.preprocessVadMinSilenceMs,
+          preprocessOverlapAdd: state.preprocessOverlapAdd,
+          preprocessOverlapBlockSec: state.preprocessOverlapBlockSec,
+          preprocessOverlapSec: state.preprocessOverlapSec,
+          enableWordTimestamps: state.enableWordTimestamps,
+          showSegmentConfidence: state.showSegmentConfidence,
+        },
+      },
+      runtime: {
+        runId,
+        source: "upload",
+        fileName: file.name,
+        fileType: file.type || "application/octet-stream",
+        fileSizeBytes: file.size,
+        durationSec: metadata.durationSec,
+        sampleRate: metadata.sampleRate,
+        activeBackend: null,
+      },
+    });
+
     const telemetry = new TelemetryCollector();
     state.registerTelemetry(telemetry);
     state.setStatus("downloading", "Chargement du pipeline");
@@ -1220,6 +1280,17 @@ export function useTranscriptionController() {
       throwIfRunInvalidated();
       state.setActiveBackend(backend);
       telemetry.setRuntimeContext({ backend, modelId });
+      const uploadRunHeader = useAsrStore.getState().runExportHeaders.upload;
+      if (uploadRunHeader) {
+        state.setRunExportHeader("upload", {
+          ...uploadRunHeader,
+          runtime: {
+            ...uploadRunHeader.runtime,
+            activeBackend: backend,
+            activeModelId: modelId,
+          },
+        });
+      }
 
       if (effectiveMemoryMode === "full") {
         // If we precomputed decoded/preprocessed audio, pass it to avoid re-decoding and to ensure the preprocessed pcm is used

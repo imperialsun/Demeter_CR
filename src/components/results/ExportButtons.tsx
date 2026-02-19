@@ -11,7 +11,7 @@ import {
 } from "@/lib/export";
 import type { TelemetrySummary } from "@/lib/telemetry";
 import { useCallback } from "react";
-import { resolveModelId, useAsrStore } from "@/store/asr-store";
+import { useAsrStore } from "@/store/asr-store";
 
 interface ExportButtonsProps {
   segments: TranscriptionSegment[];
@@ -101,137 +101,82 @@ function buildFilename(suffix: string) {
 
 function buildExportHeader(mode: "upload" | "mic" | "cloud"): ExportHeader {
   const state = useAsrStore.getState();
+  const runHeader = state.runExportHeaders[mode];
+
+  if (runHeader) {
+    return {
+      ...runHeader,
+      exportedAt: new Date().toISOString(),
+    };
+  }
+
+  return buildFallbackExportHeader(mode, state);
+}
+
+function buildFallbackExportHeader(
+  mode: "upload" | "mic" | "cloud",
+  state: ReturnType<typeof useAsrStore.getState>
+): ExportHeader {
+  if (mode === "upload") {
+    return {
+      exportedAt: new Date().toISOString(),
+      mode,
+      settings: {
+        file: {
+          activePreset: state.activePreset,
+          customModelId: state.customModelId,
+          backendPreference: state.backendPreference,
+          memoryMode: state.memoryMode,
+          chunkStrategy: state.chunkStrategy,
+          segmentationMode: state.segmentationMode,
+          preprocessingMode: state.preprocessingMode,
+          enableWordTimestamps: state.enableWordTimestamps,
+          showSegmentConfidence: state.showSegmentConfidence,
+        },
+      },
+      runtime: {
+        activeBackend: state.activeBackend ?? null,
+        source: "fallback-current-settings",
+      },
+    };
+  }
+
+  if (mode === "mic") {
+    return {
+      exportedAt: new Date().toISOString(),
+      mode,
+      settings: {
+        mic: {
+          micActivePreset: state.micActivePreset,
+          micCustomModelId: state.micCustomModelId,
+          micBackendPreference: state.micBackendPreference,
+          micPreprocessingMode: state.micPreprocessingMode,
+          micSegmentationMode: state.micSegmentationMode,
+          micEnableWordTimestamps: state.micEnableWordTimestamps,
+          micShowSegmentConfidence: state.micShowSegmentConfidence,
+        },
+      },
+      runtime: {
+        activeBackend: state.activeBackend ?? null,
+        source: "fallback-current-settings",
+      },
+    };
+  }
+
   return {
     exportedAt: new Date().toISOString(),
     mode,
     settings: {
-      file: {
-        activePreset: state.activePreset,
-        customModelId: state.customModelId,
-        backendPreference: state.backendPreference,
-        memoryMode: state.memoryMode,
-        chunkStrategy: state.chunkStrategy,
-        segmentationMode: state.segmentationMode,
-        dedupeMode: state.dedupeMode,
-        cleanIntraChunk: state.cleanIntraChunk,
-        preprocessingMode: state.preprocessingMode,
-        chunkDurationSec: state.chunkDurationSec,
-        overlapSec: state.overlapSec,
-        progressiveSegmentDurationSec: state.progressiveSegmentDurationSec,
-        silenceThresholdDb: state.silenceThresholdDb,
-        minSilenceMs: state.minSilenceMs,
-        minChunkMs: state.minChunkMs,
-        maxChunkMs: state.maxChunkMs,
-        showExportVtt: state.showExportVtt,
-        showExportSrt: state.showExportSrt,
-        showExportJson: state.showExportJson,
-        showExportTelemetry: state.showExportTelemetry,
-        denoiseNoiseFloorDb: state.denoiseNoiseFloorDb,
-        denoiseReductionDb: state.denoiseReductionDb,
-        denoiseSmoothing: state.denoiseSmoothing,
-        denoiseCalibrationSeconds: state.denoiseCalibrationSeconds,
-        preprocessEnableFilters: state.preprocessEnableFilters,
-        preprocessHighpassHz: state.preprocessHighpassHz,
-        preprocessLowpassHz: state.preprocessLowpassHz,
-        preprocessEnableLufs: state.preprocessEnableLufs,
-        preprocessTargetLufs: state.preprocessTargetLufs,
-        preprocessLimiterEnabled: state.preprocessLimiterEnabled,
-        preprocessLimiterThresholdDb: state.preprocessLimiterThresholdDb,
-        preprocessLimiterSoftness: state.preprocessLimiterSoftness,
-        preprocessVadEnabled: state.preprocessVadEnabled,
-        preprocessVadThresholdDb: state.preprocessVadThresholdDb,
-        preprocessVadMinSilenceMs: state.preprocessVadMinSilenceMs,
-        preprocessOverlapAdd: state.preprocessOverlapAdd,
-        preprocessOverlapBlockSec: state.preprocessOverlapBlockSec,
-        preprocessOverlapSec: state.preprocessOverlapSec,
-        autoTunePreprocess: state.autoTunePreprocess,
-        enableWordTimestamps: state.enableWordTimestamps,
-        showSegmentConfidence: state.showSegmentConfidence,
-        debugConfidence: state.debugConfidence,
-        forceSingleThread: state.forceSingleThread,
-      },
-      mic: {
-        micActivePreset: state.micActivePreset,
-        micCustomModelId: state.micCustomModelId,
-        micBackendPreference: state.micBackendPreference,
-        micPreprocessingMode: state.micPreprocessingMode,
-        micSegmentationMode: state.micSegmentationMode,
-        micSilenceThresholdDb: state.micSilenceThresholdDb,
-        micNoiseCalibrationMarginDb: state.micNoiseCalibrationMarginDb,
-        micMinSilenceMs: state.micMinSilenceMs,
-        micMinChunkMs: state.micMinChunkMs,
-        micMaxChunkMs: state.micMaxChunkMs,
-        micShowExportVtt: state.micShowExportVtt,
-        micShowExportSrt: state.micShowExportSrt,
-        micShowExportJson: state.micShowExportJson,
-        micShowExportTelemetry: state.micShowExportTelemetry,
-        micDenoiseNoiseFloorDb: state.micDenoiseNoiseFloorDb,
-        micDenoiseReductionDb: state.micDenoiseReductionDb,
-        micDenoiseSmoothing: state.micDenoiseSmoothing,
-        micDenoiseCalibrationSeconds: state.micDenoiseCalibrationSeconds,
-        micPreprocessEnableFilters: state.micPreprocessEnableFilters,
-        micPreprocessHighpassHz: state.micPreprocessHighpassHz,
-        micPreprocessLowpassHz: state.micPreprocessLowpassHz,
-        micPreprocessEnableLufs: state.micPreprocessEnableLufs,
-        micPreprocessTargetLufs: state.micPreprocessTargetLufs,
-        micPreprocessLimiterEnabled: state.micPreprocessLimiterEnabled,
-        micPreprocessLimiterThresholdDb: state.micPreprocessLimiterThresholdDb,
-        micPreprocessLimiterSoftness: state.micPreprocessLimiterSoftness,
-        micPreprocessVadEnabled: state.micPreprocessVadEnabled,
-        micPreprocessVadThresholdDb: state.micPreprocessVadThresholdDb,
-        micPreprocessVadMinSilenceMs: state.micPreprocessVadMinSilenceMs,
-        micPreprocessOverlapAdd: state.micPreprocessOverlapAdd,
-        micPreprocessOverlapBlockSec: state.micPreprocessOverlapBlockSec,
-        micPreprocessOverlapSec: state.micPreprocessOverlapSec,
-        micAutoTunePreprocess: state.micAutoTunePreprocess,
-        micEnableWordTimestamps: state.micEnableWordTimestamps,
-        micShowSegmentConfidence: state.micShowSegmentConfidence,
-        micForceSingleThread: state.micForceSingleThread,
-      },
       cloud: {
-        cloudApiUrl: state.cloudApiUrl,
-        cloudMaxTokens: state.cloudMaxTokens,
-        cloudTemperature: state.cloudTemperature,
-        cloudTopP: state.cloudTopP,
-        cloudDoSample: state.cloudDoSample,
-        cloudContextPreset: state.cloudContextPreset,
-        cloudShowSegments: state.cloudShowSegments,
-        cloudShowExportVtt: state.cloudShowExportVtt,
-        cloudShowExportSrt: state.cloudShowExportSrt,
-        cloudShowExportJson: state.cloudShowExportJson,
-        cloudShowExportTelemetry: state.cloudShowExportTelemetry,
+        provider: "unknown",
         cloudPreprocessingMode: state.cloudPreprocessingMode,
-        cloudDenoiseNoiseFloorDb: state.cloudDenoiseNoiseFloorDb,
-        cloudDenoiseReductionDb: state.cloudDenoiseReductionDb,
-        cloudDenoiseSmoothing: state.cloudDenoiseSmoothing,
-        cloudDenoiseCalibrationSeconds: state.cloudDenoiseCalibrationSeconds,
-        cloudPreprocessEnableFilters: state.cloudPreprocessEnableFilters,
-        cloudPreprocessHighpassHz: state.cloudPreprocessHighpassHz,
-        cloudPreprocessLowpassHz: state.cloudPreprocessLowpassHz,
-        cloudPreprocessEnableLufs: state.cloudPreprocessEnableLufs,
-        cloudPreprocessTargetLufs: state.cloudPreprocessTargetLufs,
-        cloudPreprocessLimiterEnabled: state.cloudPreprocessLimiterEnabled,
-        cloudPreprocessLimiterThresholdDb: state.cloudPreprocessLimiterThresholdDb,
-        cloudPreprocessLimiterSoftness: state.cloudPreprocessLimiterSoftness,
-        cloudPreprocessVadEnabled: state.cloudPreprocessVadEnabled,
-        cloudPreprocessVadThresholdDb: state.cloudPreprocessVadThresholdDb,
-        cloudPreprocessVadMinSilenceMs: state.cloudPreprocessVadMinSilenceMs,
-        cloudPreprocessOverlapAdd: state.cloudPreprocessOverlapAdd,
-        cloudPreprocessOverlapBlockSec: state.cloudPreprocessOverlapBlockSec,
-        cloudPreprocessOverlapSec: state.cloudPreprocessOverlapSec,
         cloudAutoTunePreprocess: state.cloudAutoTunePreprocess,
         cloudEnableWordTimestamps: state.cloudEnableWordTimestamps,
         cloudShowSegmentConfidence: state.cloudShowSegmentConfidence,
       },
     },
     runtime: {
-      activeBackend: state.activeBackend,
-      activePreset: state.activePreset,
-      activeModelId: resolveModelId(state.activePreset, state.customModelId),
-      micActiveModelId: resolveModelId(state.micActivePreset, state.micCustomModelId),
-      preprocessingMode: state.preprocessingMode,
-      micPreprocessingMode: state.micPreprocessingMode,
-      cloudApiUrl: state.cloudApiUrl,
+      source: "fallback-current-settings",
     },
   };
 }

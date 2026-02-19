@@ -312,6 +312,7 @@ function CloudUploadPage() {
                 segments={segments}
                 enableWordTimestamps={cloudEnableWordTimestamps}
                 showSegmentConfidence={cloudShowSegmentConfidence}
+                showSpeaker={isMistral && cloudMistralDiarizationEnabled}
               />
             ) : (
               <Card>

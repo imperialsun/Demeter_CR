@@ -8,7 +8,7 @@ import type { TranscriptionSegment } from "@/lib/export";
 import { TelemetryCollector } from "@/lib/telemetry";
 import { toast } from "@/components/ui/use-toast";
 import logger from "@/lib/logger";
-import { MODEL_PRESETS, resolveLighterPresetForMemoryFallback, useAsrStore } from "@/store/asr-store";
+import { MODEL_PRESETS, resolveLighterPresetForMemoryFallback, resolveModelId, useAsrStore } from "@/store/asr-store";
 import { getFfmpeg } from "@/lib/ffmpeg-loader";
 import { encodeWavBuffer, resampleMono } from "@/lib/audio";
 import {
@@ -1371,6 +1371,52 @@ export function useMicTranscription() {
       showSegmentConfidence: state.micShowSegmentConfidence,
     });
 
+    state.setRunExportHeader("mic", {
+      exportedAt: new Date().toISOString(),
+      mode: "mic",
+      settings: {
+        mic: {
+          modelPreset: state.micActivePreset,
+          customModelId: state.micCustomModelId,
+          requestedModelId: resolveModelId(state.micActivePreset, state.micCustomModelId),
+          backendPreference: state.micBackendPreference,
+          forceSingleThread: state.micForceSingleThread,
+          preprocessingMode: state.micPreprocessingMode,
+          segmentationMode: state.micSegmentationMode,
+          silenceThresholdDb: state.micSilenceThresholdDb,
+          minSilenceMs: state.micMinSilenceMs,
+          minChunkMs: state.micMinChunkMs,
+          maxChunkMs: state.micMaxChunkMs,
+          autoTunePreprocess: state.micAutoTunePreprocess,
+          denoiseNoiseFloorDb: state.micDenoiseNoiseFloorDb,
+          denoiseReductionDb: state.micDenoiseReductionDb,
+          denoiseSmoothing: state.micDenoiseSmoothing,
+          denoiseCalibrationSeconds: state.micDenoiseCalibrationSeconds,
+          preprocessEnableFilters: state.micPreprocessEnableFilters,
+          preprocessHighpassHz: state.micPreprocessHighpassHz,
+          preprocessLowpassHz: state.micPreprocessLowpassHz,
+          preprocessEnableLufs: state.micPreprocessEnableLufs,
+          preprocessTargetLufs: state.micPreprocessTargetLufs,
+          preprocessLimiterEnabled: state.micPreprocessLimiterEnabled,
+          preprocessLimiterThresholdDb: state.micPreprocessLimiterThresholdDb,
+          preprocessLimiterSoftness: state.micPreprocessLimiterSoftness,
+          preprocessVadEnabled: state.micPreprocessVadEnabled,
+          preprocessVadThresholdDb: state.micPreprocessVadThresholdDb,
+          preprocessVadMinSilenceMs: state.micPreprocessVadMinSilenceMs,
+          preprocessOverlapAdd: state.micPreprocessOverlapAdd,
+          preprocessOverlapBlockSec: state.micPreprocessOverlapBlockSec,
+          preprocessOverlapSec: state.micPreprocessOverlapSec,
+          enableWordTimestamps: state.micEnableWordTimestamps,
+          showSegmentConfidence: state.micShowSegmentConfidence,
+        },
+      },
+      runtime: {
+        runId,
+        source: "microphone",
+        activeBackend: null,
+      },
+    });
+
     state.resetStopRequest();
     state.setProgress(0);
     state.setSegments([]);
@@ -1424,6 +1470,17 @@ export function useMicTranscription() {
       pipelineRef.current = pipeline;
       state.setActiveBackend(backend);
       telemetry.setRuntimeContext({ backend, modelId });
+      const micRunHeader = useAsrStore.getState().runExportHeaders.mic;
+      if (micRunHeader) {
+        state.setRunExportHeader("mic", {
+          ...micRunHeader,
+          runtime: {
+            ...micRunHeader.runtime,
+            activeBackend: backend,
+            activeModelId: modelId,
+          },
+        });
+      }
       logger.info("[mic] pipeline ready", { runId, backend, modelId });
       if (isRecordingRef.current) {
         state.setStatus("transcribing", "Micro en cours d'écoute");

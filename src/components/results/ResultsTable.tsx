@@ -17,9 +17,10 @@ interface ResultsTableProps {
   segments: TranscriptionSegment[];
   enableWordTimestamps?: boolean;
   showSegmentConfidence?: boolean;
+  showSpeaker?: boolean;
 }
 
-export function ResultsTable({ segments, enableWordTimestamps, showSegmentConfidence }: ResultsTableProps) {
+export function ResultsTable({ segments, enableWordTimestamps, showSegmentConfidence, showSpeaker }: ResultsTableProps) {
   const [query, setQuery] = useState("");
   const storeEnableWordTimestamps = useAsrStore((s) => s.enableWordTimestamps);
   const storeShowSegmentConfidence = useAsrStore((s) => s.showSegmentConfidence);
@@ -27,6 +28,8 @@ export function ResultsTable({ segments, enableWordTimestamps, showSegmentConfid
     typeof enableWordTimestamps === "boolean" ? enableWordTimestamps : storeEnableWordTimestamps;
   const resolvedShowSegmentConfidence =
     typeof showSegmentConfidence === "boolean" ? showSegmentConfidence : storeShowSegmentConfidence;
+  const resolvedShowSpeaker = showSpeaker === true;
+  const emptyRowColSpan = (resolvedShowSegmentConfidence ? 6 : 5) + (resolvedShowSpeaker ? 1 : 0);
   const filtered = useMemo(() => {
     if (!query) return segments;
     const lower = query.toLowerCase();
@@ -55,6 +58,7 @@ export function ResultsTable({ segments, enableWordTimestamps, showSegmentConfid
               <TableHead className="w-12">#</TableHead>
               <TableHead>Début</TableHead>
               <TableHead>Fin</TableHead>
+              {resolvedShowSpeaker ? <TableHead className="w-28">Speaker</TableHead> : null}
               {resolvedShowSegmentConfidence ? <TableHead className="w-24">Conf.</TableHead> : null}
               <TableHead className="w-28">Tokens (est.)</TableHead>
               <TableHead>Texte</TableHead>
@@ -66,6 +70,7 @@ export function ResultsTable({ segments, enableWordTimestamps, showSegmentConfid
                 <TableCell className="font-medium">{segment.index + 1}</TableCell>
                 <TableCell>{formatTimestamp(segment.start)}</TableCell>
                 <TableCell>{formatTimestamp(segment.end)}</TableCell>
+                {resolvedShowSpeaker ? <TableCell>{segment.speaker?.trim() || "—"}</TableCell> : null}
                 {resolvedShowSegmentConfidence ? (
                   <TableCell>
                     {typeof segment.confidence === "number" ? (
@@ -99,7 +104,7 @@ export function ResultsTable({ segments, enableWordTimestamps, showSegmentConfid
             ))}
             {!filtered.length ? (
               <TableRow>
-                <TableCell colSpan={resolvedShowSegmentConfidence ? 6 : 5} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={emptyRowColSpan} className="h-24 text-center text-muted-foreground">
                   Aucun segment ne correspond à « {query} ».
                 </TableCell>
               </TableRow>

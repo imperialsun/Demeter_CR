@@ -260,6 +260,16 @@ describe("useCloudTranscription", () => {
     expect(mocks.getWhisperClient).toHaveBeenCalledWith("hf_token", expect.any(Object));
     expect(mocks.buildWhisperParameters).toHaveBeenCalled();
     expect(mocks.parseWhisperOutput).toHaveBeenCalled();
+    const whisperHeader = useAsrStore.getState().runExportHeaders.cloud;
+    expect(whisperHeader?.mode).toBe("cloud");
+    expect(whisperHeader?.settings.cloud).toMatchObject({
+      provider: "whisper",
+      model: "openai/whisper-large-v3-turbo",
+      includeWordTimestamps: true,
+      chunkDurationSec: 5,
+      overlapSec: 0,
+    });
+    expect(whisperHeader?.settings.cloud).not.toHaveProperty("mistralDiarizationRequested");
   });
 
   it("completes a mistral transcription run and forwards diarization", async () => {
@@ -283,6 +293,17 @@ describe("useCloudTranscription", () => {
         strategy: "chunks",
       },
     ]);
+    mocks.transcribeWithMistral.mockImplementation(async (args: Record<string, unknown>) => {
+      const callback = args.onDiarizationResolved as
+        | ((value: { requestedDiarize: boolean; effectiveDiarize: boolean; fallbackApplied: boolean }) => void)
+        | undefined;
+      callback?.({
+        requestedDiarize: true,
+        effectiveDiarize: false,
+        fallbackApplied: true,
+      });
+      return { text: "ok" };
+    });
 
     let api!: ReturnType<typeof useCloudTranscription>;
     render(<HookHarness provider="mistral" onReady={(value) => (api = value)} />);
@@ -306,6 +327,17 @@ describe("useCloudTranscription", () => {
         apiKey: "mistral_secret",
       })
     );
+    const mistralHeader = useAsrStore.getState().runExportHeaders.cloud;
+    expect(mistralHeader?.mode).toBe("cloud");
+    expect(mistralHeader?.settings.cloud).toMatchObject({
+      provider: "mistral",
+      apiUrl: "https://mistral.example.com",
+      model: "voxtral-mini-latest",
+      mistralDiarizationRequested: true,
+      mistralDiarizationEffective: false,
+    });
+    expect(Number((mistralHeader?.settings.cloud as Record<string, unknown>)?.mistralDiarizationFallbackChunks ?? 0)).toBeGreaterThan(0);
+    expect(mistralHeader?.settings.cloud).not.toHaveProperty("maxTokens");
   });
 
   it("completes a progressive gradio run with multi-batch fallback text", async () => {

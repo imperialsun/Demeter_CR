@@ -1,10 +1,15 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { renderWithStore } from "@/test/utils";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { useAsrStore } from "@/store/asr-store";
 import CloudUploadPage from "./CloudUploadPage";
+import * as cloudHook from "@/hooks/useCloudTranscription";
 
 describe("CloudUploadPage", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("shows cloud export defaults (VTT/SRT/JSON enabled, Telemetry disabled)", () => {
     useAsrStore.getState().resetApp();
     renderWithStore(<CloudUploadPage />, {
@@ -151,6 +156,101 @@ describe("CloudUploadPage", () => {
 
     fireEvent.click(diarizationSwitch);
     expect(useAsrStore.getState().cloudMistralDiarizationEnabled).toBe(true);
+  });
+
+  it("shows speaker column only when mistral diarization is enabled", () => {
+    const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue({
+      selectedFile: null,
+      previewFile: null,
+      previewUrl: null,
+      audioMetadata: null,
+      segments: [
+        {
+          index: 0,
+          start: 0,
+          end: 1,
+          text: "Bonjour",
+          speaker: "SPEAKER_00",
+          chunkId: "mistral-1",
+          strategy: "chunks",
+        },
+      ],
+      telemetrySummary: null,
+      status: "idle",
+      statusDetail: null,
+      progress: 0,
+      isTranscribing: false,
+      isResettingSession: false,
+      stopRequested: false,
+      sessionContext: "",
+      setSessionContext: vi.fn(),
+      combinedContext: "",
+      handleFileSelected: vi.fn(),
+      startTranscription: vi.fn(),
+      stopTranscription: vi.fn(),
+      resetTranscriptionSession: vi.fn(),
+    });
+    renderWithStore(<CloudUploadPage />, {
+      cloudApiUrl: "https://cloud.example",
+      mistralApiKey: "mistral_secret",
+      cloudMistralDiarizationEnabled: true,
+      cloudShowSegments: true,
+    });
+
+    expect(screen.queryByRole("columnheader", { name: /speaker/i })).toBeNull();
+    const providerSelect = screen.getByRole("combobox", { name: /provider/i });
+    fireEvent.click(providerSelect);
+    fireEvent.click(screen.getByText("Mistral"));
+
+    expect(screen.getByRole("columnheader", { name: /speaker/i })).toBeInTheDocument();
+    hookSpy.mockRestore();
+  });
+
+  it("hides speaker column when mistral diarization is disabled", () => {
+    const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue({
+      selectedFile: null,
+      previewFile: null,
+      previewUrl: null,
+      audioMetadata: null,
+      segments: [
+        {
+          index: 0,
+          start: 0,
+          end: 1,
+          text: "Bonjour",
+          speaker: "SPEAKER_00",
+          chunkId: "mistral-1",
+          strategy: "chunks",
+        },
+      ],
+      telemetrySummary: null,
+      status: "idle",
+      statusDetail: null,
+      progress: 0,
+      isTranscribing: false,
+      isResettingSession: false,
+      stopRequested: false,
+      sessionContext: "",
+      setSessionContext: vi.fn(),
+      combinedContext: "",
+      handleFileSelected: vi.fn(),
+      startTranscription: vi.fn(),
+      stopTranscription: vi.fn(),
+      resetTranscriptionSession: vi.fn(),
+    });
+    renderWithStore(<CloudUploadPage />, {
+      cloudApiUrl: "https://cloud.example",
+      mistralApiKey: "mistral_secret",
+      cloudMistralDiarizationEnabled: false,
+      cloudShowSegments: true,
+    });
+
+    const providerSelect = screen.getByRole("combobox", { name: /provider/i });
+    fireEvent.click(providerSelect);
+    fireEvent.click(screen.getByText("Mistral"));
+
+    expect(screen.queryByRole("columnheader", { name: /speaker/i })).toBeNull();
+    hookSpy.mockRestore();
   });
 
   it("shows reset session button in cloud status card", () => {

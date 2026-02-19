@@ -15,7 +15,7 @@ import {
 import type { AudioMetadata } from "@/lib/audio";
 import { computeDefaultOverlap } from "@/lib/chunking";
 import type { ChunkDefinition } from "@/lib/chunking";
-import type { TranscriptionSegment } from "@/lib/export";
+import type { ExportHeader, TranscriptionSegment } from "@/lib/export";
 import type { TelemetryCollector, ChunkTelemetry, TelemetrySummary } from "@/lib/telemetry";
 import type { ReportResult, ReportResultKey } from "@/lib/llm/reportSchema";
 import {
@@ -371,6 +371,8 @@ type SessionSource = {
   type: "file" | "mic";
 };
 
+type ExportMode = ExportHeader["mode"];
+
 interface AsrConfigState {
   hasHydrated: boolean;
   activePreset: PresetKey;
@@ -561,6 +563,7 @@ interface AsrConfigState {
   uploadedFile: File | null;
   previewUrl: string | null;
   telemetrySummary: TelemetrySummary | null;
+  runExportHeaders: Record<ExportMode, ExportHeader | null>;
   transcriptionConfidence: number | null; // 0..1 overall transcript confidence or null if unavailable
   transcriptionConfidenceSource?: 'model' | 'estimated' | null;
   debugConfidence: boolean;
@@ -775,6 +778,7 @@ interface AsrConfigActions {
   appendSegments: (segments: TranscriptionSegment[]) => void;
   pushChunkMetric: (metric: ChunkTelemetry) => void;
   setTelemetrySummary: (summary: TelemetrySummary | null) => void;
+  setRunExportHeader: (mode: ExportMode, header: ExportHeader | null) => void;
   setTranscriptionConfidence: (value: number | null) => void;
   setTranscriptionConfidenceSource: (value: 'model' | 'estimated' | null) => void;
   setDebugConfidence: (value: boolean) => void;
@@ -970,6 +974,11 @@ const initialState: AsrConfigState = {
   uploadedFile: null,
   previewUrl: null,
   telemetrySummary: null,
+  runExportHeaders: {
+    upload: null,
+    mic: null,
+    cloud: null,
+  },
   isTranscribing: false,
   stopRequested: false,
   progress: 0,
@@ -1390,6 +1399,13 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
   pushChunkMetric: (metric) =>
     set((state) => ({ chunkMetrics: [...state.chunkMetrics, metric] })),
   setTelemetrySummary: (summary) => set(() => ({ telemetrySummary: summary })),
+  setRunExportHeader: (mode, header) =>
+    set((state) => ({
+      runExportHeaders: {
+        ...state.runExportHeaders,
+        [mode]: header,
+      },
+    })),
   setTranscriptionConfidence: (value: number | null) => set(() => ({ transcriptionConfidence: value })),
   setTranscriptionConfidenceSource: (value) => set(() => ({ transcriptionConfidenceSource: value })),
   setDebugConfidence: (value) => set(() => ({ debugConfidence: value })),
@@ -1793,6 +1809,11 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       segments: [],
       audioMetadata: null,
       audioSource: null,
+      runExportHeaders: {
+        upload: null,
+        mic: null,
+        cloud: null,
+      },
       isTranscribing: false,
       stopRequested: false,
       progress: 0,

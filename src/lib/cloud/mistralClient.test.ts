@@ -25,6 +25,7 @@ describe("transcribeWithMistral", () => {
         headers: { "Content-Type": "application/json" },
       })
     );
+    const onDiarizationResolved = vi.fn();
 
     const file = new File(["abc"], "test.wav", { type: "audio/wav" });
     const result = await transcribeWithMistral({
@@ -32,6 +33,7 @@ describe("transcribeWithMistral", () => {
       apiKey: "token",
       model: "voxtral-mini-latest",
       file,
+      onDiarizationResolved,
     });
 
     expect(result).toEqual({ text: "ok" });
@@ -45,6 +47,11 @@ describe("transcribeWithMistral", () => {
     expect(formData.get("model")).toBe("voxtral-mini-latest");
     expect(formData.get("diarize")).toBe("true");
     expect(formData.getAll("timestamp_granularities")).toEqual(["segment"]);
+    expect(onDiarizationResolved).toHaveBeenCalledWith({
+      requestedDiarize: true,
+      effectiveDiarize: true,
+      fallbackApplied: false,
+    });
   });
 
   it("sends diarize=false when disabled", async () => {
@@ -87,12 +94,14 @@ describe("transcribeWithMistral", () => {
       );
 
     const file = new File(["abc"], "test.wav", { type: "audio/wav" });
+    const onDiarizationResolved = vi.fn();
     const result = await transcribeWithMistral({
       apiUrl: "https://api.mistral.ai",
       apiKey: "token",
       model: "voxtral-mini-latest",
       file,
       diarize: true,
+      onDiarizationResolved,
     });
 
     expect(result).toEqual({ text: "ok" });
@@ -107,6 +116,11 @@ describe("transcribeWithMistral", () => {
     const secondFormData = secondInit?.body as FormData;
     expect(secondFormData.get("diarize")).toBe("false");
     expect(secondFormData.getAll("timestamp_granularities")).toEqual([]);
+    expect(onDiarizationResolved).toHaveBeenCalledWith({
+      requestedDiarize: true,
+      effectiveDiarize: false,
+      fallbackApplied: true,
+    });
   });
 
   it("formats validation details in errors", async () => {
