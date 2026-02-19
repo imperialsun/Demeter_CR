@@ -19,6 +19,7 @@
     "test:watch": "vitest",
     "test:ci": "npm run audit:observability && vitest --run --coverage --maxWorkers=4",
     "coverage:project": "node scripts/check-project-coverage.mjs --min=80",
+    "docs:check": "node scripts/docs-validate.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
