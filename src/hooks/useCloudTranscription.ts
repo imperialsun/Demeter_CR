@@ -718,6 +718,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
     runApiUrlRef.current = isWhisper || isMistral ? null : resolvedSettings.apiUrl;
     const runId = runIdRef.current + 1;
     runIdRef.current = runId;
+    settings.clearSpeakerAssignments("cloud");
     setSegments([]);
     setProgress(0);
     setStatus("preprocessing");

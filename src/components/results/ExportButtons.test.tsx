@@ -1,20 +1,20 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { ExportButtons } from './ExportButtons';
-import * as exportLib from '@/lib/export';
-import { useAsrStore } from '@/store/asr-store';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
+import { ExportButtons } from "./ExportButtons";
+import * as exportLib from "@/lib/export";
+import { useAsrStore } from "@/store/asr-store";
 
-vi.mock('@/lib/export', async () => ({
-  ...(await vi.importActual('@/lib/export')),
+vi.mock("@/lib/export", async () => ({
+  ...(await vi.importActual("@/lib/export")),
   downloadBlob: vi.fn(),
-  serializeVtt: vi.fn(() => 'vtt'),
-  serializeSrt: vi.fn(() => 'srt'),
-  serializeSegmentsJson: vi.fn(() => 'json'),
-  serializeTelemetry: vi.fn(() => 'telemetry'),
+  serializeVtt: vi.fn(() => "vtt"),
+  serializeSrt: vi.fn(() => "srt"),
+  serializeSegmentsJson: vi.fn(() => "json"),
+  serializeTelemetry: vi.fn(() => "telemetry"),
 }));
 
-describe('ExportButtons', () => {
+describe("ExportButtons", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     useAsrStore.setState({
@@ -27,20 +27,25 @@ describe('ExportButtons', () => {
         mic: null,
         cloud: null,
       },
+      speakerAssignments: {
+        upload: {},
+        mic: {},
+        cloud: {},
+      },
     } as any);
   });
 
-  it('renders buttons based on store flags and triggers download', () => {
-    const downloadSpy = vi.spyOn(exportLib, 'downloadBlob');
-    const segments: any[] = [{ index: 0, start: 0, end: 1, text: 'a' }];
-    const telemetry = { sessionId: 's1' } as any;
+  it("renders buttons based on store flags and triggers download", () => {
+    const downloadSpy = vi.spyOn(exportLib, "downloadBlob");
+    const segments: any[] = [{ index: 0, start: 0, end: 1, text: "a", chunkId: "chunk-1", strategy: "chunks" }];
+    const telemetry = { sessionId: "s1" } as any;
 
     render(<ExportButtons segments={segments} telemetry={telemetry} />);
 
-    const vtt = screen.getByText('VTT');
-    const srt = screen.getByText('SRT');
-    const json = screen.getByText('JSON');
-    const tele = screen.getByText('Telemetry');
+    const vtt = screen.getByText("VTT");
+    const srt = screen.getByText("SRT");
+    const json = screen.getByText("JSON");
+    const tele = screen.getByText("Telemetry");
 
     expect(vtt).toBeTruthy();
     expect(srt).toBeTruthy();
@@ -48,24 +53,26 @@ describe('ExportButtons', () => {
     expect(tele).toBeTruthy();
 
     fireEvent.click(vtt);
-    expect(downloadSpy).toHaveBeenCalled();
     fireEvent.click(srt);
     fireEvent.click(json);
     fireEvent.click(tele);
 
-    expect((exportLib.serializeVtt as any)).toHaveBeenCalledWith(segments, expect.any(Object));
+    expect(downloadSpy).toHaveBeenCalled();
+    expect((exportLib.serializeVtt as any)).toHaveBeenCalled();
+    const vttCalls = (exportLib.serializeVtt as any).mock.calls;
+    const lastVttPayload = vttCalls[vttCalls.length - 1][0];
+    expect(lastVttPayload[0]).toMatchObject({ text: "a" });
     expect((exportLib.serializeTelemetry as any)).toHaveBeenCalledWith(telemetry, expect.any(Object));
   });
 
-  it('disables export buttons when there is no data', () => {
+  it("disables export buttons when there is no data", () => {
     const segments: any[] = [];
     render(<ExportButtons segments={segments} />);
-    // Buttons should exist but be disabled
-    const vtt = screen.getByText('VTT').closest('button');
+    const vtt = screen.getByText("VTT").closest("button");
     expect(vtt).toBeDisabled();
   });
 
-  it('respects explicit show flags over store defaults', () => {
+  it("respects explicit show flags over store defaults", () => {
     useAsrStore.setState({
       showExportVtt: true,
       showExportSrt: true,
@@ -73,8 +80,8 @@ describe('ExportButtons', () => {
       showExportTelemetry: true,
     } as any);
 
-    const segments: any[] = [{ index: 0, start: 0, end: 1, text: 'a' }];
-    const telemetry = { sessionId: 's1' } as any;
+    const segments: any[] = [{ index: 0, start: 0, end: 1, text: "a", chunkId: "chunk-1", strategy: "chunks" }];
+    const telemetry = { sessionId: "s1" } as any;
     render(
       <ExportButtons
         segments={segments}
@@ -85,28 +92,28 @@ describe('ExportButtons', () => {
       />
     );
 
-    expect(screen.queryByText('VTT')).toBeNull();
-    expect(screen.queryByText('JSON')).toBeNull();
-    expect(screen.queryByText('Telemetry')).toBeNull();
-    expect(screen.getByText('SRT')).toBeTruthy();
+    expect(screen.queryByText("VTT")).toBeNull();
+    expect(screen.queryByText("JSON")).toBeNull();
+    expect(screen.queryByText("Telemetry")).toBeNull();
+    expect(screen.getByText("SRT")).toBeTruthy();
   });
 
-  it('uses run snapshot header so exports reflect effective run settings', () => {
-    const segments: any[] = [{ index: 0, start: 0, end: 1, text: 'a' }];
+  it("uses run snapshot header so exports reflect effective run settings", () => {
+    const segments: any[] = [{ index: 0, start: 0, end: 1, text: "a", chunkId: "chunk-1", strategy: "chunks" }];
     useAsrStore.setState({
-      activePreset: 'quality',
+      activePreset: "quality",
       runExportHeaders: {
         upload: {
-          exportedAt: '2026-02-19T00:00:00.000Z',
-          mode: 'upload',
+          exportedAt: "2026-02-19T00:00:00.000Z",
+          mode: "upload",
           settings: {
             file: {
-              modelPreset: 'fast',
-              memoryModeEffective: 'progressive',
+              modelPreset: "fast",
+              memoryModeEffective: "progressive",
             },
           },
           runtime: {
-            activeBackend: 'wasm',
+            activeBackend: "wasm",
           },
         },
         mic: null,
@@ -115,19 +122,67 @@ describe('ExportButtons', () => {
     } as any);
 
     render(<ExportButtons segments={segments} mode="upload" />);
-    fireEvent.click(screen.getByText('JSON'));
+    fireEvent.click(screen.getByText("JSON"));
 
     expect((exportLib.serializeSegmentsJson as any)).toHaveBeenCalled();
     const jsonCalls = (exportLib.serializeSegmentsJson as any).mock.calls;
     const header = jsonCalls[jsonCalls.length - 1][1];
-    expect(header.mode).toBe('upload');
+    expect(header.mode).toBe("upload");
     expect(header.settings.file).toEqual({
-      modelPreset: 'fast',
-      memoryModeEffective: 'progressive',
+      modelPreset: "fast",
+      memoryModeEffective: "progressive",
     });
     expect(header.settings.mic).toBeUndefined();
     expect(header.settings.cloud).toBeUndefined();
-    expect(header.runtime).toEqual({ activeBackend: 'wasm' });
-    expect(typeof header.exportedAt).toBe('string');
+    expect(header.runtime).toEqual({ activeBackend: "wasm" });
+    expect(typeof header.exportedAt).toBe("string");
+  });
+
+  it("shows assign speakers button only when speaker data exists", () => {
+    const withSpeaker: any[] = [
+      {
+        index: 0,
+        start: 0,
+        end: 1,
+        text: "a",
+        speaker: "SPEAKER_00",
+        chunkId: "chunk-1",
+        strategy: "chunks",
+      },
+    ];
+    const withoutSpeaker: any[] = [{ index: 0, start: 0, end: 1, text: "a", chunkId: "chunk-1", strategy: "chunks" }];
+
+    const { rerender } = render(<ExportButtons segments={withSpeaker} />);
+    expect(screen.getByRole("button", { name: /Assigner speakers/i })).toBeInTheDocument();
+
+    rerender(<ExportButtons segments={withoutSpeaker} />);
+    expect(screen.queryByRole("button", { name: /Assigner speakers/i })).toBeNull();
+  });
+
+  it("applies speaker assignments before exporting json", () => {
+    const segments: any[] = [
+      {
+        index: 0,
+        start: 0,
+        end: 1,
+        text: "Bonjour",
+        speaker: "SPEAKER_00",
+        chunkId: "chunk-1",
+        strategy: "chunks",
+      },
+    ];
+
+    render(<ExportButtons segments={segments} mode="cloud" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Assigner speakers/i }));
+    fireEvent.change(screen.getByLabelText("Nom SPEAKER_00"), { target: { value: "Dupont" } });
+    fireEvent.change(screen.getByLabelText("Prénom SPEAKER_00"), { target: { value: "Alice" } });
+    fireEvent.click(screen.getByRole("button", { name: "Appliquer" }));
+
+    fireEvent.click(screen.getByText("JSON"));
+
+    const jsonCalls = (exportLib.serializeSegmentsJson as any).mock.calls;
+    const payload = jsonCalls[jsonCalls.length - 1][0];
+    expect(payload[0]?.speaker).toBe("Dupont Alice");
   });
 });

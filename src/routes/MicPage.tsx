@@ -360,7 +360,7 @@ function MicPage() {
 
         <div className="space-y-4">
           {segments.length ? (
-            <ResultsTable segments={segments} />
+            <ResultsTable segments={segments} mode="mic" />
           ) : (
             <Card>
               <CardContent className="py-10 text-center text-sm text-muted-foreground">

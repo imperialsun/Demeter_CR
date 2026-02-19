@@ -942,6 +942,7 @@ export function useTranscriptionController() {
     // Minimal cleanup: clear progress, segments, chunk plan and telemetry summary.
     state.resetStopRequest();
     state.setProgress(0);
+    state.clearSpeakerAssignments("upload");
     state.setSegments([]);
     state.setChunkPlan([]);
     state.setTelemetrySummary(null);

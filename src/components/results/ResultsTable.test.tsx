@@ -1,41 +1,99 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { ResultsTable } from './ResultsTable';
+import { describe, it, expect, beforeEach } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
+import { ResultsTable } from "./ResultsTable";
+import { useAsrStore } from "@/store/asr-store";
 
 const sample = [
-  { index: 0, start: 0, end: 2.3, text: 'Bonjour le monde', confidence: 0.9, words: [{word:'Bonjour',start:0,end:0.5}] },
-  { index: 1, start: 2.3, end: 5, text: 'Ceci est un test', confidence: 0.5 },
-  { index: 2, start: 5, end: 7, text: 'Autre segment', confidence: undefined },
+  {
+    index: 0,
+    start: 0,
+    end: 2.3,
+    text: "Bonjour le monde",
+    confidence: 0.9,
+    words: [{ word: "Bonjour", start: 0, end: 0.5 }],
+    chunkId: "chunk-1",
+    strategy: "chunks",
+  },
+  { index: 1, start: 2.3, end: 5, text: "Ceci est un test", confidence: 0.5, chunkId: "chunk-2", strategy: "chunks" },
+  { index: 2, start: 5, end: 7, text: "Autre segment", confidence: undefined, chunkId: "chunk-3", strategy: "chunks" },
 ];
 
-import { useAsrStore } from '@/store/asr-store';
+const sampleWithSpeaker = [
+  {
+    index: 0,
+    start: 0,
+    end: 2,
+    text: "Bonjour",
+    speaker: "SPEAKER_00",
+    chunkId: "chunk-4",
+    strategy: "chunks",
+  },
+];
 
-describe('ResultsTable', () => {
+describe("ResultsTable", () => {
   beforeEach(() => {
-    useAsrStore.setState({ enableWordTimestamps: true, showSegmentConfidence: true } as any);
+    useAsrStore.setState({
+      enableWordTimestamps: true,
+      showSegmentConfidence: true,
+      speakerAssignments: {
+        upload: {},
+        mic: {},
+        cloud: {},
+      },
+    } as any);
   });
 
-  it('renders segments and confidences and filters via search', () => {
+  it("renders segments and confidences and filters via search", () => {
     render(<ResultsTable segments={sample as any} />);
-    expect(screen.getByText('Bonjour le monde')).toBeTruthy();
-    expect(screen.getByText('90%')).toBeTruthy();
-    expect(screen.getByText('Tokens (est.)')).toBeTruthy();
-    expect(screen.getByText('Tokens (est.) : 9')).toBeTruthy();
+    expect(screen.getByText("Bonjour le monde")).toBeTruthy();
+    expect(screen.getByText("90%")).toBeTruthy();
+    expect(screen.getByText("Tokens (est.)")).toBeTruthy();
+    expect(screen.getByText("Tokens (est.) : 9")).toBeTruthy();
 
-    const input = screen.getByPlaceholderText('Rechercher un mot clé…');
-    fireEvent.change(input, { target: { value: 'Ceci' } });
-    expect(screen.getByText('Ceci est un test')).toBeTruthy();
-    expect(screen.queryByText('Bonjour le monde')).toBeNull();
+    const input = screen.getByPlaceholderText("Rechercher un mot clé…");
+    fireEvent.change(input, { target: { value: "Ceci" } });
+    expect(screen.getByText("Ceci est un test")).toBeTruthy();
+    expect(screen.queryByText("Bonjour le monde")).toBeNull();
   });
 
-  it('shows missing confidence as dash', () => {
+  it("shows missing confidence as dash", () => {
     render(<ResultsTable segments={sample as any} />);
-    expect(screen.getAllByText('—').length).toBeGreaterThan(0);
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });
 
-  it('shows word timestamps when enabled', () => {
+  it("shows word timestamps when enabled", () => {
     render(<ResultsTable segments={sample as any} />);
     expect(screen.getByText(/\[00:00:00.000 - 00:00:00.500\]/)).toBeTruthy();
+  });
+
+  it("auto-shows speaker column when speaker data exists", () => {
+    render(<ResultsTable segments={sampleWithSpeaker as any} mode="cloud" />);
+    expect(screen.getByRole("columnheader", { name: /speaker/i })).toBeInTheDocument();
+    expect(screen.getByText("SPEAKER_00")).toBeInTheDocument();
+  });
+
+  it("shows assigned speaker name when assignment exists", () => {
+    useAsrStore.setState({
+      speakerAssignments: {
+        upload: {
+          SPEAKER_00: {
+            firstName: "Alice",
+            lastName: "Dupont",
+          },
+        },
+        mic: {},
+        cloud: {},
+      },
+    } as any);
+
+    render(<ResultsTable segments={sampleWithSpeaker as any} mode="upload" />);
+    expect(screen.getByText("Dupont Alice")).toBeInTheDocument();
+    expect(screen.queryByText("SPEAKER_00")).toBeNull();
+  });
+
+  it("falls back to raw speaker when assignment is missing", () => {
+    render(<ResultsTable segments={sampleWithSpeaker as any} mode="mic" />);
+    expect(screen.getByText("SPEAKER_00")).toBeInTheDocument();
   });
 });

@@ -38,7 +38,7 @@ export function serializeVtt(segments: TranscriptionSegment[], header?: ExportHe
     .map((segment) => {
       const start = formatTimestamp(segment.start, "vtt");
       const end = formatTimestamp(segment.end, "vtt");
-      return `${segment.index}\n${start} --> ${end}\n${segment.text.trim()}\n`;
+      return `${segment.index}\n${start} --> ${end}\n${formatSegmentCueText(segment)}\n`;
     })
     .join("\n");
   return `${headerBlock}\n\n${body}`;
@@ -50,7 +50,7 @@ export function serializeSrt(segments: TranscriptionSegment[], header?: ExportHe
     .map((segment) => {
       const start = formatTimestamp(segment.start, "srt");
       const end = formatTimestamp(segment.end, "srt");
-      return `${segment.index}\n${start} --> ${end}\n${segment.text.trim()}\n`;
+      return `${segment.index}\n${start} --> ${end}\n${formatSegmentCueText(segment)}\n`;
     })
     .join("\n");
   return `${headerBlock}${body}`;
@@ -99,6 +99,13 @@ function formatTimestamp(seconds: number, format: Format) {
 
 function pad(value: number) {
   return value.toString().padStart(2, "0");
+}
+
+function formatSegmentCueText(segment: TranscriptionSegment) {
+  const text = segment.text.trim();
+  const speaker = segment.speaker?.trim();
+  if (!speaker) return text;
+  return text ? `${speaker}: ${text}` : `${speaker}:`;
 }
 
 function formatHeaderBlock(label: string, header: ExportHeader, format: Format | "srt" | "vtt") {

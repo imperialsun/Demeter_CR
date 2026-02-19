@@ -158,7 +158,7 @@ describe("CloudUploadPage", () => {
     expect(useAsrStore.getState().cloudMistralDiarizationEnabled).toBe(true);
   });
 
-  it("shows speaker column only when mistral diarization is enabled", () => {
+  it("shows speaker column when segments include speaker labels", () => {
     const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue({
       selectedFile: null,
       previewFile: null,
@@ -192,21 +192,14 @@ describe("CloudUploadPage", () => {
     });
     renderWithStore(<CloudUploadPage />, {
       cloudApiUrl: "https://cloud.example",
-      mistralApiKey: "mistral_secret",
-      cloudMistralDiarizationEnabled: true,
       cloudShowSegments: true,
     });
-
-    expect(screen.queryByRole("columnheader", { name: /speaker/i })).toBeNull();
-    const providerSelect = screen.getByRole("combobox", { name: /provider/i });
-    fireEvent.click(providerSelect);
-    fireEvent.click(screen.getByText("Mistral"));
 
     expect(screen.getByRole("columnheader", { name: /speaker/i })).toBeInTheDocument();
     hookSpy.mockRestore();
   });
 
-  it("hides speaker column when mistral diarization is disabled", () => {
+  it("shows assign speakers button when segments include speaker labels", () => {
     const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue({
       selectedFile: null,
       previewFile: null,
@@ -240,16 +233,10 @@ describe("CloudUploadPage", () => {
     });
     renderWithStore(<CloudUploadPage />, {
       cloudApiUrl: "https://cloud.example",
-      mistralApiKey: "mistral_secret",
-      cloudMistralDiarizationEnabled: false,
       cloudShowSegments: true,
     });
 
-    const providerSelect = screen.getByRole("combobox", { name: /provider/i });
-    fireEvent.click(providerSelect);
-    fireEvent.click(screen.getByText("Mistral"));
-
-    expect(screen.queryByRole("columnheader", { name: /speaker/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /Assigner speakers/i })).toBeInTheDocument();
     hookSpy.mockRestore();
   });
 

@@ -244,7 +244,7 @@ function LocalUploadPage() {
                     {transcriptionConfidenceSource === 'estimated' ? <span className="text-xs text-muted-foreground ml-2">(estimée)</span> : null}
                   </div>
                 </div>
-                <ResultsTable segments={segments} />
+                <ResultsTable segments={segments} mode="upload" />
               </>
             ) : (
               <Card>

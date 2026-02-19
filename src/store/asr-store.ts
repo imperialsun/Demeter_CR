@@ -16,6 +16,7 @@ import type { AudioMetadata } from "@/lib/audio";
 import { computeDefaultOverlap } from "@/lib/chunking";
 import type { ChunkDefinition } from "@/lib/chunking";
 import type { ExportHeader, TranscriptionSegment } from "@/lib/export";
+import type { SpeakerAssignment, SpeakerAssignmentMap } from "@/lib/speakerAssignments";
 import type { TelemetryCollector, ChunkTelemetry, TelemetrySummary } from "@/lib/telemetry";
 import type { ReportResult, ReportResultKey } from "@/lib/llm/reportSchema";
 import {
@@ -373,6 +374,37 @@ type SessionSource = {
 
 type ExportMode = ExportHeader["mode"];
 
+const createEmptySpeakerAssignmentsByMode = (): Record<ExportMode, SpeakerAssignmentMap> => ({
+  upload: {},
+  mic: {},
+  cloud: {},
+});
+
+const normalizeSpeakerId = (speakerId: string) => speakerId.trim();
+
+const normalizeSpeakerAssignment = (value: SpeakerAssignment): SpeakerAssignment => ({
+  firstName: value.firstName.trim(),
+  lastName: value.lastName.trim(),
+});
+
+const hasSpeakerName = (value: SpeakerAssignment) =>
+  value.firstName.length > 0 || value.lastName.length > 0;
+
+const normalizeSpeakerAssignments = (assignments: SpeakerAssignmentMap): SpeakerAssignmentMap => {
+  const normalized: SpeakerAssignmentMap = {};
+  for (const [speakerId, value] of Object.entries(assignments)) {
+    const normalizedSpeakerId = normalizeSpeakerId(speakerId);
+    if (!normalizedSpeakerId) continue;
+    const normalizedValue = normalizeSpeakerAssignment({
+      firstName: typeof value?.firstName === "string" ? value.firstName : "",
+      lastName: typeof value?.lastName === "string" ? value.lastName : "",
+    });
+    if (!hasSpeakerName(normalizedValue)) continue;
+    normalized[normalizedSpeakerId] = normalizedValue;
+  }
+  return normalized;
+};
+
 interface AsrConfigState {
   hasHydrated: boolean;
   activePreset: PresetKey;
@@ -564,6 +596,7 @@ interface AsrConfigState {
   previewUrl: string | null;
   telemetrySummary: TelemetrySummary | null;
   runExportHeaders: Record<ExportMode, ExportHeader | null>;
+  speakerAssignments: Record<ExportMode, SpeakerAssignmentMap>;
   transcriptionConfidence: number | null; // 0..1 overall transcript confidence or null if unavailable
   transcriptionConfidenceSource?: 'model' | 'estimated' | null;
   debugConfidence: boolean;
@@ -779,6 +812,10 @@ interface AsrConfigActions {
   pushChunkMetric: (metric: ChunkTelemetry) => void;
   setTelemetrySummary: (summary: TelemetrySummary | null) => void;
   setRunExportHeader: (mode: ExportMode, header: ExportHeader | null) => void;
+  setSpeakerAssignments: (mode: ExportMode, assignments: SpeakerAssignmentMap) => void;
+  setSpeakerAssignment: (mode: ExportMode, speakerId: string, value: SpeakerAssignment) => void;
+  clearSpeakerAssignments: (mode: ExportMode) => void;
+  clearAllSpeakerAssignments: () => void;
   setTranscriptionConfidence: (value: number | null) => void;
   setTranscriptionConfidenceSource: (value: 'model' | 'estimated' | null) => void;
   setDebugConfidence: (value: boolean) => void;
@@ -979,6 +1016,7 @@ const initialState: AsrConfigState = {
     mic: null,
     cloud: null,
   },
+  speakerAssignments: createEmptySpeakerAssignmentsByMode(),
   isTranscribing: false,
   stopRequested: false,
   progress: 0,
@@ -1406,6 +1444,49 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         [mode]: header,
       },
     })),
+  setSpeakerAssignments: (mode, assignments) =>
+    set((state) => ({
+      speakerAssignments: {
+        ...state.speakerAssignments,
+        [mode]: normalizeSpeakerAssignments(assignments),
+      },
+    })),
+  setSpeakerAssignment: (mode, speakerId, value) =>
+    set((state) => {
+      const normalizedSpeakerId = normalizeSpeakerId(speakerId);
+      if (!normalizedSpeakerId) return {};
+
+      const normalizedValue = normalizeSpeakerAssignment({
+        firstName: typeof value?.firstName === "string" ? value.firstName : "",
+        lastName: typeof value?.lastName === "string" ? value.lastName : "",
+      });
+      const nextModeAssignments = {
+        ...state.speakerAssignments[mode],
+      };
+      if (hasSpeakerName(normalizedValue)) {
+        nextModeAssignments[normalizedSpeakerId] = normalizedValue;
+      } else {
+        delete nextModeAssignments[normalizedSpeakerId];
+      }
+
+      return {
+        speakerAssignments: {
+          ...state.speakerAssignments,
+          [mode]: nextModeAssignments,
+        },
+      };
+    }),
+  clearSpeakerAssignments: (mode) =>
+    set((state) => ({
+      speakerAssignments: {
+        ...state.speakerAssignments,
+        [mode]: {},
+      },
+    })),
+  clearAllSpeakerAssignments: () =>
+    set(() => ({
+      speakerAssignments: createEmptySpeakerAssignmentsByMode(),
+    })),
   setTranscriptionConfidence: (value: number | null) => set(() => ({ transcriptionConfidence: value })),
   setTranscriptionConfidenceSource: (value) => set(() => ({ transcriptionConfidenceSource: value })),
   setDebugConfidence: (value) => set(() => ({ debugConfidence: value })),
@@ -1814,6 +1895,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         mic: null,
         cloud: null,
       },
+      speakerAssignments: createEmptySpeakerAssignmentsByMode(),
       isTranscribing: false,
       stopRequested: false,
       progress: 0,
@@ -1865,6 +1947,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         audioMetadata: null,
         audioSource: null,
         telemetrySummary: null,
+        speakerAssignments: createEmptySpeakerAssignmentsByMode(),
         transcriptionConfidence: null,
         transcriptionConfidenceSource: null,
         isTranscribing: false,

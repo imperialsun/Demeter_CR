@@ -12,23 +12,36 @@ import {
 import { useAsrStore } from "@/store/asr-store";
 import type { TranscriptionSegment } from "@/lib/export";
 import { estimateTokenCount } from "@/lib/tokens";
+import { resolveSpeakerLabel } from "@/lib/speakerAssignments";
 
 interface ResultsTableProps {
   segments: TranscriptionSegment[];
   enableWordTimestamps?: boolean;
   showSegmentConfidence?: boolean;
   showSpeaker?: boolean;
+  mode?: "upload" | "mic" | "cloud";
 }
 
-export function ResultsTable({ segments, enableWordTimestamps, showSegmentConfidence, showSpeaker }: ResultsTableProps) {
+export function ResultsTable({
+  segments,
+  enableWordTimestamps,
+  showSegmentConfidence,
+  showSpeaker,
+  mode = "upload",
+}: ResultsTableProps) {
   const [query, setQuery] = useState("");
   const storeEnableWordTimestamps = useAsrStore((s) => s.enableWordTimestamps);
   const storeShowSegmentConfidence = useAsrStore((s) => s.showSegmentConfidence);
+  const speakerAssignments = useAsrStore((s) => s.speakerAssignments[mode]);
   const resolvedEnableWordTimestamps =
     typeof enableWordTimestamps === "boolean" ? enableWordTimestamps : storeEnableWordTimestamps;
   const resolvedShowSegmentConfidence =
     typeof showSegmentConfidence === "boolean" ? showSegmentConfidence : storeShowSegmentConfidence;
-  const resolvedShowSpeaker = showSpeaker === true;
+  const hasSpeaker = useMemo(
+    () => segments.some((segment) => typeof segment.speaker === "string" && segment.speaker.trim().length > 0),
+    [segments]
+  );
+  const resolvedShowSpeaker = typeof showSpeaker === "boolean" ? showSpeaker : hasSpeaker;
   const emptyRowColSpan = (resolvedShowSegmentConfidence ? 6 : 5) + (resolvedShowSpeaker ? 1 : 0);
   const filtered = useMemo(() => {
     if (!query) return segments;
@@ -70,7 +83,14 @@ export function ResultsTable({ segments, enableWordTimestamps, showSegmentConfid
                 <TableCell className="font-medium">{segment.index + 1}</TableCell>
                 <TableCell>{formatTimestamp(segment.start)}</TableCell>
                 <TableCell>{formatTimestamp(segment.end)}</TableCell>
-                {resolvedShowSpeaker ? <TableCell>{segment.speaker?.trim() || "—"}</TableCell> : null}
+                {resolvedShowSpeaker ? (
+                  <TableCell>
+                    {resolveSpeakerLabel(
+                      segment.speaker?.trim(),
+                      segment.speaker?.trim() ? speakerAssignments[segment.speaker.trim()] : undefined
+                    ) || "—"}
+                  </TableCell>
+                ) : null}
                 {resolvedShowSegmentConfidence ? (
                   <TableCell>
                     {typeof segment.confidence === "number" ? (

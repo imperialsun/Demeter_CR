@@ -26,6 +26,7 @@ const segments: TranscriptionSegment[] = [
     start: 0.125,
     end: 2.345,
     text: "  Bonjour   monde  ",
+    speaker: "Dupont Alice",
     chunkId: "chunk-1",
     strategy: "chunks",
   },
@@ -47,7 +48,7 @@ describe("export serialization", () => {
     expect(out).toContain('"backend": "wasm"');
     expect(out).toContain("00:00:00.125 --> 00:00:02.345");
     expect(out).toContain("01:02:03.900 --> 01:02:05.019");
-    expect(out).toContain("Bonjour   monde");
+    expect(out).toContain("Dupont Alice: Bonjour   monde");
   });
 
   it("serializes SRT with NOTE SETTINGS and comma milliseconds", () => {
@@ -55,12 +56,14 @@ describe("export serialization", () => {
     expect(out).toContain("NOTE SETTINGS");
     expect(out).toContain("00:00:00,125 --> 00:00:02,345");
     expect(out).toContain("01:02:03,900 --> 01:02:05,019");
+    expect(out).toContain("Dupont Alice: Bonjour   monde");
   });
 
-  it("serializes trimmed segments JSON", () => {
+  it("serializes trimmed segments JSON with speaker field", () => {
     const out = serializeSegmentsJson(segments, header);
-    const parsed = JSON.parse(out) as { segments: Array<{ text: string }> };
+    const parsed = JSON.parse(out) as { segments: Array<{ text: string; speaker?: string }> };
     expect(parsed.segments[0]?.text).toBe("Bonjour   monde");
+    expect(parsed.segments[0]?.speaker).toBe("Dupont Alice");
   });
 
   it("serializes telemetry payload", () => {

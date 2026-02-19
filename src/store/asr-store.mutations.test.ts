@@ -380,4 +380,60 @@ describe("asr-store mutation guards", () => {
     expect(afterAppReset.llmLocalMaxTokens).toBe(4096);
     expect(afterAppReset.llmLocalModelId).toContain("Qwen3-1.7B");
   });
+
+  it("handles speaker assignments as session-only state", () => {
+    const state = useAsrStore.getState();
+
+    state.setSpeakerAssignment("cloud", " SPEAKER_00 ", {
+      firstName: " Alice ",
+      lastName: " Dupont ",
+    });
+    expect(useAsrStore.getState().speakerAssignments.cloud.SPEAKER_00).toEqual({
+      firstName: "Alice",
+      lastName: "Dupont",
+    });
+
+    state.setSpeakerAssignments("mic", {
+      " SPEAKER_01 ": { firstName: " John ", lastName: " Doe " },
+      SPEAKER_02: { firstName: "  ", lastName: " " },
+    });
+    expect(useAsrStore.getState().speakerAssignments.mic).toEqual({
+      SPEAKER_01: { firstName: "John", lastName: "Doe" },
+    });
+
+    state.setSpeakerAssignment("cloud", "SPEAKER_00", {
+      firstName: " ",
+      lastName: " ",
+    });
+    expect(useAsrStore.getState().speakerAssignments.cloud.SPEAKER_00).toBeUndefined();
+
+    state.clearSpeakerAssignments("mic");
+    expect(useAsrStore.getState().speakerAssignments.mic).toEqual({});
+
+    state.setSpeakerAssignment("upload", "SPEAKER_00", {
+      firstName: "Alice",
+      lastName: "Dupont",
+    });
+    state.resetSession();
+    expect(useAsrStore.getState().speakerAssignments).toEqual({
+      upload: {},
+      mic: {},
+      cloud: {},
+    });
+
+    useAsrStore.setState({ hasHydrated: true } as Partial<AsrConfigStore>);
+    useAsrStore.getState().setSpeakerAssignment("upload", "SPEAKER_01", {
+      firstName: "Jane",
+      lastName: "Doe",
+    });
+    const persisted = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}") as Record<string, unknown>;
+    expect(persisted.speakerAssignments).toBeUndefined();
+
+    useAsrStore.getState().resetApp();
+    expect(useAsrStore.getState().speakerAssignments).toEqual({
+      upload: {},
+      mic: {},
+      cloud: {},
+    });
+  });
 });

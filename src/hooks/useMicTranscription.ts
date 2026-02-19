@@ -1419,6 +1419,7 @@ export function useMicTranscription() {
 
     state.resetStopRequest();
     state.setProgress(0);
+    state.clearSpeakerAssignments("mic");
     state.setSegments([]);
     state.setChunkPlan([]);
     state.setTelemetrySummary(null);

@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Download } from "lucide-react";
+import { Download, Users } from "lucide-react";
 import {
   serializeVtt,
   serializeSrt,
@@ -10,8 +10,14 @@ import {
   type ExportHeader,
 } from "@/lib/export";
 import type { TelemetrySummary } from "@/lib/telemetry";
-import { useCallback } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useAsrStore } from "@/store/asr-store";
+import {
+  applySpeakerAssignments,
+  collectSpeakerIds,
+  type SpeakerAssignmentMap,
+} from "@/lib/speakerAssignments";
+import { SpeakerAssignmentDialog } from "@/components/results/SpeakerAssignmentDialog";
 
 interface ExportButtonsProps {
   segments: TranscriptionSegment[];
@@ -32,23 +38,31 @@ export function ExportButtons({
   showTelemetry,
   mode = "upload",
 }: ExportButtonsProps) {
+  const [isSpeakerDialogOpen, setSpeakerDialogOpen] = useState(false);
+  const speakerAssignments = useAsrStore((s) => s.speakerAssignments[mode]);
+  const setSpeakerAssignments = useAsrStore((s) => s.setSpeakerAssignments);
+  const speakerIds = useMemo(() => collectSpeakerIds(segments), [segments]);
+  const segmentsForExport = useMemo(
+    () => applySpeakerAssignments(segments, speakerAssignments),
+    [segments, speakerAssignments]
+  );
   const exportVtt = useCallback(() => {
     if (!segments.length) return;
     const header = buildExportHeader(mode);
-    downloadBlob(serializeVtt(segments, header), buildFilename("transcription.vtt"), "text/vtt");
-  }, [mode, segments]);
+    downloadBlob(serializeVtt(segmentsForExport, header), buildFilename("transcription.vtt"), "text/vtt");
+  }, [mode, segments.length, segmentsForExport]);
 
   const exportSrt = useCallback(() => {
     if (!segments.length) return;
     const header = buildExportHeader(mode);
-    downloadBlob(serializeSrt(segments, header), buildFilename("transcription.srt"), "text/plain");
-  }, [mode, segments]);
+    downloadBlob(serializeSrt(segmentsForExport, header), buildFilename("transcription.srt"), "text/plain");
+  }, [mode, segments.length, segmentsForExport]);
 
   const exportJson = useCallback(() => {
     if (!segments.length) return;
     const header = buildExportHeader(mode);
-    downloadBlob(serializeSegmentsJson(segments, header), buildFilename("segments.json"), "application/json");
-  }, [mode, segments]);
+    downloadBlob(serializeSegmentsJson(segmentsForExport, header), buildFilename("segments.json"), "application/json");
+  }, [mode, segments.length, segmentsForExport]);
 
   const exportTelemetry = useCallback(() => {
     if (!telemetry) return;
@@ -65,32 +79,56 @@ export function ExportButtons({
   const showExportJson = typeof showJson === "boolean" ? showJson : storeShowJson;
   const showExportTelemetry = typeof showTelemetry === "boolean" ? showTelemetry : storeShowTelemetry;
 
+  const handleApplySpeakerAssignments = useCallback(
+    (nextAssignments: SpeakerAssignmentMap) => {
+      setSpeakerAssignments(mode, nextAssignments);
+      setSpeakerDialogOpen(false);
+    },
+    [mode, setSpeakerAssignments]
+  );
+
   return (
-    <div className="flex flex-wrap gap-2">
-      {showExportVtt ? (
-        <Button variant="outline" size="sm" className="gap-2" onClick={exportVtt} disabled={!segments.length}>
-          <Download className="h-4 w-4" /> VTT
-        </Button>
-      ) : null}
+    <>
+      <div className="flex flex-wrap gap-2">
+        {speakerIds.length ? (
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => setSpeakerDialogOpen(true)}>
+            <Users className="h-4 w-4" /> Assigner speakers
+          </Button>
+        ) : null}
 
-      {showExportSrt ? (
-        <Button variant="outline" size="sm" className="gap-2" onClick={exportSrt} disabled={!segments.length}>
-          <Download className="h-4 w-4" /> SRT
-        </Button>
-      ) : null}
+        {showExportVtt ? (
+          <Button variant="outline" size="sm" className="gap-2" onClick={exportVtt} disabled={!segments.length}>
+            <Download className="h-4 w-4" /> VTT
+          </Button>
+        ) : null}
 
-      {showExportJson ? (
-        <Button variant="outline" size="sm" className="gap-2" onClick={exportJson} disabled={!segments.length}>
-          <Download className="h-4 w-4" /> JSON
-        </Button>
-      ) : null}
+        {showExportSrt ? (
+          <Button variant="outline" size="sm" className="gap-2" onClick={exportSrt} disabled={!segments.length}>
+            <Download className="h-4 w-4" /> SRT
+          </Button>
+        ) : null}
 
-      {showExportTelemetry ? (
-        <Button variant="outline" size="sm" className="gap-2" onClick={exportTelemetry} disabled={!telemetry}>
-          <Download className="h-4 w-4" /> Telemetry
-        </Button>
-      ) : null}
-    </div>
+        {showExportJson ? (
+          <Button variant="outline" size="sm" className="gap-2" onClick={exportJson} disabled={!segments.length}>
+            <Download className="h-4 w-4" /> JSON
+          </Button>
+        ) : null}
+
+        {showExportTelemetry ? (
+          <Button variant="outline" size="sm" className="gap-2" onClick={exportTelemetry} disabled={!telemetry}>
+            <Download className="h-4 w-4" /> Telemetry
+          </Button>
+        ) : null}
+      </div>
+
+      <SpeakerAssignmentDialog
+        open={isSpeakerDialogOpen}
+        speakerIds={speakerIds}
+        assignments={speakerAssignments}
+        onCancel={() => setSpeakerDialogOpen(false)}
+        onApply={handleApplySpeakerAssignments}
+      />
+    </>
   );
 }
 
