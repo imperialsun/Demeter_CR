@@ -827,9 +827,9 @@ const initialState: AsrConfigState = {
   // Max chunk size default is target + 5s (automatically recalculated when target changes)
   maxChunkMs: (15 + 5) * 1000,
   showSegments: true,
-  showExportVtt: false,
-  showExportSrt: false,
-  showExportJson: false,
+  showExportVtt: true,
+  showExportSrt: true,
+  showExportJson: true,
   showExportTelemetry: false,
   preprocessingMode: "full",
   denoiseNoiseFloorDb: -28,

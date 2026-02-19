@@ -55,6 +55,29 @@ describe('LocalUploadPage', () => {
     expect(screen.getByText(/Les segments apparaîtront ici/)).toBeInTheDocument();
   });
 
+  it("shows VTT/SRT/JSON exports by default above the segments table", () => {
+    renderWithStore(
+      <LocalUploadPage />,
+      {
+        showSegments: true,
+        showExportVtt: true,
+        showExportSrt: true,
+        showExportJson: true,
+        segments: [{ index: 0, text: "segment-order-marker", start: 0, end: 1 }],
+      } as any
+    );
+
+    const vttButton = screen.getByText("VTT").closest("button");
+    const srtButton = screen.getByText("SRT").closest("button");
+    const jsonButton = screen.getByText("JSON").closest("button");
+    const segmentCell = screen.getByText("segment-order-marker");
+
+    expect(vttButton).toBeInTheDocument();
+    expect(srtButton).toBeInTheDocument();
+    expect(jsonButton).toBeInTheDocument();
+    expect(vttButton?.compareDocumentPosition(segmentCell) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('shows reset session button and clears local upload session state', async () => {
     renderWithStore(<LocalUploadPage />, {
       uploadedFile: new File(['audio'], 'test.mp3', { type: 'audio/mpeg' }),

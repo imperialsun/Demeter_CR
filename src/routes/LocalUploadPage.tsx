@@ -231,6 +231,7 @@ function LocalUploadPage() {
 
         <div className="space-y-4">
           <AudioPlayer file={selectedFile} metadata={audioMetadata} previewUrl={previewUrl} />
+          <ExportButtons segments={segments} telemetry={telemetrySummary ?? undefined} />
 
           {showSegments && (
             segments.length ? (
@@ -253,7 +254,6 @@ function LocalUploadPage() {
               </Card>
             )
           )}
-          <ExportButtons segments={segments} telemetry={telemetrySummary ?? undefined} />
         </div>
       </div>
       </div>
