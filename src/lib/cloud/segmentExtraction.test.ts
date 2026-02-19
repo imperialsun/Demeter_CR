@@ -64,4 +64,41 @@ describe("extractSegmentBlob", () => {
     expect(mocks.ffmpeg.unmount).toHaveBeenCalled();
     expect(mocks.ffmpeg.deleteDir).toHaveBeenCalled();
   });
+
+  it("supports remaining extension and mime mappings", async () => {
+    const cases = [
+      { name: "sample.mp4", type: "audio/mp4", expectedNameExt: ".m4a", expectedMime: "audio/mp4" },
+      { name: "sample.m4a", type: "audio/x-m4a", expectedNameExt: ".m4a", expectedMime: "audio/mp4" },
+      { name: "sample.aac", type: "audio/aac", expectedNameExt: ".aac", expectedMime: "audio/aac" },
+      { name: "sample.wav", type: "audio/wav", expectedNameExt: ".wav", expectedMime: "audio/wav" },
+      { name: "sample.wav", type: "audio/x-wav", expectedNameExt: ".wav", expectedMime: "audio/wav" },
+      { name: "sample.webm", type: "audio/webm", expectedNameExt: ".webm", expectedMime: "audio/webm;codecs=opus" },
+      { name: "sample.ogg", type: "audio/ogg", expectedNameExt: ".ogg", expectedMime: "audio/ogg" },
+    ] as const;
+
+    for (const item of cases) {
+      const file = new File([""], item.name, { type: item.type });
+      const result = await extractSegmentBlob(file, { index: 10, startSec: 0, endSec: 2 });
+      expect(result.name.endsWith(item.expectedNameExt)).toBe(true);
+      expect(result.mimeType).toBe(item.expectedMime);
+    }
+  });
+
+  it("keeps best-effort cleanup on create/delete/unmount errors and unknown extension", async () => {
+    mocks.ffmpeg.createDir.mockRejectedValue(new Error("dir exists"));
+    mocks.ffmpeg.exec.mockResolvedValueOnce(1).mockResolvedValueOnce(0);
+    mocks.ffmpeg.readFile.mockResolvedValue("raw-audio");
+    mocks.ffmpeg.deleteFile.mockRejectedValue(new Error("cannot delete output"));
+    mocks.ffmpeg.unmount.mockRejectedValue(new Error("cannot unmount"));
+    mocks.ffmpeg.deleteDir.mockRejectedValue(new Error("cannot delete dir"));
+
+    const file = new File(["payload"], "sample.xyz", { type: "" });
+    const result = await extractSegmentBlob(file, { index: 11, startSec: 1, endSec: 1.5 });
+
+    expect(result.name.endsWith(".webm")).toBe(true);
+    expect(result.mimeType).toBe("audio/webm;codecs=opus");
+    expect(result.blob.size).toBeGreaterThan(0);
+    expect(mocks.ffmpeg.unmount).toHaveBeenCalled();
+    expect(mocks.ffmpeg.deleteDir).toHaveBeenCalledTimes(2);
+  });
 });

@@ -414,4 +414,94 @@ describe("LLMApiPage", () => {
       expect.objectContaining({ format: "cri" })
     );
   });
+
+  it("renders preview content with subtitle, optional lists and paragraph blocks", async () => {
+    useAsrStore.setState({
+      llmApiResults: {
+        cro: {
+          format: "CRO",
+          report: {
+            format: "CRO",
+            title: "Compte rendu CRO",
+            subtitle: "Sous titre",
+            sections: [{ heading: "Synthese", paragraphs: ["Bloc A\n\nBloc B"] }],
+            key_points: ["Point 1", "Point 2"],
+            action_items: ["Action A"],
+            caveats: ["Risque X"],
+          },
+          rawResponse: "{}",
+          modelId: "openai/gpt-oss-20b",
+          generatedAt: new Date().toISOString(),
+          sourceMode: "transcription",
+          sourceTokenCount: 42,
+          pipelinePasses: 2,
+          strategy: "chatCompletion",
+        },
+      },
+    } as any);
+
+    renderPage();
+
+    await userEvent.click(screen.getByRole("tab", { name: "CRO" }));
+    expect(screen.getByText("Compte rendu CRO")).toBeInTheDocument();
+    expect(screen.getByText("Sous titre")).toBeInTheDocument();
+    expect(screen.getByText("Points cles")).toBeInTheDocument();
+    expect(screen.getByText("Action A")).toBeInTheDocument();
+    expect(screen.getByText("Risque X")).toBeInTheDocument();
+    expect(screen.getByText("Bloc A")).toBeInTheDocument();
+    expect(screen.getByText("Bloc B")).toBeInTheDocument();
+  });
+
+  it("handles download failure with toast and telemetry event", async () => {
+    const criResult = {
+      format: "CRI",
+      report: { format: "CRI", title: "CRI", sections: [{ heading: "H", paragraphs: ["p"] }] },
+      rawResponse: "{}",
+      modelId: "openai/gpt-oss-20b",
+      generatedAt: new Date().toISOString(),
+      sourceMode: "transcription",
+      sourceTokenCount: 20,
+      pipelinePasses: 1,
+      strategy: "chatCompletion",
+    };
+    hookState.results = { cri: criResult } as any;
+    useAsrStore.setState({
+      llmApiResults: {
+        cri: criResult,
+      },
+    } as any);
+    downloadDocx.mockRejectedValueOnce(new Error("download boom"));
+
+    renderPage();
+    await userEvent.click(screen.getByRole("button", { name: /telecharger cri/i }));
+
+    expect(toastMock).toHaveBeenCalledWith("download boom");
+    expect(emitLlmEventMock).toHaveBeenCalledWith(
+      "LLM_CLOUD_DOWNLOAD_FAILED",
+      expect.objectContaining({ format: "cri", message: "download boom" })
+    );
+  });
+
+  it("triggers the hidden file picker button in text source mode", async () => {
+    renderPage();
+
+    const sourceSelect = screen.getByLabelText("Mode d'entree", { selector: "button#llm-source" });
+    fireEvent.click(sourceSelect);
+    fireEvent.click(await screen.findByText("Texte libre"));
+
+    const clickSpy = vi.spyOn(HTMLInputElement.prototype, "click");
+    await userEvent.click(screen.getByRole("button", { name: /choisir un fichier/i }));
+    expect(clickSpy).toHaveBeenCalled();
+    clickSpy.mockRestore();
+  });
+
+  it("updates mistral token from provider controls", async () => {
+    useAsrStore.setState({ llmApiProvider: "mistral", mistralApiKey: "" } as any);
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText("Cle API Mistral", { selector: "input#llm-mistral-api-key" }), {
+      target: { value: "mistral_token_ui" },
+    });
+    expect(useAsrStore.getState().mistralApiKey).toBe("mistral_token_ui");
+  });
 });

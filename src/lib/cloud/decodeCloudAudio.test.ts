@@ -80,4 +80,77 @@ describe("decodeCloudAudio", () => {
 
     await expect(decodeCloudAudio(file)).rejects.toThrow("ffmpeg output is not binary data");
   });
+
+  it("uses legacy FS/run path when available", async () => {
+    mocks.decodeFileFully.mockRejectedValueOnce(new DOMException("Échec du décodage audio", "Error"));
+    const fs = vi.fn((op: string, ...args: unknown[]) => {
+      if (op === "readFile") {
+        return new Uint8Array([0, 0, 0, 64]);
+      }
+      return args[0];
+    });
+    const run = vi.fn(async () => {});
+    mocks.getFfmpeg.mockResolvedValueOnce({
+      FS: fs,
+      run,
+    });
+
+    const file = new File([""], "recording.ogg", { type: "audio/ogg" });
+    const result = await decodeCloudAudio(file);
+
+    expect(result.sampleRate).toBe(16000);
+    expect(run).toHaveBeenCalled();
+    expect(fs).toHaveBeenCalledWith("writeFile", expect.stringMatching(/\.ogg$/), expect.any(Uint8Array));
+    expect(fs).toHaveBeenCalledWith("readFile", expect.any(String));
+    expect(fs).toHaveBeenCalledWith("unlink", expect.any(String));
+  });
+
+  it("falls back to Response(blob).arrayBuffer when file.arrayBuffer is unavailable", async () => {
+    mocks.decodeFileFully.mockRejectedValueOnce(new DOMException("Unable to decode audio data", "EncodingError"));
+    const file = new File(["blob-bytes"], "voice.m4a", { type: "audio/x-m4a" }) as File & {
+      arrayBuffer?: () => Promise<ArrayBuffer>;
+    };
+    Object.defineProperty(file, "arrayBuffer", { value: undefined });
+
+    const result = await decodeCloudAudio(file as File);
+    expect(result.sampleRate).toBe(16000);
+    expect(mocks.ffmpeg.writeFile).toHaveBeenCalledWith(expect.stringMatching(/\.m4a$/), expect.any(Uint8Array));
+  });
+
+  it("throws on non-zero ffmpeg exit code and logs telemetry error", async () => {
+    mocks.decodeFileFully.mockRejectedValueOnce(new DOMException("Unable to decode audio data", "EncodingError"));
+    mocks.ffmpeg.exec.mockResolvedValueOnce(3);
+    const telemetry = {
+      recordAlert: vi.fn(),
+      logEvent: vi.fn(),
+      startTimer: vi.fn(),
+      stopTimer: vi.fn(),
+    };
+    const file = new File([""], "bad.aac", { type: "audio/aac" });
+
+    await expect(decodeCloudAudio(file, telemetry as never)).rejects.toThrow("ffmpeg failed with code 3");
+    expect(telemetry.logEvent).toHaveBeenCalledWith(
+      "ERROR",
+      expect.objectContaining({ context: "cloud_decode_ffmpeg" })
+    );
+  });
+
+  it("rethrows ffmpeg conversion errors and keeps cleanup best-effort", async () => {
+    mocks.decodeFileFully.mockRejectedValueOnce(new DOMException("Unable to decode audio data", "EncodingError"));
+    mocks.ffmpeg.exec.mockRejectedValueOnce(new Error("ffmpeg crashed"));
+    mocks.ffmpeg.deleteFile.mockRejectedValue(new Error("delete failed"));
+    const telemetry = {
+      recordAlert: vi.fn(),
+      logEvent: vi.fn(),
+      startTimer: vi.fn(),
+      stopTimer: vi.fn(),
+    };
+    const file = new File([""], "broken.webm", { type: "audio/webm" });
+
+    await expect(decodeCloudAudio(file, telemetry as never)).rejects.toThrow("ffmpeg crashed");
+    expect(telemetry.logEvent).toHaveBeenCalledWith(
+      "ERROR",
+      expect.objectContaining({ context: "cloud_decode_ffmpeg", message: "ffmpeg crashed" })
+    );
+  });
 });

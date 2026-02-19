@@ -275,4 +275,100 @@ describe("useModelCompatibilityTest", () => {
       fast: { webgpu: "fp16" },
     });
   });
+
+  it("does not start compatibility test while transcription is running", async () => {
+    useAsrStore.setState({ isTranscribing: true } as any);
+    render(<TestComp />);
+    await waitFor(() => expect(latest).not.toBeNull());
+
+    await act(async () => {
+      await latest!.runTest();
+    });
+
+    expect(mocks.createAsrPipeline).not.toHaveBeenCalled();
+    expect(latest!.state.running).toBe(false);
+  });
+
+  it("marks wasm as unavailable globally when wasm assets are missing", async () => {
+    useAsrStore.setState({ wasmAvailable: false } as any);
+    render(<TestComp />);
+    await waitFor(() => expect(latest).not.toBeNull());
+
+    await act(async () => {
+      await latest!.runTest();
+    });
+
+    expect(latest!.state.results[0].backends.wasm.status).toBe("unavailable");
+  });
+
+  it("handles runtime webgpu unsupported errors and falls back to wasm", async () => {
+    mocks.createAsrPipeline.mockImplementation(async (args: { forceBackend?: "webgpu" | "wasm" }) => {
+      if (args.forceBackend === "webgpu") {
+        throw new Error("WebGPU not supported by adapter");
+      }
+      return {
+        pipeline: {} as any,
+        backend: "wasm",
+        modelId: "m",
+      };
+    });
+
+    render(<TestComp />);
+    await waitFor(() => expect(latest).not.toBeNull());
+
+    await act(async () => {
+      await latest!.runTest();
+    });
+
+    expect(useAsrStore.getState().webGpuSupported).toBe(false);
+    expect(latest!.state.results[0].backends.webgpu.status).toBe("unavailable");
+    expect(latest!.state.results[0].backends.wasm.status).toBe("ok");
+  });
+
+  it("updates progress label from onStatus/onProgress callbacks", async () => {
+    mocks.createAsrPipeline.mockImplementation(async (args: { onStatus?: (s: string, d?: string) => void; onProgress?: (p?: number, s?: string) => void }) => {
+      args.onStatus?.("loading", "Téléchargement");
+      args.onProgress?.(0.5, "Initialisation");
+      return {
+        pipeline: {} as any,
+        backend: "webgpu",
+        modelId: "m",
+      };
+    });
+
+    render(<TestComp />);
+    await waitFor(() => expect(latest).not.toBeNull());
+
+    await act(async () => {
+      await latest!.runTest();
+    });
+
+    expect(latest!.state.progressLabel).toMatch(/Test termine|Initialisation/);
+  });
+
+  it("handles non-serializable errors when extracting telemetry details", async () => {
+    mocks.transcribeChunk.mockImplementation(async (args: { chunk: { id: string } }) => {
+      if (args.chunk.id.startsWith("compat-fast")) {
+        const circular: Record<string, unknown> = { message: "boom circular" };
+        circular.self = circular;
+        throw circular;
+      }
+      return {
+        chunk: args.chunk,
+        text: "ok",
+        segments: [],
+        processingMs: 1,
+        realtimeFactor: 1,
+      };
+    });
+
+    render(<TestComp />);
+    await waitFor(() => expect(latest).not.toBeNull());
+
+    await act(async () => {
+      await latest!.runTest();
+    });
+
+    expect(useAsrStore.getState().blockedPresets).toContain("fast");
+  });
 });

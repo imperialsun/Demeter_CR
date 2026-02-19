@@ -151,4 +151,46 @@ describe("useLlmReports telemetry", () => {
     const docxEvents = summary?.events.filter((event) => event.type === "LLM_DOCX_DOWNLOAD") ?? [];
     expect(docxEvents.some((event) => event.data?.status === "error")).toBe(true);
   });
+
+  it("rejects empty free-text source with a clear error status", async () => {
+    const { result } = renderHook(() => useLlmReports());
+
+    await act(async () => {
+      await result.current.generateAll({ source: "text", text: "   " });
+    });
+
+    expect(useAsrStore.getState().llmApiStatus).toBe("error");
+    expect(useAsrStore.getState().llmApiStatusDetail).toContain("Saisissez un texte source");
+  });
+
+  it("generates from free-text source and keeps success flow", async () => {
+    const { result } = renderHook(() => useLlmReports());
+
+    await act(async () => {
+      await result.current.generateAll({ source: "text", text: "Compte-rendu libre" });
+    });
+
+    expect(useAsrStore.getState().llmApiStatus).toBe("done");
+    expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("fails when downloadDocx is called without generated result", async () => {
+    const { result } = renderHook(() => useLlmReports());
+
+    await act(async () => {
+      await expect(result.current.downloadDocx("cri")).rejects.toThrow("Aucun resultat disponible");
+    });
+  });
+
+  it("returns an error when transcription source has no segment text", async () => {
+    useAsrStore.setState({ segments: [] } as any);
+    const { result } = renderHook(() => useLlmReports());
+
+    await act(async () => {
+      await result.current.generateAll({ source: "transcription" });
+    });
+
+    expect(useAsrStore.getState().llmApiStatus).toBe("error");
+    expect(useAsrStore.getState().llmApiStatusDetail).toContain("Aucune transcription disponible");
+  });
 });

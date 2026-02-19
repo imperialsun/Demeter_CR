@@ -49,6 +49,7 @@ const mocks = vi.hoisted(() => ({
     exec: vi.fn(async () => 0),
   },
   getFfmpeg: vi.fn(async () => mocks.ffmpegInstance),
+  toast: vi.fn(),
 }));
 
 vi.mock('@/lib/asr', () => ({
@@ -69,7 +70,7 @@ vi.mock('@/lib/preprocessing', async () => {
 });
 
 vi.mock('@/components/ui/use-toast', () => ({
-  toast: vi.fn(),
+  toast: mocks.toast,
 }));
 
 vi.mock('@/lib/ffmpeg-loader', () => ({
@@ -122,6 +123,7 @@ describe('useMicTranscription', () => {
     mocks.estimateNoiseProfileWithVad.mockClear();
     mocks.computePreprocessParams.mockClear();
     mocks.getFfmpeg.mockClear();
+    mocks.toast.mockClear();
     mocks.ffmpegInstance.writeFile.mockClear();
     mocks.ffmpegInstance.readFile.mockClear();
     mocks.ffmpegInstance.deleteFile.mockClear();
@@ -656,5 +658,312 @@ describe('useMicTranscription', () => {
     expect(controller!.recordingSeconds).toBe(0);
 
     unmount();
+  });
+
+  it('refuses to start when a transcription is already running', async () => {
+    useAsrStore.setState({ isTranscribing: true } as any);
+    let startRecording: (() => Promise<void>) | null = null;
+
+    function TestComp({ onReady }: { onReady: (start: () => Promise<void>) => void }) {
+      const controller = useMicTranscription();
+      onReady(controller.startRecording);
+      return null;
+    }
+
+    render(<TestComp onReady={(start) => { startRecording = start; }} />);
+
+    await act(async () => {
+      await startRecording!();
+    });
+
+    expect(mocks.toast).toHaveBeenCalledWith('Une transcription est déjà en cours.');
+  });
+
+  it('refuses to start when noise calibration has not been completed', async () => {
+    let startRecording: (() => Promise<void>) | null = null;
+
+    function TestComp({ onReady }: { onReady: (start: () => Promise<void>) => void }) {
+      const controller = useMicTranscription();
+      onReady(controller.startRecording);
+      return null;
+    }
+
+    render(<TestComp onReady={(start) => { startRecording = start; }} />);
+
+    await act(async () => {
+      await startRecording!();
+    });
+
+    expect(mocks.toast).toHaveBeenCalledWith(
+      "Faites silence puis initialisez le bruit de fond avant de démarrer l'enregistrement."
+    );
+  });
+
+  it('shows an error toast when microphone access fails during start', async () => {
+    Object.defineProperty(navigator, 'mediaDevices', {
+      value: { getUserMedia: vi.fn(async () => { throw new Error('denied'); }) },
+      configurable: true,
+    });
+
+    let startRecording: (() => Promise<void>) | null = null;
+    let calibrateSilenceThreshold: (() => Promise<void>) | null = null;
+
+    function TestComp({
+      onReady,
+    }: {
+      onReady: (start: () => Promise<void>, calibrate: () => Promise<void>) => void;
+    }) {
+      const controller = useMicTranscription();
+      onReady(controller.startRecording, controller.calibrateSilenceThreshold);
+      return null;
+    }
+
+    render(
+      <TestComp
+        onReady={(start, calibrate) => {
+          startRecording = start;
+          calibrateSilenceThreshold = calibrate;
+        }}
+      />
+    );
+
+    await act(async () => {
+      await calibrateSilenceThreshold!();
+    });
+    await act(async () => {
+      await startRecording!();
+    });
+
+    expect(mocks.toast).toHaveBeenCalledWith("Impossible d'accéder au micro.");
+  });
+
+  it('reports calibration impossible when no audio samples are available while recording', async () => {
+    let startRecording: (() => Promise<void>) | null = null;
+    let stopRecording: (() => Promise<void>) | null = null;
+    let calibrateSilenceThreshold: (() => Promise<void>) | null = null;
+
+    function TestComp({
+      onReady,
+    }: {
+      onReady: (start: () => Promise<void>, stop: () => Promise<void>, calibrate: () => Promise<void>) => void;
+    }) {
+      const controller = useMicTranscription();
+      onReady(controller.startRecording, controller.stopRecording, controller.calibrateSilenceThreshold);
+      return null;
+    }
+
+    render(
+      <TestComp
+        onReady={(start, stop, calibrate) => {
+          startRecording = start;
+          stopRecording = stop;
+          calibrateSilenceThreshold = calibrate;
+        }}
+      />
+    );
+
+    await act(async () => {
+      await calibrateSilenceThreshold!();
+      await startRecording!();
+    });
+
+    await act(async () => {
+      await calibrateSilenceThreshold!();
+    });
+
+    expect(mocks.toast).toHaveBeenCalledWith('Calibration impossible : audio indisponible.');
+
+    await act(async () => {
+      await stopRecording!();
+    });
+  });
+
+  it('reports calibration impossible when signal is too weak', async () => {
+    let startRecording: (() => Promise<void>) | null = null;
+    let stopRecording: (() => Promise<void>) | null = null;
+    let calibrateSilenceThreshold: (() => Promise<void>) | null = null;
+
+    function TestComp({
+      onReady,
+    }: {
+      onReady: (start: () => Promise<void>, stop: () => Promise<void>, calibrate: () => Promise<void>) => void;
+    }) {
+      const controller = useMicTranscription();
+      onReady(controller.startRecording, controller.stopRecording, controller.calibrateSilenceThreshold);
+      return null;
+    }
+
+    render(
+      <TestComp
+        onReady={(start, stop, calibrate) => {
+          startRecording = start;
+          stopRecording = stop;
+          calibrateSilenceThreshold = calibrate;
+        }}
+      />
+    );
+
+    await act(async () => {
+      await calibrateSilenceThreshold!();
+      await startRecording!();
+    });
+
+    const silent = new Float32Array(1000).fill(0);
+    await act(async () => {
+      lastProcessor?.onaudioprocess?.({ inputBuffer: { getChannelData: () => silent } });
+    });
+    await act(async () => {
+      await calibrateSilenceThreshold!();
+    });
+
+    expect(mocks.toast).toHaveBeenCalledWith('Calibration impossible : signal trop faible.');
+
+    await act(async () => {
+      await stopRecording!();
+    });
+  });
+
+  it('throws when exporting WAV without any recording', async () => {
+    let prepareRecordingWav: (() => Blob) | null = null;
+
+    function TestComp({ onReady }: { onReady: (prepare: () => Blob) => void }) {
+      const controller = useMicTranscription();
+      onReady(controller.prepareRecordingWav);
+      return null;
+    }
+
+    render(<TestComp onReady={(prepare) => { prepareRecordingWav = prepare; }} />);
+
+    expect(() => prepareRecordingWav!()).toThrow('Aucun enregistrement disponible');
+  });
+
+  it('exports MP3 through FFmpeg legacy FS API', async () => {
+    const legacyFs = vi.fn((op: string) => {
+      if (op === 'readFile') {
+        return new Uint8Array([7, 8, 9]);
+      }
+      return undefined;
+    });
+    const legacyRun = vi.fn(async () => {});
+
+    let startRecording: (() => Promise<void>) | null = null;
+    let stopRecording: (() => Promise<void>) | null = null;
+    let prepareRecordingMp3: (() => Promise<Blob>) | null = null;
+    let calibrateSilenceThreshold: (() => Promise<void>) | null = null;
+
+    function TestComp({
+      onReady,
+    }: {
+      onReady: (
+        start: () => Promise<void>,
+        stop: () => Promise<void>,
+        prepare: () => Promise<Blob>,
+        calibrate: () => Promise<void>
+      ) => void;
+    }) {
+      const controller = useMicTranscription();
+      onReady(
+        controller.startRecording,
+        controller.stopRecording,
+        controller.prepareRecordingMp3,
+        controller.calibrateSilenceThreshold
+      );
+      return null;
+    }
+
+    render(
+      <TestComp
+        onReady={(start, stop, prepare, calibrate) => {
+          startRecording = start;
+          stopRecording = stop;
+          prepareRecordingMp3 = prepare;
+          calibrateSilenceThreshold = calibrate;
+        }}
+      />
+    );
+
+    await act(async () => {
+      await calibrateSilenceThreshold!();
+      await startRecording!();
+    });
+
+    const pcm = new Float32Array(2000).fill(0.02);
+    await act(async () => {
+      lastProcessor?.onaudioprocess?.({ inputBuffer: { getChannelData: () => pcm } });
+    });
+    await act(async () => {
+      await stopRecording!();
+    });
+
+    mocks.getFfmpeg.mockResolvedValueOnce({
+      FS: legacyFs,
+      run: legacyRun,
+    } as any);
+
+    const blob = await prepareRecordingMp3!();
+    expect(blob.type).toBe('audio/mpeg');
+    expect(legacyRun).toHaveBeenCalled();
+    expect(legacyFs).toHaveBeenCalledWith('writeFile', expect.any(String), expect.any(Uint8Array));
+    expect(legacyFs).toHaveBeenCalledWith('unlink', expect.any(String));
+  });
+
+  it('throws when FFmpeg modern API returns non-binary output', async () => {
+    let startRecording: (() => Promise<void>) | null = null;
+    let stopRecording: (() => Promise<void>) | null = null;
+    let prepareRecordingMp3: (() => Promise<Blob>) | null = null;
+    let calibrateSilenceThreshold: (() => Promise<void>) | null = null;
+
+    function TestComp({
+      onReady,
+    }: {
+      onReady: (
+        start: () => Promise<void>,
+        stop: () => Promise<void>,
+        prepare: () => Promise<Blob>,
+        calibrate: () => Promise<void>
+      ) => void;
+    }) {
+      const controller = useMicTranscription();
+      onReady(
+        controller.startRecording,
+        controller.stopRecording,
+        controller.prepareRecordingMp3,
+        controller.calibrateSilenceThreshold
+      );
+      return null;
+    }
+
+    render(
+      <TestComp
+        onReady={(start, stop, prepare, calibrate) => {
+          startRecording = start;
+          stopRecording = stop;
+          prepareRecordingMp3 = prepare;
+          calibrateSilenceThreshold = calibrate;
+        }}
+      />
+    );
+
+    await act(async () => {
+      await calibrateSilenceThreshold!();
+      await startRecording!();
+    });
+
+    const pcm = new Float32Array(2000).fill(0.02);
+    await act(async () => {
+      lastProcessor?.onaudioprocess?.({ inputBuffer: { getChannelData: () => pcm } });
+    });
+    await act(async () => {
+      await stopRecording!();
+    });
+
+    mocks.getFfmpeg.mockResolvedValueOnce({
+      writeFile: vi.fn(async () => {}),
+      exec: vi.fn(async () => 0),
+      readFile: vi.fn(async () => 'not-binary'),
+      deleteFile: vi.fn(async () => {}),
+    } as any);
+
+    await expect(prepareRecordingMp3!()).rejects.toThrow('ffmpeg output is not binary data');
   });
 });

@@ -352,4 +352,248 @@ describe("useCloudTranscription", () => {
     expect(mocks.extractSegmentBlob).toHaveBeenCalled();
     expect(mocks.submitWithProgress).toHaveBeenCalledTimes(2);
   });
+
+  it("sets error status when metadata probing fails on file selection", async () => {
+    mocks.probeAudioMetadata.mockRejectedValueOnce(new Error("metadata fail"));
+    let api!: ReturnType<typeof useCloudTranscription>;
+    render(<HookHarness provider="gradio" onReady={(value) => (api = value)} />);
+    const file = new File(["a"], "broken.wav", { type: "audio/wav" });
+
+    await act(async () => {
+      await api.handleFileSelected(file);
+    });
+
+    await waitFor(() => {
+      expect(api.status).toBe("error");
+      expect(api.statusDetail).toBe("Impossible de lire les métadonnées audio");
+    });
+  });
+
+  it("handles stop on non-gradio providers without calling /set_stop_flag", async () => {
+    useAsrStore.setState({
+      hfApiToken: "hf_token",
+      cloudWhisperChunkDurationSec: 10,
+      cloudWhisperOverlapSec: 0,
+    } as never);
+    mocks.probeAudioMetadata.mockResolvedValueOnce({ durationSec: 20, sampleRate: 16000 });
+
+    let releasePreprocess!: () => void;
+    mocks.preprocessCloudAudio.mockImplementationOnce(
+      async () =>
+        await new Promise((resolve) => {
+          releasePreprocess = () =>
+            resolve({
+              processed: { pcm: new Float32Array([0.1, 0.2]), sampleRate: 16000 },
+              tune: null,
+            });
+        })
+    );
+
+    let api!: ReturnType<typeof useCloudTranscription>;
+    render(<HookHarness provider="whisper" onReady={(value) => (api = value)} />);
+    await waitFor(() => {
+      expect(api).toBeDefined();
+    });
+    const file = new File(["a"], "audio.wav", { type: "audio/wav" });
+
+    await act(async () => {
+      await api.handleFileSelected(file);
+    });
+    let startPromise!: Promise<void>;
+    await act(async () => {
+      startPromise = api.startTranscription();
+    });
+
+    await waitFor(() => {
+      expect(api.isTranscribing).toBe(true);
+    });
+
+    await act(async () => {
+      await api.stopTranscription();
+    });
+
+    releasePreprocess();
+    await startPromise;
+    expect(mocks.gradioClient.predict).not.toHaveBeenCalledWith("/set_stop_flag", {});
+  });
+
+  it("handles stop flag failure and ends in idle/Arrêté after abort", async () => {
+    let resolveSubmit!: (value: { data: unknown[]; progressSeen: boolean }) => void;
+    mocks.submitWithProgress.mockImplementationOnce(
+      async () =>
+        await new Promise((resolve) => {
+          resolveSubmit = resolve;
+        })
+    );
+    mocks.gradioClient.predict.mockImplementation(async (endpoint: string) => {
+      if (endpoint === "/set_stop_flag") {
+        throw new Error("stop flag failed");
+      }
+      if (endpoint === "/update_media_preview") {
+        return { data: [null, null] };
+      }
+      return { data: [] };
+    });
+
+    let api!: ReturnType<typeof useCloudTranscription>;
+    render(<HookHarness provider="gradio" onReady={(value) => (api = value)} />);
+    await waitFor(() => {
+      expect(api).toBeDefined();
+    });
+    const file = new File(["a"], "audio.wav", { type: "audio/wav" });
+
+    await act(async () => {
+      await api.handleFileSelected(file);
+    });
+    let startPromise!: Promise<void>;
+    await act(async () => {
+      startPromise = api.startTranscription();
+    });
+
+    await waitFor(() => {
+      expect(api.isTranscribing).toBe(true);
+    });
+
+    await act(async () => {
+      await api.stopTranscription();
+    });
+
+    resolveSubmit({
+      data: ["Texte", null, null, null],
+      progressSeen: false,
+    });
+    await startPromise;
+
+    await waitFor(() => {
+      expect(api.status).toBe("idle");
+      expect(api.statusDetail).toBe("Arrêté");
+      expect(api.progress).toBe(0);
+    });
+    expect(mocks.gradioClient.predict).toHaveBeenCalledWith("/set_stop_flag", {});
+  });
+
+  it.skip("resets session while a run is active", async () => {
+    let releasePreprocess!: () => void;
+    mocks.preprocessCloudAudio.mockImplementationOnce(
+      async () =>
+        await new Promise((resolve) => {
+          releasePreprocess = () =>
+            resolve({
+              processed: { pcm: new Float32Array([0.1, 0.2]), sampleRate: 16000 },
+              tune: null,
+            });
+        })
+    );
+
+    let api!: ReturnType<typeof useCloudTranscription>;
+    render(<HookHarness provider="gradio" onReady={(value) => (api = value)} />);
+    await waitFor(() => {
+      expect(api).toBeDefined();
+    });
+    const file = new File(["a"], "audio.wav", { type: "audio/wav" });
+
+    await act(async () => {
+      await api.handleFileSelected(file);
+    });
+    let startPromise!: Promise<void>;
+    await act(async () => {
+      startPromise = api.startTranscription();
+    });
+
+    await waitFor(() => {
+      expect(api.isTranscribing).toBe(true);
+    });
+
+    const resetPromise = api.resetTranscriptionSession();
+    releasePreprocess();
+    await act(async () => {
+      await resetPromise;
+    });
+
+    await startPromise;
+
+    expect(api.selectedFile).toBeNull();
+    expect(api.previewFile).toBeNull();
+    expect(api.segments).toEqual([]);
+    expect(api.status).toBe("idle");
+    expect(api.statusDetail).toBe("Session réinitialisée");
+    expect(api.isResettingSession).toBe(false);
+  });
+
+  it("continues transcription when preview update fails", async () => {
+    mocks.gradioClient.predict.mockImplementation(async (endpoint: string) => {
+      if (endpoint === "/update_media_preview") {
+        throw new Error("preview failed");
+      }
+      return { data: [] };
+    });
+
+    let api!: ReturnType<typeof useCloudTranscription>;
+    render(<HookHarness provider="gradio" onReady={(value) => (api = value)} />);
+    await waitFor(() => {
+      expect(api).toBeDefined();
+    });
+    const file = new File(["a"], "audio.wav", { type: "audio/wav" });
+
+    await act(async () => {
+      await api.handleFileSelected(file);
+    });
+    await act(async () => {
+      await api.startTranscription();
+    });
+
+    await waitFor(() => {
+      expect(api.status).toBe("done");
+    });
+  });
+
+  it("handles queue pending and progress callbacks from submitWithProgress", async () => {
+    let releaseSubmit!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseSubmit = resolve;
+    });
+    mocks.submitWithProgress.mockImplementationOnce(async (_client, _endpoint, _payload, options) => {
+      options.onStatus({
+        stage: "pending",
+        queue: true,
+        position: 2,
+        size: 5,
+      });
+      options.onProgress({
+        progress: 0.5,
+        desc: "Serveur en cours",
+        eta: 3,
+      });
+      await gate;
+      return { data: ["Texte", null, null, null], progressSeen: true };
+    });
+
+    let api!: ReturnType<typeof useCloudTranscription>;
+    render(<HookHarness provider="gradio" onReady={(value) => (api = value)} />);
+    await waitFor(() => {
+      expect(api).toBeDefined();
+    });
+    const file = new File(["a"], "audio.wav", { type: "audio/wav" });
+
+    await act(async () => {
+      await api.handleFileSelected(file);
+    });
+    let startPromise!: Promise<void>;
+    await act(async () => {
+      startPromise = api.startTranscription();
+    });
+
+    await waitFor(() => {
+      expect(
+        api.statusDetail?.includes("En file d'attente") || api.statusDetail?.includes("Serveur en cours")
+      ).toBe(true);
+      expect(api.progress).toBeGreaterThan(0.6);
+    });
+
+    releaseSubmit();
+    await startPromise;
+    await waitFor(() => {
+      expect(api.status).toBe("done");
+    });
+  });
 });

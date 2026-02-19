@@ -1,7 +1,35 @@
 import { describe, expect, it, vi } from "vitest";
-import { generateWithChatThenFallbackText } from "@/lib/llm/hfClient";
+
+const mocks = vi.hoisted(() => ({
+  inferenceCtor: vi.fn(function MockInferenceClient(this: Record<string, unknown>, token: string) {
+    this.token = token;
+    this.chatCompletion = vi.fn(async () => ({ choices: [{ message: { content: "ok" } }] }));
+    this.textGeneration = vi.fn(async () => ({ generated_text: "ok" }));
+  }),
+}));
+
+vi.mock("@huggingface/inference", () => ({
+  InferenceClient: mocks.inferenceCtor,
+}));
+
+import { generateWithChatThenFallbackText, getLlmHfClient } from "@/lib/llm/hfClient";
 
 describe("hfClient", () => {
+  it("throws when HF token is missing", async () => {
+    await expect(getLlmHfClient("   ")).rejects.toThrow("Token Hugging Face manquant.");
+  });
+
+  it("caches client by trimmed token and recreates on token change", async () => {
+    const first = await getLlmHfClient("  token-a  ");
+    const second = await getLlmHfClient("token-a");
+    const third = await getLlmHfClient("token-b");
+
+    expect(first).toBe(second);
+    expect(third).not.toBe(first);
+    expect(mocks.inferenceCtor).toHaveBeenCalledWith("token-a");
+    expect(mocks.inferenceCtor).toHaveBeenCalledWith("token-b");
+  });
+
   it("uses chatCompletion when available", async () => {
     const client = {
       chatCompletion: vi.fn(async () => ({
@@ -51,6 +79,76 @@ describe("hfClient", () => {
     expect(client.textGeneration).toHaveBeenCalledTimes(1);
   });
 
+  it("accepts array textGeneration responses and trims generated text", async () => {
+    const client = {
+      chatCompletion: vi.fn(async () => {
+        throw new Error("chat unavailable");
+      }),
+      textGeneration: vi.fn(async () => [{ generated_text: "  ok-array  " }]),
+    };
+
+    const result = await generateWithChatThenFallbackText({
+      client,
+      modelId: "Qwen/Qwen2.5-7B-Instruct",
+      systemPrompt: "system",
+      userPrompt: "user",
+      temperature: 0,
+      maxTokens: 512,
+    });
+
+    expect(result).toEqual({ text: "ok-array", strategy: "textGeneration" });
+  });
+
+  it("throws when modelId is blank after trimming", async () => {
+    const client = {
+      chatCompletion: vi.fn(async () => ({ choices: [{ message: { content: "ok" } }] })),
+      textGeneration: vi.fn(),
+    };
+
+    await expect(
+      generateWithChatThenFallbackText({
+        client,
+        modelId: "   ",
+        systemPrompt: "system",
+        userPrompt: "user",
+        temperature: 0,
+        maxTokens: 512,
+      })
+    ).rejects.toThrow("Model ID manquant.");
+  });
+
+  it("normalizes provider/maxTokens/temperature and uses plain text fallback inputs in text mode", async () => {
+    const client = {
+      chatCompletion: vi.fn(async () => {
+        throw new Error("chat unavailable");
+      }),
+      textGeneration: vi.fn(async () => ({ generated_text: "plain-output" })),
+    };
+
+    await generateWithChatThenFallbackText({
+      client,
+      modelId: "openai/gpt-oss-20b",
+      systemPrompt: "S",
+      userPrompt: "U",
+      temperature: Number.POSITIVE_INFINITY,
+      maxTokens: Number.NaN,
+      responseMode: "text",
+      provider: "   ",
+      maxRetries: 0,
+    });
+
+    expect(client.textGeneration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "auto",
+        inputs: "S\n\nU",
+        parameters: expect.objectContaining({
+          max_new_tokens: 2048,
+          temperature: 0.2,
+        }),
+      })
+    );
+  });
+
   it("parses chatCompletion content when returned as structured blocks", async () => {
     const client = {
       chatCompletion: vi.fn(async () => ({
@@ -77,6 +175,27 @@ describe("hfClient", () => {
     expect(result.strategy).toBe("chatCompletion");
     expect(result.text).toContain('"title":"Bloc"');
     expect(client.textGeneration).not.toHaveBeenCalled();
+  });
+
+  it("parses direct chat content objects", async () => {
+    const client = {
+      chatCompletion: vi.fn(async () => ({
+        content: { text: '{"format":"CRI","title":"Obj","sections":[{"heading":"H","paragraphs":["P"]}]}' },
+      })),
+      textGeneration: vi.fn(),
+    };
+
+    const result = await generateWithChatThenFallbackText({
+      client,
+      modelId: "openai/gpt-oss-20b",
+      systemPrompt: "system",
+      userPrompt: "user",
+      temperature: 0.2,
+      maxTokens: 512,
+    });
+
+    expect(result.strategy).toBe("chatCompletion");
+    expect(result.text).toContain('"title":"Obj"');
   });
 
   it("retries retryable errors", async () => {

@@ -144,4 +144,130 @@ describe("createSegmentCache", () => {
     expect(telemetry.logEvent).toHaveBeenCalledWith("STOP_REQUESTED");
     expect(mocks.putSegment).not.toHaveBeenCalled();
   });
+
+  it("supports additional mime extensions and warns on extension mismatch", async () => {
+    const cases = [
+      { type: "audio/x-m4a", expectedFormat: "mp4", expectedBlobType: "audio/mp4" },
+      { type: "audio/aac", expectedFormat: "adts", expectedBlobType: "audio/aac" },
+      { type: "audio/ogg", expectedFormat: "ogg", expectedBlobType: "audio/ogg" },
+      { type: "", expectedFormat: "webm", expectedBlobType: "audio/webm;codecs=opus" },
+    ] as const;
+
+    for (const current of cases) {
+      mocks.ffmpeg.exec.mockClear();
+      mocks.putSegment.mockClear();
+      mocks.ffmpeg.readFile.mockResolvedValueOnce("abc");
+
+      const file = new File(["audio"], current.type ? "demo.mp3" : "demo", { type: current.type });
+      await createSegmentCache(file, {
+        sessionId: `session-${current.type || "none"}`,
+        segments: [makeChunks()[0]!],
+      });
+
+      const args = mocks.ffmpeg.exec.mock.calls[0]?.[0] as string[];
+      expect(args).toContain("-f");
+      expect(args).toContain(current.expectedFormat);
+      const putArg = mocks.putSegment.mock.calls[0]?.[0] as { blob: Blob };
+      expect(putArg.blob.type).toBe(current.expectedBlobType);
+    }
+
+    expect(mocks.loggerWarn).toHaveBeenCalledWith(
+      "[segmenter] extension mismatch",
+      expect.objectContaining({ nameExt: "mp3", mimeExt: "m4a" })
+    );
+  });
+
+  it("logs directory-creation warnings and continues", async () => {
+    mocks.ffmpeg.createDir.mockRejectedValueOnce(new Error("input exists")).mockRejectedValueOnce(new Error("output exists"));
+    const file = new File(["audio"], "demo.wav", { type: "audio/wav" });
+
+    const result = await createSegmentCache(file, {
+      sessionId: "session-dirs",
+      segments: [makeChunks()[0]!],
+    });
+
+    expect(result.aborted).toBe(false);
+    expect(mocks.loggerWarn).toHaveBeenCalledWith("[segmenter] input dir exists", expect.any(Error));
+    expect(mocks.loggerWarn).toHaveBeenCalledWith("[segmenter] output dir exists", expect.any(Error));
+  });
+
+  it("throws when copy and opus fallback both fail", async () => {
+    mocks.ffmpeg.exec.mockResolvedValueOnce(1).mockResolvedValueOnce(2);
+    const file = new File(["audio"], "demo.wav", { type: "audio/wav" });
+
+    await expect(
+      createSegmentCache(file, {
+        sessionId: "session-fail",
+        segments: [makeChunks()[0]!],
+      })
+    ).rejects.toThrow("ffmpeg failed with code 2");
+  });
+
+  it("warns when deleting output before opus fallback fails", async () => {
+    mocks.ffmpeg.exec.mockResolvedValueOnce(1).mockResolvedValueOnce(0);
+    mocks.ffmpeg.deleteFile.mockRejectedValueOnce(new Error("cannot delete"));
+    const file = new File(["audio"], "demo.wav", { type: "audio/wav" });
+
+    await createSegmentCache(file, {
+      sessionId: "session-delete-fallback",
+      segments: [makeChunks()[0]!],
+    });
+
+    expect(mocks.loggerWarn).toHaveBeenCalledWith("[segmenter] delete output before fallback failed", expect.any(Error));
+  });
+
+  it("returns aborted when signal is aborted during execution", async () => {
+    const controller = new AbortController();
+    mocks.ffmpeg.exec.mockImplementation(async () => {
+      controller.abort();
+      throw new Error("aborted");
+    });
+    const telemetry = { logEvent: vi.fn() } as const;
+    const file = new File(["audio"], "demo.webm", { type: "audio/webm" });
+
+    const result = await createSegmentCache(file, {
+      sessionId: "session-abort-mid",
+      segments: [makeChunks()[0]!],
+      telemetry,
+      signal: controller.signal,
+    });
+
+    expect(result).toEqual({ completed: 0, total: 1, aborted: true });
+    expect(telemetry.logEvent).toHaveBeenCalledWith("STOP_REQUESTED");
+  });
+
+  it("logs cleanup warnings for unmount, delete, list, terminate and file cleanup failures", async () => {
+    mocks.ffmpeg.unmount.mockRejectedValueOnce(new Error("unmount failed"));
+    mocks.ffmpeg.deleteDir.mockImplementation(async (path: string) => {
+      if (path === "/input") throw new Error("delete input failed");
+      if (path === "/output") throw new Error("delete output failed");
+    });
+    mocks.ffmpeg.listDir.mockResolvedValueOnce([
+      { isDir: true, name: "nested" },
+      { isDir: false, name: "." },
+      { isDir: false, name: ".." },
+      { isDir: false, name: "leftover.webm" },
+    ]);
+    mocks.ffmpeg.deleteFile.mockImplementation(async (path: string) => {
+      if (path === "/output/leftover.webm") throw new Error("delete leftover failed");
+    });
+    mocks.ffmpeg.terminate.mockImplementation(() => {
+      throw new Error("terminate failed");
+    });
+
+    const file = new File(["audio"], "demo.webm", { type: "audio/webm" });
+    await createSegmentCache(file, {
+      sessionId: "session-cleanup",
+      segments: [makeChunks()[0]!],
+    });
+
+    expect(mocks.loggerWarn).toHaveBeenCalledWith("[segmenter] unmount failed", expect.any(Error));
+    expect(mocks.loggerWarn).toHaveBeenCalledWith("[segmenter] delete input dir failed", expect.any(Error));
+    expect(mocks.loggerWarn).toHaveBeenCalledWith(
+      "[segmenter] delete output file failed",
+      expect.objectContaining({ name: "leftover.webm" })
+    );
+    expect(mocks.loggerWarn).toHaveBeenCalledWith("[segmenter] delete output dir failed", expect.any(Error));
+    expect(mocks.loggerWarn).toHaveBeenCalledWith("[segmenter] ffmpeg terminate failed", expect.any(Error));
+  });
 });
