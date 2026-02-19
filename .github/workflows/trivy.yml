@@ -63,7 +63,7 @@ jobs:
 
       - name: Upload Trivy FS report artifact
         if: always() && hashFiles('trivy-fs.txt') != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: trivy-fs-report
           path: trivy-fs.txt
@@ -121,7 +121,7 @@ jobs:
 
       - name: Upload Trivy Image report artifact
         if: always() && hashFiles('trivy-image.txt') != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: trivy-image-report
           path: trivy-image.txt
