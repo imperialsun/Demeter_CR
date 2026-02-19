@@ -85,8 +85,14 @@ describe("audio helpers", () => {
     const Original = (globalThis as any).OfflineAudioContext;
     class MockOfflineAudioContext {
       destination = {};
-      constructor(_channels: number, _frameCount: number, _sampleRate: number) {}
-      createBuffer(_channels: number, length: number, _sampleRate: number) {
+      constructor(channels: number, frameCount: number, sampleRate: number) {
+        void channels;
+        void frameCount;
+        void sampleRate;
+      }
+      createBuffer(channels: number, length: number, sampleRate: number) {
+        void channels;
+        void sampleRate;
         const data = new Float32Array(length);
         return {
           getChannelData: () => data,
