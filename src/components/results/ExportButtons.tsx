@@ -121,13 +121,14 @@ export function ExportButtons({
         ) : null}
       </div>
 
-      <SpeakerAssignmentDialog
-        open={isSpeakerDialogOpen}
-        speakerIds={speakerIds}
-        assignments={speakerAssignments}
-        onCancel={() => setSpeakerDialogOpen(false)}
-        onApply={handleApplySpeakerAssignments}
-      />
+      {isSpeakerDialogOpen ? (
+        <SpeakerAssignmentDialog
+          speakerIds={speakerIds}
+          assignments={speakerAssignments}
+          onCancel={() => setSpeakerDialogOpen(false)}
+          onApply={handleApplySpeakerAssignments}
+        />
+      ) : null}
     </>
   );
 }

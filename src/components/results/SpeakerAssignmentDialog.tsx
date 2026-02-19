@@ -4,7 +4,6 @@ import { Input } from "@/components/ui/input";
 import type { SpeakerAssignment, SpeakerAssignmentMap } from "@/lib/speakerAssignments";
 
 interface SpeakerAssignmentDialogProps {
-  open: boolean;
   speakerIds: string[];
   assignments: SpeakerAssignmentMap;
   onApply: (assignments: SpeakerAssignmentMap) => void;
@@ -26,7 +25,6 @@ const buildDraft = (speakerIds: string[], assignments: SpeakerAssignmentMap): As
 };
 
 export function SpeakerAssignmentDialog({
-  open,
   speakerIds,
   assignments,
   onApply,
@@ -39,13 +37,6 @@ export function SpeakerAssignmentDialog({
   const applyButtonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
-    if (!open) return;
-    setDraft(buildDraft(speakerIds, assignments));
-  }, [open, speakerIds, assignments]);
-
-  useEffect(() => {
-    if (!open) return;
-
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -57,21 +48,21 @@ export function SpeakerAssignmentDialog({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [open, onCancel]);
+  }, [onCancel]);
 
   useEffect(() => {
-    if (!open) return;
-
     const rafId = window.requestAnimationFrame(() => {
-      firstNameInputRef.current?.focus() ?? applyButtonRef.current?.focus();
+      if (speakerIds.length > 0) {
+        firstNameInputRef.current?.focus();
+      } else {
+        applyButtonRef.current?.focus();
+      }
     });
 
     return () => {
       window.cancelAnimationFrame(rafId);
     };
-  }, [open, speakerIds.length]);
-
-  if (!open) return null;
+  }, [speakerIds.length]);
 
   const handleValueChange = (speakerId: string, key: keyof SpeakerAssignment, value: string) => {
     setDraft((current) => ({
