@@ -296,6 +296,16 @@ function CloudUploadPage() {
         <div className="space-y-4">
           <AudioPlayer file={previewFile} metadata={audioMetadata} previewUrl={previewUrl} segments={segments} />
 
+          <ExportButtons
+            segments={segments}
+            telemetry={telemetrySummary ?? undefined}
+            showVtt={cloudShowExportVtt}
+            showSrt={cloudShowExportSrt}
+            showJson={cloudShowExportJson}
+            showTelemetry={cloudShowExportTelemetry}
+            mode="cloud"
+          />
+
           {cloudShowSegments ? (
             segments.length ? (
               <ResultsTable
@@ -312,15 +322,6 @@ function CloudUploadPage() {
             )
           ) : null}
 
-          <ExportButtons
-            segments={segments}
-            telemetry={telemetrySummary ?? undefined}
-            showVtt={cloudShowExportVtt}
-            showSrt={cloudShowExportSrt}
-            showJson={cloudShowExportJson}
-            showTelemetry={cloudShowExportTelemetry}
-            mode="cloud"
-          />
         </div>
       </div>
     </div>

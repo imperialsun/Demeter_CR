@@ -5,6 +5,53 @@ import { useAsrStore } from "@/store/asr-store";
 import CloudUploadPage from "./CloudUploadPage";
 
 describe("CloudUploadPage", () => {
+  it("shows cloud export defaults (VTT/SRT/JSON enabled, Telemetry disabled)", () => {
+    useAsrStore.getState().resetApp();
+    renderWithStore(<CloudUploadPage />, {
+      cloudApiUrl: "https://cloud.example",
+    });
+
+    expect(screen.getByRole("button", { name: /VTT/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /SRT/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /JSON/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Telemetry/i })).toBeNull();
+  });
+
+  it("renders export buttons above the segments area", () => {
+    renderWithStore(<CloudUploadPage />, {
+      cloudApiUrl: "https://cloud.example",
+      cloudShowSegments: true,
+      segments: [],
+      cloudShowExportVtt: true,
+      cloudShowExportSrt: true,
+      cloudShowExportJson: true,
+      cloudShowExportTelemetry: false,
+    });
+
+    const vttButton = screen.getByRole("button", { name: /VTT/i });
+    const placeholder = screen.getByText(/Les segments apparaîtront ici dès que la transcription aura démarré\./i);
+    expect(vttButton.compareDocumentPosition(placeholder) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("uses cloud export toggles independently from local export toggles", () => {
+    renderWithStore(<CloudUploadPage />, {
+      cloudApiUrl: "https://cloud.example",
+      showExportVtt: false,
+      showExportSrt: false,
+      showExportJson: false,
+      showExportTelemetry: true,
+      cloudShowExportVtt: true,
+      cloudShowExportSrt: true,
+      cloudShowExportJson: true,
+      cloudShowExportTelemetry: false,
+    });
+
+    expect(screen.getByRole("button", { name: /VTT/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /SRT/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /JSON/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Telemetry/i })).toBeNull();
+  });
+
   it("renders the cloud upload UI with all providers", () => {
     renderWithStore(<CloudUploadPage />, {
       cloudApiUrl: "https://cloud.example",
