@@ -23,6 +23,21 @@ Source of truth:
 - `demeter-secure-vault`: encrypted tokens (stores `keys`, `secrets`).
 - progressive segment cache database (segment cache module).
 
+## Non-persisted session state
+
+These fields exist in runtime store state but are not written to `demeter-asr-settings`:
+
+- `runExportHeaders` (per mode `upload|mic|cloud`): snapshot of effective run settings/runtime used in export headers.
+- `speakerAssignments` (per mode `upload|mic|cloud`): technical speaker id -> `firstName/lastName` mapping used for UI and exports.
+
+Lifecycle:
+
+- new local/mic/cloud run: assignments are cleared for that mode,
+- `resetSession` / `resetApp`: assignments and run export snapshots are cleared,
+- page reload: state is lost (session-only).
+
+Explicit note: `speakerAssignments` is not part of `PersistedSettings`.
+
 ## Local transcription domain
 
 ### Model and backend

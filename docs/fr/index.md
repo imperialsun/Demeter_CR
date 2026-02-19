@@ -8,6 +8,9 @@ Cette documentation decrit le fonctionnement complet de Demeter Speech pour troi
 - contributeur technique,
 - exploitation/operations.
 
+Pour les nouveautes export/speakers (boutons export au-dessus des segments, headers snapshot de run, assignation speakers), voir en priorite:
+[`local-transcription.md`](local-transcription.md), [`cloud-transcription.md`](cloud-transcription.md), [`settings-reference.md`](settings-reference.md).
+
 ## Parcours recommandes
 
 ### Parcours utilisateur

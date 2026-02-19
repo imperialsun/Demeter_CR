@@ -40,6 +40,12 @@ docker compose up --build -d
 | LLM local | `/llmlocal` | Local report generation from transcript/text | No |
 | LLM cloud | `/llmapi` | Cloud LLM report generation with large context windows | Yes |
 
+## Recent capabilities
+
+- Local and cloud export actions are rendered above the segment table for faster download workflow.
+- Export headers are generated from the real run snapshot (effective settings + runtime), not only current UI values.
+- Speaker workflow now includes speaker display, per-run speaker assignment, and assigned labels in `VTT`/`SRT`/`JSON` exports.
+
 ## Compatibility and prerequisites
 
 - Node.js `25.6.1` (`.nvmrc`) for local build and scripts.

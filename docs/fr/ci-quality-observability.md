@@ -48,6 +48,15 @@ Severite cible: `HIGH`, `CRITICAL`.
 - script de garde seuil projet: `npm run coverage:project`.
 - hotspot report: `scripts/coverage-hotspots.mjs`.
 
+Ordre critique dans CI:
+
+1. `npm run test:ci` doit generer `coverage/lcov.info`,
+2. puis `node scripts/coverage-hotspots.mjs` lit ce fichier.
+
+Si `lcov.info` est absent, le symptome attendu est:
+
+- `[coverage-hotspots] missing .../coverage/lcov.info` puis exit code non nul.
+
 ## Audit observabilite
 
 `npm run audit:observability` execute `scripts/observability-audit.mjs`.

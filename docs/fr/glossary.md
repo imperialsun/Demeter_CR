@@ -63,3 +63,15 @@ Service d inference cloud utilise pour Whisper et LLM cloud HF.
 ## Mistral API
 
 API cloud utilisee pour transcription audio et generation LLM.
+
+## Diarization
+
+Detection et etiquetage des intervenants audio (speakers) par segment.
+
+## Speaker assignment
+
+Mapping manuel d un speaker technique vers un nom/prenom affiche et exporte.
+
+## Export run snapshot header
+
+Bloc metadata en tete des exports (`VTT`/`SRT`/`JSON`/`telemetry`) qui decrit les settings/runtime reels du run.

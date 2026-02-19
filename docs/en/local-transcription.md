@@ -110,16 +110,50 @@ Primary controls:
 - local session reset keeps persisted settings,
 - temporary error hold before auto-reset.
 
-## Exports
+## Exports and run snapshot
 
-`ExportButtons` supports:
+On `/localupload`, the `ExportButtons` block is rendered above the segment table (right after the audio player).
 
-- `VTT`,
-- `SRT`,
+Local defaults:
+
+- `VTT`, `SRT`, `JSON` visible,
+- `telemetry` hidden.
+
+Supported exports remain:
+
+- `VTT` transcription,
+- `SRT` transcription,
 - segment `JSON`,
 - `telemetry.json`.
 
-Each export can include contextual header metadata (settings + runtime + mode).
+Export headers are built from the run snapshot first (`runExportHeaders.upload`), captured when transcription starts:
+
+- effective settings used for that run (effective memory mode, chunking, preprocessing, timestamp/confidence options),
+- effective runtime values (run id, file metadata, active backend, active model).
+
+If no snapshot exists, a fallback uses current settings.
+
+## Speakers and assignment
+
+The segment table automatically shows the `Speaker` column when at least one segment has speaker data.
+
+When speakers are available:
+
+- the `Assigner speakers` button is shown,
+- a dialog lets you set `Last name` and `First name` for each technical speaker id,
+- the displayed label becomes `Last name First name` (without technical id) in the table.
+
+Assignments are:
+
+- session-only (not persisted),
+- scoped per mode (`upload`, `mic`, `cloud`),
+- cleared on new run, session/app reset, or reload.
+
+Speaker export impact:
+
+- `VTT`/`SRT`: inline prefix `Speaker: text`,
+- `JSON`: `speaker` field rewritten with the assigned label,
+- `telemetry.json`: unchanged.
 
 ## Related implementation files
 

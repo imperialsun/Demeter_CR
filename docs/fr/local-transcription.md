@@ -110,16 +110,50 @@ Le mode `full` active la phase la plus couteuse. Le mode `quick` saute les trait
 - reset session local preserve seulement les settings persistants,
 - statut `error` garde temporaire avant reset automatique.
 
-## Exports
+## Exports et snapshot de run
 
-`ExportButtons` supporte:
+Sur `/localupload`, le bloc `ExportButtons` est rendu au-dessus du tableau des segments (juste apres le lecteur audio).
+
+Par defaut local:
+
+- `VTT`, `SRT`, `JSON` visibles,
+- `telemetry` masque.
+
+Les exports supportes restent:
 
 - transcription `VTT`,
 - transcription `SRT`,
 - segments `JSON`,
 - `telemetry.json`.
 
-Chaque export peut inclure un header de contexte (settings + runtime + mode).
+Le header d export est base en priorite sur le snapshot du run (`runExportHeaders.upload`), capture au demarrage de la transcription:
+
+- settings reels utilises (mode memoire effectif, chunking, preprocess, options timestamps/confiance),
+- runtime reel (run id, fichier, backend actif, modele actif).
+
+Si aucun snapshot n est disponible, un fallback utilise les settings courants.
+
+## Speakers et assignation
+
+Le tableau des segments affiche automatiquement la colonne `Speaker` si au moins un segment contient un speaker.
+
+Quand des speakers sont disponibles:
+
+- le bouton `Assigner speakers` apparait,
+- une modal permet de renseigner `Nom` et `Prenom` par speaker technique,
+- le label affiche devient `Nom Prenom` (sans ID technique) dans la table.
+
+Les assignations sont:
+
+- scope session uniquement (pas de persistance),
+- separees par mode (`upload`, `mic`, `cloud`),
+- purgees au nouveau run, reset session/app, ou reload.
+
+Impact export speaker:
+
+- `VTT`/`SRT`: prefixe inline `Speaker: texte`,
+- `JSON`: champ `speaker` renomme selon assignation,
+- `telemetry.json`: inchange.
 
 ## Fichiers techniques lies
 

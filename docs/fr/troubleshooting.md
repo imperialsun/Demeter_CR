@@ -58,6 +58,39 @@ Actions:
 - verifier `cloudMistralModel`,
 - desactiver diarization si validation errors 422.
 
+## Speaker non visible dans la table cloud
+
+Symptomes:
+
+- transcription Mistral terminee mais colonne speaker vide/inexistante.
+
+Checks:
+
+1. verifier que la requete Mistral part avec `diarize=true`,
+2. verifier si un fallback `422` force un retry sans diarization (`retrying without diarization...`),
+3. verifier l export `segments.json`: si `speaker` absent dans les segments, la colonne ne peut pas s afficher.
+
+Interpretation:
+
+- speaker absent dans reponse API => limite provider/model/parametres,
+- speaker present dans segments mais pas visible => verifier rendu UI/table et assignations.
+
+## Bouton "Assigner speakers" absent
+
+Symptome:
+
+- aucun bouton `Assigner speakers` dans la barre export.
+
+Cause attendue:
+
+- le bouton n apparait que si au moins un segment contient un `speaker` non vide.
+
+Actions:
+
+1. verifier `segments.json` exporte,
+2. confirmer que diarization est effectivement activee et non fallbackee,
+3. tester avec un audio multi-intervenants.
+
 ## LLM cloud: contexte trop long
 
 Symptome:
@@ -95,6 +128,22 @@ Actions:
 - executer `npm run docs:check` local,
 - corriger liens relatifs et ancres,
 - verifier parite fichiers `docs/fr` vs `docs/en`.
+
+## CI echoue sur coverage-hotspots (`missing coverage/lcov.info`)
+
+Symptome:
+
+- `node scripts/coverage-hotspots.mjs` echoue avec `missing .../coverage/lcov.info`.
+
+Cause probable:
+
+- l etape qui genere la couverture (`npm run test:ci`) n a pas tourne, ou a echoue avant emission du fichier `lcov`.
+
+Actions:
+
+1. lancer `npm run test:ci` localement et verifier la creation de `coverage/lcov.info`,
+2. verifier l ordre CI: tests coverage avant `coverage-hotspots`,
+3. corriger la cause d echec tests/lint en amont si le fichier n est jamais genere.
 
 ## Outils de debug
 

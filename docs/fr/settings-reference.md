@@ -23,6 +23,21 @@ Sources de verite:
 - `demeter-secure-vault`: tokens chiffres (stores `keys`, `secrets`).
 - cache segments progressifs (module segment cache).
 
+## Etat session non persiste
+
+Ces champs existent dans le store runtime mais ne sont pas ecrits dans `demeter-asr-settings`:
+
+- `runExportHeaders` (par mode `upload|mic|cloud`): snapshot des settings/runtime reels du run, utilise dans les headers des exports.
+- `speakerAssignments` (par mode `upload|mic|cloud`): mapping speaker technique -> `firstName/lastName` applique a l affichage et aux exports.
+
+Cycle de vie:
+
+- nouveau run local/mic/cloud: purge des assignations du mode courant,
+- `resetSession` / `resetApp`: purge des assignations et des snapshots d export,
+- reload page: etat perdu (session-only).
+
+Note explicite: `speakerAssignments` n est pas inclus dans `PersistedSettings`.
+
 ## Domaine local transcription
 
 ### Modele et backend

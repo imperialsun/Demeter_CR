@@ -8,6 +8,9 @@ This documentation describes the full Demeter Speech behavior for three audience
 - technical contributors,
 - operations/security teams.
 
+For recent export/speaker updates (exports above segments, run snapshot headers, speaker assignment), start with:
+[`local-transcription.md`](local-transcription.md), [`cloud-transcription.md`](cloud-transcription.md), [`settings-reference.md`](settings-reference.md).
+
 ## Recommended paths
 
 ### User path

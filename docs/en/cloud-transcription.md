@@ -91,6 +91,36 @@ Configurable independently from local mode:
 - segment visibility,
 - VTT/SRT/JSON/telemetry exports.
 
+Cloud placement and defaults:
+
+- on `/cloudupload`, export buttons are rendered above segments (right after `AudioPlayer`),
+- cloud defaults for new profiles: `VTT`, `SRT`, `JSON` visible and `Telemetry` hidden,
+- cloud toggles stay independent from local toggles.
+
+Export header (run snapshot):
+
+- built from `runExportHeaders.cloud` (effective settings used by the run),
+- provider-specific without parameter mixing:
+  - Gradio: endpoint + generation/context/cloud preprocess fields,
+  - Whisper: whisper chunking + whisper/cloud preprocess fields (context not sent),
+  - Mistral: endpoint/model/chunking + requested/effective diarization/fallback chunks.
+
+## Speakers and diarization in UI
+
+Display:
+
+- the table `Speaker` column is shown when at least one segment contains speaker data,
+- it is no longer strictly tied to the diarization toggle alone.
+
+Assignment:
+
+- the `Assigner speakers` button is shown only when speakers are detected in segments,
+- applied assignments (first/last names) are reflected in the table and `VTT`/`SRT`/`JSON` exports.
+
+Known limitation:
+
+- if Mistral returns `422` and auto-falls back without diarization, segments can be produced without speaker data.
+
 ## Related implementation files
 
 - `src/hooks/useCloudTranscription.ts`

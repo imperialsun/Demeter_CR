@@ -63,3 +63,15 @@ Cloud inference service used by Whisper and cloud LLM mode.
 ## Mistral API
 
 Cloud API used for audio transcription and LLM generation.
+
+## Diarization
+
+Detection and labeling of audio participants (speakers) per segment.
+
+## Speaker assignment
+
+Manual mapping from a technical speaker id to a displayed/exported first/last name.
+
+## Export run snapshot header
+
+Metadata block written in export headers (`VTT`/`SRT`/`JSON`/`telemetry`) describing effective run settings/runtime.

@@ -48,6 +48,15 @@ Severity scope: `HIGH`, `CRITICAL`.
 - project threshold script: `npm run coverage:project`.
 - hotspots report: `scripts/coverage-hotspots.mjs`.
 
+Critical CI order:
+
+1. `npm run test:ci` must generate `coverage/lcov.info`,
+2. then `node scripts/coverage-hotspots.mjs` reads that file.
+
+If `lcov.info` is missing, expected symptom is:
+
+- `[coverage-hotspots] missing .../coverage/lcov.info` followed by a non-zero exit code.
+
 ## Observability audit
 
 `npm run audit:observability` executes `scripts/observability-audit.mjs`.
