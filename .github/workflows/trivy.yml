@@ -24,7 +24,7 @@ jobs:
 
       - name: Run Trivy filesystem scan
         id: trivy_fs_scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.34.0
         with:
           scan-type: fs
           scan-ref: .
@@ -36,7 +36,7 @@ jobs:
           exit-code: "0"
 
       - name: Build Trivy FS text report (non-blocking)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.34.0
         with:
           scan-type: fs
           scan-ref: .
@@ -82,7 +82,7 @@ jobs:
 
       - name: Run Trivy image scan
         id: trivy_image_scan
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.34.0
         with:
           scan-type: image
           scan-ref: demeter-cr:ci
@@ -94,7 +94,7 @@ jobs:
           exit-code: "0"
 
       - name: Build Trivy image text report (non-blocking)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.34.0
         with:
           scan-type: image
           scan-ref: demeter-cr:ci
