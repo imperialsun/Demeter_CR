@@ -20,9 +20,11 @@ describe("transcribeWithMistral", () => {
 
   it("rejects files larger than 500 MiB before calling fetch", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const logEvent = vi.fn();
+    const recordAlert = vi.fn();
     const telemetry = {
-      logEvent: vi.fn(),
-      recordAlert: vi.fn(),
+      logEvent,
+      recordAlert,
     } as unknown as Parameters<typeof transcribeWithMistral>[1];
     const oversizedFile = {
       name: "too-big.wav",
@@ -43,7 +45,7 @@ describe("transcribeWithMistral", () => {
     ).rejects.toThrow("Chunk audio trop volumineux");
 
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect((telemetry as any).recordAlert).toHaveBeenCalledWith(
+    expect(recordAlert).toHaveBeenCalledWith(
       "CLOUD_MISTRAL_FILE_TOO_LARGE",
       expect.objectContaining({
         fileName: "too-big.wav",
