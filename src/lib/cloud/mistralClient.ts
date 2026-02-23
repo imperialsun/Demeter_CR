@@ -25,6 +25,36 @@ type MistralTranscriptionRequest = {
 };
 
 const DEFAULT_MISTRAL_API_URL = "https://api.mistral.ai";
+export const MISTRAL_MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
+
+type MistralFileSizeAnalysis = {
+  sizeBytes: number;
+  sizeMiB: number;
+  maxBytes: number;
+  maxMiB: number;
+  usagePercent: number;
+  isOverLimit: boolean;
+};
+
+function roundTo(value: number, digits: number) {
+  return Number(value.toFixed(digits));
+}
+
+function buildFileSizeAnalysis(file: File): MistralFileSizeAnalysis {
+  const sizeBytes = file.size;
+  const maxBytes = MISTRAL_MAX_UPLOAD_BYTES;
+  const sizeMiB = roundTo(sizeBytes / (1024 * 1024), 3);
+  const maxMiB = roundTo(maxBytes / (1024 * 1024), 3);
+  const usagePercent = maxBytes > 0 ? roundTo((sizeBytes / maxBytes) * 100, 2) : 0;
+  return {
+    sizeBytes,
+    sizeMiB,
+    maxBytes,
+    maxMiB,
+    usagePercent,
+    isOverLimit: sizeBytes > maxBytes,
+  };
+}
 
 function normalizeApiUrl(value: string): string {
   const trimmed = value.trim();
@@ -131,17 +161,69 @@ export async function transcribeWithMistral(
   const baseUrl = normalizeApiUrl(request.apiUrl);
   const diarize = request.diarize ?? true;
   const endpoint = `${baseUrl}/v1/audio/transcriptions`;
+  const sizeAnalysis = buildFileSizeAnalysis(request.file);
+
+  logger.info("[cloud][mistral] upload size analysis", {
+    endpoint,
+    model,
+    fileName: request.file.name,
+    mimeType: request.file.type,
+    ...sizeAnalysis,
+  });
+  telemetry?.logEvent("LOG_INFO", {
+    context: "cloud_mistral_upload_analysis",
+    endpoint,
+    model,
+    fileName: request.file.name,
+    mimeType: request.file.type,
+    ...sizeAnalysis,
+  });
+
+  if (sizeAnalysis.isOverLimit) {
+    const message = `Chunk audio trop volumineux pour Mistral: ${sizeAnalysis.sizeMiB} MiB (max ${sizeAnalysis.maxMiB} MiB).`;
+    logger.error("[cloud][mistral] upload rejected (size limit)", {
+      endpoint,
+      model,
+      fileName: request.file.name,
+      ...sizeAnalysis,
+      message,
+    });
+    telemetry?.recordAlert("CLOUD_MISTRAL_FILE_TOO_LARGE", {
+      endpoint,
+      model,
+      fileName: request.file.name,
+      ...sizeAnalysis,
+      message,
+    });
+    telemetry?.logEvent("CLOUD_UPLOAD_FAILED", {
+      provider: "mistral",
+      endpoint,
+      model,
+      fileName: request.file.name,
+      ...sizeAnalysis,
+      message,
+    });
+    throw new Error(message);
+  }
 
   logger.info("[cloud][mistral] request", {
     endpoint,
     model,
     diarize,
     fileName: request.file.name,
-    sizeBytes: request.file.size,
+    ...sizeAnalysis,
     mimeType: request.file.type,
   });
 
   const send = async (diarizeValue: boolean) => {
+    telemetry?.logEvent("CLOUD_UPLOAD_START", {
+      provider: "mistral",
+      endpoint,
+      model,
+      diarize: diarizeValue,
+      fileName: request.file.name,
+      ...sizeAnalysis,
+    });
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
@@ -173,6 +255,14 @@ export async function transcribeWithMistral(
           effectiveDiarize: false,
           fallbackApplied: true,
         });
+        telemetry?.logEvent("CLOUD_UPLOAD_DONE", {
+          provider: "mistral",
+          endpoint,
+          model,
+          diarize: false,
+          fileName: request.file.name,
+          ...sizeAnalysis,
+        });
         logger.info("[cloud][mistral] request done", {
           hasText: typeof json?.text === "string" && json.text.trim().length > 0,
           hasSegments: Array.isArray(json?.segments),
@@ -187,7 +277,22 @@ export async function transcribeWithMistral(
   }
 
   if (!response.ok) {
-    logger.error("[cloud][mistral] request failed", { status: response.status, message: failedMessage });
+    logger.error("[cloud][mistral] request failed", {
+      status: response.status,
+      message: failedMessage,
+      model,
+      fileName: request.file.name,
+      ...sizeAnalysis,
+    });
+    telemetry?.logEvent("CLOUD_UPLOAD_FAILED", {
+      provider: "mistral",
+      endpoint,
+      model,
+      status: response.status,
+      message: failedMessage,
+      fileName: request.file.name,
+      ...sizeAnalysis,
+    });
     telemetry?.recordAlert("CLOUD_MISTRAL_REQUEST_FAILED", {
       status: response.status,
       message: failedMessage,
@@ -200,6 +305,14 @@ export async function transcribeWithMistral(
     requestedDiarize: diarize,
     effectiveDiarize: diarize,
     fallbackApplied: false,
+  });
+  telemetry?.logEvent("CLOUD_UPLOAD_DONE", {
+    provider: "mistral",
+    endpoint,
+    model,
+    diarize,
+    fileName: request.file.name,
+    ...sizeAnalysis,
   });
   logger.info("[cloud][mistral] request done", {
     hasText: typeof json?.text === "string" && json.text.trim().length > 0,

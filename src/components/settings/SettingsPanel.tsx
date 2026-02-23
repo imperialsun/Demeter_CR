@@ -2838,9 +2838,19 @@ export function SettingsPanel({
                       />
                     </div>
                     <div className="rounded-md border bg-muted/30 p-3">
-                      <p className="text-sm font-medium">Chunking Mistral</p>
+                      <p className="text-sm font-medium">Chunking Mistral (taille)</p>
                       <p className="mb-3 text-xs text-muted-foreground">
-                        Définit la durée des chunks envoyés à Mistral.
+                        Découpage progressif automatique basé sur la taille envoyée.
+                        Si un chunk dépasse 500 Mo, il est découpé automatiquement en morceaux plus petits.
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Le découpage Mistral n'est plus piloté par la durée.
+                      </p>
+                    </div>
+                    <div className="rounded-md border bg-muted/30 p-3">
+                      <p className="text-sm font-medium">Réglages durée (legacy, ignorés)</p>
+                      <p className="mb-3 text-xs text-muted-foreground">
+                        Conservés uniquement pour compatibilité. Ils ne pilotent plus l'envoi Mistral.
                       </p>
                       <NumberField
                         id="cloud-mistral-chunk-duration"
@@ -2850,13 +2860,8 @@ export function SettingsPanel({
                         step={1}
                         value={cloudMistralChunkDurationSec}
                         onChange={(value) => setCloudMistralChunking({ chunkDurationSec: value })}
+                        disabled
                       />
-                    </div>
-                    <div className="rounded-md border bg-muted/30 p-3">
-                      <p className="text-sm font-medium">Segmentation Mistral</p>
-                      <p className="mb-3 text-xs text-muted-foreground">
-                        Définit le recouvrement entre chunks.
-                      </p>
                       <NumberField
                         id="cloud-mistral-overlap"
                         label="Recouvrement (s)"
@@ -2865,6 +2870,7 @@ export function SettingsPanel({
                         step={0.5}
                         value={cloudMistralOverlapSec}
                         onChange={(value) => setCloudMistralChunking({ overlapSec: value })}
+                        disabled
                       />
                     </div>
                   </TabsContent>
@@ -3239,9 +3245,10 @@ interface NumberFieldProps {
   max: number;
   step: number;
   onChange: (value: number) => void;
+  disabled?: boolean;
 }
 
-function NumberField({ id, label, value, min, max, step, onChange }: NumberFieldProps) {
+function NumberField({ id, label, value, min, max, step, onChange, disabled = false }: NumberFieldProps) {
   return (
     <div className="space-y-2">
       <Label htmlFor={id}>{label}</Label>
@@ -3253,6 +3260,7 @@ function NumberField({ id, label, value, min, max, step, onChange }: NumberField
         min={min}
         max={max}
         step={step}
+        disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value))}
       />
     </div>

@@ -123,6 +123,7 @@ vi.mock("@/lib/cloud/whisperSegments", () => ({
 }));
 
 vi.mock("@/lib/cloud/mistralClient", () => ({
+  MISTRAL_MAX_UPLOAD_BYTES: 500 * 1024 * 1024,
   transcribeWithMistral: mocks.transcribeWithMistral,
 }));
 

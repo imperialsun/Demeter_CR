@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { transcribeWithMistral } from "./mistralClient";
+import { MISTRAL_MAX_UPLOAD_BYTES, transcribeWithMistral } from "./mistralClient";
 
 describe("transcribeWithMistral", () => {
   beforeEach(() => {
@@ -16,6 +16,40 @@ describe("transcribeWithMistral", () => {
         file,
       })
     ).rejects.toThrow("Token API Mistral manquant");
+  });
+
+  it("rejects files larger than 500 MiB before calling fetch", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const telemetry = {
+      logEvent: vi.fn(),
+      recordAlert: vi.fn(),
+    } as unknown as Parameters<typeof transcribeWithMistral>[1];
+    const oversizedFile = {
+      name: "too-big.wav",
+      size: MISTRAL_MAX_UPLOAD_BYTES + 1,
+      type: "audio/wav",
+    } as unknown as File;
+
+    await expect(
+      transcribeWithMistral(
+        {
+          apiUrl: "https://api.mistral.ai",
+          apiKey: "token",
+          model: "voxtral-mini-latest",
+          file: oversizedFile,
+        },
+        telemetry
+      )
+    ).rejects.toThrow("Chunk audio trop volumineux");
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect((telemetry as any).recordAlert).toHaveBeenCalledWith(
+      "CLOUD_MISTRAL_FILE_TOO_LARGE",
+      expect.objectContaining({
+        fileName: "too-big.wav",
+        maxBytes: MISTRAL_MAX_UPLOAD_BYTES,
+      })
+    );
   });
 
   it("posts multipart data and returns json on success", async () => {

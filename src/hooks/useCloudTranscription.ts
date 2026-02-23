@@ -21,7 +21,7 @@ import { offsetSegments } from "@/lib/cloud/segmentOffsets";
 import { getWhisperClient } from "@/lib/cloud/whisperClient";
 import { buildWhisperParameters } from "@/lib/cloud/whisperParams";
 import { parseWhisperOutput } from "@/lib/cloud/whisperSegments";
-import { transcribeWithMistral } from "@/lib/cloud/mistralClient";
+import { MISTRAL_MAX_UPLOAD_BYTES, transcribeWithMistral } from "@/lib/cloud/mistralClient";
 import { parseMistralOutput } from "@/lib/cloud/mistralSegments";
 import {
   describeCloudError,
@@ -514,55 +514,52 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
       throw new Error("Fichier audio manquant");
     }
 
-    const { duration: segmentDurationSec, overlap: overlapSec } = resolveChunkingConfig(
-      settings.cloudMistralChunkDurationSec,
-      settings.cloudMistralOverlapSec
-    );
-    const plan = buildFixedSegments({
-      durationSec: metadata.durationSec,
-      segmentDurationSec,
-      overlapSec,
-    });
-    const totalSegments = Math.max(1, plan.length);
-    logger.info("[cloud][mistral] plan", {
-      segments: totalSegments,
-      durationSec: metadata.durationSec,
-      segmentDurationSec,
-      overlapSec,
+    const sourceDurationSec = Number.isFinite(metadata.durationSec) ? Math.max(0, metadata.durationSec) : 0;
+    const segmentQueue: Array<{ start: number; end: number }> = [{ start: 0, end: sourceDurationSec }];
+    logger.info("[cloud][mistral] size-progressive plan", {
+      segments: segmentQueue.length,
+      durationSec: sourceDurationSec,
+      maxChunkBytes: MISTRAL_MAX_UPLOAD_BYTES,
       model,
     });
     telemetry.logEvent("CLOUD_MISTRAL_PLAN", {
       model,
-      segmentDurationSec,
-      overlapSec,
-      segments: totalSegments,
-      durationSec: metadata.durationSec,
+      segmentMode: "size_progressive",
+      maxChunkBytes: MISTRAL_MAX_UPLOAD_BYTES,
+      segments: segmentQueue.length,
+      durationSec: sourceDurationSec,
     });
 
     const allSegments: TranscriptionSegment[] = [];
     let nextIndex = 0;
     let mistralDiarizationEffective = cloudMistralDiarizationEnabled;
     let mistralDiarizationFallbackChunks = 0;
+    let segmentAttemptIndex = 0;
+    let sentChunkCount = 0;
+    let autoTuneApplied = false;
 
-    for (let segmentIndex = 0; segmentIndex < totalSegments; segmentIndex += 1) {
-      const segment = plan[segmentIndex];
+    while (segmentQueue.length > 0) {
+      const segment = segmentQueue.shift();
       if (!segment) continue;
+      segmentAttemptIndex += 1;
+      const estimatedTotalBeforeRun = Math.max(1, sentChunkCount + segmentQueue.length + 1);
 
       if (stopRequestedRef.current || runIdRef.current !== runId) {
-        logger.warn("[cloud][mistral] run aborted before segment", { runId, segmentIndex });
+        logger.warn("[cloud][mistral] run aborted before segment", { runId, segmentAttemptIndex });
         return;
       }
 
-      const labelSuffix = ` · ${segmentIndex + 1}/${totalSegments}`;
+      const labelSuffix = ` · ${Math.min(sentChunkCount + 1, estimatedTotalBeforeRun)}/${estimatedTotalBeforeRun}`;
       setStatus("preprocessing");
       setStatusDetail(`Prétraitement local${labelSuffix}`);
-      setProgress(Math.max(0, Math.min(1, segmentIndex / totalSegments)));
+      setProgress(Math.max(0, Math.min(1, sentChunkCount / estimatedTotalBeforeRun)));
 
       let segmentFile = sourceFile;
-      if (totalSegments > 1) {
+      const isWholeFileSegment = segment.start <= 0 && segment.end >= sourceDurationSec;
+      if (!isWholeFileSegment) {
         const extracted = await extractSegmentBlob(
           sourceFile,
-          { index: segmentIndex, startSec: segment.start, endSec: segment.end },
+          { index: segmentAttemptIndex - 1, startSec: segment.start, endSec: segment.end },
           telemetry
         );
         segmentFile = new File([extracted.blob], extracted.name, {
@@ -575,7 +572,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
       const preprocessResult = await preprocessCloudAudio(segmentFile, preprocessSettings, telemetry);
       telemetry.stopTimer("cloud_preprocess");
 
-      if (settings.cloudAutoTunePreprocess && preprocessResult.tune && segmentIndex === 0) {
+      if (settings.cloudAutoTunePreprocess && preprocessResult.tune && !autoTuneApplied) {
         settings.setCloudDenoiseParams({
           denoiseNoiseFloorDb: preprocessResult.tune.noiseFloorDb,
           denoiseReductionDb: preprocessResult.tune.reductionDb,
@@ -592,10 +589,11 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
           preprocessOverlapBlockSec: preprocessResult.tune.overlapBlockSec,
           preprocessOverlapSec: preprocessResult.tune.overlapSec,
         });
+        autoTuneApplied = true;
       }
 
       if (stopRequestedRef.current || runIdRef.current !== runId) {
-        logger.warn("[cloud][mistral] run aborted after preprocess", { runId, segmentIndex });
+        logger.warn("[cloud][mistral] run aborted after preprocess", { runId, segmentAttemptIndex });
         return;
       }
 
@@ -606,15 +604,61 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
         type: "audio/wav",
         lastModified: Date.now(),
       });
+      const chunkDurationSec = Math.max(0, segment.end - segment.start);
+
+      if (processedFile.size > MISTRAL_MAX_UPLOAD_BYTES) {
+        if (chunkDurationSec <= 1) {
+          const message = `Chunk Mistral trop volumineux (${processedFile.size} bytes) et impossible de découper davantage.`;
+          telemetry.recordAlert("CLOUD_MISTRAL_FILE_TOO_LARGE", {
+            model,
+            chunkDurationSec,
+            sizeBytes: processedFile.size,
+            maxChunkBytes: MISTRAL_MAX_UPLOAD_BYTES,
+          });
+          throw new Error(message);
+        }
+
+        const splitAt = segment.start + chunkDurationSec / 2;
+        const left = { start: segment.start, end: splitAt };
+        const right = { start: splitAt, end: segment.end };
+        segmentQueue.unshift(right);
+        segmentQueue.unshift(left);
+
+        logger.warn("[cloud][mistral] chunk exceeds size limit, splitting progressively", {
+          model,
+          segmentAttemptIndex,
+          startSec: segment.start,
+          endSec: segment.end,
+          chunkDurationSec,
+          sizeBytes: processedFile.size,
+          maxChunkBytes: MISTRAL_MAX_UPLOAD_BYTES,
+          pendingSegments: segmentQueue.length,
+        });
+        telemetry.logEvent("LOG_WARN", {
+          context: "cloud_mistral_chunk_split_size",
+          model,
+          segmentAttemptIndex,
+          startSec: segment.start,
+          endSec: segment.end,
+          chunkDurationSec,
+          sizeBytes: processedFile.size,
+          maxChunkBytes: MISTRAL_MAX_UPLOAD_BYTES,
+          pendingSegments: segmentQueue.length,
+        });
+        continue;
+      }
 
       setStatus("transcribing");
       setStatusDetail(`Transcription Mistral${labelSuffix}`);
-      setProgress(Math.max(0, Math.min(1, (segmentIndex + 0.4) / totalSegments)));
+      setProgress(Math.max(0, Math.min(1, (sentChunkCount + 0.4) / estimatedTotalBeforeRun)));
       telemetry.startTimer("cloud_transcribe");
       logger.info("[cloud][mistral] chunk start", {
-        segmentIndex,
-        totalSegments,
+        segmentAttemptIndex,
+        sentChunkCount,
+        estimatedTotalBeforeRun,
         model,
+        sizeBytes: processedFile.size,
+        chunkDurationSec,
       });
 
       const output = await transcribeWithMistral(
@@ -653,35 +697,43 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
       telemetry.stopTimer("cloud_transcribe");
 
       if (stopRequestedRef.current || runIdRef.current !== runId) {
-        logger.warn("[cloud][mistral] run aborted after inference", { runId, segmentIndex });
+        logger.warn("[cloud][mistral] run aborted after inference", { runId, segmentAttemptIndex });
         return;
       }
 
-      const chunkId = `mistral-${segmentIndex + 1}`;
+      const chunkNumber = sentChunkCount + 1;
+      const chunkId = `mistral-${chunkNumber}`;
       const parsedSegments = parseMistralOutput(output, {
         offsetSec: segment.start,
         startIndex: nextIndex,
         chunkId,
-        fallbackDurationSec: Math.max(0, segment.end - segment.start),
+        fallbackDurationSec: chunkDurationSec,
         includeWordTimestamps: settings.cloudEnableWordTimestamps,
       });
       nextIndex += parsedSegments.length;
       allSegments.push(...parsedSegments);
       setSegments([...allSegments]);
+      sentChunkCount = chunkNumber;
 
       const summary = summarizeSegments(parsedSegments);
-      logger.info("[cloud][mistral] segments ready", { ...summary, segmentIndex, totalSegments });
+      const estimatedTotalAfterSend = Math.max(sentChunkCount, sentChunkCount + segmentQueue.length);
+      logger.info("[cloud][mistral] segments ready", {
+        ...summary,
+        segmentAttemptIndex,
+        segmentIndex: sentChunkCount - 1,
+        totalSegments: estimatedTotalAfterSend,
+      });
       telemetry.logEvent("CLOUD_SEGMENTS_READY", {
         provider: "mistral",
-        segmentIndex,
-        totalSegments,
+        segmentIndex: sentChunkCount - 1,
+        totalSegments: estimatedTotalAfterSend,
         count: summary.count,
         totalDurationSec: summary.totalDurationSec,
         textChars: summary.textChars,
         tokenCount: summary.tokenCount,
       });
 
-      setProgress(Math.max(0, Math.min(1, (segmentIndex + 1) / totalSegments)));
+      setProgress(Math.max(0, Math.min(1, sentChunkCount / Math.max(1, sentChunkCount + segmentQueue.length))));
     }
 
     const summary = summarizeSegments(allSegments);
@@ -828,8 +880,8 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
               mistralDiarizationRequested: settings.cloudMistralDiarizationEnabled,
               mistralDiarizationEffective: settings.cloudMistralDiarizationEnabled,
               mistralDiarizationFallbackChunks: 0,
-              chunkDurationSec: settings.cloudMistralChunkDurationSec,
-              overlapSec: settings.cloudMistralOverlapSec,
+              chunkingMode: "size-progressive",
+              maxChunkSizeBytes: MISTRAL_MAX_UPLOAD_BYTES,
               includeWordTimestamps: settings.cloudEnableWordTimestamps,
               contextUsed: false,
               ...commonCloudPreprocessSettings,
