@@ -41,6 +41,9 @@ export interface NormalizedAsrSegment {
 
 const MODEL_TOO_LARGE_RE =
   /1261431424|out of memory|oom|insufficient memory|memory limit|cannot allocate|js_out_of_memory|wasm memory|std::bad_alloc|\bbad_alloc\b|error_code:\s*6\b/i;
+const WEBGPU_RUNTIME_RE = /onnxruntime::webgpu|\/providers\/webgpu\/|webgpu\/program\.cc/i;
+const WEBGPU_ALIGNMENT_RE =
+  /cannot reduce shape|getreducedshape|component\s*=\s*4|%\s*component\s*==\s*0\s*was\s*false/i;
 
 const DEFAULT_WASM_PATH = "/onnx/";
 
@@ -50,6 +53,25 @@ export function normalizeWhitespace(value: string | undefined | null) {
 
 export function isModelTooLargeMessage(message: string) {
   return MODEL_TOO_LARGE_RE.test(message);
+}
+
+export function isWebGpuRuntimeIncompatibilityMessage(message: string) {
+  if (!message) return false;
+  const hasExplicitShapeSignature =
+    /cannot reduce shape\s*\{[^}]+\}\s*by component\s*=\s*4/i.test(message);
+  if (hasExplicitShapeSignature) return true;
+  return WEBGPU_RUNTIME_RE.test(message) && WEBGPU_ALIGNMENT_RE.test(message);
+}
+
+export function isWebGpuRuntimeIncompatibilityError(error: unknown) {
+  if (error === undefined || error === null) return false;
+  const message =
+    typeof error === "string"
+      ? error
+      : typeof error === "object" && "message" in error
+        ? String((error as { message?: unknown }).message ?? "")
+        : String(error);
+  return isWebGpuRuntimeIncompatibilityMessage(message);
 }
 
 export function resolveWasmExecutionOptions(args: {
@@ -180,4 +202,3 @@ export function resolveBackendSelectionErrorMessage(args: {
   }
   return message;
 }
-

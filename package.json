@@ -28,7 +28,7 @@
     "@ffmpeg/util": "^0.12.2",
     "@gradio/client": "^2.0.4",
     "@huggingface/inference": "^4.13.12",
-    "@huggingface/transformers": "next",
+    "@huggingface/transformers": "3.8.1",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
     "@radix-ui/react-scroll-area": "^1.2.10",
     "@radix-ui/react-select": "^2.2.6",
@@ -43,7 +43,7 @@
     "clsx": "^2.1.1",
     "docx": "^9.5.3",
     "lucide-react": "^0.574.0",
-    "onnxruntime-web": "1.25.0-dev.20260218-19c9efc4ac",
+    "onnxruntime-web": "1.24.2",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-router-dom": "^7.13.0",
@@ -86,6 +86,7 @@
     },
     "multimatch": {
       "minimatch": "^10.2.1"
-    }
+    },
+    "onnxruntime-web": "1.24.2"
   }
 }

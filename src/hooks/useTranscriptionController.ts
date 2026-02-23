@@ -3,6 +3,7 @@ import type { AutomaticSpeechRecognitionPipeline } from "@huggingface/transforme
 
 import { toast } from "@/components/ui/use-toast";
 import { createAsrPipeline, disposePipeline, transcribeChunk, isModelTooLargeError } from "@/lib/asr";
+import { isWebGpuRuntimeIncompatibilityError } from "@/lib/asr-internals";
 import estimateConfidenceFromText, { scoreDetails } from "@/lib/textConfidence";
 import * as logger from "@/lib/logger";
 import { buildChunks, buildFixedSegments, offsetChunks } from "@/lib/chunking";
@@ -1363,6 +1364,29 @@ export function useTranscriptionController() {
               description: friendly,
             });
           }
+        } else if (isWebGpuRuntimeIncompatibilityError(error)) {
+          const ranOnWebGpu = state.activeBackend === "webgpu" || state.backendPreference === "webgpu";
+          const canSwitchToWasm = ranOnWebGpu && state.wasmAvailable;
+          if (canSwitchToWasm) {
+            state.setBackendPreference("wasm");
+            logger.warn("[webgpu-fallback] switched upload backend preference to wasm after runtime incompatibility", {
+              previousPreference: state.backendPreference,
+              activeBackend: state.activeBackend,
+              message,
+            });
+          }
+          const friendly = canSwitchToWasm
+            ? "Erreur runtime WebGPU (ONNX) : incompatibilité de forme interne detectee (component=4). Le backend a ete bascule vers WASM. Relancez la transcription."
+            : "Erreur runtime WebGPU (ONNX) : incompatibilité de forme interne detectee (component=4). WASM est indisponible, verifiez les assets /onnx/ ou utilisez un autre modele.";
+          telemetry.recordAlert("ASR_WEBGPU_RUNTIME_INCOMPATIBLE", {
+            source: "upload",
+            activeBackend: state.activeBackend,
+            backendPreference: state.backendPreference,
+            wasmAvailable: state.wasmAvailable,
+            message,
+          });
+          state.setStatus("error", friendly);
+          toast(friendly);
         } else {
           state.setStatus("error", message);
           toast(`Échec de la transcription : ${message}`);

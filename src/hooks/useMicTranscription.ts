@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AutomaticSpeechRecognitionPipeline } from "@huggingface/transformers";
 import { createAsrPipeline, disposePipeline, isModelTooLargeError, transcribeChunk } from "@/lib/asr";
+import { isWebGpuRuntimeIncompatibilityError } from "@/lib/asr-internals";
 import { detectSilenceRegions } from "@/lib/silence";
 import { computePreprocessParams, estimateNoiseProfileWithVad, preprocessPcmChunk } from "@/lib/preprocessing";
 import type { ChunkDefinition } from "@/lib/chunking";
@@ -848,6 +849,29 @@ export function useMicTranscription() {
           state.setStatus("error", friendly);
           toast(friendly);
         }
+      } else if (isWebGpuRuntimeIncompatibilityError(error)) {
+        const ranOnWebGpu = state.activeBackend === "webgpu" || state.micBackendPreference === "webgpu";
+        const canSwitchToWasm = ranOnWebGpu && state.wasmAvailable;
+        if (canSwitchToWasm) {
+          state.setMicBackendPreference("wasm");
+          logger.warn("[webgpu-fallback] switched mic backend preference to wasm after runtime incompatibility", {
+            previousPreference: state.micBackendPreference,
+            activeBackend: state.activeBackend,
+            message,
+          });
+        }
+        telemetryRef.current?.recordAlert?.("ASR_WEBGPU_RUNTIME_INCOMPATIBLE", {
+          source: "mic",
+          activeBackend: state.activeBackend,
+          backendPreference: state.micBackendPreference,
+          wasmAvailable: state.wasmAvailable,
+          message,
+        });
+        const friendly = canSwitchToWasm
+          ? "Erreur runtime WebGPU (ONNX) : incompatibilité de forme interne detectee (component=4). La preference micro a ete basculee vers WASM. Relancez l'enregistrement."
+          : "Erreur runtime WebGPU (ONNX) : incompatibilité de forme interne detectee (component=4). WASM est indisponible, verifiez les assets /onnx/ ou utilisez un autre modele.";
+        state.setStatus("error", friendly);
+        toast(friendly);
       } else {
         state.setStatus("error", message);
         toast(`Échec de la transcription : ${message}`);

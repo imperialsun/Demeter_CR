@@ -25,6 +25,23 @@ Checks:
 2. COOP/COEP headers must be present.
 3. inspect `WASM_MULTITHREAD_TEST` telemetry/logs.
 
+## WebGPU error "Cannot reduce shape ... component=4"
+
+Symptoms:
+
+- failure with `failed to call OrtRun()`,
+- stack contains `.../providers/webgpu/program.cc` and `Cannot reduce shape {...} by component=4`.
+
+Likely cause:
+
+- ONNX WebGPU runtime incompatibility on specific model/runtime combos (often a dev-build regression).
+
+Actions:
+
+1. rerun with `wasm` backend (or let automatic fallback switch future runs),
+2. verify `public/onnx/*` assets are served if WASM is unavailable,
+3. if reproducible, pin a different `onnxruntime-web` version (avoid regressed dev builds).
+
 ## Slow local transcription
 
 Actions:

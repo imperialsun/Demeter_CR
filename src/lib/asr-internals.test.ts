@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   isModelTooLargeMessage,
+  isWebGpuRuntimeIncompatibilityError,
+  isWebGpuRuntimeIncompatibilityMessage,
   normalizePipelineOutput,
   normalizeWhitespace,
   resolveBackendSelectionErrorMessage,
@@ -20,6 +22,14 @@ describe("asr-internals", () => {
     expect(isModelTooLargeMessage("out of memory")).toBe(true);
     expect(isModelTooLargeMessage("error_code: 6")).toBe(true);
     expect(isModelTooLargeMessage("network timeout")).toBe(false);
+  });
+
+  it("detects webgpu runtime shape-incompatibility messages", () => {
+    const message =
+      "failed to call OrtRun(). ERROR_CODE: 1, ERROR_MESSAGE: /onnxruntime/core/providers/webgpu/program.cc:247 TensorShape ... Cannot reduce shape {1280,51866} by component=4";
+    expect(isWebGpuRuntimeIncompatibilityMessage(message)).toBe(true);
+    expect(isWebGpuRuntimeIncompatibilityError(new Error(message))).toBe(true);
+    expect(isWebGpuRuntimeIncompatibilityMessage("network timeout")).toBe(false);
   });
 
   it("builds wasm execution options with multithread support", () => {
@@ -143,4 +153,3 @@ describe("asr-internals", () => {
     ).toContain("Aucun backend utilisable");
   });
 });
-
