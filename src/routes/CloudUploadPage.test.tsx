@@ -247,6 +247,37 @@ describe("CloudUploadPage", () => {
     expect(screen.getByRole("button", { name: /Réinitialiser la session/i })).toBeInTheDocument();
   });
 
+  it("shows mistral error detail in status card", () => {
+    const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue({
+      selectedFile: null,
+      previewFile: null,
+      previewUrl: null,
+      audioMetadata: null,
+      segments: [],
+      telemetrySummary: null,
+      status: "error",
+      statusDetail: "Mistral API (401): Unauthorized",
+      progress: 0,
+      isTranscribing: false,
+      isResettingSession: false,
+      stopRequested: false,
+      sessionContext: "",
+      setSessionContext: vi.fn(),
+      combinedContext: "",
+      handleFileSelected: vi.fn(),
+      startTranscription: vi.fn(),
+      stopTranscription: vi.fn(),
+      resetTranscriptionSession: vi.fn(),
+    });
+    renderWithStore(<CloudUploadPage />, {
+      cloudApiUrl: "https://cloud.example",
+    });
+
+    expect(screen.getByText("Erreur")).toBeInTheDocument();
+    expect(screen.getByText("Mistral API (401): Unauthorized")).toBeInTheDocument();
+    hookSpy.mockRestore();
+  });
+
   it("resets cloud session context when clicking reset session", async () => {
     renderWithStore(<CloudUploadPage />, {
       cloudApiUrl: "https://cloud.example",

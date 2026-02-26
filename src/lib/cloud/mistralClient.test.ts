@@ -18,6 +18,18 @@ describe("transcribeWithMistral", () => {
     ).rejects.toThrow("Token API Mistral manquant");
   });
 
+  it("throws when model is missing", async () => {
+    const file = new File(["abc"], "test.wav", { type: "audio/wav" });
+    await expect(
+      transcribeWithMistral({
+        apiUrl: "https://api.mistral.ai",
+        apiKey: "token",
+        model: "   ",
+        file,
+      })
+    ).rejects.toThrow("Modèle Mistral manquant");
+  });
+
   it("rejects files larger than 500 MiB before calling fetch", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     const logEvent = vi.fn();
@@ -177,5 +189,106 @@ describe("transcribeWithMistral", () => {
         diarize: false,
       })
     ).rejects.toThrow("body.file: Field required");
+  });
+
+  it("extracts nested json errors for non-422 responses", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ error: { message: "Unauthorized" } }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const file = new File(["abc"], "test.wav", { type: "audio/wav" });
+    await expect(
+      transcribeWithMistral({
+        apiUrl: "https://api.mistral.ai",
+        apiKey: "token",
+        model: "voxtral-mini-latest",
+        file,
+      })
+    ).rejects.toThrow("Mistral API (401): Unauthorized");
+  });
+
+  it("keeps plain-text errors for non-json responses", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("Rate limit exceeded", {
+        status: 429,
+      })
+    );
+
+    const file = new File(["abc"], "test.wav", { type: "audio/wav" });
+    await expect(
+      transcribeWithMistral({
+        apiUrl: "https://api.mistral.ai",
+        apiKey: "token",
+        model: "voxtral-mini-latest",
+        file,
+      })
+    ).rejects.toThrow("Mistral API (429): Rate limit exceeded");
+  });
+
+  it("uses fallback message when error response is empty", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("", {
+        status: 500,
+      })
+    );
+
+    const file = new File(["abc"], "test.wav", { type: "audio/wav" });
+    await expect(
+      transcribeWithMistral({
+        apiUrl: "https://api.mistral.ai",
+        apiKey: "token",
+        model: "voxtral-mini-latest",
+        file,
+      })
+    ).rejects.toThrow("Mistral API (500): Réponse API vide");
+  });
+
+  it("returns retry error when 422 fallback without diarization also fails", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail: [{ loc: ["body", "diarize"], msg: "Invalid value" }] }), {
+          status: 422,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response("Rate limit exceeded", {
+          status: 429,
+        })
+      );
+
+    const file = new File(["abc"], "test.wav", { type: "audio/wav" });
+    const onDiarizationResolved = vi.fn();
+    await expect(
+      transcribeWithMistral({
+        apiUrl: "https://api.mistral.ai",
+        apiKey: "token",
+        model: "voxtral-mini-latest",
+        file,
+        diarize: true,
+        onDiarizationResolved,
+      })
+    ).rejects.toThrow("Mistral API (429): Rate limit exceeded");
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(onDiarizationResolved).not.toHaveBeenCalled();
+  });
+
+  it("propagates network errors", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Network down"));
+
+    const file = new File(["abc"], "test.wav", { type: "audio/wav" });
+    await expect(
+      transcribeWithMistral({
+        apiUrl: "https://api.mistral.ai",
+        apiKey: "token",
+        model: "voxtral-mini-latest",
+        file,
+      })
+    ).rejects.toThrow("Network down");
   });
 });

@@ -238,6 +238,8 @@ export async function transcribeWithMistral(
   let response = await send(diarize);
   let failedMessage = "";
 
+  // Keep one explicit fallback for 422 diarization validation errors; for any other non-2xx
+  // status, surface a generic Mistral API error with parsed response details.
   if (!response.ok) {
     const raw = await response.text();
     failedMessage = parseApiError(raw);

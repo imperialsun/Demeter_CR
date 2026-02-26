@@ -224,6 +224,33 @@ describe("useCloudTranscription", () => {
     });
   });
 
+  it("surfaces mistral api errors to status detail and toast", async () => {
+    useAsrStore.setState({
+      mistralApiKey: "mistral_secret",
+      cloudMistralApiUrl: "https://mistral.example.com",
+      cloudMistralModel: "voxtral-mini-latest",
+    } as never);
+    mocks.transcribeWithMistral.mockRejectedValueOnce(new Error("Mistral API (401): Unauthorized"));
+
+    let api!: ReturnType<typeof useCloudTranscription>;
+    render(<HookHarness provider="mistral" onReady={(value) => (api = value)} />);
+    const file = new File(["a"], "audio.wav", { type: "audio/wav" });
+
+    await act(async () => {
+      await api.handleFileSelected(file);
+    });
+    await act(async () => {
+      await api.startTranscription();
+    });
+
+    await waitFor(() => {
+      expect(api.status).toBe("error");
+      expect(api.statusDetail).toBe("Mistral API (401): Unauthorized");
+    });
+    expect(api.status).not.toBe("done");
+    expect(mocks.toast).toHaveBeenCalledWith("Échec de la transcription cloud : Mistral API (401): Unauthorized");
+  });
+
   it("completes a whisper transcription run with chunked segments", async () => {
     useAsrStore.setState({
       hfApiToken: "hf_token",
