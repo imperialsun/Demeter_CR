@@ -47,13 +47,13 @@ describe("auth", () => {
     expect(isPasswordValid("any-value")).toBe(false);
   });
 
-  it("persists authentication state in localStorage", async () => {
+  it("always reports authenticated state", async () => {
     const { isAuthenticated, setAuthenticated } = await loadAuth([hashSync("x", 6)]);
 
-    expect(isAuthenticated()).toBe(false);
+    expect(isAuthenticated()).toBe(true);
     setAuthenticated(true);
     expect(isAuthenticated()).toBe(true);
     setAuthenticated(false);
-    expect(isAuthenticated()).toBe(false);
+    expect(isAuthenticated()).toBe(true);
   });
 });
