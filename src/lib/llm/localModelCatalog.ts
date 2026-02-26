@@ -1,6 +1,6 @@
 import type { BackendImplementation, ModelDtype } from "@/store/asr-store";
 
-export type LlmLocalModelProfile = "qwen_1_7b" | "ministral_3_3b";
+export type LlmLocalModelProfile = "qwen_0_6b" | "qwen_1_7b" | "ministral_3_3b";
 
 export interface LocalLlmModelProfile {
   id: LlmLocalModelProfile;
@@ -42,10 +42,26 @@ export const DEFAULT_LLM_LOCAL_TEMPERATURE = 0.2;
 export const DEFAULT_LLM_LOCAL_MAX_TOKENS = 4096;
 
 const DEPRECATED_MODEL_ID_ALIASES: Record<string, string> = {
+  "onnx-community/Qwen3-0.6B-Instruct-2507-ONNX": "onnx-community/Qwen3-0.6B-ONNX",
   "onnx-community/Qwen3-1.7B-Instruct-2507-ONNX": "onnx-community/Qwen3-1.7B-ONNX",
 };
 
 const MODELS: LocalLlmModelProfile[] = [
+  {
+    id: "qwen_0_6b",
+    label: "Qwen 3 0.6B",
+    modelId: "onnx-community/Qwen3-0.6B-ONNX",
+    description: "Profil leger local. Empreinte memoire reduite pour les postes contraints.",
+    contextWindowTokens: 40_960,
+    maxGenerationTokens: 4_096,
+    recommendedDtype: {
+      webgpu: "q4f16",
+      wasm: "q8",
+    },
+    allowedBackends: ["webgpu", "wasm"],
+    heavy: false,
+    appendNoThinkDirective: true,
+  },
   {
     id: "qwen_1_7b",
     label: "Qwen 3 1.7B",
@@ -171,6 +187,7 @@ export function createDefaultLocalModelSettings(profileId: LlmLocalModelProfile)
 
 export function createDefaultLocalModelSettingsByProfile(): Record<LlmLocalModelProfile, LocalLlmModelSettingsDefaults> {
   return {
+    qwen_0_6b: createDefaultLocalModelSettings("qwen_0_6b"),
     qwen_1_7b: createDefaultLocalModelSettings("qwen_1_7b"),
     ministral_3_3b: createDefaultLocalModelSettings("ministral_3_3b"),
   };

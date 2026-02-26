@@ -116,7 +116,7 @@ Explicit note: `speakerAssignments` is not part of `PersistedSettings`.
 
 ## LLM local domain
 
-- `llmLocalModelProfile`: `qwen_1_7b|ministral_3_3b`.
+- `llmLocalModelProfile`: `qwen_0_6b|qwen_1_7b|ministral_3_3b`.
 - `llmLocalSettingsByProfile`:
   - `modelId`,
   - `temperature`,

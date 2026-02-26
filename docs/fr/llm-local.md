@@ -10,6 +10,7 @@ Generation CRI/CRO/CRS executee localement dans le navigateur, sans appel API ex
 
 Profils principaux (`localModelCatalog`):
 
+- `qwen_0_6b`: profil leger,
 - `qwen_1_7b`: profil standard,
 - `ministral_3_3b`: profil lourd, qualite superieure.
 

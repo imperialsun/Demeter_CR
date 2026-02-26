@@ -10,6 +10,7 @@ CRI/CRO/CRS generation runs inside the browser without external LLM API calls.
 
 Main profiles (`localModelCatalog`):
 
+- `qwen_0_6b`: lightweight profile,
 - `qwen_1_7b`: default profile,
 - `ministral_3_3b`: heavier, higher quality profile.
 

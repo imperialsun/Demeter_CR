@@ -17,7 +17,7 @@ import {
 } from "@/lib/llm/localModelCatalog";
 
 const DTYPE_OPTIONS: ModelDtype[] = ["q4f16", "q4", "q8", "fp16", "auto"];
-const PROFILE_ORDER: LlmLocalModelProfile[] = ["qwen_1_7b", "ministral_3_3b"];
+const PROFILE_ORDER: LlmLocalModelProfile[] = ["qwen_0_6b", "qwen_1_7b", "ministral_3_3b"];
 
 export function LlmLocalSettingsTab() {
   const {

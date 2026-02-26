@@ -17,12 +17,13 @@ describe("localModelCatalog", () => {
     expect(getLocalLlmModelProfile(DEFAULT_LLM_LOCAL_PROFILE).modelId).toContain("Qwen3-1.7B");
   });
 
-  it("keeps exactly two local profiles", () => {
-    expect(LOCAL_LLM_MODEL_PROFILES.map((model) => model.id)).toEqual(["qwen_1_7b", "ministral_3_3b"]);
+  it("keeps exactly three local profiles", () => {
+    expect(LOCAL_LLM_MODEL_PROFILES.map((model) => model.id)).toEqual(["qwen_0_6b", "qwen_1_7b", "ministral_3_3b"]);
   });
 
   it("falls back from ministral to qwen", () => {
     expect(resolveLocalLlmFallbackProfile("ministral_3_3b")).toBe("qwen_1_7b");
+    expect(resolveLocalLlmFallbackProfile("qwen_0_6b")).toBeNull();
     expect(resolveLocalLlmFallbackProfile("qwen_1_7b")).toBeNull();
   });
 
@@ -56,18 +57,23 @@ describe("localModelCatalog", () => {
   });
 
   it("builds default local settings for each profile", () => {
+    const qwenLight = createDefaultLocalModelSettings("qwen_0_6b");
     const qwen = createDefaultLocalModelSettings("qwen_1_7b");
     const ministral = createDefaultLocalModelSettings("ministral_3_3b");
 
+    expect(qwenLight.modelId).toContain("Qwen3-0.6B");
+    expect(qwenLight.appendNoThinkDirective).toBe(true);
     expect(qwen.modelId).toContain("Qwen3-1.7B");
     expect(qwen.appendNoThinkDirective).toBe(true);
     expect(ministral.modelId).toContain("Ministral-3-3B");
+    expect(qwenLight.maxTokens).toBe(getLocalLlmModelProfile("qwen_0_6b").maxGenerationTokens);
     expect(qwen.maxTokens).toBe(getLocalLlmModelProfile("qwen_1_7b").maxGenerationTokens);
     expect(ministral.maxTokens).toBe(getLocalLlmModelProfile("ministral_3_3b").maxGenerationTokens);
   });
 
   it("exposes defaults by profile map", () => {
     const defaults = createDefaultLocalModelSettingsByProfile();
+    expect(defaults.qwen_0_6b.modelId).toContain("Qwen3-0.6B");
     expect(defaults.qwen_1_7b.modelId).toContain("Qwen3-1.7B");
     expect(defaults.ministral_3_3b.modelId).toContain("Ministral-3-3B");
   });

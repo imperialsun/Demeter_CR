@@ -74,7 +74,7 @@ export type CloudTranscriptionStatus =
 
 export type LlmApiStatus = "idle" | "preparing" | "generating" | "formatting" | "done" | "error";
 export type LlmApiProvider = "huggingface" | "mistral";
-export type LlmLocalModelProfile = "qwen_1_7b" | "ministral_3_3b";
+export type LlmLocalModelProfile = "qwen_0_6b" | "qwen_1_7b" | "ministral_3_3b";
 export type ModelSizeForegroundAlert = {
   title: string;
   description: string;
@@ -183,7 +183,7 @@ const DEFAULT_LLM_LOCAL_MODEL_PROFILE: LlmLocalModelProfile = DEFAULT_LLM_LOCAL_
 const DEFAULT_LLM_LOCAL_BACKEND: BackendImplementation = "webgpu";
 const DEFAULT_LLM_LOCAL_DTYPE_WEBGPU: ModelDtype = "q4f16";
 const DEFAULT_LLM_LOCAL_DTYPE_WASM: ModelDtype = "q8";
-const LLM_LOCAL_PROFILES: LlmLocalModelProfile[] = ["qwen_1_7b", "ministral_3_3b"];
+const LLM_LOCAL_PROFILES: LlmLocalModelProfile[] = ["qwen_0_6b", "qwen_1_7b", "ministral_3_3b"];
 const DEFAULT_LLM_LOCAL_SETTINGS_BY_PROFILE: Record<LlmLocalModelProfile, LlmLocalModelSettings> =
   createDefaultLocalModelSettingsByProfile();
 const allowedActivePresets = new Set<PresetKey>([
@@ -287,7 +287,7 @@ const normalizeLlmLocalModelProfile = (
   value: string | undefined,
   fallback: LlmLocalModelProfile
 ): LlmLocalModelProfile => {
-  if (value === "qwen_1_7b" || value === "ministral_3_3b") return value;
+  if (value === "qwen_0_6b" || value === "qwen_1_7b" || value === "ministral_3_3b") return value;
   return fallback;
 };
 

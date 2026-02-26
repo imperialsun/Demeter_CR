@@ -40,9 +40,10 @@ describe("LlmLocalSettingsTab", () => {
     );
   }
 
-  it("renders qwen and ministral cards", () => {
+  it("renders all local model cards", () => {
     renderTab();
 
+    expect(screen.getByRole("heading", { name: "Qwen 3 0.6B" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Qwen 3 1.7B" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Ministral 3 3B Instruct" })).toBeInTheDocument();
   });
