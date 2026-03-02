@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile: build with Node, serve with Nginx (static files)
 
-FROM node:25.6.1-alpine AS builder
+FROM node:25.7.0-alpine AS builder
 WORKDIR /app
 ARG VITE_OBFUSCATE=1
 ARG LOGIN_PASSWORDS=
