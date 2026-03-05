@@ -13,19 +13,47 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useAsrStore } from "@/store/asr-store";
+import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { useCloudTranscription } from "@/hooks/useCloudTranscription";
+import { canUseCloudProvider } from "@/lib/backend-permissions";
 import logger from "@/lib/logger";
 import { Loader2, PauseCircle, Play, Cloud, ChevronDown, ChevronUp } from "lucide-react";
+import { isBackendMode } from "@/lib/runtime-config";
 
 const CLOUD_HF_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans cle API Hugging Face.";
 const CLOUD_MISTRAL_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans cle API Mistral.";
+const CLOUD_PROVIDER_FORBIDDEN_MESSAGE = "Accès refusé par vos permissions backend.";
+
+type CloudProviderId = "gradio" | "whisper" | "mistral" | "demeter_sante";
 
 function CloudUploadPage() {
+  useBackendPermissions();
   const [isContextOpen, setIsContextOpen] = useState(false);
-  const [provider, setProvider] = useState<"gradio" | "whisper" | "mistral">("gradio");
-  const isWhisper = provider === "whisper";
-  const isMistral = provider === "mistral";
-  const usesContext = provider === "gradio";
+  const backendMode = isBackendMode();
+  const canUseGradio = canUseCloudProvider("gradio");
+  const canUseWhisper = canUseCloudProvider("whisper");
+  const canUseMistral = canUseCloudProvider("mistral");
+  const canUseDemeter = canUseCloudProvider("demeter_sante");
+  const allowedProviders = useMemo<CloudProviderId[]>(() => {
+    const providers: CloudProviderId[] = [];
+    if (canUseGradio) providers.push("gradio");
+    if (canUseWhisper) providers.push("whisper");
+    if (canUseMistral) providers.push("mistral");
+    if (backendMode && canUseDemeter) providers.push("demeter_sante");
+    return providers;
+  }, [backendMode, canUseDemeter, canUseGradio, canUseMistral, canUseWhisper]);
+  const preferredProvider: CloudProviderId =
+    backendMode && canUseDemeter ? "demeter_sante" : allowedProviders[0] ?? "gradio";
+  const [selectedProvider, setSelectedProvider] = useState<CloudProviderId>(preferredProvider);
+  const hasAllowedProvider = allowedProviders.length > 0;
+  const isCurrentProviderAllowed = allowedProviders.includes(selectedProvider);
+  const providerSelectValue = isCurrentProviderAllowed ? selectedProvider : "__unauthorized__";
+  const activeProvider = isCurrentProviderAllowed ? selectedProvider : null;
+  const provider: CloudProviderId = selectedProvider;
+  const isWhisper = activeProvider === "whisper";
+  const isMistral = activeProvider === "mistral";
+  const isDemeter = activeProvider === "demeter_sante";
+  const usesContext = activeProvider === "gradio";
   const telemetry = useAsrStore((state) => state.telemetryCollector);
   const cloudContextPreset = useAsrStore((state) => state.cloudContextPreset);
   const hfApiToken = useAsrStore((state) => state.hfApiToken);
@@ -88,6 +116,7 @@ function CloudUploadPage() {
   }, [status]);
   const isWhisperTokenMissing = isWhisper && hfApiToken.trim().length === 0;
   const isMistralTokenMissing = isMistral && mistralApiKey.trim().length === 0;
+  const canStartTranscription = hasAllowedProvider && isCurrentProviderAllowed && !isWhisperTokenMissing && !isMistralTokenMissing;
   const percent = Math.round(progress * 100);
   return (
     <div className="space-y-8">
@@ -101,27 +130,50 @@ function CloudUploadPage() {
         </p>
       </header>
 
-      <div className="max-w-sm space-y-2">
-        <Label htmlFor="cloud-provider">Provider</Label>
-        <Select
-          value={provider}
-          onValueChange={(value) => {
-            const next = value === "whisper" || value === "mistral" ? value : "gradio";
-            setProvider(next);
-            logger.info("[cloud] provider changed", { provider: next });
-            telemetry?.logEvent?.("CLOUD_PROVIDER_CHANGE", { provider: next });
-          }}
-        >
-          <SelectTrigger id="cloud-provider">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="gradio">Gradio</SelectItem>
-            <SelectItem value="whisper">Whisper</SelectItem>
-            <SelectItem value="mistral">Mistral</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      {hasAllowedProvider ? (
+        <div className="max-w-sm space-y-2">
+          <Label htmlFor="cloud-provider">Provider</Label>
+          <Select
+            value={providerSelectValue}
+            onValueChange={(value) => {
+              if (value === "__unauthorized__") return;
+              const next: CloudProviderId =
+                value === "whisper" || value === "mistral" || value === "demeter_sante" ? value : "gradio";
+              if (!canUseCloudProvider(next)) {
+                return;
+              }
+              setSelectedProvider(next);
+              logger.info("[cloud] provider changed", { provider: next });
+              telemetry?.logEvent?.("CLOUD_PROVIDER_CHANGE", { provider: next });
+            }}
+          >
+            <SelectTrigger id="cloud-provider">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {!isCurrentProviderAllowed ? (
+                <SelectItem value="__unauthorized__" disabled>
+                  Sélectionnez un provider autorisé
+                </SelectItem>
+              ) : null}
+              {canUseGradio ? <SelectItem value="gradio">Gradio</SelectItem> : null}
+              {canUseWhisper ? <SelectItem value="whisper">Whisper</SelectItem> : null}
+              {canUseMistral ? <SelectItem value="mistral">Mistral</SelectItem> : null}
+              {backendMode && canUseDemeter ? <SelectItem value="demeter_sante">Demeter Santé</SelectItem> : null}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : (
+        <div className="max-w-sm rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
+          Aucun provider cloud n'est autorisé par le backend.
+        </div>
+      )}
+
+      {!isCurrentProviderAllowed && hasAllowedProvider ? (
+        <div className="max-w-sm rounded-md border border-destructive/60 bg-destructive/10 p-3 text-xs text-destructive">
+          {CLOUD_PROVIDER_FORBIDDEN_MESSAGE}
+        </div>
+      ) : null}
 
       {isWhisper || isMistral ? (
         <Card>
@@ -240,19 +292,36 @@ function CloudUploadPage() {
                   {statusMeta.label}
                 </Badge>
                 <Badge variant="outline" className="gap-1">
-                  <Cloud className="h-3 w-3" /> {isWhisper ? "Whisper" : isMistral ? "Mistral" : "Gradio"}
+                  <Cloud className="h-3 w-3" />{" "}
+                  {isWhisper
+                    ? "Whisper"
+                    : isMistral
+                      ? "Mistral"
+                      : isDemeter
+                        ? "Demeter Santé"
+                        : isCurrentProviderAllowed
+                          ? "Gradio"
+                          : "Provider non autorisé"}
                 </Badge>
                 {statusDetail ? <span className="text-sm text-muted-foreground">{statusDetail}</span> : null}
               </div>
               <Progress value={percent} className="h-2 w-full" />
               <p className="text-xs text-muted-foreground">{percent}%</p>
+              {!hasAllowedProvider ? (
+                <p className="text-xs text-muted-foreground">
+                  Cette fonctionnalité cloud est désactivée pour votre compte backend.
+                </p>
+              ) : null}
+              {hasAllowedProvider && !isCurrentProviderAllowed ? (
+                <p className="text-xs text-destructive">{CLOUD_PROVIDER_FORBIDDEN_MESSAGE}</p>
+              ) : null}
               <div className="flex flex-wrap items-stretch gap-2">
                 {!isTranscribing ? (
                   <Button
                     size="sm"
                     className="w-full gap-2 sm:w-auto"
                     onClick={startTranscription}
-                    disabled={!selectedFile || isResettingSession}
+                    disabled={!selectedFile || isResettingSession || !canStartTranscription}
                   >
                     <Play className="h-4 w-4" />
                     Lancer la transcription

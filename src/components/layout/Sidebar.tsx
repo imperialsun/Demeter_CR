@@ -1,50 +1,66 @@
 import { NavLink } from "react-router-dom";
-import { cn } from "@/lib/utils";
 import { Activity, type LucideIcon, Bot, Cloud, FileText, Monitor, Settings } from "lucide-react";
+
 import { BrandMark } from "@/components/branding/BrandMark";
+import { useBackendPermissions } from "@/hooks/useBackendPermissions";
+import { canAccessFeature, type FeaturePermission } from "@/lib/backend-permissions";
+import { cn } from "@/lib/utils";
 
 type NavItem = {
   to: string;
   label: string;
   icon: LucideIcon;
+  permission?: FeaturePermission;
   preload?: () => Promise<unknown>;
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { to: "/localupload", label: "Transcription locale", icon: Monitor },
+  { to: "/localupload", label: "Transcription locale", icon: Monitor, permission: "feature.localupload" },
   {
     to: "/cloudupload",
     label: "Transcription cloud",
     icon: Cloud,
+    permission: "feature.cloudupload",
     preload: () => import("@/routes/CloudUploadPage"),
   },
   {
     to: "/llmlocal",
     label: "LLM Local",
     icon: Bot,
+    permission: "feature.llmlocal",
     preload: () => import("@/routes/LLMLocalPage"),
   },
   {
     to: "/llmapi",
     label: "LLM Cloud",
     icon: FileText,
+    permission: "feature.llmapi",
     preload: () => import("@/routes/LLMApiPage"),
   },
   {
     to: "/settings",
     label: "Paramètres",
     icon: Settings,
+    permission: "feature.settings",
     preload: () => import("@/routes/SettingsPage"),
   },
   {
     to: "/telemetry",
     label: "Télémetrie",
     icon: Activity,
+    permission: "feature.telemetry",
     preload: () => import("@/routes/TelemetryPage"),
   },
 ];
 
 export function Sidebar() {
+  useBackendPermissions();
+
+  const visibleItems = NAV_ITEMS.filter((item) => {
+    if (!item.permission) return true;
+    return canAccessFeature(item.permission);
+  });
+
   const triggerPreload = (preload?: () => Promise<unknown>) => {
     if (!preload) return;
     void preload();
@@ -56,7 +72,7 @@ export function Sidebar() {
         <BrandMark size="md" showTagline />
       </div>
       <nav className="flex flex-1 flex-col gap-1">
-        {NAV_ITEMS.map(({ to, label, icon: Icon, preload }) => (
+        {visibleItems.map(({ to, label, icon: Icon, preload }) => (
           <NavLink
             key={to}
             to={to}
@@ -76,9 +92,7 @@ export function Sidebar() {
           </NavLink>
         ))}
       </nav>
-      <p className="mt-6 text-xs text-muted-foreground">
-        Whisper sur Transformers.js — Chrome uniquement
-      </p>
+      <p className="mt-6 text-xs text-muted-foreground">Whisper sur Transformers.js — Chrome uniquement</p>
     </aside>
   );
 }

@@ -22,6 +22,9 @@ import { emitLlmEvent } from "@/lib/llm/telemetrySession";
 import { parseTranscriptFile, type ParsedTranscriptFile } from "@/lib/transcript/parseTranscriptFile";
 import { estimateTokenCount } from "@/lib/tokens";
 import logger from "@/lib/logger";
+import { useBackendPermissions } from "@/hooks/useBackendPermissions";
+import { canAccessFeature, canUseLlmProvider } from "@/lib/backend-permissions";
+import { isBackendMode } from "@/lib/runtime-config";
 
 const FORMAT_PREVIEW_META = [
   { format: "CRI" as const, description: buildReportFormatDescription("CRI") },
@@ -31,6 +34,7 @@ const FORMAT_PREVIEW_META = [
 
 const LLM_HF_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans cle API Hugging Face.";
 const LLM_MISTRAL_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans cle API Mistral.";
+const LLM_PROVIDER_FORBIDDEN_MESSAGE = "Accès refusé par vos permissions backend.";
 const LLM_PIPELINE_CONFIG_REQUIRED_MESSAGE =
   "Configuration pipeline incomplete: renseignez le Model ID dans Parametres > LLM Cloud.";
 const LLM_IMPORT_ACCEPT = ".txt,.srt,.vtt,.json,application/json,text/plain,text/vtt";
@@ -45,6 +49,12 @@ type ImportedFileMeta = {
 };
 
 function LLMApiPage() {
+  useBackendPermissions();
+  const backendMode = isBackendMode();
+  const canUseHFProvider = canUseLlmProvider("huggingface");
+  const canUseMistralProvider = canUseLlmProvider("mistral");
+  const canUseDemeterProvider = canUseLlmProvider("demeter_sante");
+  const canOpenSettings = canAccessFeature("feature.settings");
   const segments = useAsrStore((state) => state.segments);
   const llmApiProvider = useAsrStore((state) => state.llmApiProvider);
   const hfApiToken = useAsrStore((state) => state.hfApiToken);
@@ -71,6 +81,19 @@ function LLMApiPage() {
   const [isImporting, setIsImporting] = useState(false);
   const [importedFileMeta, setImportedFileMeta] = useState<ImportedFileMeta | null>(null);
   const sourceFileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const allowedProviders = useMemo<LlmApiProvider[]>(() => {
+    const providers: LlmApiProvider[] = [];
+    if (canUseHFProvider) providers.push("huggingface");
+    if (canUseMistralProvider) providers.push("mistral");
+    if (canUseDemeterProvider) providers.push("demeter_sante");
+    return providers;
+  }, [canUseDemeterProvider, canUseHFProvider, canUseMistralProvider]);
+
+  const hasAllowedProvider = allowedProviders.length > 0;
+  const isCurrentProviderAllowed = allowedProviders.includes(llmApiProvider);
+  const providerSelectValue = isCurrentProviderAllowed ? llmApiProvider : "__unauthorized__";
+  const activeProvider = isCurrentProviderAllowed ? llmApiProvider : null;
 
   useEffect(() => {
     logger.info("[llm-cloud][ui] page view", { route: "/llmapi", mode: "cloud" });
@@ -124,16 +147,37 @@ function LLMApiPage() {
   const isBusy = status === "preparing" || status === "generating" || status === "formatting";
   const hasSource = source === "transcription" ? transcriptionText.length > 0 : manualText.trim().length > 0;
   const tokenRequiredMessage =
-    llmApiProvider === "huggingface" ? LLM_HF_TOKEN_REQUIRED_MESSAGE : LLM_MISTRAL_TOKEN_REQUIRED_MESSAGE;
+    activeProvider === "huggingface"
+      ? LLM_HF_TOKEN_REQUIRED_MESSAGE
+      : activeProvider === "mistral"
+        ? LLM_MISTRAL_TOKEN_REQUIRED_MESSAGE
+        : "";
   const isLlmTokenMissing =
-    llmApiProvider === "huggingface" ? hfApiToken.trim().length === 0 : mistralApiKey.trim().length === 0;
+    activeProvider === "huggingface"
+      ? hfApiToken.trim().length === 0
+      : activeProvider === "mistral"
+        ? mistralApiKey.trim().length === 0
+        : false;
   const pipelineConfigValid = activePipelineConfig.modelId.trim().length > 0;
   const sourceFitsModelContext = !tokenBudget.blockedByContext;
-  const canGenerate = !isBusy && !isImporting && hasSource && sourceFitsModelContext && pipelineConfigValid;
+  const canGenerate =
+    !isBusy &&
+    !isImporting &&
+    hasAllowedProvider &&
+    isCurrentProviderAllowed &&
+    hasSource &&
+    sourceFitsModelContext &&
+    pipelineConfigValid;
 
   const percent = Math.round(Math.max(0, Math.min(1, progress)) * 100);
 
   const runGeneration = async () => {
+    if (!hasAllowedProvider || !isCurrentProviderAllowed) {
+      setLlmApiStatus("error", LLM_PROVIDER_FORBIDDEN_MESSAGE);
+      toast(LLM_PROVIDER_FORBIDDEN_MESSAGE);
+      return;
+    }
+
     logger.info("[llm-api][ui] generation requested", {
       provider: llmApiProvider,
       source,
@@ -181,7 +225,14 @@ function LLMApiPage() {
   };
 
   const handleProviderChange = (value: string) => {
-    const nextProvider: LlmApiProvider = value === "mistral" ? "mistral" : "huggingface";
+    if (value === "__unauthorized__") return;
+    const nextProvider: LlmApiProvider =
+      value === "mistral" || value === "demeter_sante" ? (value as LlmApiProvider) : "huggingface";
+    if (!canUseLlmProvider(nextProvider)) {
+      setLlmApiStatus("error", LLM_PROVIDER_FORBIDDEN_MESSAGE);
+      toast(LLM_PROVIDER_FORBIDDEN_MESSAGE);
+      return;
+    }
     logger.info("[llm-api][ui] provider changed", { previousProvider: llmApiProvider, nextProvider });
     emitLlmEvent("LLM_CLOUD_PROVIDER_CHANGE", {
       previousProvider: llmApiProvider,
@@ -374,20 +425,40 @@ function LLMApiPage() {
               <CardDescription>Provider et tokens d'acces. Le pipeline LLM se regle dans Parametres.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="space-y-2">
-                <Label htmlFor="llm-provider">Provider LLM</Label>
-                <Select value={llmApiProvider} onValueChange={handleProviderChange}>
-                  <SelectTrigger id="llm-provider">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="huggingface">Hugging Face</SelectItem>
-                    <SelectItem value="mistral">Mistral</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {hasAllowedProvider ? (
+                <div className="space-y-2">
+                  <Label htmlFor="llm-provider">Provider LLM</Label>
+                  <Select value={providerSelectValue} onValueChange={handleProviderChange}>
+                    <SelectTrigger id="llm-provider">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {!isCurrentProviderAllowed ? (
+                        <SelectItem value="__unauthorized__" disabled>
+                          Sélectionnez un provider autorisé
+                        </SelectItem>
+                      ) : null}
+                      {canUseHFProvider ? <SelectItem value="huggingface">Hugging Face</SelectItem> : null}
+                      {canUseMistralProvider ? <SelectItem value="mistral">Mistral</SelectItem> : null}
+                      {backendMode && canUseDemeterProvider ? (
+                        <SelectItem value="demeter_sante">Demeter Santé</SelectItem>
+                      ) : null}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : (
+                <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
+                  Aucun provider LLM cloud autorisé par le backend.
+                </div>
+              )}
 
-              {llmApiProvider === "huggingface" ? (
+              {!isCurrentProviderAllowed && hasAllowedProvider ? (
+                <div className="rounded-md border border-destructive/60 bg-destructive/10 p-3 text-xs text-destructive">
+                  {LLM_PROVIDER_FORBIDDEN_MESSAGE}
+                </div>
+              ) : null}
+
+              {activeProvider === "huggingface" ? (
                 <div className="space-y-2">
                   <Label htmlFor="llm-api-token">Token Hugging Face</Label>
                   <Input
@@ -400,7 +471,7 @@ function LLMApiPage() {
                   />
                   {isLlmTokenMissing ? <p className="text-xs text-destructive">{tokenRequiredMessage}</p> : null}
                 </div>
-              ) : (
+              ) : activeProvider === "mistral" ? (
                 <div className="space-y-2">
                   <Label htmlFor="llm-mistral-api-key">Cle API Mistral</Label>
                   <Input
@@ -414,40 +485,62 @@ function LLMApiPage() {
                   <p className="text-xs text-muted-foreground">Cle partagee avec la page /cloudupload.</p>
                   {isLlmTokenMissing ? <p className="text-xs text-destructive">{tokenRequiredMessage}</p> : null}
                 </div>
+              ) : activeProvider === "demeter_sante" ? (
+                <div className="space-y-2 rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
+                  <p className="text-sm font-medium text-foreground">Demeter Santé</p>
+                  <p>Ce provider passe par le backend, aucune clé API n'est requise dans le navigateur.</p>
+                </div>
+              ) : null}
+
+              {hasAllowedProvider ? (
+                <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
+                  <p className="text-sm font-medium text-foreground">Configuration pipeline</p>
+                  <p className="mt-1">
+                    Provider:{" "}
+                    <span className="font-medium text-foreground">
+                      {llmApiProvider === "mistral"
+                        ? "Mistral"
+                        : llmApiProvider === "demeter_sante"
+                          ? "Demeter Santé"
+                          : "Hugging Face"}
+                    </span>
+                  </p>
+                  <p>
+                    Model ID:{" "}
+                    <span className="font-medium text-foreground">{activePipelineConfig.modelId.trim() || "non defini"}</span>
+                  </p>
+                  <p>
+                    Temperature: <span className="font-medium text-foreground">{activePipelineConfig.temperature}</span>
+                  </p>
+                  <p>
+                    Max tokens:{" "}
+                    <span className="font-medium text-foreground">{formatTokenCount(activePipelineConfig.maxTokens)}</span>
+                  </p>
+                  {canOpenSettings ? (
+                    <div className="mt-3">
+                      <Button asChild variant="outline" size="sm">
+                        <a href="/settings?tab=llm">Ouvrir parametres LLM</a>
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
+                  Le pipeline n'est pas configurable tant qu'aucun provider LLM cloud n'est autorisé.
+                </div>
               )}
 
-              <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
-                <p className="text-sm font-medium text-foreground">Configuration pipeline</p>
-                <p className="mt-1">
-                  Provider: <span className="font-medium text-foreground">{llmApiProvider === "mistral" ? "Mistral" : "Hugging Face"}</span>
-                </p>
-                <p>
-                  Model ID:{" "}
-                  <span className="font-medium text-foreground">{activePipelineConfig.modelId.trim() || "non defini"}</span>
-                </p>
-                <p>
-                  Temperature: <span className="font-medium text-foreground">{activePipelineConfig.temperature}</span>
-                </p>
-                <p>
-                  Max tokens:{" "}
-                  <span className="font-medium text-foreground">{formatTokenCount(activePipelineConfig.maxTokens)}</span>
-                </p>
-                <div className="mt-3">
-                  <Button asChild variant="outline" size="sm">
-                    <a href="/settings?tab=llm">Ouvrir parametres LLM</a>
-                  </Button>
-                </div>
-              </div>
-
-              {!pipelineConfigValid ? (
+              {!pipelineConfigValid && hasAllowedProvider ? (
                 <div className="rounded-md border border-destructive/60 bg-destructive/10 p-3 text-xs text-destructive">
                   <p className="font-medium">Configuration pipeline incomplete</p>
                   <p className="mt-1">Le module /llmapi ne peut pas fonctionner sans Model ID configure.</p>
-                  <div className="mt-3">
-                    <Button asChild variant="outline" size="sm">
-                      <a href="/settings?tab=llm">Ouvrir parametres LLM</a>
-                    </Button>
-                  </div>
+                  {canOpenSettings ? (
+                    <div className="mt-3">
+                      <Button asChild variant="outline" size="sm">
+                        <a href="/settings?tab=llm">Ouvrir parametres LLM</a>
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </CardContent>
@@ -567,6 +660,14 @@ function LLMApiPage() {
                 <p className="text-xs text-destructive">
                   Source trop longue pour ce modele. Ajustez le pipeline dans Parametres &gt; LLM Cloud.
                 </p>
+              ) : null}
+              {!hasAllowedProvider ? (
+                <p className="text-xs text-muted-foreground">
+                  Aucun provider LLM cloud n'est activé par le backend pour ce compte.
+                </p>
+              ) : null}
+              {hasAllowedProvider && !isCurrentProviderAllowed ? (
+                <p className="text-xs text-destructive">{LLM_PROVIDER_FORBIDDEN_MESSAGE}</p>
               ) : null}
 
               <div className="flex flex-wrap items-center gap-2">

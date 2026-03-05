@@ -5,9 +5,23 @@ import { useAsrStore } from "@/store/asr-store";
 import CloudUploadPage from "./CloudUploadPage";
 import * as cloudHook from "@/hooks/useCloudTranscription";
 
+const backendPermissionMocks = vi.hoisted(() => ({
+  canUseCloudProvider: vi.fn(() => true),
+}));
+
+vi.mock("@/lib/backend-permissions", () => ({
+  canUseCloudProvider: (...args: unknown[]) => backendPermissionMocks.canUseCloudProvider(...args),
+}));
+
+vi.mock("@/hooks/useBackendPermissions", () => ({
+  useBackendPermissions: () => ({}),
+}));
+
 describe("CloudUploadPage", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    backendPermissionMocks.canUseCloudProvider.mockReset();
+    backendPermissionMocks.canUseCloudProvider.mockReturnValue(true);
   });
 
   it("shows cloud export defaults (VTT/SRT/JSON enabled, Telemetry disabled)", () => {
@@ -245,6 +259,17 @@ describe("CloudUploadPage", () => {
       cloudApiUrl: "https://cloud.example",
     });
     expect(screen.getByRole("button", { name: /Réinitialiser la session/i })).toBeInTheDocument();
+  });
+
+  it("blocks cloud controls when no provider is authorized", () => {
+    backendPermissionMocks.canUseCloudProvider.mockReturnValue(false);
+
+    renderWithStore(<CloudUploadPage />, {
+      cloudApiUrl: "https://cloud.example",
+    });
+
+    expect(screen.getByText(/aucun provider cloud n'est autorisé/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Lancer la transcription/i })).toBeDisabled();
   });
 
   it("shows mistral error detail in status card", () => {

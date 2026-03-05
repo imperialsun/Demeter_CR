@@ -8,10 +8,14 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "@/components/ui/use-toast";
 import { useEffect, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { useTranscriptionController } from "@/hooks/useTranscriptionController";
+import { canAccessFeature, getFirstAuthorizedRoute } from "@/lib/backend-permissions";
 import { initializeBackendSupport, resetWebGpuSupportCache } from "@/lib/backend-support";
 import logger, { exportLogEntries } from "@/lib/logger";
 import { setAuthenticated } from "@/lib/auth";
+import { backendLogout } from "@/lib/backend-auth";
+import { isBackendMode } from "@/lib/runtime-config";
 import { useModelCompatibilityTest, type ModelTestStatus } from "@/hooks/useModelCompatibilityTest";
 import { getEnvMode, isProdEnv } from "@/lib/env";
 import { findSuggestedReportModel, formatTokenCount } from "@/lib/llm/modelCatalog";
@@ -52,6 +56,7 @@ const MODEL_TEST_STATUS_META: Record<ModelTestStatus, { label: string; variant: 
 export function Topbar() {
   const navigate = useNavigate();
   const location = useLocation();
+  useBackendPermissions();
   const {
     activePreset,
     backendPreference,
@@ -101,6 +106,8 @@ export function Topbar() {
   const backendKeys = ["webgpu", "wasm"] as const;
   const showDebugActions = !isProdEnv();
   const envMode = getEnvMode();
+  const backendMode = isBackendMode();
+  const canOpenSettings = canAccessFeature("feature.settings");
   const isCloudRoute = location.pathname === "/cloudupload";
   const isLlmRoute = location.pathname === "/llmapi";
   const isLlmLocalRoute = location.pathname === "/llmlocal";
@@ -121,7 +128,8 @@ export function Topbar() {
   const llmModelId = activeLlmPipelineConfig.modelId.trim();
   const llmSuggestedModel = findSuggestedReportModel(llmModelId);
   const llmModelLabel = llmSuggestedModel?.label ?? (llmModelId || "Modele non defini");
-  const llmProviderLabel = llmApiProvider === "mistral" ? "Mistral API" : "HF API";
+  const llmProviderLabel =
+    llmApiProvider === "mistral" ? "Mistral API" : llmApiProvider === "demeter_sante" ? "Demeter Santé" : "HF API";
   const llmLocalProfile = getLocalLlmModelProfile(llmLocalModelProfile);
   const statusLabel = isCloudRoute
     ? cloudStatusMeta.label
@@ -228,18 +236,20 @@ export function Topbar() {
             <span className="text-xs text-muted-foreground">{statusDetailLabel}</span>
           ) : null}
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Aller aux paramètres"
-          onClick={() => navigate(location.pathname === "/settings" ? "/localupload" : "/settings")}
-        >
-          {location.pathname === "/settings" ? (
-            <ActivitySquare className="h-4 w-4" />
-          ) : (
-            <Cog className="h-4 w-4" />
-          )}
-        </Button>
+        {canOpenSettings ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Aller aux paramètres"
+            onClick={() => navigate(location.pathname === "/settings" ? getFirstAuthorizedRoute() : "/settings")}
+          >
+            {location.pathname === "/settings" ? (
+              <ActivitySquare className="h-4 w-4" />
+            ) : (
+              <Cog className="h-4 w-4" />
+            )}
+          </Button>
+        ) : null}
         <>
           {showDebugActions ? (
             <Button
@@ -301,8 +311,12 @@ export function Topbar() {
             variant="outline"
             size="sm"
             className="gap-2"
-            onClick={() => {
-              setAuthenticated(false);
+            onClick={async () => {
+              if (backendMode) {
+                await backendLogout();
+              } else {
+                setAuthenticated(false);
+              }
               toast("Déconnecté.");
               navigate("/login", { replace: true });
             }}

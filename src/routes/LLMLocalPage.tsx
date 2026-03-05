@@ -26,6 +26,8 @@ import { estimateTokenCount } from "@/lib/tokens";
 import { formatTokenCount, resolveModelTokenBudget } from "@/lib/llm/modelCatalog";
 import type { ReportResultKey } from "@/lib/llm/reportSchema";
 import logger from "@/lib/logger";
+import { useBackendPermissions } from "@/hooks/useBackendPermissions";
+import { canAccessFeature } from "@/lib/backend-permissions";
 
 const LLM_IMPORT_ACCEPT = ".txt,.srt,.vtt,.json,application/json,text/plain,text/vtt";
 
@@ -39,6 +41,8 @@ type ImportedFileMeta = {
 };
 
 function LLMLocalPage() {
+  useBackendPermissions();
+  const canOpenSettings = canAccessFeature("feature.settings");
   const segments = useAsrStore((state) => state.segments);
   const webGpuSupported = useAsrStore((state) => state.webGpuSupported);
   const wasmAvailable = useAsrStore((state) => state.wasmAvailable);
@@ -439,11 +443,13 @@ function LLMLocalPage() {
                   {backendResolution.error ? <p className="text-destructive">{backendResolution.error}</p> : null}
                   {selectedProfile.heavyWarning ? <p className="text-warning">{selectedProfile.heavyWarning}</p> : null}
                 </div>
-                <div>
-                  <Button asChild variant="outline" size="sm">
-                    <a href="/settings?tab=llmlocal">Ouvrir parametres LLM Local</a>
-                  </Button>
-                </div>
+                {canOpenSettings ? (
+                  <div>
+                    <Button asChild variant="outline" size="sm">
+                      <a href="/settings?tab=llmlocal">Ouvrir parametres LLM Local</a>
+                    </Button>
+                  </div>
+                ) : null}
               </CardContent>
             </Card>
 

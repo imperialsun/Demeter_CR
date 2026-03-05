@@ -23,6 +23,13 @@ import { buildWhisperParameters } from "@/lib/cloud/whisperParams";
 import { parseWhisperOutput } from "@/lib/cloud/whisperSegments";
 import { MISTRAL_MAX_UPLOAD_BYTES, transcribeWithMistral } from "@/lib/cloud/mistralClient";
 import { parseMistralOutput } from "@/lib/cloud/mistralSegments";
+import { transcribeWithDemeterSante } from "@/lib/cloud/demeterClient";
+import {
+  formatBackendErrorMessage,
+  handleBackendUnauthorized,
+  isBackendForbiddenError,
+  isBackendUnauthorizedError,
+} from "@/lib/backend-api";
 import {
   describeCloudError,
   extractSrtText,
@@ -41,7 +48,7 @@ const TRANSCRIBE_PROGRESS_SPAN = 1 - TRANSCRIBE_PROGRESS_BASE;
 const PROGRESS_FALLBACK_DELAY_MS = 2000;
 const PROGRESS_FALLBACK_INTERVAL_MS = 1500;
 
-export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral") {
+export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral" | "demeter_sante") {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewFile, setPreviewFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -293,6 +300,8 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
     if (provider !== "gradio") {
       if (provider === "whisper") {
         telemetry?.logEvent("CLOUD_WHISPER_STOP_REQUESTED", { provider });
+      } else if (provider === "mistral" || provider === "demeter_sante") {
+        telemetry?.logEvent("CLOUD_MISTRAL_STOP_REQUESTED", { provider });
       }
       return;
     }
@@ -494,11 +503,12 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
     preprocessSettings: CloudPreprocessSettings;
   }) => {
     const { runId, settings, metadata, telemetry, preprocessSettings } = args;
+    const isDemeter = provider === "demeter_sante";
     const apiKey = mistralApiKey.trim();
     const apiUrl = cloudMistralApiUrl.trim();
     const model = cloudMistralModel.trim() || "voxtral-mini-latest";
 
-    if (!apiKey) {
+    if (!isDemeter && !apiKey) {
       const message = "Token API Mistral manquant";
       telemetry.recordAlert("CLOUD_MISTRAL_TOKEN_MISSING", { message });
       throw new Error(message);
@@ -661,38 +671,58 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
         chunkDurationSec,
       });
 
-      const output = await transcribeWithMistral(
-        {
-          apiUrl,
-          apiKey,
-          model,
-          file: processedFile,
-          diarize: cloudMistralDiarizationEnabled,
-          onDiarizationResolved: ({ requestedDiarize, effectiveDiarize, fallbackApplied }) => {
-            if (fallbackApplied) {
-              mistralDiarizationFallbackChunks += 1;
-            }
-            if (!effectiveDiarize) {
-              mistralDiarizationEffective = false;
-            }
-            const currentHeader = useAsrStore.getState().runExportHeaders.cloud;
-            if (!currentHeader || currentHeader.mode !== "cloud") return;
-            settings.setRunExportHeader("cloud", {
-              ...currentHeader,
-              settings: {
-                ...currentHeader.settings,
-                cloud: {
-                  ...currentHeader.settings.cloud,
-                  mistralDiarizationRequested: requestedDiarize,
-                  mistralDiarizationEffective: mistralDiarizationEffective,
-                  mistralDiarizationFallbackChunks,
-                },
-              },
-            });
+      const onDiarizationResolved = ({
+        requestedDiarize,
+        effectiveDiarize,
+        fallbackApplied,
+      }: {
+        requestedDiarize: boolean;
+        effectiveDiarize: boolean;
+        fallbackApplied: boolean;
+      }) => {
+        if (fallbackApplied) {
+          mistralDiarizationFallbackChunks += 1;
+        }
+        if (!effectiveDiarize) {
+          mistralDiarizationEffective = false;
+        }
+        const currentHeader = useAsrStore.getState().runExportHeaders.cloud;
+        if (!currentHeader || currentHeader.mode !== "cloud") return;
+        settings.setRunExportHeader("cloud", {
+          ...currentHeader,
+          settings: {
+            ...currentHeader.settings,
+            cloud: {
+              ...currentHeader.settings.cloud,
+              mistralDiarizationRequested: requestedDiarize,
+              mistralDiarizationEffective: mistralDiarizationEffective,
+              mistralDiarizationFallbackChunks,
+            },
           },
-        },
-        telemetry
-      );
+        });
+      };
+
+      const output = isDemeter
+        ? await transcribeWithDemeterSante(
+            {
+              model,
+              file: processedFile,
+              diarize: cloudMistralDiarizationEnabled,
+              onDiarizationResolved,
+            },
+            telemetry
+          )
+        : await transcribeWithMistral(
+            {
+              apiUrl,
+              apiKey,
+              model,
+              file: processedFile,
+              diarize: cloudMistralDiarizationEnabled,
+              onDiarizationResolved,
+            },
+            telemetry
+          );
 
       telemetry.stopTimer("cloud_transcribe");
 
@@ -743,6 +773,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
     setStatus("done");
     setStatusDetail("Transcription terminée");
   }, [
+    provider,
     mistralApiKey,
     cloudMistralDiarizationEnabled,
     cloudMistralApiUrl,
@@ -755,6 +786,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
     const settings = useAsrStore.getState();
     const isWhisper = provider === "whisper";
     const isMistral = provider === "mistral";
+    const isDemeter = provider === "demeter_sante";
     if (isResettingSession) {
       return;
     }
@@ -767,7 +799,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
       return;
     }
 
-    runApiUrlRef.current = isWhisper || isMistral ? null : resolvedSettings.apiUrl;
+    runApiUrlRef.current = isWhisper || isMistral || isDemeter ? null : resolvedSettings.apiUrl;
     const runId = runIdRef.current + 1;
     runIdRef.current = runId;
     settings.clearSpeakerAssignments("cloud");
@@ -886,6 +918,17 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
               contextUsed: false,
               ...commonCloudPreprocessSettings,
             }
+          : isDemeter
+            ? {
+                provider: "demeter_sante",
+                model: settings.cloudMistralModel,
+                mistralDiarizationRequested: settings.cloudMistralDiarizationEnabled,
+                mistralDiarizationEffective: settings.cloudMistralDiarizationEnabled,
+                mistralDiarizationFallbackChunks: 0,
+                includeWordTimestamps: settings.cloudEnableWordTimestamps,
+                contextUsed: false,
+                ...commonCloudPreprocessSettings,
+              }
           : {
               provider: "gradio",
               apiUrl: resolvedSettings.apiUrl,
@@ -928,7 +971,7 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
         return;
       }
 
-      if (isMistral) {
+      if (isMistral || isDemeter) {
         await runMistralTranscription({
           runId,
           settings,
@@ -1269,7 +1312,12 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
       setStatusDetail("Transcription terminée");
       telemetry.logEvent("CLOUD_TRANSCRIBE_DONE", { segments: allSegments.length });
     } catch (err) {
-      const message = (err as Error)?.message ?? "Erreur inconnue";
+      const unauthorized = isBackendUnauthorizedError(err);
+      const forbidden = isBackendForbiddenError(err);
+      if (unauthorized) {
+        handleBackendUnauthorized(err);
+      }
+      const message = unauthorized || forbidden ? formatBackendErrorMessage(err) : (err as Error)?.message ?? "Erreur inconnue";
       if (stopRequestedRef.current || runIdRef.current !== runId) {
         logger.warn("[cloud] run aborted", { message });
         return;

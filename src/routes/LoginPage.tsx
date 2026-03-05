@@ -9,26 +9,40 @@ import { isAuthenticated, isPasswordValid, setAuthenticated } from "@/lib/auth";
 import logger from "@/lib/logger";
 import { useAsrStore } from "@/store/asr-store";
 import { BrandMark } from "@/components/branding/BrandMark";
+import { canAccessRoutePath, getFirstAuthorizedRoute } from "@/lib/backend-permissions";
+import { isBackendMode } from "@/lib/runtime-config";
+import { backendLogin } from "@/lib/backend-auth";
+import { pullBackendSettings } from "@/lib/backend-settings-sync";
+import { replaceSettingsCacheFromBackend } from "@/lib/storage";
 
 type LocationState = { from?: { pathname?: string } };
 
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const backendMode = isBackendMode();
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const telemetry = useAsrStore((state) => state.telemetryCollector);
 
   const redirectTo = useMemo(() => {
     const state = location.state as LocationState | null;
-    return state?.from?.pathname ?? "/localupload";
-  }, [location.state]);
+    const fromPath = state?.from?.pathname;
+    if (backendMode) {
+      if (fromPath && fromPath !== "/forbidden" && canAccessRoutePath(fromPath)) {
+        return fromPath;
+      }
+      return getFirstAuthorizedRoute();
+    }
+    return fromPath ?? "/localupload";
+  }, [backendMode, location.state]);
 
   if (isAuthenticated()) {
     return <Navigate to={redirectTo} replace />;
   }
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
     try {
@@ -44,6 +58,37 @@ export default function LoginPage() {
         telemetry?.logEvent("AUTH_LOGIN_FAILED", { reason: "empty_password" });
       } catch (err) {
         void err;
+      }
+      return;
+    }
+
+    if (backendMode) {
+      if (!email.trim()) {
+        setError("Veuillez saisir votre email.");
+        return;
+      }
+
+      try {
+        await backendLogin(email.trim(), password);
+        setAuthenticated(true);
+        try {
+          const serverSettings = await pullBackendSettings();
+          if (serverSettings?.settings) {
+            replaceSettingsCacheFromBackend(serverSettings.settings);
+            useAsrStore.getState().hydrateFromStorage();
+          }
+        } catch (syncError) {
+          logger.warn("[auth] backend settings sync after login failed", syncError);
+        }
+        logger.info("Auth login success");
+        telemetry?.logEvent("AUTH_LOGIN_SUCCESS", { source: "login_page", mode: "backend" });
+        toast("Connexion réussie.");
+        navigate(redirectTo, { replace: true });
+      } catch (loginError) {
+        const message = loginError instanceof Error ? loginError.message : "Connexion backend impossible.";
+        setError(message);
+        logger.warn("Auth login failed", { reason: "backend_login_failed", message });
+        telemetry?.logEvent("AUTH_LOGIN_FAILED", { reason: "backend_login_failed" });
       }
       return;
     }
@@ -81,6 +126,21 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
             <div className="space-y-2">
+              {backendMode ? (
+                <>
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    autoFocus
+                  />
+                </>
+              ) : null}
+            </div>
+            <div className="space-y-2">
               <Label htmlFor="password">Mot de passe</Label>
               <Input
                 id="password"
@@ -88,7 +148,7 @@ export default function LoginPage() {
                 autoComplete="current-password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                autoFocus
+                autoFocus={!backendMode}
               />
             </div>
             {error ? <p className="text-sm text-destructive">{error}</p> : null}

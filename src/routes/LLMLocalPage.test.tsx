@@ -15,6 +15,10 @@ const { emitLlmEventMock, parseTranscriptFileMock, toastMock } = vi.hoisted(() =
   toastMock: vi.fn(),
 }));
 
+const backendPermissionMocks = vi.hoisted(() => ({
+  canAccessFeature: vi.fn(() => true),
+}));
+
 const hookState = {
   status: "idle",
   progress: 0,
@@ -41,6 +45,14 @@ vi.mock("@/components/ui/use-toast", () => ({
   toast: (...args: unknown[]) => toastMock(...args),
 }));
 
+vi.mock("@/lib/backend-permissions", () => ({
+  canAccessFeature: (...args: unknown[]) => backendPermissionMocks.canAccessFeature(...args),
+}));
+
+vi.mock("@/hooks/useBackendPermissions", () => ({
+  useBackendPermissions: () => ({}),
+}));
+
 describe("LLMLocalPage", () => {
   beforeEach(() => {
     generateAll.mockClear();
@@ -49,6 +61,8 @@ describe("LLMLocalPage", () => {
     emitLlmEventMock.mockReset();
     parseTranscriptFileMock.mockReset();
     toastMock.mockReset();
+    backendPermissionMocks.canAccessFeature.mockReset();
+    backendPermissionMocks.canAccessFeature.mockReturnValue(true);
     hookState.status = "idle";
     hookState.progress = 0;
     hookState.results = {};
@@ -117,6 +131,16 @@ describe("LLMLocalPage", () => {
       "href",
       "/settings?tab=llmlocal"
     );
+  });
+
+  it("hides settings link when feature.settings is forbidden", () => {
+    backendPermissionMocks.canAccessFeature.mockImplementation((permission: string) =>
+      permission === "feature.settings" ? false : true
+    );
+
+    renderPage();
+
+    expect(screen.queryByRole("link", { name: /ouvrir parametres llm local/i })).toBeNull();
   });
 
   it("resets local llm session via hook", async () => {

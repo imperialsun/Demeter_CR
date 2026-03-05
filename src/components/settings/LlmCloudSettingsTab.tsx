@@ -22,7 +22,17 @@ import {
   type MistralModelMetadata,
 } from "@/lib/llm/mistralModelsClient";
 
-export function LlmCloudSettingsTab() {
+interface LlmCloudSettingsTabProps {
+  showHuggingFace?: boolean;
+  showMistral?: boolean;
+  showDemeter?: boolean;
+}
+
+export function LlmCloudSettingsTab({
+  showHuggingFace = true,
+  showMistral = true,
+  showDemeter = true,
+}: LlmCloudSettingsTabProps) {
   const {
     llmApiProvider,
     hfApiToken,
@@ -69,6 +79,8 @@ export function LlmCloudSettingsTab() {
 
   const [mistralModels, setMistralModels] = useState<MistralModelMetadata[]>([]);
   const [isMistralModelsLoading, setIsMistralModelsLoading] = useState(false);
+  const demeterOnlyMode = showDemeter && !showMistral;
+  const noProviderVisible = !showHuggingFace && !showMistral && !showDemeter;
   const mistralCredentialsReady =
     mistralApiKey.trim().length > 0 && cloudMistralApiUrl.trim().length > 0;
   const availableMistralModels = useMemo(() => mistralModels, [mistralModels]);
@@ -76,6 +88,14 @@ export function LlmCloudSettingsTab() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      if (!showMistral) {
+        if (!cancelled) {
+          setMistralModels([]);
+          setIsMistralModelsLoading(false);
+        }
+        return;
+      }
+
       const key = mistralApiKey.trim();
       const apiUrl = cloudMistralApiUrl.trim();
       if (!key || !apiUrl) {
@@ -108,7 +128,7 @@ export function LlmCloudSettingsTab() {
     return () => {
       cancelled = true;
     };
-  }, [mistralApiKey, cloudMistralApiUrl]);
+  }, [cloudMistralApiUrl, mistralApiKey, showMistral]);
 
   const selectedSuggestedModel = useMemo(
     () => findSuggestedReportModel(llmApiHfModelId),
@@ -144,6 +164,20 @@ export function LlmCloudSettingsTab() {
     }
   }, [llmApiMistralMaxTokens, mistralSettingMaxTokens, setLlmApiMistralMaxTokens]);
 
+  if (noProviderVisible) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>LLM Cloud indisponible</CardTitle>
+          <CardDescription>Aucun provider LLM cloud n'est activé par le backend.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">Accès refusé par vos permissions backend.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <Card>
@@ -156,16 +190,19 @@ export function LlmCloudSettingsTab() {
         <CardContent className="space-y-4">
           <div className="rounded-md border bg-muted/30 p-3">
             <p className="text-sm font-medium">
-              Provider actif: {llmApiProvider === "mistral" ? "Mistral" : "Hugging Face"}
+              Provider actif: {llmApiProvider === "mistral" ? "Mistral" : llmApiProvider === "demeter_sante" ? "Demeter Santé" : "Hugging Face"}
             </p>
             <p className="text-xs text-muted-foreground">
-              Les tokens et les parametres des deux providers sont modifies ici, en parallele.
+              {demeterOnlyMode
+                ? "Mode Demeter-only: seuls les reglages pipeline utiles a Demeter sont exposes."
+                : "Les tokens et les parametres des providers autorises sont modifies ici."}
             </p>
           </div>
         </CardContent>
       </Card>
 
       <div className="grid gap-4 xl:grid-cols-2">
+        {showHuggingFace ? (
         <Card>
           <CardHeader>
             <CardTitle>Hugging Face</CardTitle>
@@ -271,7 +308,9 @@ export function LlmCloudSettingsTab() {
             </div>
           </CardContent>
         </Card>
+        ) : null}
 
+        {showMistral ? (
         <Card>
           <CardHeader>
             <CardTitle>Mistral</CardTitle>
@@ -406,6 +445,59 @@ export function LlmCloudSettingsTab() {
             </div>
           </CardContent>
         </Card>
+        ) : null}
+
+        {demeterOnlyMode ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Demeter Santé</CardTitle>
+              <CardDescription>Paramètres pipeline utilisés par le backend Demeter.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
+                Les clés/API URL Mistral sont masquées: elles ne sont pas utilisées en mode Demeter-only.
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="settings-llm-demeter-model-id">Model ID (Demeter)</Label>
+                <Input
+                  id="settings-llm-demeter-model-id"
+                  value={llmApiMistralModelId}
+                  onChange={(event) => setLlmApiMistralModelId(event.target.value)}
+                  placeholder={DEFAULT_MISTRAL_LLM_MODEL_ID}
+                />
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="settings-llm-demeter-temperature">Temperature (Demeter)</Label>
+                  <Input
+                    id="settings-llm-demeter-temperature"
+                    type="number"
+                    step={0.1}
+                    min={0}
+                    max={2}
+                    value={llmApiMistralTemperature}
+                    onChange={(event) => setLlmApiMistralTemperature(Number(event.target.value))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="settings-llm-demeter-max-tokens">Max tokens (Demeter)</Label>
+                  <Input
+                    id="settings-llm-demeter-max-tokens"
+                    type="number"
+                    min={128}
+                    max={262144}
+                    step={128}
+                    value={llmApiMistralMaxTokens}
+                    disabled
+                    onChange={(event) => setLlmApiMistralMaxTokens(Number(event.target.value))}
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
       </div>
     </div>
   );

@@ -36,6 +36,8 @@ import { cn } from "@/lib/utils";
 import { testWasmMultithreadSupport } from "@/lib/backend-support";
 import logger from "@/lib/logger";
 import { clearSecureTokens } from "@/lib/secure-token-vault";
+import { useBackendPermissions } from "@/hooks/useBackendPermissions";
+import { canUseCloudProvider, canUseLlmProvider } from "@/lib/backend-permissions";
 import { LlmCloudSettingsTab } from "@/components/settings/LlmCloudSettingsTab";
 import { LlmLocalSettingsTab } from "@/components/settings/LlmLocalSettingsTab";
 
@@ -79,7 +81,10 @@ interface SettingsPanelProps {
   showMicroReminder?: boolean;
   showReminders?: boolean;
   showMicSettings?: boolean;
+  showLocalSettings?: boolean;
   showCloudSettings?: boolean;
+  showLlmLocalSettings?: boolean;
+  showLlmCloudSettings?: boolean;
   showLlmSettings?: boolean;
   initialModelOpen?: boolean;
   initialChunkingOpen?: boolean;
@@ -111,12 +116,16 @@ export function SettingsPanel({
   showMicroReminder = true,
   showReminders = true,
   showMicSettings = true,
+  showLocalSettings = true,
   showCloudSettings = true,
+  showLlmLocalSettings,
+  showLlmCloudSettings,
   showLlmSettings = true,
   initialModelOpen = false,
   initialChunkingOpen = false,
   initialTab,
 }: SettingsPanelProps) {
+  useBackendPermissions();
   const {
     activePreset,
     customModelId,
@@ -549,19 +558,42 @@ export function SettingsPanel({
   const [testingMultithread, setTestingMultithread] = useState(false);
   const telemetryCollector = useAsrStore((state) => state.telemetryCollector);
   const showMicroReminderResolved = showMicroReminder && showMicSettings;
+  const showLocalSettingsResolved = showLocalSettings;
   const showCloudSettingsResolved = showCloudSettings;
-  const showLlmSettingsResolved = showLlmSettings;
+  const showLlmLocalSettingsResolved = showLlmLocalSettings ?? showLlmSettings;
+  const showLlmCloudSettingsResolved = showLlmCloudSettings ?? showLlmSettings;
+  const canUseCloudGradio = canUseCloudProvider("gradio");
+  const canUseCloudWhisper = canUseCloudProvider("whisper");
+  const canUseCloudMistral = canUseCloudProvider("mistral");
+  const cloudProviderTabs = useMemo<Array<"gradio" | "whisper" | "mistral">>(() => {
+    const tabs: Array<"gradio" | "whisper" | "mistral"> = [];
+    if (canUseCloudGradio) tabs.push("gradio");
+    if (canUseCloudWhisper) tabs.push("whisper");
+    if (canUseCloudMistral) tabs.push("mistral");
+    return tabs;
+  }, [canUseCloudGradio, canUseCloudMistral, canUseCloudWhisper]);
+  const canUseLlmHuggingFace = canUseLlmProvider("huggingface");
+  const canUseLlmMistral = canUseLlmProvider("mistral");
+  const canUseLlmDemeter = canUseLlmProvider("demeter_sante");
   const availableTabs = useMemo<SettingsTabValue[]>(() => {
-    const tabs: SettingsTabValue[] = ["local"];
+    const tabs: SettingsTabValue[] = [];
+    if (showLocalSettingsResolved) tabs.push("local");
     if (showMicSettings) tabs.push("mic");
     if (showCloudSettingsResolved) tabs.push("cloud");
-    if (showLlmSettingsResolved) tabs.push("llmlocal");
-    if (showLlmSettingsResolved) tabs.push("llm");
+    if (showLlmLocalSettingsResolved) tabs.push("llmlocal");
+    if (showLlmCloudSettingsResolved) tabs.push("llm");
     return tabs;
-  }, [showCloudSettingsResolved, showLlmSettingsResolved, showMicSettings]);
+  }, [
+    showCloudSettingsResolved,
+    showLlmCloudSettingsResolved,
+    showLlmLocalSettingsResolved,
+    showLocalSettingsResolved,
+    showMicSettings,
+  ]);
   const normalizedInitialTab = useMemo<SettingsTabValue>(() => {
-    if (!initialTab) return "local";
-    return availableTabs.includes(initialTab) ? initialTab : "local";
+    if (!availableTabs.length) return "local";
+    if (!initialTab) return availableTabs[0]!;
+    return availableTabs.includes(initialTab) ? initialTab : availableTabs[0]!;
   }, [availableTabs, initialTab]);
   const [activeTab, setActiveTab] = useState<SettingsTabValue>(normalizedInitialTab);
   const previousInitialTabRef = useRef<SettingsTabValue | undefined>(initialTab);
@@ -583,6 +615,12 @@ export function SettingsPanel({
       setMicBackendPreference("wasm");
     }
   }, [micBackendPreference, setMicBackendPreference, webGpuSupported]);
+
+  useEffect(() => {
+    if (!cloudProviderTabs.length) return;
+    if (cloudProviderTabs.includes(cloudProviderPanel)) return;
+    setCloudProviderPanel(cloudProviderTabs[0]!);
+  }, [cloudProviderPanel, cloudProviderTabs]);
 
   useEffect(() => {
     logger.info("Settings panel view", { section: "settings" });
@@ -1051,6 +1089,20 @@ export function SettingsPanel({
     });
   };
 
+  if (!availableTabs.length) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Sections indisponibles</CardTitle>
+          <CardDescription>Aucune section de paramètres n'est activée par le backend pour votre profil.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">Accès refusé par vos permissions backend.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Tabs
       value={activeTab}
@@ -1062,12 +1114,13 @@ export function SettingsPanel({
       className="space-y-6"
     >
       <TabsList>
-        <TabsTrigger value="local">Local</TabsTrigger>
+        {showLocalSettingsResolved ? <TabsTrigger value="local">Local</TabsTrigger> : null}
         {showMicSettings ? <TabsTrigger value="mic">Enregistrement</TabsTrigger> : null}
         {showCloudSettingsResolved ? <TabsTrigger value="cloud">Cloud</TabsTrigger> : null}
-        {showLlmSettingsResolved ? <TabsTrigger value="llmlocal">LLM Local</TabsTrigger> : null}
-        {showLlmSettingsResolved ? <TabsTrigger value="llm">LLM Cloud</TabsTrigger> : null}
+        {showLlmLocalSettingsResolved ? <TabsTrigger value="llmlocal">LLM Local</TabsTrigger> : null}
+        {showLlmCloudSettingsResolved ? <TabsTrigger value="llm">LLM Cloud</TabsTrigger> : null}
       </TabsList>
+      {showLocalSettingsResolved ? (
       <TabsContent value="local">
         <div className="grid gap-4 lg:grid-cols-2">
       {showReminders ? (
@@ -2068,6 +2121,7 @@ export function SettingsPanel({
       </Card>
     </div>
       </TabsContent>
+      ) : null}
       {showMicSettings ? (
         <TabsContent value="mic">
           <div className="grid gap-4 lg:grid-cols-2">
@@ -2659,20 +2713,34 @@ export function SettingsPanel({
                 <CardDescription>Paramètres organisés par provider.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                {cloudProviderTabs.length > 0 ? (
                 <Tabs
                   value={cloudProviderPanel}
                   onValueChange={(value) => {
-                    if (value === "gradio" || value === "whisper" || value === "mistral") {
+                    if (
+                      (value === "gradio" || value === "whisper" || value === "mistral") &&
+                      cloudProviderTabs.includes(value)
+                    ) {
                       setCloudProviderPanel(value);
                     }
                   }}
                 >
-                  <TabsList className="grid w-full grid-cols-3">
-                    <TabsTrigger value="gradio">Gradio</TabsTrigger>
-                    <TabsTrigger value="whisper">Whisper</TabsTrigger>
-                    <TabsTrigger value="mistral">Mistral</TabsTrigger>
+                  <TabsList
+                    className={cn(
+                      "grid w-full",
+                      cloudProviderTabs.length === 1
+                        ? "grid-cols-1"
+                        : cloudProviderTabs.length === 2
+                          ? "grid-cols-2"
+                          : "grid-cols-3"
+                    )}
+                  >
+                    {canUseCloudGradio ? <TabsTrigger value="gradio">Gradio</TabsTrigger> : null}
+                    {canUseCloudWhisper ? <TabsTrigger value="whisper">Whisper</TabsTrigger> : null}
+                    {canUseCloudMistral ? <TabsTrigger value="mistral">Mistral</TabsTrigger> : null}
                   </TabsList>
 
+                  {canUseCloudGradio ? (
                   <TabsContent value="gradio" className="mt-4 space-y-4">
                     <div className="space-y-2">
                       <Label htmlFor="cloud-api-url">URL Gradio</Label>
@@ -2737,7 +2805,9 @@ export function SettingsPanel({
                       </p>
                     </div>
                   </TabsContent>
+                  ) : null}
 
+                  {canUseCloudWhisper ? (
                   <TabsContent value="whisper" className="mt-4 space-y-4">
                     <div className="space-y-2">
                       <Label htmlFor="cloud-hf-token">Token Hugging Face (Whisper)</Label>
@@ -2824,7 +2894,9 @@ export function SettingsPanel({
                       />
                     </div>
                   </TabsContent>
+                  ) : null}
 
+                  {canUseCloudMistral ? (
                   <TabsContent value="mistral" className="mt-4 space-y-4">
                     <div className="space-y-2">
                       <Label htmlFor="cloud-mistral-api-key">Token API Mistral</Label>
@@ -2874,10 +2946,18 @@ export function SettingsPanel({
                       />
                     </div>
                   </TabsContent>
+                  ) : null}
                 </Tabs>
+                ) : (
+                  <div className="rounded-md border bg-muted/20 p-3 text-sm text-muted-foreground">
+                    Aucun provider cloud n'est activé par le backend pour ce compte.
+                  </div>
+                )}
               </CardContent>
             </Card>
 
+            {cloudProviderTabs.length > 0 ? (
+              <>
             <Card className="lg:col-span-2">
               <CardHeader>
                 <CardTitle>Pré-traitement cloud</CardTitle>
@@ -3220,17 +3300,33 @@ export function SettingsPanel({
                 </div>
               </CardContent>
             </Card>
+              </>
+            ) : (
+              <Card className="lg:col-span-2">
+                <CardHeader>
+                  <CardTitle>Cloud indisponible</CardTitle>
+                  <CardDescription>Aucune section provider cloud n'est activée côté backend.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">Accès refusé par vos permissions backend.</p>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </TabsContent>
       ) : null}
-      {showLlmSettingsResolved ? (
+      {showLlmLocalSettingsResolved ? (
         <TabsContent value="llmlocal">
           <LlmLocalSettingsTab />
         </TabsContent>
       ) : null}
-      {showLlmSettingsResolved ? (
+      {showLlmCloudSettingsResolved ? (
         <TabsContent value="llm">
-          <LlmCloudSettingsTab />
+          <LlmCloudSettingsTab
+            showHuggingFace={canUseLlmHuggingFace}
+            showMistral={canUseLlmMistral}
+            showDemeter={canUseLlmDemeter}
+          />
         </TabsContent>
       ) : null}
     </Tabs>

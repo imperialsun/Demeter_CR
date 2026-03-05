@@ -39,6 +39,11 @@ const modelTestHook = vi.hoisted(() => ({
   },
 }));
 
+const backendPermissionMocks = vi.hoisted(() => ({
+  canAccessFeature: vi.fn((permission: string) => permission !== ""),
+  getFirstAuthorizedRoute: vi.fn(() => "/localupload"),
+}));
+
 // Mock react-router hooks used by the component
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async () => {
@@ -73,6 +78,15 @@ vi.mock('@/hooks/useModelCompatibilityTest', () => ({
   useModelCompatibilityTest: () => modelTestHook,
 }));
 
+vi.mock("@/hooks/useBackendPermissions", () => ({
+  useBackendPermissions: () => ({}),
+}));
+
+vi.mock("@/lib/backend-permissions", () => ({
+  canAccessFeature: (...args: unknown[]) => backendPermissionMocks.canAccessFeature(...args),
+  getFirstAuthorizedRoute: (...args: unknown[]) => backendPermissionMocks.getFirstAuthorizedRoute(...args),
+}));
+
 describe('Topbar', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -93,6 +107,10 @@ describe('Topbar', () => {
     modelTestHook.summary.ok = 0;
     modelTestHook.summary.blockedCount = 0;
     modelTestHook.summary.errors = 0;
+    backendPermissionMocks.canAccessFeature.mockReset();
+    backendPermissionMocks.canAccessFeature.mockReturnValue(true);
+    backendPermissionMocks.getFirstAuthorizedRoute.mockReset();
+    backendPermissionMocks.getFirstAuthorizedRoute.mockReturnValue("/localupload");
     // reset store defaults used by Topbar
     useAsrStore.setState({
       activePreset: 'fast',
@@ -128,13 +146,24 @@ describe('Topbar', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/settings');
   });
 
-  it('navigates to /localupload when on settings', () => {
+  it('navigates to first authorized route when on settings', () => {
     // override useLocation to simulate being on /settings
     vi.spyOn(rr, 'useLocation').mockReturnValue({ pathname: '/settings', search: '', state: null, hash: '', key: '' } as any);
+    backendPermissionMocks.getFirstAuthorizedRoute.mockReturnValue("/llmapi");
     render(<Topbar />);
     const btn = screen.getByLabelText('Aller aux paramètres');
     fireEvent.click(btn);
-    expect(mockNavigate).toHaveBeenCalledWith('/localupload');
+    expect(mockNavigate).toHaveBeenCalledWith('/llmapi');
+  });
+
+  it("hides settings button when feature.settings is forbidden", () => {
+    backendPermissionMocks.canAccessFeature.mockImplementation((permission: string) =>
+      permission === "feature.settings" ? false : true
+    );
+
+    render(<Topbar />);
+
+    expect(screen.queryByLabelText("Aller aux paramètres")).toBeNull();
   });
 
   it('opens confirm and calls resetApp on confirm', async () => {

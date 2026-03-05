@@ -11,6 +11,7 @@ import { buildLongInputChunkPrompt, buildLongInputConsolidationPrompt } from "@/
 import { generateReportDetailed } from "@/lib/llm/reportService";
 import { getLlmHfClient, generateWithChatThenFallbackText } from "@/lib/llm/hfClient";
 import { generateWithMistralChat } from "@/lib/llm/mistralChatClient";
+import { generateWithDemeterChat } from "@/lib/llm/demeterChatClient";
 import {
   FALLBACK_MISTRAL_MAX_TOKENS,
   fetchMistralModelsSafe,
@@ -28,6 +29,12 @@ import {
 } from "@/lib/llm/modelCatalog";
 import { resolveActiveLlmPipelineConfig } from "@/lib/llm/providerSettings";
 import logger from "@/lib/logger";
+import {
+  formatBackendErrorMessage,
+  handleBackendUnauthorized,
+  isBackendForbiddenError,
+  isBackendUnauthorizedError,
+} from "@/lib/backend-api";
 
 const FORMAT_ORDER: Array<{ key: ReportResultKey; format: ReportFormat }> = [
   { key: "cri", format: "CRI" },
@@ -195,16 +202,26 @@ export function useLlmReports() {
             return generation.text;
           }
 
-          const generation = await generateWithMistralChat({
-            apiUrl: mistralApiUrl,
-            apiKey: mistralKey,
-            modelId,
-            systemPrompt: params.systemPrompt,
-            userPrompt: params.userPrompt,
-            temperature: params.temperature,
-            maxTokens: params.maxTokens,
-            responseMode: params.responseMode,
-          });
+          const generation =
+            provider === "mistral"
+              ? await generateWithMistralChat({
+                  apiUrl: mistralApiUrl,
+                  apiKey: mistralKey,
+                  modelId,
+                  systemPrompt: params.systemPrompt,
+                  userPrompt: params.userPrompt,
+                  temperature: params.temperature,
+                  maxTokens: params.maxTokens,
+                  responseMode: params.responseMode,
+                })
+              : await generateWithDemeterChat({
+                  modelId,
+                  systemPrompt: params.systemPrompt,
+                  userPrompt: params.userPrompt,
+                  temperature: params.temperature,
+                  maxTokens: params.maxTokens,
+                  responseMode: params.responseMode,
+                });
           return generation.text;
         };
 
@@ -294,16 +311,25 @@ export function useLlmReports() {
                   maxTokens: effectiveGenerationMaxTokens,
                   hfToken,
                 })
-              : await generateReportDetailed({
-                  provider: "mistral",
-                  format: item.format,
-                  modelId,
-                  sourceText: prepared.text,
-                  temperature,
-                  maxTokens: effectiveGenerationMaxTokens,
-                  mistralApiKey: mistralKey,
-                  mistralApiUrl,
-                });
+              : provider === "mistral"
+                ? await generateReportDetailed({
+                    provider: "mistral",
+                    format: item.format,
+                    modelId,
+                    sourceText: prepared.text,
+                    temperature,
+                    maxTokens: effectiveGenerationMaxTokens,
+                    mistralApiKey: mistralKey,
+                    mistralApiUrl,
+                  })
+                : await generateReportDetailed({
+                    provider: "demeter_sante",
+                    format: item.format,
+                    modelId,
+                    sourceText: prepared.text,
+                    temperature,
+                    maxTokens: effectiveGenerationMaxTokens,
+                  });
 
           const result: ReportResult = {
             format: item.format,
@@ -342,7 +368,17 @@ export function useLlmReports() {
         });
         setTelemetrySummary(telemetry.exportSummary());
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Erreur inconnue lors de la generation";
+        const unauthorized = isBackendUnauthorizedError(error);
+        const forbidden = isBackendForbiddenError(error);
+        if (unauthorized) {
+          handleBackendUnauthorized(error);
+        }
+        const message =
+          unauthorized || forbidden
+            ? formatBackendErrorMessage(error)
+            : error instanceof Error
+              ? error.message
+              : "Erreur inconnue lors de la generation";
         logger.error("[llm-api] run failed", {
           stage,
           message,

@@ -14,6 +14,11 @@ const { toastMock, parseTranscriptFileMock, emitLlmEventMock } = vi.hoisted(() =
   emitLlmEventMock: vi.fn(),
 }));
 
+const backendPermissionMocks = vi.hoisted(() => ({
+  canUseLlmProvider: vi.fn(() => true),
+  canAccessFeature: vi.fn(() => true),
+}));
+
 const hookState = {
   status: "idle",
   progress: 0,
@@ -38,6 +43,15 @@ vi.mock("@/lib/llm/telemetrySession", () => ({
   emitLlmEvent: (...args: unknown[]) => emitLlmEventMock(...args),
 }));
 
+vi.mock("@/lib/backend-permissions", () => ({
+  canUseLlmProvider: (...args: unknown[]) => backendPermissionMocks.canUseLlmProvider(...args),
+  canAccessFeature: (...args: unknown[]) => backendPermissionMocks.canAccessFeature(...args),
+}));
+
+vi.mock("@/hooks/useBackendPermissions", () => ({
+  useBackendPermissions: () => ({}),
+}));
+
 describe("LLMApiPage", () => {
   beforeEach(() => {
     generateAll.mockClear();
@@ -45,6 +59,10 @@ describe("LLMApiPage", () => {
     toastMock.mockClear();
     parseTranscriptFileMock.mockReset();
     emitLlmEventMock.mockReset();
+    backendPermissionMocks.canUseLlmProvider.mockReset();
+    backendPermissionMocks.canUseLlmProvider.mockReturnValue(true);
+    backendPermissionMocks.canAccessFeature.mockReset();
+    backendPermissionMocks.canAccessFeature.mockReturnValue(true);
     hookState.status = "idle";
     hookState.progress = 0;
     hookState.results = {};
@@ -181,6 +199,25 @@ describe("LLMApiPage", () => {
       "LLM_CLOUD_PROVIDER_CHANGE",
       expect.objectContaining({ previousProvider: "huggingface", nextProvider: "mistral" })
     );
+  });
+
+  it("hides settings links when feature.settings is forbidden", () => {
+    backendPermissionMocks.canAccessFeature.mockImplementation((permission: string) =>
+      permission === "feature.settings" ? false : true
+    );
+
+    renderPage();
+
+    expect(screen.queryByRole("link", { name: /ouvrir parametres llm/i })).toBeNull();
+  });
+
+  it("blocks generation when no llm provider is authorized", () => {
+    backendPermissionMocks.canUseLlmProvider.mockReturnValue(false);
+
+    renderPage();
+
+    expect(screen.getByText(/aucun provider llm cloud autorisé/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /generer les 3 formats/i })).toBeDisabled();
   });
 
   it("shows inline alert when mistral token is missing", () => {

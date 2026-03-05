@@ -1,12 +1,30 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { render, screen } from "@testing-library/react";
 import App from "@/App";
 
 const isAuthenticatedMock = vi.fn(() => true);
+const runtimeModeMock = vi.fn(() => false);
+const backendPermissionMocks = vi.hoisted(() => ({
+  canAccessFeature: vi.fn(() => true),
+  getFirstAuthorizedRoute: vi.fn(() => "/localupload"),
+}));
 
 vi.mock("@/lib/auth", () => ({
   isAuthenticated: () => isAuthenticatedMock(),
+}));
+
+vi.mock("@/lib/runtime-config", () => ({
+  isBackendMode: () => runtimeModeMock(),
+}));
+
+vi.mock("@/lib/backend-permissions", () => ({
+  canAccessFeature: (...args: unknown[]) => backendPermissionMocks.canAccessFeature(...args),
+  getFirstAuthorizedRoute: (...args: unknown[]) => backendPermissionMocks.getFirstAuthorizedRoute(...args),
+}));
+
+vi.mock("@/hooks/useBackendPermissions", () => ({
+  useBackendPermissions: () => ({}),
 }));
 
 vi.mock("@/components/layout/AppShell", () => ({
@@ -19,9 +37,18 @@ vi.mock("@/routes/LLMLocalPage", () => ({ default: () => <div>LLMLocalStub</div>
 vi.mock("@/routes/LLMApiPage", () => ({ default: () => <div>LLMApiStub</div> }));
 vi.mock("@/routes/SettingsPage", () => ({ default: () => <div>SettingsStub</div> }));
 vi.mock("@/routes/TelemetryPage", () => ({ default: () => <div>TelemetryStub</div> }));
+vi.mock("@/routes/ForbiddenPage", () => ({ default: () => <div>ForbiddenStub</div> }));
 vi.mock("@/routes/LoginPage", () => ({ default: () => <div>LoginStub</div> }));
 
 describe("App routing", () => {
+  beforeEach(() => {
+    runtimeModeMock.mockReturnValue(false);
+    backendPermissionMocks.canAccessFeature.mockReset();
+    backendPermissionMocks.canAccessFeature.mockReturnValue(true);
+    backendPermissionMocks.getFirstAuthorizedRoute.mockReset();
+    backendPermissionMocks.getFirstAuthorizedRoute.mockReturnValue("/localupload");
+  });
+
   it("registers /llmapi route", async () => {
     isAuthenticatedMock.mockReturnValue(true);
 
@@ -68,5 +95,20 @@ describe("App routing", () => {
     );
 
     expect(await screen.findByText("LocalUploadStub")).toBeInTheDocument();
+  });
+
+  it("redirects to /forbidden when backend feature access is denied", async () => {
+    runtimeModeMock.mockReturnValue(true);
+    isAuthenticatedMock.mockReturnValue(true);
+    backendPermissionMocks.canAccessFeature.mockReturnValue(false);
+    backendPermissionMocks.getFirstAuthorizedRoute.mockReturnValue("/forbidden");
+
+    render(
+      <MemoryRouter initialEntries={["/localupload"]}>
+        <App />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("ForbiddenStub")).toBeInTheDocument();
   });
 });
