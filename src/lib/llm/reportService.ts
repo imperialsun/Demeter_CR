@@ -6,6 +6,7 @@ import {
   type GenerationStrategy,
 } from "@/lib/llm/hfClient";
 import { generateWithMistralChat } from "@/lib/llm/mistralChatClient";
+import { generateWithDemeterChat } from "@/lib/llm/demeterChatClient";
 import logger from "@/lib/logger";
 
 interface GenerateReportBaseParams {
@@ -27,7 +28,14 @@ export interface GenerateReportMistralParams extends GenerateReportBaseParams {
   mistralApiUrl: string;
 }
 
-export type GenerateReportParams = GenerateReportHuggingFaceParams | GenerateReportMistralParams;
+export interface GenerateReportDemeterParams extends GenerateReportBaseParams {
+  provider: "demeter_sante";
+}
+
+export type GenerateReportParams =
+  | GenerateReportHuggingFaceParams
+  | GenerateReportMistralParams
+  | GenerateReportDemeterParams;
 
 export interface GenerateReportDetailedResult {
   report: ReportJson;
@@ -76,7 +84,7 @@ export async function generateReportDetailed(
       maxTokens: params.maxTokens,
       responseMode: "json",
     });
-  } else {
+  } else if (params.provider === "mistral") {
     const apiKey = params.mistralApiKey.trim();
     if (!apiKey) {
       throw new Error("Token API Mistral manquant.");
@@ -84,6 +92,15 @@ export async function generateReportDetailed(
     generation = await generateWithMistralChat({
       apiUrl: params.mistralApiUrl,
       apiKey,
+      modelId,
+      systemPrompt: buildReportSystemPrompt(),
+      userPrompt: buildReportUserPrompt(params.format, sourceText),
+      temperature: params.temperature,
+      maxTokens: params.maxTokens,
+      responseMode: "json",
+    });
+  } else {
+    generation = await generateWithDemeterChat({
       modelId,
       systemPrompt: buildReportSystemPrompt(),
       userPrompt: buildReportUserPrompt(params.format, sourceText),

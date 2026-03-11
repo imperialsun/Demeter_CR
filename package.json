@@ -17,6 +17,7 @@
     "lint": "eslint .",
     "test": "vitest --run",
     "test:watch": "vitest",
+    "test:backend-integration": "vitest --config vitest.backend.config.ts --run",
     "test:ci": "npm run audit:observability && vitest --run --coverage --maxWorkers=4",
     "coverage:project": "node scripts/check-project-coverage.mjs --min=80",
     "docs:check": "node scripts/docs-validate.mjs",

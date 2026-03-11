@@ -11,6 +11,12 @@ import logger, {
   setDebugProvider,
   setTelemetryProvider,
 } from "@/lib/logger";
+import { isBackendMode } from "@/lib/runtime-config";
+import { initializeBackendSession } from "@/lib/backend-auth";
+import { initializeBackendSettingsSync, pullBackendSettings } from "@/lib/backend-settings-sync";
+import { flushBackendActivityQueueNow, initializeBackendActivitySync } from "@/lib/backend-activity-sync";
+import { replaceSettingsCacheFromBackend } from "@/lib/storage";
+import { isAuthenticated, setAuthenticated } from "@/lib/auth";
 import "./index.css";
 import App from "./App";
 
@@ -32,8 +38,30 @@ try {
   void err;
 }
 
+if (isBackendMode()) {
+  initializeBackendSettingsSync();
+  initializeBackendActivitySync();
+  const me = await initializeBackendSession();
+  setAuthenticated(Boolean(me));
+  if (me) {
+    await flushBackendActivityQueueNow();
+  }
+}
+
 await initializeBackendSupport();
 useAsrStore.getState().hydrateFromStorage();
+
+if (isBackendMode() && isAuthenticated()) {
+  try {
+    const serverSettings = await pullBackendSettings();
+    if (serverSettings?.settings) {
+      replaceSettingsCacheFromBackend(serverSettings.settings);
+      useAsrStore.getState().hydrateFromStorage();
+    }
+  } catch (error) {
+    logger.warn("[app] backend settings sync bootstrap failed", error);
+  }
+}
 logger.info("[app] settings hydrated from storage", {
   blockedPresets: useAsrStore.getState().blockedPresets,
 });

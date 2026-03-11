@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,9 +13,21 @@ import { canAccessRoutePath, getFirstAuthorizedRoute } from "@/lib/backend-permi
 import { isBackendMode } from "@/lib/runtime-config";
 import { backendLogin } from "@/lib/backend-auth";
 import { pullBackendSettings } from "@/lib/backend-settings-sync";
+import { flushBackendActivityQueueNow } from "@/lib/backend-activity-sync";
 import { replaceSettingsCacheFromBackend } from "@/lib/storage";
 
 type LocationState = { from?: { pathname?: string } };
+
+function resolveRedirectTarget(backendMode: boolean, state: LocationState | null): string {
+  const fromPath = state?.from?.pathname;
+  if (backendMode) {
+    if (fromPath && fromPath !== "/forbidden" && canAccessRoutePath(fromPath)) {
+      return fromPath;
+    }
+    return getFirstAuthorizedRoute();
+  }
+  return fromPath ?? "/localupload";
+}
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -26,17 +38,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const telemetry = useAsrStore((state) => state.telemetryCollector);
 
-  const redirectTo = useMemo(() => {
-    const state = location.state as LocationState | null;
-    const fromPath = state?.from?.pathname;
-    if (backendMode) {
-      if (fromPath && fromPath !== "/forbidden" && canAccessRoutePath(fromPath)) {
-        return fromPath;
-      }
-      return getFirstAuthorizedRoute();
-    }
-    return fromPath ?? "/localupload";
-  }, [backendMode, location.state]);
+  const redirectTo = resolveRedirectTarget(backendMode, location.state as LocationState | null);
 
   if (isAuthenticated()) {
     return <Navigate to={redirectTo} replace />;
@@ -80,10 +82,11 @@ export default function LoginPage() {
         } catch (syncError) {
           logger.warn("[auth] backend settings sync after login failed", syncError);
         }
+        await flushBackendActivityQueueNow();
         logger.info("Auth login success");
         telemetry?.logEvent("AUTH_LOGIN_SUCCESS", { source: "login_page", mode: "backend" });
         toast("Connexion réussie.");
-        navigate(redirectTo, { replace: true });
+        navigate(resolveRedirectTarget(true, location.state as LocationState | null), { replace: true });
       } catch (loginError) {
         const message = loginError instanceof Error ? loginError.message : "Connexion backend impossible.";
         setError(message);

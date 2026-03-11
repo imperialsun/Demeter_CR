@@ -73,7 +73,7 @@ export type CloudTranscriptionStatus =
   | "error";
 
 export type LlmApiStatus = "idle" | "preparing" | "generating" | "formatting" | "done" | "error";
-export type LlmApiProvider = "huggingface" | "mistral";
+export type LlmApiProvider = "huggingface" | "mistral" | "demeter_sante";
 export type LlmLocalModelProfile = "qwen_0_6b" | "qwen_1_7b" | "ministral_3_3b";
 export type ModelSizeForegroundAlert = {
   title: string;
@@ -269,7 +269,7 @@ export const normalizeMistralModel = (value: string | undefined, fallback: strin
 };
 
 const normalizeLlmApiProvider = (value: string | undefined, fallback: LlmApiProvider): LlmApiProvider => {
-  if (value === "huggingface" || value === "mistral") return value;
+  if (value === "huggingface" || value === "mistral" || value === "demeter_sante") return value;
   return fallback;
 };
 

@@ -18,6 +18,7 @@ import {
   normaliseSegments,
   setSharedAbortController,
 } from "@/hooks/useTranscriptionController";
+import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
 
 const DEFAULT_BUFFER_SIZE = 4096;
 const MIN_DETECT_INTERVAL_MS = 250;
@@ -523,10 +524,30 @@ export function useMicTranscription() {
     }
 
     if (mode === "complete") {
+      trackBackendActivityEvent({
+        eventKind: "transcription",
+        sourceMode: "local",
+        provider: "mic",
+        status: "success",
+        meta: {
+          source: "mic",
+          backend: state.activeBackend ?? state.backendPreference,
+        },
+      });
       state.setStatus("ready", "Prêt");
       toast("Transcription micro terminée.");
     }
     if (mode === "error") {
+      trackBackendActivityEvent({
+        eventKind: "transcription",
+        sourceMode: "local",
+        provider: "mic",
+        status: "error",
+        meta: {
+          source: "mic",
+          backend: state.activeBackend ?? state.backendPreference,
+        },
+      });
       state.setIsTranscribing(false);
       state.resetStopRequest();
       state.registerTelemetry(null);

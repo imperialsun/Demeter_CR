@@ -20,6 +20,7 @@ import { estimateTokenCount } from "@/lib/tokens";
 import { formatTokenCount, resolveLongInputChunkingProfile, resolveModelTokenBudget } from "@/lib/llm/modelCatalog";
 import { emitLlmEvent } from "@/lib/llm/telemetrySession";
 import logger from "@/lib/logger";
+import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
 
 const FORMAT_ORDER: Array<{ key: ReportResultKey; format: ReportFormat }> = [
   { key: "cri", format: "CRI" },
@@ -408,6 +409,18 @@ export function useLlmLocalReports() {
               backend,
               sourceMode: input.source,
             });
+            trackBackendActivityEvent({
+              eventKind: "report",
+              sourceMode: "local",
+              provider: "local",
+              status: "success",
+              meta: {
+                source: input.source,
+                profileId: profile.id,
+                modelId,
+                backend,
+              },
+            });
             return;
           } catch (error) {
             if (isRunAbortedError(error) || !isRunActive()) {
@@ -494,6 +507,18 @@ export function useLlmLocalReports() {
               stage,
               message: fallbackMessage,
             });
+            trackBackendActivityEvent({
+              eventKind: "report",
+              sourceMode: "local",
+              provider: "local",
+              status: "error",
+              meta: {
+                source: input.source,
+                profileId: fallbackProfile,
+                stage,
+                message: fallbackMessage,
+              },
+            });
             setTelemetrySummarySafe(telemetry.exportSummary());
             return;
           }
@@ -511,6 +536,19 @@ export function useLlmLocalReports() {
           modelId: llmLocalModelIdLegacy,
           stage,
           message,
+        });
+        trackBackendActivityEvent({
+          eventKind: "report",
+          sourceMode: "local",
+          provider: "local",
+          status: "error",
+          meta: {
+            source: input.source,
+            profileId: llmLocalModelProfile,
+            modelId: llmLocalModelIdLegacy,
+            stage,
+            message,
+          },
         });
         setStatusSafe("error", message);
         if (isLocalFallbackError(error)) {

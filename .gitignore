@@ -14,7 +14,9 @@ dist-ssr/
 
 # Env / secrets
 .env
+.env.development
 .env.local
+.env.production
 .env.*.local
 .env.production.local
 .secrets/

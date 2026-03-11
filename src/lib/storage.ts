@@ -15,8 +15,12 @@ import {
   DEFAULT_LLM_LOCAL_TEMPERATURE,
 } from "@/lib/llm/localModelCatalog";
 import logger from "@/lib/logger";
+import { isBackendMode } from "@/lib/runtime-config";
+import { isBackendAuthenticated } from "@/lib/backend-session";
+import { queueBackendSettingsSync } from "@/lib/backend-settings-sync";
 
 const STORAGE_KEY = "demeter-asr-settings";
+export const SETTINGS_STORAGE_KEY = STORAGE_KEY;
 const SENSITIVE_SETTING_KEYS = [
   "hfApiToken",
   "mistralApiKey",
@@ -222,8 +226,21 @@ export function saveSettings(settings: PersistedSettings) {
   try {
     const sanitized = stripSensitiveSettings(settings);
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+    if (isBackendMode() && isBackendAuthenticated()) {
+      queueBackendSettingsSync(sanitized as unknown as Record<string, unknown>);
+    }
   } catch (error) {
     logger.warn("Impossible d'enregistrer les paramètres", error);
+  }
+}
+
+export function replaceSettingsCacheFromBackend(settings: Record<string, unknown>) {
+  if (typeof window === "undefined") return;
+  try {
+    const sanitized = stripSensitiveSettings(settings);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+  } catch (error) {
+    logger.warn("Impossible de remplacer le cache settings backend", error);
   }
 }
 

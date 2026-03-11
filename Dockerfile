@@ -21,8 +21,10 @@ COPY --from=builder /app/dist /srv
 
 # Runtime Nginx config with SPA fallback, security headers and tuned cache headers.
 COPY docker/nginx/transcode.conf /etc/nginx/nginx.conf
+COPY docker/nginx/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 3000
 USER nginx
 
-ENTRYPOINT ["nginx", "-g", "daemon off;"]
+ENTRYPOINT ["/entrypoint.sh"]

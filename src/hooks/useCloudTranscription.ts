@@ -35,6 +35,7 @@ import {
   extractSrtText,
   resolveChunkingConfig,
 } from "@/hooks/useCloudTranscription.steps";
+import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
 
 type CloudStatus = "idle" | "preprocessing" | "uploading" | "transcribing" | "stopping" | "done" | "error";
 
@@ -968,6 +969,13 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
           telemetry,
           preprocessSettings,
         });
+        trackBackendActivityEvent({
+          eventKind: "transcription",
+          sourceMode: resolveCloudActivitySourceMode(provider),
+          provider,
+          status: "success",
+          meta: { source: "cloud", runId },
+        });
         return;
       }
 
@@ -978,6 +986,13 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
           metadata,
           telemetry,
           preprocessSettings,
+        });
+        trackBackendActivityEvent({
+          eventKind: "transcription",
+          sourceMode: resolveCloudActivitySourceMode(provider),
+          provider,
+          status: "success",
+          meta: { source: "cloud", runId },
         });
         return;
       }
@@ -1311,6 +1326,13 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
       setStatus("done");
       setStatusDetail("Transcription terminée");
       telemetry.logEvent("CLOUD_TRANSCRIBE_DONE", { segments: allSegments.length });
+      trackBackendActivityEvent({
+        eventKind: "transcription",
+        sourceMode: resolveCloudActivitySourceMode(provider),
+        provider,
+        status: "success",
+        meta: { source: "cloud", runId },
+      });
     } catch (err) {
       const unauthorized = isBackendUnauthorizedError(err);
       const forbidden = isBackendForbiddenError(err);
@@ -1325,6 +1347,13 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
       logger.error("[cloud] transcription failed", err);
       telemetryRef.current?.logEvent("ERROR", { context: "cloud", message });
       telemetryRef.current?.recordAlert("CLOUD_TRANSCRIBE_FAILED", { message });
+      trackBackendActivityEvent({
+        eventKind: "transcription",
+        sourceMode: resolveCloudActivitySourceMode(provider),
+        provider,
+        status: "error",
+        meta: { source: "cloud", runId, message },
+      });
       setStatus("error");
       setStatusDetail(message);
       toast(`Échec de la transcription cloud : ${message}`);
@@ -1393,4 +1422,8 @@ export function useCloudTranscription(provider: "gradio" | "whisper" | "mistral"
     stopTranscription,
     resetTranscriptionSession,
   };
+}
+
+function resolveCloudActivitySourceMode(provider: "gradio" | "whisper" | "mistral" | "demeter_sante"): "cloud_direct" | "cloud_backend" {
+  return provider === "demeter_sante" ? "cloud_backend" : "cloud_direct";
 }

@@ -41,6 +41,7 @@ import {
   trimDebrisPrefix,
   shouldStopRun,
 } from "@/hooks/useTranscriptionController.steps";
+import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
 
 const sharedAbortRef: { current: AbortController | null } = { current: null };
 const sharedRunIdRef: { current: number } = { current: 0 };
@@ -1321,6 +1322,17 @@ export function useTranscriptionController() {
       const summary = telemetry.exportSummary();
       throwIfRunInvalidated();
       state.setTelemetrySummary(summary);
+      trackBackendActivityEvent({
+        eventKind: "transcription",
+        sourceMode: "local",
+        provider: "local_upload",
+        status: "success",
+        meta: {
+          source: "upload",
+          activePreset: state.activePreset,
+          backend: state.activeBackend ?? state.backendPreference,
+        },
+      });
       toast("Transcription terminée.");
       state.setStatus("ready", "Prêt");
     } catch (error) {
@@ -1334,6 +1346,18 @@ export function useTranscriptionController() {
         failed = true;
         logger.error(error);
         const message = (error as Error)?.message ?? String(error ?? "Erreur inconnue");
+        trackBackendActivityEvent({
+          eventKind: "transcription",
+          sourceMode: "local",
+          provider: "local_upload",
+          status: "error",
+          meta: {
+            source: "upload",
+            message,
+            activePreset: state.activePreset,
+            backend: state.activeBackend ?? state.backendPreference,
+          },
+        });
         if (isModelTooLargeError(error)) {
           const fallbackPreset = resolveLighterPresetForMemoryFallback(state.activePreset, state.blockedPresets);
           if (fallbackPreset) {

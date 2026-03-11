@@ -24,6 +24,18 @@ npm ci
 npm run dev
 ```
 
+### Local backend integration tests
+
+```bash
+npm run test:backend-integration
+```
+
+Prerequisites:
+
+- `go` must be available in `PATH`,
+- the backend checkout must exist at `../Backend`,
+- this suite is local-only in v1 and is not wired into the default CI jobs.
+
 ### Docker production stack
 
 ```bash

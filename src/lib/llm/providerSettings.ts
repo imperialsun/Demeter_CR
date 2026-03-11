@@ -19,7 +19,7 @@ export function resolveActiveLlmPipelineConfig(
   source: LlmProviderPipelineConfigSource,
   provider: LlmApiProvider
 ): LlmProviderPipelineConfig {
-  if (provider === "mistral") {
+  if (provider === "mistral" || provider === "demeter_sante") {
     return {
       modelId: source.llmApiMistralModelId,
       temperature: source.llmApiMistralTemperature,

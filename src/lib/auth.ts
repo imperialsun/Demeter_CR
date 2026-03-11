@@ -1,5 +1,11 @@
 import { compareSync } from "bcryptjs";
 import logger from "@/lib/logger";
+import { isBackendMode } from "@/lib/runtime-config";
+import {
+  clearBackendSession,
+  isBackendAuthenticated,
+  setBackendAuthenticatedFlag,
+} from "@/lib/backend-session";
 
 const AUTH_KEY = "demeter-authenticated";
 const LOGIN_HASHES: string[] = typeof __LOGIN_HASHES__ !== "undefined" ? __LOGIN_HASHES__ : [];
@@ -10,11 +16,22 @@ try {
 }
 
 export function isAuthenticated(): boolean {
+  if (isBackendMode()) {
+    return isBackendAuthenticated();
+  }
   return true;
 }
 
 export function setAuthenticated(value: boolean): void {
   if (typeof window === "undefined") return;
+  if (isBackendMode()) {
+    if (value) {
+      setBackendAuthenticatedFlag(true);
+    } else {
+      clearBackendSession();
+    }
+    return;
+  }
   if (value) {
     window.localStorage.setItem(AUTH_KEY, "1");
   } else {

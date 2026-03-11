@@ -135,7 +135,7 @@ function HookHarness({
   provider,
   onReady,
 }: {
-  provider: "gradio" | "whisper" | "mistral";
+  provider: "gradio" | "whisper" | "mistral" | "demeter_sante";
   onReady: (api: ReturnType<typeof useCloudTranscription>) => void;
 }) {
   const api = useCloudTranscription(provider);

@@ -35,6 +35,7 @@ import {
   isBackendForbiddenError,
   isBackendUnauthorizedError,
 } from "@/lib/backend-api";
+import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
 
 const FORMAT_ORDER: Array<{ key: ReportResultKey; format: ReportFormat }> = [
   { key: "cri", format: "CRI" },
@@ -366,6 +367,16 @@ export function useLlmReports() {
           sourceMode,
           formatCount: FORMAT_ORDER.length,
         });
+        trackBackendActivityEvent({
+          eventKind: "report",
+          sourceMode: resolveLlmActivitySourceMode(provider),
+          provider,
+          status: "success",
+          meta: {
+            source: sourceMode,
+            modelId: modelId || "unset",
+          },
+        });
         setTelemetrySummary(telemetry.exportSummary());
       } catch (error) {
         const unauthorized = isBackendUnauthorizedError(error);
@@ -392,6 +403,18 @@ export function useLlmReports() {
           provider,
           modelId: activeModelId,
           sourceMode,
+        });
+        trackBackendActivityEvent({
+          eventKind: "report",
+          sourceMode: resolveLlmActivitySourceMode(provider),
+          provider,
+          status: "error",
+          meta: {
+            source: sourceMode,
+            stage,
+            message,
+            modelId: activeModelId,
+          },
         });
         setTelemetrySummary(telemetry.exportSummary());
         setLlmApiStatus("error", message);
@@ -513,4 +536,8 @@ function resolveSourceText(input: GenerateInput, segments: Array<{ text: string 
   }
 
   return fromSegments;
+}
+
+function resolveLlmActivitySourceMode(provider: string): "cloud_direct" | "cloud_backend" {
+  return provider === "demeter_sante" ? "cloud_backend" : "cloud_direct";
 }

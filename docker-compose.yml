@@ -1,4 +1,38 @@
 services:
+  backend:
+    build:
+      context: ../Backend
+      dockerfile: Dockerfile
+    image: transcode-backend:latest
+    restart: unless-stopped
+    environment:
+      - APP_ENV=production
+      - PORT=8080
+      - SQLITE_PATH=/data/backend.sqlite
+      - JWT_SECRET=${JWT_SECRET:-change-me}
+      - ACCESS_TTL_MINUTES=${ACCESS_TTL_MINUTES:-15}
+      - REFRESH_TTL_HOURS=${REFRESH_TTL_HOURS:-720}
+      - COOKIE_SECURE=true
+      - CORS_ORIGINS=${CORS_ORIGINS:-https://transcode.demeter-sante.fr}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
+      - MISTRAL_API_BASE_URL=${MISTRAL_API_BASE_URL:-https://api.mistral.ai}
+      - BOOTSTRAP_ADMIN_EMAIL=${BOOTSTRAP_ADMIN_EMAIL:-admin@demeter.local}
+      - BOOTSTRAP_ADMIN_PASSWORD=${BOOTSTRAP_ADMIN_PASSWORD:-ChangeMe123!}
+      - BOOTSTRAP_ORG_NAME=${BOOTSTRAP_ORG_NAME:-Demeter Santé}
+    volumes:
+      - transcode-backend-sqlite:/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.transcode-backend.rule=Host(`transcode.demeter-sante.fr`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.transcode-backend.entrypoints=websecure"
+      - "traefik.http.routers.transcode-backend.tls=true"
+      - "traefik.http.routers.transcode-backend.tls.certresolver=le"
+      - "traefik.http.routers.transcode-backend.priority=200"
+      - "traefik.http.routers.transcode-backend.service=transcode-backend"
+      - "traefik.http.services.transcode-backend.loadbalancer.server.port=8080"
+    networks:
+      - proxy
+
   transcode:
     build:
       context: .
@@ -31,6 +65,8 @@ services:
       - "traefik.http.routers.transcode.middlewares=transcode-secure-headers"
     environment:
       - NODE_ENV=production
+      - APP_RUNTIME_MODE=${APP_RUNTIME_MODE:-backend}
+      - APP_BACKEND_BASE_URL=${APP_BACKEND_BASE_URL:-/api/v1}
     networks:
       - proxy
 
@@ -62,3 +98,6 @@ services:
 networks:
   proxy:
     external: true
+
+volumes:
+  transcode-backend-sqlite:
