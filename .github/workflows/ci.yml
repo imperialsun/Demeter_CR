@@ -52,8 +52,47 @@ jobs:
 
       - name: Upload to Codecov
         if: always()
-        uses: codecov/codecov-action@v5
-        with:
-          files: ./coverage/lcov.info
-          fail_ci_if_error: false
-          verbose: true
+        continue-on-error: true
+        env:
+          CODECOV_HEAD_LABEL: ${{ github.event.pull_request.head.label }}
+          CODECOV_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          CODECOV_PR_NUMBER: ${{ github.event.pull_request.number }}
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ ! -f ./coverage/lcov.info ]; then
+            echo "coverage/lcov.info not found, skipping Codecov upload"
+            exit 0
+          fi
+
+          curl -sSfL https://keybase.io/codecovsecurity/pgp_keys.asc \
+            | gpg --batch --yes --no-default-keyring --keyring trustedkeys.gpg --import
+          curl -sSfLO https://cli.codecov.io/latest/linux/codecov
+          curl -sSfLO https://cli.codecov.io/latest/linux/codecov.SHA256SUM
+          curl -sSfLO https://cli.codecov.io/latest/linux/codecov.SHA256SUM.sig
+          gpg --batch --no-default-keyring --keyring trustedkeys.gpg --verify codecov.SHA256SUM.sig codecov.SHA256SUM
+          sha256sum -c codecov.SHA256SUM
+          chmod +x codecov
+
+          codecov_args=(
+            --verbose
+            upload-process
+            --disable-search
+            --file ./coverage/lcov.info
+            --slug "$GITHUB_REPOSITORY"
+          )
+
+          if [ -n "${CODECOV_TOKEN:-}" ]; then
+            codecov_args+=(--token "$CODECOV_TOKEN")
+          fi
+
+          if [ -n "${CODECOV_PR_NUMBER:-}" ]; then
+            codecov_args+=(--pull-request-number "$CODECOV_PR_NUMBER")
+          fi
+
+          if [ -n "${CODECOV_HEAD_LABEL:-}" ] && [ -n "${CODECOV_HEAD_REPO:-}" ] && [ "$CODECOV_HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then
+            codecov_args+=(--branch "$CODECOV_HEAD_LABEL")
+          fi
+
+          ./codecov "${codecov_args[@]}"
