@@ -14,7 +14,7 @@ COPY . .
 RUN npm run build:prod
 
 # Production image
-FROM nginx:alpine
+FROM nginx:1.29.6-alpine3.23
 
 # Copy built static assets
 COPY --from=builder /app/dist /srv
