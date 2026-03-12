@@ -29,6 +29,7 @@ jobs:
         id: trivy_fs_scan
         uses: aquasecurity/trivy-action@0.35.0
         with:
+          cache: "false"
           scan-type: fs
           scan-ref: .
           scanners: vuln
@@ -41,6 +42,7 @@ jobs:
       - name: Build Trivy FS text report (non-blocking)
         uses: aquasecurity/trivy-action@0.35.0
         with:
+          cache: "false"
           scan-type: fs
           scan-ref: .
           scanners: vuln
@@ -87,6 +89,7 @@ jobs:
         id: trivy_image_scan
         uses: aquasecurity/trivy-action@0.35.0
         with:
+          cache: "false"
           scan-type: image
           scan-ref: demeter-cr:ci
           scanners: vuln
@@ -99,6 +102,7 @@ jobs:
       - name: Build Trivy image text report (non-blocking)
         uses: aquasecurity/trivy-action@0.35.0
         with:
+          cache: "false"
           scan-type: image
           scan-ref: demeter-cr:ci
           scanners: vuln
