@@ -13,6 +13,7 @@ import logger from "@/lib/logger";
 
 const RETRY_DELAY_MS = 5000;
 const SAVE_DEBOUNCE_MS = 1000;
+const LEGACY_SETTINGS_KEYS = ["cloudApiUrl", "cloudContextPreset"] as const;
 
 let pendingSettings: Record<string, unknown> | null = null;
 let debounceTimer: number | null = null;
@@ -27,6 +28,14 @@ export type BackendSettingsEnvelope = {
   settings: Record<string, unknown>;
 };
 
+function stripLegacySettings(settings: Record<string, unknown>): Record<string, unknown> {
+  const sanitized = { ...settings };
+  for (const key of LEGACY_SETTINGS_KEYS) {
+    delete sanitized[key];
+  }
+  return sanitized;
+}
+
 export function initializeBackendSettingsSync() {
   if (listenersReady || typeof window === "undefined") return;
   listenersReady = true;
@@ -38,9 +47,9 @@ export function initializeBackendSettingsSync() {
 
 export function queueBackendSettingsSync(settings: Record<string, unknown>) {
   if (!isBackendMode() || !isBackendAuthenticated()) return;
-  pendingSettings = settings;
+  pendingSettings = stripLegacySettings(settings);
   logger.debug("[backend-settings-sync] queued settings update", {
-    keys: Object.keys(settings).length,
+    keys: Object.keys(pendingSettings).length,
   });
   if (typeof window === "undefined") return;
   if (debounceTimer) {
@@ -78,7 +87,7 @@ export async function flushNow() {
     if (pendingSettings === snapshot) {
       pendingSettings = null;
     }
-    logger.info("[backend-settings-sync] flush success");
+    logger.debug("[backend-settings-sync] flush success");
     clearRetry();
   } catch (error) {
     if (isBackendUnauthorizedError(error)) {
@@ -114,19 +123,22 @@ export async function pullBackendSettings(): Promise<BackendSettingsEnvelope | n
     const error = await parseBackendHttpError(response, "/settings", "GET");
     if (isBackendUnauthorizedError(error)) {
       handleBackendUnauthorized(error);
-      logger.info("[backend-settings-sync] pull unauthorized", { status: error.status });
+      logger.debug("[backend-settings-sync] pull unauthorized", { status: error.status });
       return null;
     }
     if (isBackendForbiddenError(error)) {
-      logger.info("[backend-settings-sync] pull forbidden", { status: error.status });
+      logger.debug("[backend-settings-sync] pull forbidden", { status: error.status });
       return null;
     }
     logger.warn("[backend-settings-sync] pull failed", { status: error.status, message: error.message });
     throw error;
   }
   const payload = await parseBackendJson<BackendSettingsEnvelope>(response);
-  logger.info("[backend-settings-sync] pull success", { version: payload.version });
-  return payload;
+  logger.debug("[backend-settings-sync] pull success", { version: payload.version });
+  return {
+    ...payload,
+    settings: stripLegacySettings(payload.settings),
+  };
 }
 
 function clearRetry() {
@@ -142,7 +154,7 @@ function scheduleRetry() {
   if (retryTimer) return;
   retryTimer = window.setTimeout(() => {
     retryTimer = null;
-    logger.info("[backend-settings-sync] retry flush");
+    logger.debug("[backend-settings-sync] retry flush");
     void flushNow();
   }, RETRY_DELAY_MS);
 }

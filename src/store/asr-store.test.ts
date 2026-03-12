@@ -4,7 +4,6 @@ import { indexedDB as fakeIndexedDb } from "fake-indexeddb";
 import {
   type AsrConfigStore,
   MODEL_PRESETS,
-  normalizeCloudApiUrl,
   useAsrStore,
   resolveEffectiveModelDtype,
   resolveModelDtype,
@@ -16,34 +15,6 @@ import {
   createDefaultLocalModelSettingsByProfile,
   getLocalLlmModelProfile,
 } from "@/lib/llm/localModelCatalog";
-
-describe("normalizeCloudApiUrl", () => {
-  const fallback = "https://transcode.demeter-sante.fr/gradio";
-
-  it("keeps gradio base paths and trims trailing slashes", () => {
-    expect(normalizeCloudApiUrl("https://transcode.demeter-sante.fr/gradio", fallback)).toBe(
-      "https://transcode.demeter-sante.fr/gradio"
-    );
-    expect(normalizeCloudApiUrl("https://transcode.demeter-sante.fr/gradio/", fallback)).toBe(
-      "https://transcode.demeter-sante.fr/gradio"
-    );
-  });
-
-  it("normalizes gradio api paths back to origin", () => {
-    expect(normalizeCloudApiUrl("https://transcode.demeter-sante.fr/gradio_api", fallback)).toBe(
-      "https://transcode.demeter-sante.fr"
-    );
-    expect(normalizeCloudApiUrl("https://transcode.demeter-sante.fr/gradio_api/info", fallback)).toBe(
-      "https://transcode.demeter-sante.fr"
-    );
-  });
-
-  it("returns fallback on empty inputs", () => {
-    expect(normalizeCloudApiUrl("", fallback)).toBe(fallback);
-    expect(normalizeCloudApiUrl("   ", fallback)).toBe(fallback);
-    expect(normalizeCloudApiUrl(undefined, fallback)).toBe(fallback);
-  });
-});
 
 describe("preset model resolution", () => {
   it("returns model id for regular presets", () => {
@@ -241,6 +212,24 @@ describe("llm provider config hydration", () => {
     expect(state.llmLocalModelId).toContain("Ministral-3-3B");
     expect(state.llmLocalTemperature).toBe(0.3);
     expect(state.llmLocalMaxTokens).toBe(4096);
+  });
+
+  it("migrates demeter cloud settings from legacy mistral fields when dedicated keys are absent", () => {
+    const payload = {
+      ...DEFAULT_SETTINGS,
+      cloudDemeterModel: undefined,
+      cloudDemeterDiarizationEnabled: undefined,
+      cloudMistralModel: "voxtral-mini-transcribe-26-02",
+      cloudMistralDiarizationEnabled: false,
+    };
+
+    window.localStorage.setItem(storageKey, JSON.stringify(payload));
+    useAsrStore.getState().hydrateFromStorage();
+
+    const state = useAsrStore.getState();
+    expect(state.cloudMistralModel).toBe("voxtral-mini-latest");
+    expect(state.cloudDemeterModel).toBe("voxtral-mini-latest");
+    expect(state.cloudDemeterDiarizationEnabled).toBe(false);
   });
 
   it("keeps llm local settings isolated per profile and syncs legacy mirror", () => {

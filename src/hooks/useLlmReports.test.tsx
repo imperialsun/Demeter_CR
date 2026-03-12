@@ -58,7 +58,19 @@ describe("useLlmReports telemetry", () => {
       cloudMistralApiUrl: "https://api.mistral.ai",
       telemetryCollector: null,
       telemetrySummary: null,
-      segments: [{ text: "Segment un" }, { text: "Segment deux" }],
+      sessionTranscriptMemories: {
+        upload: {
+          mode: "upload",
+          provider: "upload",
+          label: "Locale · demo.wav",
+          segments: [{ text: "Segment un" }, { text: "Segment deux" }],
+          audioSource: { id: "upload-1", label: "demo.wav", type: "file" },
+          audioMetadata: null,
+          updatedAt: "2026-03-12T10:00:00.000Z",
+        },
+        mic: null,
+        cloud: null,
+      },
     } as any);
 
     mocks.getLlmHfClientMock.mockResolvedValue({});
@@ -84,7 +96,7 @@ describe("useLlmReports telemetry", () => {
     const { result } = renderHook(() => useLlmReports());
 
     await act(async () => {
-      await result.current.generateAll({ source: "transcription" });
+      await result.current.generateAll({ source: "transcription", transcriptMode: "upload" });
     });
 
     const summary = useAsrStore.getState().telemetrySummary;
@@ -103,7 +115,7 @@ describe("useLlmReports telemetry", () => {
     const { result } = renderHook(() => useLlmReports());
 
     await act(async () => {
-      await result.current.generateAll({ source: "transcription" });
+      await result.current.generateAll({ source: "transcription", transcriptMode: "upload" });
     });
 
     const summary = useAsrStore.getState().telemetrySummary;
@@ -119,7 +131,7 @@ describe("useLlmReports telemetry", () => {
     const { result } = renderHook(() => useLlmReports());
 
     await act(async () => {
-      await result.current.generateAll({ source: "transcription" });
+      await result.current.generateAll({ source: "transcription", transcriptMode: "upload" });
     });
 
     await act(async () => {
@@ -140,7 +152,7 @@ describe("useLlmReports telemetry", () => {
     const { result } = renderHook(() => useLlmReports());
 
     await act(async () => {
-      await result.current.generateAll({ source: "transcription" });
+      await result.current.generateAll({ source: "transcription", transcriptMode: "upload" });
     });
 
     await act(async () => {
@@ -183,14 +195,57 @@ describe("useLlmReports telemetry", () => {
   });
 
   it("returns an error when transcription source has no segment text", async () => {
-    useAsrStore.setState({ segments: [] } as any);
+    useAsrStore.setState({
+      sessionTranscriptMemories: {
+        upload: null,
+        mic: null,
+        cloud: null,
+      },
+    } as any);
     const { result } = renderHook(() => useLlmReports());
 
     await act(async () => {
-      await result.current.generateAll({ source: "transcription" });
+      await result.current.generateAll({ source: "transcription", transcriptMode: "upload" });
     });
 
     expect(useAsrStore.getState().llmApiStatus).toBe("error");
     expect(useAsrStore.getState().llmApiStatusDetail).toContain("Aucune transcription disponible");
+  });
+
+  it("reads the selected transcript mode instead of the global segments array", async () => {
+    useAsrStore.setState({
+      segments: [{ text: "Ancien segment global" }],
+      sessionTranscriptMemories: {
+        upload: {
+          mode: "upload",
+          provider: "upload",
+          label: "Locale · demo.wav",
+          segments: [{ text: "Texte local" }],
+          audioSource: { id: "upload-1", label: "demo.wav", type: "file" },
+          audioMetadata: null,
+          updatedAt: "2026-03-12T10:00:00.000Z",
+        },
+        mic: null,
+        cloud: {
+          mode: "cloud",
+          provider: "mistral",
+          label: "Cloud Mistral · demo.wav",
+          segments: [{ text: "Texte cloud" }],
+          audioSource: { id: "cloud-1", label: "demo.wav", type: "file" },
+          audioMetadata: null,
+          updatedAt: "2026-03-12T10:05:00.000Z",
+        },
+      },
+    } as any);
+
+    const { result } = renderHook(() => useLlmReports());
+
+    await act(async () => {
+      await result.current.generateAll({ source: "transcription", transcriptMode: "cloud" });
+    });
+
+    expect(mocks.prepareLongInputForReportsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceText: "Texte cloud" })
+    );
   });
 });

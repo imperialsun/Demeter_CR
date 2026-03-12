@@ -51,14 +51,6 @@ Actions:
 - utiliser mode `progressive`,
 - forcer WASM single-thread si contention.
 
-## Erreurs Gradio
-
-Actions:
-
-- verifier `cloudApiUrl`,
-- verifier proxy `/gradio` et `/gradio_api`,
-- verifier reponse `gradio_api/info`.
-
 ## Erreurs Whisper
 
 Actions:

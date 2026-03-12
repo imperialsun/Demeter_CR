@@ -26,8 +26,7 @@ Args build critiques:
 
 Services:
 
-- `transcode`: app statique Nginx + labels Traefik,
-- `gradio-proxy`: proxy Nginx vers backend Gradio distant.
+- `transcode`: app statique Nginx + labels Traefik.
 
 Prerequis reseau:
 

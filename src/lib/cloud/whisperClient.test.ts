@@ -17,8 +17,10 @@ vi.mock("@huggingface/inference", () => ({
 
 vi.mock("@/lib/logger", () => ({
   default: {
+    debug: vi.fn(),
     error: mocks.loggerError,
     info: mocks.loggerInfo,
+    warn: vi.fn(),
   },
 }));
 
@@ -72,4 +74,3 @@ describe("getWhisperClient", () => {
     expect(mocks.InferenceClient).toHaveBeenNthCalledWith(2, "token_b");
   });
 });
-

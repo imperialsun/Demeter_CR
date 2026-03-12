@@ -62,7 +62,7 @@ async function decodeWithFfmpeg(file: File, telemetry?: TelemetryCollector): Pro
   const ffAny = ffmpeg as unknown as Record<string, unknown>;
   const hasLegacyFs = typeof ffAny["FS"] === "function" && typeof ffAny["run"] === "function";
 
-  logger.info("[cloud][decode-ffmpeg] start", {
+  logger.debug("[cloud][decode-ffmpeg] start", {
     inputName,
     outputName,
     sizeBytes: file.size,
@@ -153,7 +153,7 @@ async function decodeWithFfmpeg(file: File, telemetry?: TelemetryCollector): Pro
     durationSec,
     sampleRate: TARGET_SAMPLE_RATE,
   });
-  logger.info("[cloud][decode-ffmpeg] done", {
+  logger.debug("[cloud][decode-ffmpeg] done", {
     samples: pcm.length,
     durationSec,
   });

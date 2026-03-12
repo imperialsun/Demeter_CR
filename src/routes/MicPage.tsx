@@ -88,14 +88,14 @@ function MicPage() {
       : null;
 
   useEffect(() => {
-    logger.info("[mic][ui] page mounted", {
+    logger.debug("[mic][ui] page mounted", {
       backendPreference,
       micBackendPreference,
       activeBackend: activeBackend ?? null,
       segmentsCount: segments.length,
     });
     return () => {
-      logger.info("[mic][ui] page unmounted");
+      logger.debug("[mic][ui] page unmounted");
     };
   }, [activeBackend, backendPreference, micBackendPreference, segments.length]);
 

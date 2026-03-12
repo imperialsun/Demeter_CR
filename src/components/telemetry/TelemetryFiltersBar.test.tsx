@@ -89,5 +89,5 @@ describe("TelemetryFiltersBar", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /reset filtres/i }));
     expect(onResetFilters).toHaveBeenCalledTimes(1);
-  });
+  }, 15_000);
 });

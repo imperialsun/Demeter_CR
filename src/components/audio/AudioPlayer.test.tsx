@@ -47,6 +47,18 @@ describe('AudioPlayer', () => {
     expect(screen.getByText(/Sample rate : 16000 Hz/)).toBeInTheDocument();
   });
 
+  it('renders long metadata file names without dropping them', () => {
+    const file = createTestFile();
+    const metadata = {
+      name: 'consultation_audio_nom_extremement_long_2026_03_12_version_finale_avec_suffixe_preparation.wav',
+      durationSec: 75,
+      sampleRate: 16000,
+    } as any;
+    renderWithStore(<AudioPlayer file={file} metadata={metadata} />);
+
+    expect(screen.getByText(/consultation_audio_nom_extremement_long_2026_03_12/i)).toBeInTheDocument();
+  });
+
   it('play button triggers play and toggles to Pause', async () => {
     const file = createTestFile();
     renderWithStore(<AudioPlayer file={file} metadata={null} />);

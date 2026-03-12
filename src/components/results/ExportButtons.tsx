@@ -14,10 +14,11 @@ import { useCallback, useMemo, useState } from "react";
 import { useAsrStore } from "@/store/asr-store";
 import {
   applySpeakerAssignments,
-  collectSpeakerIds,
+  collectSpeakerAssignmentEntries,
   type SpeakerAssignmentMap,
 } from "@/lib/speakerAssignments";
 import { SpeakerAssignmentDialog } from "@/components/results/SpeakerAssignmentDialog";
+import logger from "@/lib/logger";
 
 interface ExportButtonsProps {
   segments: TranscriptionSegment[];
@@ -41,32 +42,51 @@ export function ExportButtons({
   const [isSpeakerDialogOpen, setSpeakerDialogOpen] = useState(false);
   const speakerAssignments = useAsrStore((s) => s.speakerAssignments[mode]);
   const setSpeakerAssignments = useAsrStore((s) => s.setSpeakerAssignments);
-  const speakerIds = useMemo(() => collectSpeakerIds(segments), [segments]);
+  const speakerEntries = useMemo(() => collectSpeakerAssignmentEntries(segments, mode), [mode, segments]);
   const segmentsForExport = useMemo(
-    () => applySpeakerAssignments(segments, speakerAssignments),
-    [segments, speakerAssignments]
+    () => applySpeakerAssignments(segments, speakerAssignments, mode),
+    [mode, segments, speakerAssignments]
   );
   const exportVtt = useCallback(() => {
     if (!segments.length) return;
     const header = buildExportHeader(mode);
+    logger.info("[export] VTT download requested", {
+      mode,
+      segmentCount: segments.length,
+      filename: buildFilename("transcription.vtt"),
+    });
     downloadBlob(serializeVtt(segmentsForExport, header), buildFilename("transcription.vtt"), "text/vtt");
   }, [mode, segments.length, segmentsForExport]);
 
   const exportSrt = useCallback(() => {
     if (!segments.length) return;
     const header = buildExportHeader(mode);
+    logger.info("[export] SRT download requested", {
+      mode,
+      segmentCount: segments.length,
+      filename: buildFilename("transcription.srt"),
+    });
     downloadBlob(serializeSrt(segmentsForExport, header), buildFilename("transcription.srt"), "text/plain");
   }, [mode, segments.length, segmentsForExport]);
 
   const exportJson = useCallback(() => {
     if (!segments.length) return;
     const header = buildExportHeader(mode);
+    logger.info("[export] JSON download requested", {
+      mode,
+      segmentCount: segments.length,
+      filename: buildFilename("segments.json"),
+    });
     downloadBlob(serializeSegmentsJson(segmentsForExport, header), buildFilename("segments.json"), "application/json");
   }, [mode, segments.length, segmentsForExport]);
 
   const exportTelemetry = useCallback(() => {
     if (!telemetry) return;
     const header = buildExportHeader(mode);
+    logger.info("[export] telemetry download requested", {
+      mode,
+      filename: buildFilename("telemetry.json"),
+    });
     downloadBlob(serializeTelemetry(telemetry, header), buildFilename("telemetry.json"), "application/json");
   }, [mode, telemetry]);
 
@@ -81,6 +101,10 @@ export function ExportButtons({
 
   const handleApplySpeakerAssignments = useCallback(
     (nextAssignments: SpeakerAssignmentMap) => {
+      logger.info("[results] speaker assignments applied", {
+        mode,
+        speakerCount: Object.keys(nextAssignments).length,
+      });
       setSpeakerAssignments(mode, nextAssignments);
       setSpeakerDialogOpen(false);
     },
@@ -90,8 +114,19 @@ export function ExportButtons({
   return (
     <>
       <div className="flex flex-wrap gap-2">
-        {speakerIds.length ? (
-          <Button variant="outline" size="sm" className="gap-2" onClick={() => setSpeakerDialogOpen(true)}>
+        {speakerEntries.length ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => {
+              logger.info("[results] opening speaker assignment dialog", {
+                mode,
+                speakerCount: speakerEntries.length,
+              });
+              setSpeakerDialogOpen(true);
+            }}
+          >
             <Users className="h-4 w-4" /> Assigner speakers
           </Button>
         ) : null}
@@ -123,9 +158,13 @@ export function ExportButtons({
 
       {isSpeakerDialogOpen ? (
         <SpeakerAssignmentDialog
-          speakerIds={speakerIds}
+          mode={mode}
+          entries={speakerEntries}
           assignments={speakerAssignments}
-          onCancel={() => setSpeakerDialogOpen(false)}
+          onCancel={() => {
+            logger.debug("[results] speaker assignment dialog cancelled", { mode });
+            setSpeakerDialogOpen(false);
+          }}
           onApply={handleApplySpeakerAssignments}
         />
       ) : null}

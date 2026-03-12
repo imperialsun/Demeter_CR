@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAsrStore, MODEL_PRESETS, type CloudTranscriptionStatus } from "@/store/asr-store";
 import { cn } from "@/lib/utils";
 import { ActivitySquare, Bot, Cloud, Cog, Loader2, LogOut, RotateCw } from "lucide-react";
@@ -12,12 +13,12 @@ import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { useTranscriptionController } from "@/hooks/useTranscriptionController";
 import { canAccessFeature, getFirstAuthorizedRoute } from "@/lib/backend-permissions";
 import { initializeBackendSupport, resetWebGpuSupportCache } from "@/lib/backend-support";
-import logger, { exportLogEntries } from "@/lib/logger";
+import logger, { exportLogEntries, type LogLevel } from "@/lib/logger";
 import { setAuthenticated } from "@/lib/auth";
 import { backendLogout } from "@/lib/backend-auth";
 import { isBackendMode } from "@/lib/runtime-config";
 import { useModelCompatibilityTest, type ModelTestStatus } from "@/hooks/useModelCompatibilityTest";
-import { getEnvMode, isProdEnv } from "@/lib/env";
+import { getEnvMode } from "@/lib/env";
 import { findSuggestedReportModel, formatTokenCount } from "@/lib/llm/modelCatalog";
 import { LLM_API_STATUS_META } from "@/lib/llm/llmStatusMeta";
 import { resolveActiveLlmPipelineConfig } from "@/lib/llm/providerSettings";
@@ -53,6 +54,13 @@ const MODEL_TEST_STATUS_META: Record<ModelTestStatus, { label: string; variant: 
   unavailable: { label: "Non disponible", variant: "warning" },
 };
 
+const LOG_LEVEL_LABELS: Record<LogLevel, string> = {
+  error: "Erreur",
+  warn: "Warn",
+  info: "Info",
+  debug: "Debug",
+};
+
 export function Topbar() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -85,8 +93,8 @@ export function Topbar() {
   const { abortTranscription } = useTranscriptionController();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const debugConfidence = useAsrStore((s) => s.debugConfidence);
-  const setDebugConfidence = useAsrStore((s) => s.setDebugConfidence);
+  const logLevel = useAsrStore((s) => s.logLevel);
+  const setLogLevel = useAsrStore((s) => s.setLogLevel);
 
   const presetLabel =
     activePreset === "custom"
@@ -104,8 +112,7 @@ export function Topbar() {
       ? Math.round(Math.max(0, Math.min(1, modelTestState.progress)) * 100)
       : 0;
   const backendKeys = ["webgpu", "wasm"] as const;
-  const showDebugActions = !isProdEnv();
-  const envMode = getEnvMode();
+  const showDebugActions = true;
   const backendMode = isBackendMode();
   const canOpenSettings = canAccessFeature("feature.settings");
   const isCloudRoute = location.pathname === "/cloudupload";
@@ -147,12 +154,103 @@ export function Topbar() {
       : statusDetail;
 
   useEffect(() => {
-    logger.info("[topbar] debug controls visibility", { showDebugActions, mode: envMode });
+    logger.debug("[topbar] debug controls visibility", { showDebugActions, mode: getEnvMode() });
     telemetryCollector?.logEvent?.("TOPBAR_DEBUG_CONTROLS_VISIBILITY", {
       showDebugActions,
-      mode: envMode,
+      mode: getEnvMode(),
     });
-  }, [envMode, showDebugActions, telemetryCollector]);
+  }, [showDebugActions, telemetryCollector]);
+
+  useEffect(() => {
+    logger.debug("[topbar] status snapshot updated", {
+      route: location.pathname,
+      statusLabel,
+      statusDetail: statusDetailLabel ?? null,
+      logLevel,
+    });
+  }, [location.pathname, logLevel, statusDetailLabel, statusLabel]);
+
+  const handleLogLevelChange = (value: string) => {
+    logger.info("[topbar] log level changed", { from: logLevel, to: value });
+    setLogLevel(value as LogLevel);
+  };
+
+  const handleExportLogs = async () => {
+    logger.info("[topbar] exporting logs");
+    const snapshot = useAsrStore.getState();
+    const telemetry = snapshot.telemetryCollector?.exportSummary() ?? snapshot.telemetrySummary ?? null;
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      session: {
+        status: snapshot.status,
+        statusDetail: snapshot.statusDetail,
+        activePreset: snapshot.activePreset,
+        customModelId: snapshot.customModelId,
+        backendPreference: snapshot.backendPreference,
+        activeBackend: snapshot.activeBackend,
+        memoryMode: snapshot.memoryMode,
+        segmentationMode: snapshot.segmentationMode,
+        chunkStrategy: snapshot.chunkStrategy,
+        preprocessingMode: snapshot.preprocessingMode,
+        isTranscribing: snapshot.isTranscribing,
+        progress: snapshot.progress,
+        audioSource: snapshot.audioSource,
+        audioMetadata: snapshot.audioMetadata,
+        logLevel: snapshot.logLevel,
+      },
+      telemetry,
+      logs: exportLogEntries(),
+    };
+    const text = JSON.stringify(payload, null, 2);
+    try {
+      await navigator.clipboard.writeText(text);
+      logger.info("[topbar] logs copied to clipboard", {
+        entryCount: payload.logs.length,
+      });
+      toast("Logs copiés dans le presse-papiers.");
+    } catch (error) {
+      logger.warn("[topbar] clipboard export failed, falling back to prompt", error);
+      if (typeof window !== "undefined") {
+        window.prompt("Copiez les logs ci-dessous :", text);
+      }
+    }
+  };
+
+  const handleLogout = async () => {
+    logger.info("[topbar] logout requested", { backendMode });
+    if (backendMode) {
+      await backendLogout();
+    } else {
+      setAuthenticated(false);
+    }
+    toast("Déconnecté.");
+    logger.info("[topbar] logout completed");
+    navigate("/login", { replace: true });
+  };
+
+  const handleResetApp = async () => {
+    logger.warn("[topbar] app reset confirmed");
+    setConfirmOpen(false);
+    await Promise.resolve(abortTranscription());
+    const reset = useAsrStore.getState().resetApp;
+    if (typeof reset === "function") {
+      reset();
+      resetWebGpuSupportCache();
+      initializeBackendSupport().then((supported) => {
+        logger.info("[topbar] backend support reinitialized after reset", { supported });
+        toast(
+          supported ? "WebGPU disponible sur ce périphérique." : "WebGPU non disponible; WASM sélectionné si disponible."
+        );
+        const threads = useAsrStore.getState().wasmThreads;
+        if (typeof threads === "number" && threads > 1) {
+          toast(`Mode multithread WASM actif (${threads} threads)`);
+        }
+      });
+
+      logger.info("[topbar] app reset completed");
+      toast("Application réinitialisée aux paramètres par défaut.");
+    }
+  };
 
   return (
     <>
@@ -252,54 +350,39 @@ export function Topbar() {
         ) : null}
         <>
           {showDebugActions ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              onClick={async () => {
-                const snapshot = useAsrStore.getState();
-                const telemetry = snapshot.telemetryCollector?.exportSummary() ?? snapshot.telemetrySummary ?? null;
-                const payload = {
-                  exportedAt: new Date().toISOString(),
-                  session: {
-                    status: snapshot.status,
-                    statusDetail: snapshot.statusDetail,
-                    activePreset: snapshot.activePreset,
-                    customModelId: snapshot.customModelId,
-                    backendPreference: snapshot.backendPreference,
-                    activeBackend: snapshot.activeBackend,
-                    memoryMode: snapshot.memoryMode,
-                    segmentationMode: snapshot.segmentationMode,
-                    chunkStrategy: snapshot.chunkStrategy,
-                    preprocessingMode: snapshot.preprocessingMode,
-                    isTranscribing: snapshot.isTranscribing,
-                    progress: snapshot.progress,
-                    audioSource: snapshot.audioSource,
-                    audioMetadata: snapshot.audioMetadata,
-                  },
-                  telemetry,
-                  logs: exportLogEntries(),
-                };
-                const text = JSON.stringify(payload, null, 2);
-                try {
-                  await navigator.clipboard.writeText(text);
-                  toast("Logs copiés dans le presse-papiers.");
-                } catch (error) {
-                  void error;
-                  if (typeof window !== "undefined") {
-                    window.prompt("Copiez les logs ci-dessous :", text);
-                  }
-                }
-              }}
-            >
-              Exporter logs
-            </Button>
+            <>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Logs</span>
+                <Select value={logLevel} onValueChange={handleLogLevelChange}>
+                  <SelectTrigger aria-label="Niveau de logs" className="h-9 w-28">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="error">{LOG_LEVEL_LABELS.error}</SelectItem>
+                    <SelectItem value="warn">{LOG_LEVEL_LABELS.warn}</SelectItem>
+                    <SelectItem value="info">{LOG_LEVEL_LABELS.info}</SelectItem>
+                    <SelectItem value="debug">{LOG_LEVEL_LABELS.debug}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={handleExportLogs}
+              >
+                Exporter logs
+              </Button>
+            </>
           ) : null}
           <Button
             variant="outline"
             size="sm"
             className="gap-2"
-            onClick={() => runTest()}
+            onClick={() => {
+              logger.info("[topbar] model compatibility test requested");
+              runTest();
+            }}
             disabled={modelTestState.running}
           >
             {modelTestState.running ? (
@@ -311,15 +394,7 @@ export function Topbar() {
             variant="outline"
             size="sm"
             className="gap-2"
-            onClick={async () => {
-              if (backendMode) {
-                await backendLogout();
-              } else {
-                setAuthenticated(false);
-              }
-              toast("Déconnecté.");
-              navigate("/login", { replace: true });
-            }}
+            onClick={handleLogout}
           >
             <LogOut className="h-4 w-4" />
             Déconnexion
@@ -328,54 +403,23 @@ export function Topbar() {
             variant="destructive"
             size="sm"
             className="gap-2"
-            onClick={() => setConfirmOpen(true)}
+            onClick={() => {
+              logger.warn("[topbar] app reset requested");
+              setConfirmOpen(true);
+            }}
           >
             <RotateCw className="h-4 w-4" />
             Réinitialiser
           </Button>
-
-        {showDebugActions ? (
-          <>
-            {/* Debug toggle for confidence breakdown (hidden in production) */}
-            <Button
-              size="sm"
-              variant={debugConfidence ? 'destructive' : 'outline'}
-              onClick={() => setDebugConfidence(!debugConfidence)}
-              className="gap-2"
-            >
-              {debugConfidence ? 'Debug conf : ON' : 'Debug conf : OFF'}
-            </Button>
-          </>
-        ) : null}
-
           <ConfirmDialog
             open={confirmOpen}
             title="Réinitialiser l'application"
             description="Êtes-vous sûr ? Cette action réinitialisera l'application aux paramètres par défaut et supprimera la session en cours."
-            onCancel={() => setConfirmOpen(false)}
-            onConfirm={async () => {
+            onCancel={() => {
+              logger.debug("[topbar] app reset cancelled");
               setConfirmOpen(false);
-              // abort transcription if it's running
-              await Promise.resolve(abortTranscription());
-              const reset = useAsrStore.getState().resetApp;
-              if (typeof reset === "function") {
-                reset();
-                // Reset cached detection and re-run backend support checks like on startup
-                resetWebGpuSupportCache();
-                initializeBackendSupport().then((supported) => {
-                  toast(
-                    supported ? "WebGPU disponible sur ce périphérique." : "WebGPU non disponible; WASM sélectionné si disponible."
-                  );
-                  // Show multithread status if detected (only show positive info to avoid noisy toasts)
-                  const threads = useAsrStore.getState().wasmThreads;
-                  if (typeof threads === 'number' && threads > 1) {
-                    toast(`Mode multithread WASM actif (${threads} threads)`);
-                  }
-                });
-
-                toast("Application réinitialisée aux paramètres par défaut.");
-              }
             }}
+            onConfirm={handleResetApp}
           />
         </>
       </div>

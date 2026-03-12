@@ -24,7 +24,10 @@ vi.mock("onnxruntime-web", () => mocks.ort);
 
 vi.mock("@/lib/logger", () => ({
   default: {
+    debug: vi.fn(),
+    info: vi.fn(),
     warn: mocks.loggerWarn,
+    error: vi.fn(),
   },
 }));
 
@@ -61,4 +64,3 @@ describe("ort-wasm helpers", () => {
     });
   });
 });
-

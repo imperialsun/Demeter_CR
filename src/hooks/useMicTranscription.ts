@@ -12,6 +12,7 @@ import logger from "@/lib/logger";
 import { MODEL_PRESETS, resolveLighterPresetForMemoryFallback, resolveModelId, useAsrStore } from "@/store/asr-store";
 import { getFfmpeg } from "@/lib/ffmpeg-loader";
 import { encodeWavBuffer, resampleMono } from "@/lib/audio";
+import { createSessionTranscriptMemoryEntry } from "@/lib/sessionTranscriptMemory";
 import {
   getSharedRunId,
   nextSharedRunId,
@@ -192,6 +193,20 @@ function buildStreamingSilenceSegments(
   }
 
   return out;
+}
+
+function publishMicTranscriptMemory(segments: TranscriptionSegment[]) {
+  const state = useAsrStore.getState();
+  state.setSessionTranscriptMemory(
+    "mic",
+    createSessionTranscriptMemoryEntry({
+      mode: "mic",
+      provider: "mic",
+      segments,
+      audioSource: state.audioSource,
+      audioMetadata: state.audioMetadata,
+    })
+  );
 }
 
 export function useMicTranscription() {
@@ -617,7 +632,7 @@ export function useMicTranscription() {
 
       const shouldAutoTune = state.micAutoTunePreprocess;
       if (shouldAutoTune && !micAutoTuneParamsRef.current) {
-        logger.info("[mic][autotune] calibration start", {
+        logger.debug("[mic][autotune] calibration start", {
           calibrationSeconds: state.micDenoiseCalibrationSeconds,
           vadThresholdDb: state.micPreprocessVadThresholdDb,
           vadMinSilenceMs: state.micPreprocessVadMinSilenceMs,
@@ -671,7 +686,7 @@ export function useMicTranscription() {
             overlapBlockSec: tune.overlapBlockSec,
             overlapSec: tune.overlapSec,
           });
-          logger.info("[mic][autotune] applied", { snrDb: tune.snrDb });
+          logger.debug("[mic][autotune] applied", { snrDb: tune.snrDb });
         } catch (err) {
           logger.warn("[mic][autotune] failed", err);
           telemetry?.recordAlert?.("PREPROCESS_AUTOTUNE_FAILED", { message: String(err) });
@@ -780,6 +795,7 @@ export function useMicTranscription() {
         nextSegmentIndexRef.current += segments.length;
         lastSegmentRef.current = segments[segments.length - 1];
         state.appendSegments(segments);
+        publishMicTranscriptMemory(useAsrStore.getState().segments);
       }
       logger.debug("[mic][segments] normalised", {
         chunkIndex: item.chunk.index,
@@ -809,16 +825,16 @@ export function useMicTranscription() {
     queueProcessingRef.current = true;
     try {
       const pipeline = await ensurePipeline();
-      logger.info("[mic][queue] pump start", { pendingChunks: pendingChunksRef.current.length });
+      logger.debug("[mic][queue] pump start", { pendingChunks: pendingChunksRef.current.length });
 
       while (pendingChunksRef.current.length > 0) {
         const controller = abortControllerRef.current;
         if (controller?.signal.aborted) {
-          logger.warn("[mic][queue] pump aborted");
+          logger.info("[mic][queue] pump aborted");
           break;
         }
         if (runIdRef.current !== getSharedRunId()) {
-          logger.warn("[mic][queue] pump run changed", { runId: runIdRef.current, sharedRunId: getSharedRunId() });
+          logger.info("[mic][queue] pump run changed", { runId: runIdRef.current, sharedRunId: getSharedRunId() });
           break;
         }
 
@@ -912,7 +928,7 @@ export function useMicTranscription() {
       void processTranscriptionQueue();
       return;
     }
-    logger.info("[mic][queue] pump idle", { pendingChunks: pendingChunksRef.current.length });
+    logger.debug("[mic][queue] pump idle", { pendingChunks: pendingChunksRef.current.length });
     await maybeFinish();
   }, [cleanupCapture, ensurePipeline, maybeFinish, transcribeQueuedChunk]);
 
@@ -925,7 +941,7 @@ export function useMicTranscription() {
     const pendingBefore = pendingChunksRef.current.length;
     let skippedEmpty = 0;
 
-    logger.info("[mic][queue] enqueue segments", {
+    logger.debug("[mic][queue] enqueue segments", {
       segments: summariseSegmentWindows(segments),
       sampleRate,
       bufferOffsetSec: round3(offset),
@@ -960,7 +976,7 @@ export function useMicTranscription() {
 
     if (queuedChunks.length) {
       micLogRef.current.maxPendingChunks = Math.max(micLogRef.current.maxPendingChunks, pendingChunksRef.current.length);
-      logger.info("[mic][queue] enqueued chunks", {
+      logger.debug("[mic][queue] enqueued chunks", {
         queued: queuedChunks.length,
         skippedEmpty,
         pendingAfter: pendingChunksRef.current.length,
@@ -1065,7 +1081,7 @@ export function useMicTranscription() {
         }
       }
 
-      logger.info("[mic][segment] ready", {
+      logger.debug("[mic][segment] ready", {
         flush,
         mode: state.micSegmentationMode,
         segments: summariseSegmentWindows(segments),
@@ -1090,7 +1106,7 @@ export function useMicTranscription() {
     (flush: boolean) => {
       if (flush) {
         flushRequestedRef.current = true;
-        logger.info("[mic][pcm] flush requested", {
+        logger.debug("[mic][pcm] flush requested", {
           pcmQueue: pcmQueueRef.current.length,
           bufferSamples: bufferPcmRef.current.length,
           bufferStartSec: round3(bufferStartSecRef.current),
@@ -1359,7 +1375,7 @@ export function useMicTranscription() {
   }, [isCalibratingNoise]);
 
   const abortRecording = useCallback(async () => {
-    logger.warn("[mic] abort requested", {
+    logger.info("[mic] abort requested", {
       pendingChunks: pendingChunksRef.current.length,
       pcmQueue: pcmQueueRef.current.length,
     });
@@ -1465,6 +1481,7 @@ export function useMicTranscription() {
     state.resetStopRequest();
     state.setProgress(0);
     state.clearSpeakerAssignments("mic");
+    state.clearSessionTranscriptMemory("mic");
     state.setSegments([]);
     state.setChunkPlan([]);
     state.setTelemetrySummary(null);
@@ -1535,7 +1552,7 @@ export function useMicTranscription() {
     });
 
     try {
-      logger.info("[mic] request getUserMedia");
+      logger.debug("[mic] request getUserMedia");
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
       const audioContext = new AudioContext();
@@ -1555,7 +1572,7 @@ export function useMicTranscription() {
       gainRef.current = gain;
 
       if (audioContext.audioWorklet && typeof audioContext.audioWorklet.addModule === "function") {
-        logger.info("[mic] audioWorklet init");
+        logger.debug("[mic] audioWorklet init");
         await audioContext.audioWorklet.addModule(new URL("../worklets/mic-capture.worklet.ts", import.meta.url));
         const node = new AudioWorkletNode(audioContext, "mic-capture", {
           numberOfInputs: 1,

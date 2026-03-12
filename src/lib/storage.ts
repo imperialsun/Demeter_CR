@@ -14,7 +14,7 @@ import {
   DEFAULT_LLM_LOCAL_PROFILE,
   DEFAULT_LLM_LOCAL_TEMPERATURE,
 } from "@/lib/llm/localModelCatalog";
-import logger from "@/lib/logger";
+import logger, { type LogLevel } from "@/lib/logger";
 import { isBackendMode } from "@/lib/runtime-config";
 import { isBackendAuthenticated } from "@/lib/backend-session";
 import { queueBackendSettingsSync } from "@/lib/backend-settings-sync";
@@ -28,6 +28,7 @@ const SENSITIVE_SETTING_KEYS = [
   "cloudMistralApiKey",
   "llmApiHfToken",
 ] as const;
+const LEGACY_SETTING_KEYS = ["cloudApiUrl", "cloudContextPreset"] as const;
 
 export interface PersistedSettings {
   activePreset: PresetKey;
@@ -77,7 +78,8 @@ export interface PersistedSettings {
   // Whisper options
   enableWordTimestamps?: boolean;
   showSegmentConfidence?: boolean;
-  // Debug toggles
+  logLevel?: LogLevel;
+  // Legacy migration toggle, no longer persisted by the store.
   debugConfidence?: boolean;
   // performance
   forceSingleThread?: boolean;
@@ -119,10 +121,11 @@ export interface PersistedSettings {
   micShowSegmentConfidence?: boolean;
   micForceSingleThread?: boolean;
   // Cloud-specific settings
-  cloudApiUrl?: string;
   cloudMistralApiUrl?: string;
   cloudMistralModel?: string;
   cloudMistralDiarizationEnabled?: boolean;
+  cloudDemeterModel?: string;
+  cloudDemeterDiarizationEnabled?: boolean;
   cloudWhisperChunkDurationSec?: number;
   cloudWhisperOverlapSec?: number;
   cloudMistralChunkDurationSec?: number;
@@ -131,7 +134,6 @@ export interface PersistedSettings {
   cloudTemperature?: number;
   cloudTopP?: number;
   cloudDoSample?: boolean;
-  cloudContextPreset?: string;
   cloudShowSegments?: boolean;
   cloudShowExportVtt?: boolean;
   cloudShowExportSrt?: boolean;
@@ -190,11 +192,20 @@ function stripSensitiveSettings<T extends object>(settings: T): T {
       delete sanitized[key];
     }
   }
+  for (const key of LEGACY_SETTING_KEYS) {
+    if (key in sanitized) {
+      delete sanitized[key];
+    }
+  }
   return sanitized as T;
 }
 
 function hasSensitiveSettings(settings: object) {
   return SENSITIVE_SETTING_KEYS.some((key) => key in settings);
+}
+
+function hasLegacySettings(settings: object) {
+  return LEGACY_SETTING_KEYS.some((key) => key in settings);
 }
 
 function parseStoredSettings(): PersistedSettings | null {
@@ -208,12 +219,23 @@ export function loadSettings(): Partial<PersistedSettings> | null {
   if (typeof window === "undefined") return null;
   try {
     const parsed = parseStoredSettings();
-    if (!parsed) return null;
+    if (!parsed) {
+      logger.info("[settings][storage] no persisted settings found");
+      return null;
+    }
     const sanitized = stripSensitiveSettings(parsed);
     // Backward compatibility: purge sensitive values from existing persisted blobs.
-    if (hasSensitiveSettings(parsed)) {
+    if (hasSensitiveSettings(parsed) || hasLegacySettings(parsed)) {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+      logger.info("[settings][storage] sanitized persisted settings blob", {
+        removedSensitiveKeys: hasSensitiveSettings(parsed),
+        removedLegacyKeys: hasLegacySettings(parsed),
+      });
     }
+    logger.debug("[settings][storage] loaded settings", {
+      keyCount: Object.keys(sanitized).length,
+      logLevel: sanitized.logLevel ?? DEFAULT_SETTINGS.logLevel,
+    });
     return sanitized;
   } catch (error) {
     logger.warn("Impossible de charger les paramètres depuis le stockage local", error);
@@ -226,8 +248,17 @@ export function saveSettings(settings: PersistedSettings) {
   try {
     const sanitized = stripSensitiveSettings(settings);
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+    logger.debug("[settings][storage] settings persisted", {
+      keyCount: Object.keys(sanitized).length,
+      logLevel: sanitized.logLevel ?? DEFAULT_SETTINGS.logLevel,
+      backendMode: isBackendMode(),
+      backendAuthenticated: isBackendAuthenticated(),
+    });
     if (isBackendMode() && isBackendAuthenticated()) {
       queueBackendSettingsSync(sanitized as unknown as Record<string, unknown>);
+      logger.info("[settings][storage] queued backend settings sync", {
+        keyCount: Object.keys(sanitized).length,
+      });
     }
   } catch (error) {
     logger.warn("Impossible d'enregistrer les paramètres", error);
@@ -239,6 +270,9 @@ export function replaceSettingsCacheFromBackend(settings: Record<string, unknown
   try {
     const sanitized = stripSensitiveSettings(settings);
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+    logger.info("[settings][storage] backend cache replaced", {
+      keyCount: Object.keys(sanitized).length,
+    });
   } catch (error) {
     logger.warn("Impossible de remplacer le cache settings backend", error);
   }
@@ -290,8 +324,7 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   // Whisper: enable word timestamps (disabled by default to save CPU/memory)
   enableWordTimestamps: false,
   showSegmentConfidence: false,
-  // Debug toggles
-  debugConfidence: false,
+  logLevel: "info",
   // default performance settings
   forceSingleThread: false,
   // mic defaults
@@ -332,19 +365,19 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   micShowSegmentConfidence: false,
   micForceSingleThread: false,
   // cloud defaults
-  cloudApiUrl: "https://transcode.demeter-sante.fr/gradio",
   cloudMistralApiUrl: "https://api.mistral.ai",
   cloudMistralModel: "voxtral-mini-latest",
   cloudMistralDiarizationEnabled: true,
+  cloudDemeterModel: "voxtral-mini-latest",
+  cloudDemeterDiarizationEnabled: true,
   cloudWhisperChunkDurationSec: 30,
   cloudWhisperOverlapSec: 0,
-  cloudMistralChunkDurationSec: 1800,
+  cloudMistralChunkDurationSec: 900,
   cloudMistralOverlapSec: 0,
   cloudMaxTokens: 32768,
   cloudTemperature: 0,
   cloudTopP: 1,
   cloudDoSample: false,
-  cloudContextPreset: "",
   cloudShowSegments: true,
   cloudShowExportVtt: true,
   cloudShowExportSrt: true,

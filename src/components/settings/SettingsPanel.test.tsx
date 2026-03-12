@@ -33,6 +33,16 @@ const {
   testWasmMultithreadSupportMock: vi.fn(async () => ({ ok: true, reason: "ok" })),
 }));
 
+const {
+  canUseCloudProviderMock,
+  canUseLlmProviderMock,
+  isBackendModeMock,
+} = vi.hoisted(() => ({
+  canUseCloudProviderMock: vi.fn(() => true),
+  canUseLlmProviderMock: vi.fn(() => true),
+  isBackendModeMock: vi.fn(() => false),
+}));
+
 vi.mock('@/lib/backend-support', () => ({
   initializeBackendSupport: (...args: unknown[]) => initializeBackendSupportMock(...args),
   resetWebGpuSupportCache: (...args: unknown[]) => resetWebGpuSupportCacheMock(...args),
@@ -51,6 +61,23 @@ vi.mock('@/lib/llm/mistralModelsClient', () => ({
     models.find((model) => model.id === modelId) ?? null,
   resolveMistralMaxTokens: (metadata?: { maxContextTokens?: number }) =>
     typeof metadata?.maxContextTokens === 'number' ? metadata.maxContextTokens - 512 : 8192,
+}));
+
+vi.mock('@/lib/backend-permissions', () => ({
+  canAccessFeature: vi.fn(() => true),
+  canAccessRoutePath: vi.fn(() => true),
+  canUseCloudProvider: (...args: unknown[]) => canUseCloudProviderMock(...args),
+  canUseLlmProvider: (...args: unknown[]) => canUseLlmProviderMock(...args),
+  getAuthorizedSettingsTabs: vi.fn(() => ["local", "cloud", "llmlocal", "llm"]),
+  getFirstAuthorizedRoute: vi.fn(() => "/localupload"),
+}));
+
+vi.mock('@/lib/runtime-config', () => ({
+  isBackendMode: (...args: unknown[]) => isBackendModeMock(...args),
+  getRuntimeConfig: () => ({
+    mode: isBackendModeMock() ? "backend" : "standalone",
+    backendBaseUrl: "/api/v1",
+  }),
 }));
 
 describe('SettingsPanel', () => {
@@ -81,6 +108,12 @@ describe('SettingsPanel', () => {
     resetWebGpuSupportCacheMock.mockReset();
     testWasmMultithreadSupportMock.mockReset();
     testWasmMultithreadSupportMock.mockResolvedValue({ ok: true, reason: "ok" });
+    canUseCloudProviderMock.mockReset();
+    canUseCloudProviderMock.mockReturnValue(true);
+    canUseLlmProviderMock.mockReset();
+    canUseLlmProviderMock.mockReturnValue(true);
+    isBackendModeMock.mockReset();
+    isBackendModeMock.mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -262,22 +295,6 @@ describe('SettingsPanel', () => {
     );
 
     expect(screen.getByText('Cloud')).toBeTruthy();
-  });
-
-  it("updates cloud api url from settings", async () => {
-    render(
-      <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">
-        <SettingsPanel />
-      </ThemeProvider>
-    );
-
-    const cloudTab = screen.getByText("Cloud");
-    await userEvent.click(cloudTab);
-
-    const input = screen.getByLabelText("URL Gradio", { selector: "input#cloud-api-url" });
-    fireEvent.change(input, { target: { value: "https://example.com/" } });
-
-    expect(useAsrStore.getState().cloudApiUrl).toBe("https://example.com/");
   });
 
   it("updates cloud hf token from settings", async () => {
@@ -953,12 +970,10 @@ describe('SettingsPanel', () => {
 
   it("updates cloud provider fields and cloud preprocessing mode selector", async () => {
     useAsrStore.setState({
-      cloudApiUrl: "https://example.local",
       cloudMaxTokens: 1024,
       cloudTemperature: 0.2,
       cloudTopP: 0.9,
       cloudDoSample: false,
-      cloudContextPreset: "",
       cloudPreprocessingMode: "quick",
     } as any);
 
@@ -967,21 +982,6 @@ describe('SettingsPanel', () => {
         <SettingsPanel initialTab="cloud" />
       </ThemeProvider>
     );
-
-    fireEvent.change(screen.getByLabelText("URL Gradio", { selector: "input#cloud-api-url" }), {
-      target: { value: "https://gradio.changed/" },
-    });
-    fireEvent.change(screen.getByLabelText("Max tokens", { selector: "input#cloud-max-tokens" }), {
-      target: { value: "2048" },
-    });
-    fireEvent.change(screen.getByLabelText("Temperature", { selector: "input#cloud-temperature" }), {
-      target: { value: "0.6" },
-    });
-    fireEvent.change(screen.getByLabelText("Top-p", { selector: "input#cloud-top-p" }), { target: { value: "0.75" } });
-    fireEvent.click(screen.getByText("Sampling").closest("div")?.parentElement?.querySelector('[role="switch"]') as HTMLElement);
-    fireEvent.change(screen.getByLabelText("Contexte par défaut (pré-remplissage)", { selector: "textarea#cloud-context-preset" }), {
-      target: { value: "Cardiologie | ECG" },
-    });
 
     await userEvent.click(screen.getByRole("tab", { name: "Whisper" }));
     fireEvent.change(screen.getByLabelText("Max tokens", { selector: "input#cloud-whisper-max-tokens" }), {
@@ -1001,14 +1001,43 @@ describe('SettingsPanel', () => {
 
     await waitFor(() => {
       const state = useAsrStore.getState();
-      expect(state.cloudApiUrl).toBe("https://gradio.changed/");
       expect(state.cloudMaxTokens).toBe(3072);
       expect(state.cloudTemperature).toBe(0.3);
       expect(state.cloudTopP).toBe(0.55);
-      expect(state.cloudDoSample).toBe(false);
-      expect(state.cloudContextPreset).toBe("Cardiologie | ECG");
+      expect(state.cloudDoSample).toBe(true);
       expect(state.cloudPreprocessingMode).toBe("full");
     });
+  }, 20000);
+
+  it("shows dedicated demeter cloud settings only in backend mode", async () => {
+    useAsrStore.setState({
+      cloudDemeterModel: "voxtral-mini-latest",
+      cloudDemeterDiarizationEnabled: true,
+    } as any);
+
+    const { rerender } = render(
+      <ThemeProvider defaultTheme="dark" storageKey="demeter-theme"><SettingsPanel initialTab="cloud" /></ThemeProvider>
+    );
+
+    expect(screen.queryByRole("tab", { name: "Demeter Santé" })).toBeNull();
+
+    isBackendModeMock.mockReturnValue(true);
+
+    rerender(
+      <ThemeProvider defaultTheme="dark" storageKey="demeter-theme"><SettingsPanel initialTab="cloud" /></ThemeProvider>
+    );
+
+    await userEvent.click(screen.getByRole("tab", { name: "Demeter Santé" }));
+    fireEvent.change(screen.getByLabelText("Model ID (Demeter Santé)"), {
+      target: { value: "voxtral-demeter-custom" },
+    });
+    fireEvent.click(screen.getByRole("switch", { name: "Diarization Demeter Santé" }));
+
+    await waitFor(() => {
+      expect(useAsrStore.getState().cloudDemeterModel).toBe("voxtral-demeter-custom");
+      expect(useAsrStore.getState().cloudDemeterDiarizationEnabled).toBe(false);
+    });
+    expect(screen.getByText(/backend demeter santé/i)).toBeInTheDocument();
   }, 20000);
 
   it("tests wasm multithread success, fallback and error branches", async () => {

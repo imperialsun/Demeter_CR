@@ -29,7 +29,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 import { useTheme, type Theme } from "@/components/theme-context";
 import { computeDefaultOverlap } from "@/lib/chunking";
 import { cn } from "@/lib/utils";
@@ -38,6 +37,7 @@ import logger from "@/lib/logger";
 import { clearSecureTokens } from "@/lib/secure-token-vault";
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { canUseCloudProvider, canUseLlmProvider } from "@/lib/backend-permissions";
+import { isBackendMode } from "@/lib/runtime-config";
 import { LlmCloudSettingsTab } from "@/components/settings/LlmCloudSettingsTab";
 import { LlmLocalSettingsTab } from "@/components/settings/LlmLocalSettingsTab";
 
@@ -277,13 +277,13 @@ export function SettingsPanel({
   );
 
   const {
-    cloudApiUrl,
     cloudMaxTokens,
     cloudTemperature,
     cloudTopP,
     cloudDoSample,
-    cloudContextPreset,
     mistralApiKey,
+    cloudDemeterModel,
+    cloudDemeterDiarizationEnabled,
     cloudWhisperChunkDurationSec,
     cloudWhisperOverlapSec,
     cloudMistralChunkDurationSec,
@@ -316,16 +316,16 @@ export function SettingsPanel({
     cloudEnableWordTimestamps,
     cloudShowSegmentConfidence,
     hfApiToken,
-    setCloudApiUrl,
     setHfApiToken,
     setMistralApiKey,
+    setCloudDemeterModel,
+    setCloudDemeterDiarizationEnabled,
     setCloudWhisperChunking,
     setCloudMistralChunking,
     setCloudMaxTokens,
     setCloudTemperature,
     setCloudTopP,
     setCloudDoSample,
-    setCloudContextPreset,
     setCloudShowSegments,
     setCloudShowExportVtt,
     setCloudShowExportSrt,
@@ -339,13 +339,13 @@ export function SettingsPanel({
     setCloudShowSegmentConfidence,
   } = useAsrStore(
     useShallow((state) => ({
-      cloudApiUrl: state.cloudApiUrl,
       cloudMaxTokens: state.cloudMaxTokens,
       cloudTemperature: state.cloudTemperature,
       cloudTopP: state.cloudTopP,
       cloudDoSample: state.cloudDoSample,
-      cloudContextPreset: state.cloudContextPreset,
       mistralApiKey: state.mistralApiKey,
+      cloudDemeterModel: state.cloudDemeterModel,
+      cloudDemeterDiarizationEnabled: state.cloudDemeterDiarizationEnabled,
       cloudWhisperChunkDurationSec: state.cloudWhisperChunkDurationSec,
       cloudWhisperOverlapSec: state.cloudWhisperOverlapSec,
       cloudMistralChunkDurationSec: state.cloudMistralChunkDurationSec,
@@ -378,16 +378,16 @@ export function SettingsPanel({
       cloudEnableWordTimestamps: state.cloudEnableWordTimestamps,
       cloudShowSegmentConfidence: state.cloudShowSegmentConfidence,
       hfApiToken: state.hfApiToken,
-      setCloudApiUrl: state.setCloudApiUrl,
       setHfApiToken: state.setHfApiToken,
       setMistralApiKey: state.setMistralApiKey,
+      setCloudDemeterModel: state.setCloudDemeterModel,
+      setCloudDemeterDiarizationEnabled: state.setCloudDemeterDiarizationEnabled,
       setCloudWhisperChunking: state.setCloudWhisperChunking,
       setCloudMistralChunking: state.setCloudMistralChunking,
       setCloudMaxTokens: state.setCloudMaxTokens,
       setCloudTemperature: state.setCloudTemperature,
       setCloudTopP: state.setCloudTopP,
       setCloudDoSample: state.setCloudDoSample,
-      setCloudContextPreset: state.setCloudContextPreset,
       setCloudShowSegments: state.setCloudShowSegments,
       setCloudShowExportVtt: state.setCloudShowExportVtt,
       setCloudShowExportSrt: state.setCloudShowExportSrt,
@@ -539,7 +539,7 @@ export function SettingsPanel({
 
   const [modelOpen, setModelOpen] = useState(initialModelOpen);
   const [chunkingOpen, setChunkingOpen] = useState(initialChunkingOpen);
-  const [cloudProviderPanel, setCloudProviderPanel] = useState<"gradio" | "whisper" | "mistral">("gradio");
+  const [cloudProviderPanel, setCloudProviderPanel] = useState<"whisper" | "mistral" | "demeter">("whisper");
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
 
@@ -562,16 +562,17 @@ export function SettingsPanel({
   const showCloudSettingsResolved = showCloudSettings;
   const showLlmLocalSettingsResolved = showLlmLocalSettings ?? showLlmSettings;
   const showLlmCloudSettingsResolved = showLlmCloudSettings ?? showLlmSettings;
-  const canUseCloudGradio = canUseCloudProvider("gradio");
+  const backendMode = isBackendMode();
   const canUseCloudWhisper = canUseCloudProvider("whisper");
   const canUseCloudMistral = canUseCloudProvider("mistral");
-  const cloudProviderTabs = useMemo<Array<"gradio" | "whisper" | "mistral">>(() => {
-    const tabs: Array<"gradio" | "whisper" | "mistral"> = [];
-    if (canUseCloudGradio) tabs.push("gradio");
+  const canUseCloudDemeter = backendMode && canUseCloudProvider("demeter_sante");
+  const cloudProviderTabs = useMemo<Array<"whisper" | "mistral" | "demeter">>(() => {
+    const tabs: Array<"whisper" | "mistral" | "demeter"> = [];
     if (canUseCloudWhisper) tabs.push("whisper");
     if (canUseCloudMistral) tabs.push("mistral");
+    if (canUseCloudDemeter) tabs.push("demeter");
     return tabs;
-  }, [canUseCloudGradio, canUseCloudMistral, canUseCloudWhisper]);
+  }, [canUseCloudDemeter, canUseCloudMistral, canUseCloudWhisper]);
   const canUseLlmHuggingFace = canUseLlmProvider("huggingface");
   const canUseLlmMistral = canUseLlmProvider("mistral");
   const canUseLlmDemeter = canUseLlmProvider("demeter_sante");
@@ -623,17 +624,17 @@ export function SettingsPanel({
   }, [cloudProviderPanel, cloudProviderTabs]);
 
   useEffect(() => {
-    logger.info("Settings panel view", { section: "settings" });
+    logger.debug("[settings][ui] panel view", { section: "settings" });
     telemetryCollector?.logEvent?.("SETTINGS_PANEL_VIEW", { section: "settings" });
   }, [telemetryCollector]);
 
   useEffect(() => {
-    logger.info("Settings mic section visibility", { visible: showMicSettings });
+    logger.debug("[settings][ui] mic section visibility", { visible: showMicSettings });
     telemetryCollector?.logEvent?.("SETTINGS_MIC_SECTION_VISIBILITY", { visible: showMicSettings });
   }, [showMicSettings, telemetryCollector]);
 
   useEffect(() => {
-    logger.info("Settings cloud section visibility", { visible: showCloudSettingsResolved });
+    logger.debug("[settings][ui] cloud section visibility", { visible: showCloudSettingsResolved });
     telemetryCollector?.logEvent?.("SETTINGS_CLOUD_SECTION_VISIBILITY", {
       visible: showCloudSettingsResolved,
     });
@@ -773,7 +774,7 @@ export function SettingsPanel({
 
     // Snapshot memory before heavy work (light method still snapshots to track impact)
     if (telemetryCollector?.snapshotMemory) telemetryCollector.snapshotMemory('CACHE_STATS_START');
-    logger.info("[cache-stats] start (light)");
+    logger.debug("[cache-stats] start (light)");
     if (telemetryCollector?.logEvent) telemetryCollector.logEvent("CACHE_STATS_CALC_START", { mode: 'light' });
 
     const stats = {
@@ -797,7 +798,7 @@ export function SettingsPanel({
             if (typeof estimateAny.usage === 'number') {
               // we don't trust this as exact but store as a hint
               stats.localStorageBytes = stats.localStorageBytes || 0; // leave unchanged, show estimate separately in console below
-              logger.info('[cache-stats] storage.estimate', estimate);
+              logger.debug("[cache-stats] storage.estimate", estimate);
             }
           } catch (err) {
             void err;
@@ -976,7 +977,7 @@ export function SettingsPanel({
       stats.totalBytes = stats.cacheTotalBytes + stats.indexedTotalBytes + stats.localStorageBytes + stats.sessionStorageBytes;
       // Snapshot memory after calculation
       if (telemetryCollector?.snapshotMemory) telemetryCollector.snapshotMemory('CACHE_STATS_END');
-      logger.info('[cache-stats] done', stats);
+      logger.debug("[cache-stats] done", stats);
       if (telemetryCollector?.logEvent) telemetryCollector.logEvent('CACHE_STATS_CALC_DONE', {
         cacheTotalBytes: stats.cacheTotalBytes,
         indexedTotalBytes: stats.indexedTotalBytes,
@@ -2718,7 +2719,7 @@ export function SettingsPanel({
                   value={cloudProviderPanel}
                   onValueChange={(value) => {
                     if (
-                      (value === "gradio" || value === "whisper" || value === "mistral") &&
+                      (value === "whisper" || value === "mistral" || value === "demeter") &&
                       cloudProviderTabs.includes(value)
                     ) {
                       setCloudProviderPanel(value);
@@ -2735,77 +2736,10 @@ export function SettingsPanel({
                           : "grid-cols-3"
                     )}
                   >
-                    {canUseCloudGradio ? <TabsTrigger value="gradio">Gradio</TabsTrigger> : null}
                     {canUseCloudWhisper ? <TabsTrigger value="whisper">Whisper</TabsTrigger> : null}
                     {canUseCloudMistral ? <TabsTrigger value="mistral">Mistral</TabsTrigger> : null}
+                    {canUseCloudDemeter ? <TabsTrigger value="demeter">Demeter Santé</TabsTrigger> : null}
                   </TabsList>
-
-                  {canUseCloudGradio ? (
-                  <TabsContent value="gradio" className="mt-4 space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="cloud-api-url">URL Gradio</Label>
-                      <Input
-                        id="cloud-api-url"
-                        value={cloudApiUrl}
-                        onChange={(event) => setCloudApiUrl(event.target.value)}
-                        placeholder="https://....gradio.live/"
-                      />
-                    </div>
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <NumberField
-                        id="cloud-max-tokens"
-                        label="Max tokens"
-                        min={256}
-                        max={65536}
-                        step={256}
-                        value={cloudMaxTokens}
-                        onChange={(value) => setCloudMaxTokens(value)}
-                      />
-                      <NumberField
-                        id="cloud-temperature"
-                        label="Temperature"
-                        min={0}
-                        max={2}
-                        step={0.1}
-                        value={cloudTemperature}
-                        onChange={(value) => setCloudTemperature(value)}
-                      />
-                      <NumberField
-                        id="cloud-top-p"
-                        label="Top-p"
-                        min={0}
-                        max={1}
-                        step={0.05}
-                        value={cloudTopP}
-                        onChange={(value) => setCloudTopP(value)}
-                      />
-                    </div>
-                    <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
-                      <div>
-                        <p className="text-sm font-medium">Sampling</p>
-                        <p className="text-xs text-muted-foreground">Active la génération stochastique.</p>
-                      </div>
-                      <Switch
-                        className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
-                        checked={cloudDoSample}
-                        onCheckedChange={(value) => setCloudDoSample(value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="cloud-context-preset">Contexte par défaut (pré-remplissage)</Label>
-                      <Textarea
-                        id="cloud-context-preset"
-                        rows={4}
-                        value={cloudContextPreset}
-                        onChange={(event) => setCloudContextPreset(event.target.value)}
-                        placeholder="Noms propres, jargon, acronymes..."
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Ce texte sera ajouté automatiquement au contexte saisi sur la page cloud.
-                      </p>
-                    </div>
-                  </TabsContent>
-                  ) : null}
 
                   {canUseCloudWhisper ? (
                   <TabsContent value="whisper" className="mt-4 space-y-4">
@@ -2910,19 +2844,10 @@ export function SettingsPanel({
                       />
                     </div>
                     <div className="rounded-md border bg-muted/30 p-3">
-                      <p className="text-sm font-medium">Chunking Mistral (taille)</p>
+                      <p className="text-sm font-medium">Chunking Mistral</p>
                       <p className="mb-3 text-xs text-muted-foreground">
-                        Découpage progressif automatique basé sur la taille envoyée.
-                        Si un chunk dépasse 500 Mo, il est découpé automatiquement en morceaux plus petits.
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Le découpage Mistral n'est plus piloté par la durée.
-                      </p>
-                    </div>
-                    <div className="rounded-md border bg-muted/30 p-3">
-                      <p className="text-sm font-medium">Réglages durée (legacy, ignorés)</p>
-                      <p className="mb-3 text-xs text-muted-foreground">
-                        Conservés uniquement pour compatibilité. Ils ne pilotent plus l'envoi Mistral.
+                        Découpage principal par durée avant l'envoi. Si un chunk dépasse 500 Mo ou time out côté Mistral,
+                        il est redécoupé automatiquement.
                       </p>
                       <NumberField
                         id="cloud-mistral-chunk-duration"
@@ -2932,7 +2857,6 @@ export function SettingsPanel({
                         step={1}
                         value={cloudMistralChunkDurationSec}
                         onChange={(value) => setCloudMistralChunking({ chunkDurationSec: value })}
-                        disabled
                       />
                       <NumberField
                         id="cloud-mistral-overlap"
@@ -2942,7 +2866,65 @@ export function SettingsPanel({
                         step={0.5}
                         value={cloudMistralOverlapSec}
                         onChange={(value) => setCloudMistralChunking({ overlapSec: value })}
-                        disabled
+                      />
+                      <p className="mt-3 text-xs text-muted-foreground">
+                        Les modèles Voxtral sont plafonnés automatiquement à 15 minutes par chunk pour éviter les timeouts upstream.
+                      </p>
+                    </div>
+                  </TabsContent>
+                  ) : null}
+
+                  {canUseCloudDemeter ? (
+                  <TabsContent value="demeter" className="mt-4 space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="cloud-demeter-model">Model ID (Demeter Santé)</Label>
+                      <Input
+                        id="cloud-demeter-model"
+                        value={cloudDemeterModel}
+                        onChange={(event) => setCloudDemeterModel(event.target.value)}
+                        placeholder="voxtral-mini-latest"
+                        autoComplete="off"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Appel relayé par le backend Demeter Santé. Aucun token front n'est nécessaire.
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
+                      <div>
+                        <p className="text-sm font-medium">Diarization</p>
+                        <p className="text-xs text-muted-foreground">
+                          Identifie les intervenants avant retour de la transcription depuis le backend Demeter.
+                        </p>
+                      </div>
+                      <Switch
+                        aria-label="Diarization Demeter Santé"
+                        className="bg-red-500 data-[state=checked]:bg-emerald-500 data-[state=unchecked]:bg-red-500"
+                        checked={cloudDemeterDiarizationEnabled}
+                        onCheckedChange={(checked) => setCloudDemeterDiarizationEnabled(checked)}
+                      />
+                    </div>
+                    <div className="rounded-md border bg-muted/30 p-3">
+                      <p className="text-sm font-medium">Chunking Demeter</p>
+                      <p className="mb-3 text-xs text-muted-foreground">
+                        Demeter réutilise la segmentation Mistral. Réduisez la durée si Mistral renvoie encore un `504`.
+                      </p>
+                      <NumberField
+                        id="cloud-demeter-chunk-duration"
+                        label="Durée chunk (s)"
+                        min={5}
+                        max={3600}
+                        step={1}
+                        value={cloudMistralChunkDurationSec}
+                        onChange={(value) => setCloudMistralChunking({ chunkDurationSec: value })}
+                      />
+                      <NumberField
+                        id="cloud-demeter-overlap"
+                        label="Recouvrement (s)"
+                        min={0}
+                        max={120}
+                        step={0.5}
+                        value={cloudMistralOverlapSec}
+                        onChange={(value) => setCloudMistralChunking({ overlapSec: value })}
                       />
                     </div>
                   </TabsContent>

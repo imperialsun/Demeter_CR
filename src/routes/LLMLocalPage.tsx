@@ -68,7 +68,7 @@ function LLMLocalPage() {
   const sourceFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    logger.info("[llm-local][ui] page view", { route: "/llmlocal", mode: "local" });
+    logger.debug("[llm-local][ui] page view", { route: "/llmlocal", mode: "local" });
     emitLlmEvent("LLM_LOCAL_PAGE_VIEW", { route: "/llmlocal", mode: "local" });
   }, []);
 
@@ -493,11 +493,11 @@ function LLMLocalPage() {
                       <p className="text-xs text-muted-foreground">
                         Importez un fichier texte pour alimenter la generation des comptes rendus.
                       </p>
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <div className="mt-3 flex flex-wrap items-start gap-2 sm:flex-nowrap">
                         <Button type="button" onClick={triggerSourceFilePicker} disabled={isImporting || isBusy}>
                           {isImporting ? "Import en cours..." : "Choisir un fichier"}
                         </Button>
-                        <span className="text-xs text-muted-foreground">
+                        <span className="min-w-0 flex-1 break-all text-xs text-muted-foreground [overflow-wrap:anywhere]">
                           {importedFileMeta ? importedFileMeta.name : "Aucun fichier importe"}
                         </span>
                       </div>
@@ -522,8 +522,11 @@ function LLMLocalPage() {
                     ) : null}
                     {importedFileMeta ? (
                       <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
-                        <p>
-                          Fichier importe: <span className="font-medium text-foreground">{importedFileMeta.name}</span>
+                        <p className="min-w-0">
+                          Fichier importe:{" "}
+                          <span className="mt-1 block break-all font-medium text-foreground [overflow-wrap:anywhere]">
+                            {importedFileMeta.name}
+                          </span>
                         </p>
                         <p>
                           Format detecte:{" "}

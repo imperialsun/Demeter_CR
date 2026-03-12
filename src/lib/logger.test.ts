@@ -1,11 +1,10 @@
 /* @vitest-environment jsdom */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const originalConsole = {
-  log: console.log,
-  info: console.info,
-  warn: console.warn,
   debug: console.debug,
+  log: console.log,
+  warn: console.warn,
   error: console.error,
 };
 
@@ -14,9 +13,8 @@ const LOG_CACHE_KEY = "demeter-log-cache";
 describe("logger", () => {
   beforeEach(() => {
     console.log = originalConsole.log;
-    console.info = originalConsole.info;
-    console.warn = originalConsole.warn;
     console.debug = originalConsole.debug;
+    console.warn = originalConsole.warn;
     console.error = originalConsole.error;
     const store = new Map<string, string>();
     const mockStorage = {
@@ -36,71 +34,72 @@ describe("logger", () => {
     vi.resetModules();
   });
 
-  it("suppresses console output when debug is disabled but always logs errors", async () => {
-    const { installConsoleGuard, setDebugProvider } = await import("./logger");
-    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    setDebugProvider(() => false);
-    installConsoleGuard();
-
-    console.info("info");
-    console.warn("warn");
-    console.debug("debug");
-    console.error("error");
-
-    expect(infoSpy).not.toHaveBeenCalled();
-    expect(warnSpy).not.toHaveBeenCalled();
-    expect(debugSpy).not.toHaveBeenCalled();
-    expect(errorSpy).toHaveBeenCalled();
-  });
-
-  it("allows console output when debug is enabled", async () => {
-    const { installConsoleGuard, setDebugProvider } = await import("./logger");
-    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
-
-    setDebugProvider(() => true);
-    installConsoleGuard();
-
-    console.info("visible");
-    expect(infoSpy).toHaveBeenCalled();
-  });
-
-  it("supports warn-error-only visibility policy", async () => {
-    const { installConsoleGuard, setConsoleVisibilityPolicy, setDebugProvider } = await import("./logger");
-    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+  it("filters console output by the configured log level", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { info, debug, warn, error, setLogLevelProvider } = await import("./logger");
 
-    setDebugProvider(() => false);
-    setConsoleVisibilityPolicy("warn-error-only");
-    installConsoleGuard();
+    setLogLevelProvider(() => "warn");
 
-    console.info("hidden-info");
-    console.warn("visible-warn");
-    console.error("visible-error");
+    info("[test] hidden info");
+    debug("[test] hidden debug");
+    warn("[test] visible warn");
+    error("[test] visible error");
 
-    expect(infoSpy).not.toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(errorSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("mirrors logger entries into telemetry events", async () => {
-    const {
-      info,
-      debug,
-      warn,
-      error,
-      setDebugProvider,
-      setTelemetryProvider,
-      setConsoleVisibilityPolicy,
-    } = await import("./logger");
+  it("uses the same structured console rendering regardless of environment", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const { info, setLogLevelProvider } = await import("./logger");
+
+    setLogLevelProvider(() => "info");
+    info("[cloud][demeter] request done", { status: 200 });
+
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(logSpy.mock.calls[0]?.[0]).toMatch(/INFO cloud\/demeter request done$/);
+    expect(logSpy.mock.calls[0]?.[1]).toEqual({ status: 200 });
+  });
+
+  it("emits debug entries through console.debug", async () => {
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const { debug, setLogLevelProvider } = await import("./logger");
+
+    setLogLevelProvider(() => "debug");
+    debug("[test] visible debug", { enabled: true });
+
+    expect(debugSpy).toHaveBeenCalledTimes(1);
+    expect(debugSpy.mock.calls[0]?.[0]).toMatch(/DEBUG test visible debug$/);
+    expect(debugSpy.mock.calls[0]?.[1]).toEqual({ enabled: true });
+    expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  it("exports structured entries with scopes, message, context and raw args", async () => {
+    const { info, exportLogEntries, setLogLevelProvider } = await import("./logger");
+    setLogLevelProvider(() => "info");
+
+    info("[cloud][demeter] request", { endpoint: "/demo" });
+
+    const entries = exportLogEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      level: "info",
+      scopes: ["cloud", "demeter"],
+      message: "request",
+      context: { endpoint: "/demo" },
+      rawArgs: ["[cloud][demeter] request", { endpoint: "/demo" }],
+    });
+  });
+
+  it("mirrors warn and error always, and info/debug only when enabled, into telemetry", async () => {
+    const { info, debug, warn, error, setLogLevelProvider, setTelemetryProvider } = await import("./logger");
     const telemetry = { logEvent: vi.fn() };
 
-    setDebugProvider(() => false);
-    setConsoleVisibilityPolicy("warn-error-only");
+    setLogLevelProvider(() => "info");
     setTelemetryProvider(() => telemetry as unknown as import("./telemetry").TelemetryCollector);
 
     info("[test] info");
@@ -108,19 +107,18 @@ describe("logger", () => {
     warn("[test] warn");
     error("[test] error");
 
-    expect(telemetry.logEvent).toHaveBeenCalledTimes(4);
+    expect(telemetry.logEvent).toHaveBeenCalledTimes(3);
     expect(telemetry.logEvent).toHaveBeenNthCalledWith(1, "LOG_INFO", expect.any(Object));
-    expect(telemetry.logEvent).toHaveBeenNthCalledWith(2, "LOG_DEBUG", expect.any(Object));
-    expect(telemetry.logEvent).toHaveBeenNthCalledWith(3, "LOG_WARN", expect.any(Object));
-    expect(telemetry.logEvent).toHaveBeenNthCalledWith(4, "LOG_ERROR", expect.any(Object));
+    expect(telemetry.logEvent).toHaveBeenNthCalledWith(2, "LOG_WARN", expect.any(Object));
+    expect(telemetry.logEvent).toHaveBeenNthCalledWith(3, "LOG_ERROR", expect.any(Object));
   });
 
   it("truncates long telemetry payload with head/tail preview", async () => {
-    const { info, setTelemetryProvider, setDebugProvider } = await import("./logger");
+    const { info, setTelemetryProvider, setLogLevelProvider } = await import("./logger");
     const telemetry = { logEvent: vi.fn() };
     const longText = "x".repeat(2000);
 
-    setDebugProvider(() => false);
+    setLogLevelProvider(() => "info");
     setTelemetryProvider(() => telemetry as unknown as import("./telemetry").TelemetryCollector);
     info(longText);
 
@@ -137,37 +135,65 @@ describe("logger", () => {
   });
 
   it("keeps last 2000 entries in memory and spills older logs to cache", async () => {
-    const { info, exportLogEntries, setDebugProvider } = await import("./logger");
-    setDebugProvider(() => false);
+    const { info, exportLogEntries, setLogLevelProvider } = await import("./logger");
+    setLogLevelProvider(() => "error");
+
     for (let i = 0; i < 2005; i += 1) {
       info(`log ${i}`);
     }
 
     const entries = exportLogEntries();
     expect(entries).toHaveLength(2005);
-    expect(entries[0]?.message[0]).toBe("log 0");
-    expect(entries[entries.length - 1]?.message[0]).toBe("log 2004");
+    expect(entries[0]?.message).toBe("log 0");
+    expect(entries[entries.length - 1]?.message).toBe("log 2004");
 
-    const cached = JSON.parse(localStorage.getItem(LOG_CACHE_KEY) ?? "[]") as Array<{ message?: string[] }>;
+    const cached = JSON.parse(localStorage.getItem(LOG_CACHE_KEY) ?? "[]") as Array<{ message?: string }>;
     expect(cached).toHaveLength(5);
-    expect(cached[0]?.message?.[0]).toBe("log 0");
-    expect(cached[4]?.message?.[0]).toBe("log 4");
+    expect(cached[0]?.message).toBe("log 0");
+    expect(cached[4]?.message).toBe("log 4");
   });
 
-  it("exports cached logs before in-memory logs", async () => {
+  it("exports cached legacy logs before in-memory logs and normalizes their shape", async () => {
     localStorage.setItem(
       LOG_CACHE_KEY,
-      JSON.stringify([{ timestamp: "t0", level: "info", message: ["cached"] }])
+      JSON.stringify([{ timestamp: "t0", level: "info", message: ["[legacy] cached", "{\"x\":1}"] }])
     );
 
-    const { info, exportLogEntries, setDebugProvider, setTelemetryProvider } = await import("./logger");
-    setDebugProvider(() => false);
-    setTelemetryProvider(null);
-    info("live");
+    const { info, exportLogEntries, setLogLevelProvider } = await import("./logger");
+    setLogLevelProvider(() => "info");
+    info("[live] ready");
 
     const entries = exportLogEntries();
     expect(entries).toHaveLength(2);
-    expect(entries[0]?.message[0]).toBe("cached");
-    expect(entries[1]?.message[0]).toBe("live");
+    expect(entries[0]).toMatchObject({
+      timestamp: "t0",
+      level: "info",
+      scopes: ["legacy"],
+      message: "cached",
+      rawArgs: ["[legacy] cached", "{\"x\":1}"],
+    });
+    expect(entries[1]).toMatchObject({
+      scopes: ["live"],
+      message: "ready",
+    });
+  });
+
+  it("builds a telemetry summary from buffered logs", async () => {
+    const { debug, exportLogsAsTelemetrySummary, setLogLevelProvider } = await import("./logger");
+    setLogLevelProvider(() => "debug");
+
+    debug("[cloud][demeter] prepared upload failed", { sizeBytes: 21313456 });
+
+    const summary = exportLogsAsTelemetrySummary();
+    expect(summary).not.toBeNull();
+    expect(summary?.events).toHaveLength(1);
+    expect(summary?.events[0]).toMatchObject({
+      type: "LOG_DEBUG",
+      data: expect.objectContaining({
+        source: "logger",
+        scopes: ["cloud", "demeter"],
+        message: "prepared upload failed",
+      }),
+    });
   });
 });

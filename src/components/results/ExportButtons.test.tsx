@@ -170,13 +170,24 @@ describe("ExportButtons", () => {
         chunkId: "chunk-1",
         strategy: "chunks",
       },
+      {
+        index: 1,
+        start: 2,
+        end: 3,
+        text: "Salut",
+        speaker: "SPEAKER_00",
+        chunkId: "chunk-2",
+        strategy: "chunks",
+      },
     ];
 
     render(<ExportButtons segments={segments} mode="cloud" />);
 
     fireEvent.click(screen.getByRole("button", { name: /Assigner speakers/i }));
-    fireEvent.change(screen.getByLabelText("Nom SPEAKER_00"), { target: { value: "Dupont" } });
-    fireEvent.change(screen.getByLabelText("Prénom SPEAKER_00"), { target: { value: "Alice" } });
+    expect(screen.getByText("Chunk 1")).toBeInTheDocument();
+    expect(screen.getByText("Chunk 2")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Nom Chunk 1 SPEAKER_00"), { target: { value: "Dupont" } });
+    fireEvent.change(screen.getByLabelText("Prénom Chunk 1 SPEAKER_00"), { target: { value: "Alice" } });
     fireEvent.click(screen.getByRole("button", { name: "Appliquer" }));
 
     fireEvent.click(screen.getByText("JSON"));
@@ -184,5 +195,6 @@ describe("ExportButtons", () => {
     const jsonCalls = (exportLib.serializeSegmentsJson as any).mock.calls;
     const payload = jsonCalls[jsonCalls.length - 1][0];
     expect(payload[0]?.speaker).toBe("Dupont Alice");
+    expect(payload[1]?.speaker).toBe("SPEAKER_00");
   });
 });

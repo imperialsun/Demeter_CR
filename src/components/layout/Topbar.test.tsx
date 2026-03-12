@@ -1,13 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { Topbar } from './Topbar';
 import { useAsrStore } from '@/store/asr-store';
 import * as backendSupport from '@/lib/backend-support';
 import * as toastMod from '@/components/ui/use-toast';
 import * as rr from 'react-router-dom';
 import * as logger from '@/lib/logger';
-import { isProdEnv } from '@/lib/env';
 
 const modelTestHook = vi.hoisted(() => ({
   runTest: vi.fn(),
@@ -66,11 +65,10 @@ vi.mock('@/lib/logger', () => ({
     warn: vi.fn(),
     error: vi.fn(),
   },
-  exportLogEntries: vi.fn(() => [{ timestamp: 't1', level: 'info', message: ['log'] }]),
+  exportLogEntries: vi.fn(() => [{ timestamp: 't1', level: 'info', scopes: ['test'], message: 'log', rawArgs: ['log'] }]),
 }));
 
 vi.mock('@/lib/env', () => ({
-  isProdEnv: vi.fn(() => false),
   getEnvMode: vi.fn(() => 'test'),
 }));
 
@@ -90,7 +88,18 @@ vi.mock("@/lib/backend-permissions", () => ({
 describe('Topbar', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.mocked(isProdEnv).mockReturnValue(false);
+    Object.defineProperty(HTMLElement.prototype, "hasPointerCapture", {
+      configurable: true,
+      value: () => false,
+    });
+    Object.defineProperty(HTMLElement.prototype, "setPointerCapture", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    Object.defineProperty(HTMLElement.prototype, "releasePointerCapture", {
+      configurable: true,
+      value: vi.fn(),
+    });
     modelTestHook.runTest.mockReset();
     modelTestHook.stopTest.mockReset();
     modelTestHook.closeSummary.mockReset();
@@ -130,8 +139,8 @@ describe('Topbar', () => {
       llmApiMistralMaxTokens: 8192,
       wasmThreads: 1,
       preprocessingMode: 'fast',
-      debugConfidence: false,
-      setDebugConfidence: (v: boolean) => useAsrStore.setState({ debugConfidence: v }),
+      logLevel: 'info',
+      setLogLevel: (v: string) => useAsrStore.setState({ logLevel: v as any }),
     } as any);
   });
 
@@ -186,14 +195,16 @@ describe('Topbar', () => {
     expect(toastSpy).toHaveBeenCalledWith(expect.stringMatching(/multithread WASM actif/i));
   });
 
-  it('toggles debug confidence via the debug button', () => {
+  it('renders the log level selector and reflects store updates', () => {
     render(<Topbar />);
-    // debug button should be visible in non-production test env
-    const debugBtn = screen.getByText(/Debug conf/i);
-    expect(debugBtn).toBeTruthy();
+    const trigger = screen.getByLabelText('Niveau de logs');
 
-    fireEvent.click(debugBtn);
-    expect(useAsrStore.getState().debugConfidence).toBe(true);
+    expect(trigger).toHaveTextContent('Info');
+    act(() => {
+      useAsrStore.setState({ logLevel: 'debug' } as any);
+    });
+
+    expect(screen.getByLabelText('Niveau de logs')).toHaveTextContent('Debug');
   });
 
   it('exports logs to clipboard', async () => {
@@ -258,11 +269,10 @@ describe('Topbar', () => {
     expect(screen.getByText('Mistral API')).toBeInTheDocument();
   });
 
-  it('hides debug controls in production', () => {
-    vi.mocked(isProdEnv).mockReturnValue(true);
+  it('keeps debug controls visible in production', () => {
     render(<Topbar />);
-    expect(screen.queryByText('Exporter logs')).toBeNull();
-    expect(screen.queryByText(/Debug conf/i)).toBeNull();
+    expect(screen.getByText('Exporter logs')).toBeInTheDocument();
+    expect(screen.getByLabelText('Niveau de logs')).toBeInTheDocument();
   });
 
   it("calls runTest when clicking model compatibility test button", () => {

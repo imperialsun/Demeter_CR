@@ -1,3 +1,5 @@
+import logger from "@/lib/logger";
+
 export type RuntimeMode = "standalone" | "backend";
 
 export interface RuntimeConfig {
@@ -26,6 +28,7 @@ export function getRuntimeConfig(): RuntimeConfig {
   if (cachedConfig) return cachedConfig;
   if (typeof window === "undefined") {
     cachedConfig = DEFAULT_CONFIG;
+    logger.warn("[app][runtime] window unavailable, using default config");
     return cachedConfig;
   }
 
@@ -34,6 +37,10 @@ export function getRuntimeConfig(): RuntimeConfig {
     mode: normalizeMode(fromWindow?.mode),
     backendBaseUrl: normalizeBackendBaseUrl(fromWindow?.backendBaseUrl),
   };
+  logger.info("[app][runtime] runtime config resolved", {
+    mode: cachedConfig.mode,
+    backendBaseUrl: cachedConfig.backendBaseUrl,
+  });
   return cachedConfig;
 }
 

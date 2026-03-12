@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { UploadCloud, FileAudio, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,11 +24,36 @@ export function AudioUploader({ onFileSelected, metadata, disabled, title, descr
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
+  useEffect(() => {
+    logger.debug("[audio-uploader] mounted", {
+      disabled: Boolean(disabled),
+      hasMetadata: Boolean(metadata),
+    });
+    return () => {
+      logger.debug("[audio-uploader] unmounted");
+    };
+  }, [disabled, metadata]);
+
+  useEffect(() => {
+    if (!metadata) return;
+    logger.info("[audio-uploader] metadata updated", {
+      name: metadata.name ?? null,
+      durationSec: metadata.durationSec,
+      sizeBytes: metadata.sizeBytes ?? null,
+      sampleRate: metadata.sampleRate ?? null,
+    });
+  }, [metadata]);
+
   const handleFiles = useCallback(
     (items: FileList | null) => {
-      logger.info("AudioUploader.handleFiles called", { length: items?.length });
+      logger.debug("[audio-uploader] files selected", { length: items?.length });
       if (!items || items.length === 0) return;
       const file = items[0]!;
+      logger.info("[audio-uploader] file accepted", {
+        name: file.name,
+        sizeBytes: file.size,
+        type: file.type,
+      });
       onFileSelected(file);
       // Clear the input value after handling so the same file can be selected again later
       try {
@@ -43,6 +68,9 @@ export function AudioUploader({ onFileSelected, metadata, disabled, title, descr
       event.preventDefault();
       setIsDragging(false);
       if (disabled) return;
+      logger.debug("[audio-uploader] drop received", {
+        fileCount: event.dataTransfer.files?.length ?? 0,
+      });
       handleFiles(event.dataTransfer.files);
     },
     [handleFiles, disabled]
@@ -50,12 +78,16 @@ export function AudioUploader({ onFileSelected, metadata, disabled, title, descr
 
   const pickFile = useCallback(() => {
     try {
-      logger.info("AudioUploader.pickFile invoked", { inputRef: !!inputRef.current });
+      logger.debug("[audio-uploader] pick file invoked", { inputRef: !!inputRef.current });
       const el = inputRef.current;
       if (el) {
         try {
           const visible = el instanceof HTMLElement ? (el as HTMLElement).offsetParent !== null : true;
-          logger.info('Audio input pre-click state', { disabled: el.disabled, visible, accept: el.getAttribute('accept') });
+          logger.debug("[audio-uploader] input pre-click state", {
+            disabled: el.disabled,
+            visible,
+            accept: el.getAttribute("accept"),
+          });
           if (!visible || el.disabled) {
             logger.warn('Audio input not visible or disabled; using fallback input');
             throw new Error('input not actionable');
@@ -67,7 +99,7 @@ export function AudioUploader({ onFileSelected, metadata, disabled, title, descr
           (el as HTMLInputElement).value = "";
         } catch (err) { void err; }
         el.click();
-        logger.info('Audio input click dispatched');
+        logger.debug("[audio-uploader] input click dispatched");
       } else {
         logger.warn('AudioUploader.pickFile: inputRef is null, falling back');
         throw new Error('inputRef null');
@@ -83,7 +115,7 @@ export function AudioUploader({ onFileSelected, metadata, disabled, title, descr
         document.body.appendChild(tmp);
         tmp.addEventListener("change", () => handleFiles(tmp.files));
         tmp.click();
-        logger.info('Fallback input click dispatched');
+        logger.debug("[audio-uploader] fallback input click dispatched");
         setTimeout(() => { try { document.body.removeChild(tmp); } catch (e) { void e; } }, 2000);
       } catch (err2) {
         logger.error("Fallback pick file creation failed", err2);
@@ -124,9 +156,17 @@ export function AudioUploader({ onFileSelected, metadata, disabled, title, descr
         <div
           onDragOver={(event) => {
             event.preventDefault();
-            if (!disabled) setIsDragging(true);
+            if (!disabled) {
+              if (!isDragging) {
+                logger.debug("[audio-uploader] drag over started");
+              }
+              setIsDragging(true);
+            }
           }}
-          onDragLeave={() => setIsDragging(false)}
+          onDragLeave={() => {
+            logger.debug("[audio-uploader] drag leave");
+            setIsDragging(false);
+          }}
           onDrop={handleDrop}
           role="button"
           tabIndex={0}
@@ -150,18 +190,18 @@ export function AudioUploader({ onFileSelected, metadata, disabled, title, descr
             type="file"
             accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,audio/aac,audio/ogg,audio/webm"
             className="sr-only absolute w-0 h-0 opacity-0"
-            onChange={(event) => { logger.info('Audio input onChange', { files: event.target.files?.length }); handleFiles(event.target.files); }}
-            onClick={() => logger.info('Audio input clicked')}
-            onFocus={() => logger.info('Audio input focused')}
+            onChange={(event) => { logger.debug("[audio-uploader] input change", { files: event.target.files?.length }); handleFiles(event.target.files); }}
+            onClick={() => logger.debug("[audio-uploader] input clicked")}
+            onFocus={() => logger.debug("[audio-uploader] input focused")}
             disabled={disabled}
           />
         </div>
 
         {metadata ? (
           <div className="rounded-md border bg-background/60 p-4 text-sm">
-            <div className="flex items-center gap-2 text-muted-foreground">
+            <div className="flex flex-wrap items-start gap-2 text-muted-foreground">
               <FileAudio className="h-4 w-4" />
-              <span>{metadata.name ?? "Fichier choisi"}</span>
+              <span className="min-w-0 flex-1 break-all [overflow-wrap:anywhere]">{metadata.name ?? "Fichier choisi"}</span>
               <Badge variant="outline">{metadata.mimeType ?? "Type inconnu"}</Badge>
             </div>
             <dl className="mt-2 grid gap-1 text-sm text-muted-foreground">

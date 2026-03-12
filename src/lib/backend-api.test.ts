@@ -1,8 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { BackendHttpError, formatBackendErrorMessage, parseBackendHttpError } from "@/lib/backend-api";
+import {
+  BACKEND_NETWORK_ERROR_MESSAGE,
+  BackendHttpError,
+  backendFetch,
+  formatBackendErrorMessage,
+  parseBackendHttpError,
+} from "@/lib/backend-api";
 
 describe("backend-api", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("parses backend 403 payload into typed error", async () => {
     const response = new Response(
       JSON.stringify({
@@ -44,5 +54,18 @@ describe("backend-api", () => {
 
     expect(formatBackendErrorMessage(forbidden)).toBe("Accès refusé par vos permissions backend.");
     expect(formatBackendErrorMessage(unauthorized)).toBe("Session expirée. Veuillez vous reconnecter.");
+  });
+
+  it("rewords network fetch failures into an actionable backend message", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      })
+    );
+
+    await expect(backendFetch("/providers/demeter-sante/audio/transcriptions", { method: "POST" })).rejects.toThrow(
+      BACKEND_NETWORK_ERROR_MESSAGE
+    );
   });
 });

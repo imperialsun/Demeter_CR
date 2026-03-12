@@ -6,9 +6,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { toast } from "@/components/ui/use-toast";
 import { initializeBackendSupport } from "@/lib/backend-support";
 import logger, {
-  installConsoleGuard,
-  setConsoleVisibilityPolicy,
-  setDebugProvider,
+  setLogLevelProvider,
   setTelemetryProvider,
 } from "@/lib/logger";
 import { isBackendMode } from "@/lib/runtime-config";
@@ -20,50 +18,75 @@ import { isAuthenticated, setAuthenticated } from "@/lib/auth";
 import "./index.css";
 import App from "./App";
 
-// Configure logger provider after store is available so logger.enabled() can read runtime flag
 import { useAsrStore } from "@/store/asr-store";
-setDebugProvider(() => useAsrStore.getState().debugConfidence);
+setLogLevelProvider(() => useAsrStore.getState().logLevel);
 setTelemetryProvider(() => useAsrStore.getState().telemetryCollector);
-setConsoleVisibilityPolicy("warn-error-only");
-installConsoleGuard();
 
-try {
-  useAsrStore
-    .getState()
-    .telemetryCollector
-    ?.logEvent?.("CONSOLE_GUARD_INSTALLED", {
-      debugEnabled: useAsrStore.getState().debugConfidence,
-    });
-} catch (err) {
-  void err;
-}
+logger.info("[app] bootstrap start", {
+  runtimeMode: isBackendMode() ? "backend" : "standalone",
+});
 
 if (isBackendMode()) {
+  logger.info("[app][backend] bootstrap start");
   initializeBackendSettingsSync();
+  logger.info("[app][backend] settings sync initialized");
   initializeBackendActivitySync();
+  logger.info("[app][backend] activity sync initialized");
   const me = await initializeBackendSession();
   setAuthenticated(Boolean(me));
+  logger.info("[app][auth] backend session resolved", {
+    authenticated: Boolean(me),
+    userId: me?.user.id ?? null,
+    organizationId: me?.organization.id ?? null,
+  });
   if (me) {
+    logger.debug("[app][activity] flushing queued backend activity");
     await flushBackendActivityQueueNow();
+    logger.info("[app][activity] queued backend activity flushed");
   }
+} else {
+  logger.info("[app][auth] standalone bootstrap", { authenticated: isAuthenticated() });
 }
 
+logger.info("[app][support] backend support initialization start");
 await initializeBackendSupport();
+logger.info("[app][support] backend support initialization done");
+logger.info("[app][settings] hydrate from storage start");
 useAsrStore.getState().hydrateFromStorage();
+logger.info("[app][settings] hydrate from storage done", {
+  logLevel: useAsrStore.getState().logLevel,
+  blockedPresets: useAsrStore.getState().blockedPresets,
+});
 
 if (isBackendMode() && isAuthenticated()) {
   try {
+    logger.info("[app][settings] backend bootstrap sync start");
     const serverSettings = await pullBackendSettings();
     if (serverSettings?.settings) {
       replaceSettingsCacheFromBackend(serverSettings.settings);
       useAsrStore.getState().hydrateFromStorage();
+      logger.info("[app][settings] backend bootstrap sync applied", {
+        keyCount: Object.keys(serverSettings.settings).length,
+      });
+    } else {
+      logger.info("[app][settings] backend bootstrap sync skipped", {
+        reason: "empty_settings",
+      });
     }
   } catch (error) {
     logger.warn("[app] backend settings sync bootstrap failed", error);
   }
+} else if (isBackendMode()) {
+  logger.info("[app][settings] backend bootstrap sync skipped", {
+    reason: "not_authenticated",
+  });
 }
 logger.info("[app] settings hydrated from storage", {
   blockedPresets: useAsrStore.getState().blockedPresets,
+});
+logger.debug("[app] debug console channel active", {
+  runtimeMode: isBackendMode() ? "backend" : "standalone",
+  logLevel: useAsrStore.getState().logLevel,
 });
 
 // Check runtime support and notify the user if no backend is available
@@ -85,6 +108,7 @@ logger.info("[app] settings hydrated from storage", {
   }
 }
 
+logger.info("[app] react root render");
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">

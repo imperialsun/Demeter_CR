@@ -92,6 +92,25 @@ describe("ResultsTable", () => {
     expect(screen.queryByText("SPEAKER_00")).toBeNull();
   });
 
+  it("resolves cloud speaker assignments per chunk key", () => {
+    useAsrStore.setState({
+      speakerAssignments: {
+        upload: {},
+        mic: {},
+        cloud: {
+          "chunk-4::SPEAKER_00": {
+            firstName: "Alice",
+            lastName: "Dupont",
+          },
+        },
+      },
+    } as any);
+
+    render(<ResultsTable segments={sampleWithSpeaker as any} mode="cloud" />);
+    expect(screen.getByText("Dupont Alice")).toBeInTheDocument();
+    expect(screen.queryByText("SPEAKER_00")).toBeNull();
+  });
+
   it("falls back to raw speaker when assignment is missing", () => {
     render(<ResultsTable segments={sampleWithSpeaker as any} mode="mic" />);
     expect(screen.getByText("SPEAKER_00")).toBeInTheDocument();

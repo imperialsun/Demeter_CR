@@ -8,17 +8,17 @@ Le module applique un pretraitement local puis delegue la transcription a un pro
 
 Providers supportes:
 
-- Gradio,
 - Hugging Face Whisper,
-- Mistral audio transcription.
+- Mistral audio transcription,
+- transcription backend Demeter Sante.
 
 ## Pipeline commun
 
 1. Selection fichier + metadata.
-2. Resolution settings de session (`resolveCloudSessionSettings`).
+2. Resolution des settings cloud persistants.
 3. Pretraitement local (`preprocessCloudAudio`).
 4. Encodage WAV.
-5. Upload/submit provider.
+5. Appel provider.
 6. Parsing sortie en segments normalises.
 7. Export des resultats.
 
@@ -28,9 +28,9 @@ Providers supportes:
 flowchart TD
     A[File selected] --> B[Local preprocess and WAV encode]
     B --> C{Provider}
-    C -->|Gradio| D[gradio upload + submit + poll]
-    C -->|Whisper| E[HF inference chunk plan + calls]
-    C -->|Mistral| F[Mistral /v1/audio/transcriptions]
+    C -->|Whisper| D[HF inference chunk plan + calls]
+    C -->|Mistral| E[Mistral /v1/audio/transcriptions]
+    C -->|Demeter Sante| F[Backend /providers/demeter-sante/audio/transcriptions]
     D --> G[normalize segments]
     E --> G
     F --> G
@@ -39,31 +39,26 @@ flowchart TD
 
 ## Differences provider
 
-### Gradio
-
-- URL par defaut: `https://transcode.demeter-sante.fr/gradio`.
-- Contexte texte utilise (preset + session context).
-- Peut retourner SRT/texte a parser.
-
 ### Whisper (Hugging Face)
 
 - Token HF requis.
 - Chunking cloud specifique whisper (`cloudWhisperChunkDurationSec`, `cloudWhisperOverlapSec`).
-- Contexte custom actuellement ignore (trace telemetrie explicite).
 
 ### Mistral
 
 - Cle API Mistral requise.
 - Endpoint: `${cloudMistralApiUrl}/v1/audio/transcriptions`.
-- Chunking cloud specifique mistral (`cloudMistralChunkDurationSec`, `cloudMistralOverlapSec`).
+- Chunking cloud specifique mistral (`cloudMistralChunkDurationSec`, `cloudMistralOverlapSec`) applique avant l envoi.
+- Les chunks Voxtral sont plafonnes a 15 minutes, puis redecoupes automatiquement si la taille depasse la limite ou si l upstream time out.
 - Diarization configurable (`cloudMistralDiarizationEnabled`).
 - Retry sans diarization en cas d erreur validation 422.
 
-## Gestion du contexte
+### Demeter Sante
 
-- Contexte effectif = preset settings + contexte session.
-- Contexte envoye uniquement pour Gradio.
-- Whisper/Mistral loggent un event "context ignored" quand du contexte existe.
+- Utilise la route backend `/api/v1/providers/demeter-sante/audio/transcriptions`.
+- Reutilise le parsing Mistral et la gestion de la diarization.
+- Reutilise aussi les memes reglages de chunking Mistral et le redecoupage automatique sur timeout.
+- Ne demande pas de cle API Mistral cote navigateur.
 
 ## Etats runtime
 
@@ -81,7 +76,7 @@ L UI expose progression, detail status, et bouton stop/reset session.
 
 ## Stop et reset
 
-- Stop tente un arret provider (notamment flag Gradio).
+- Stop marque le run client courant comme annule.
 - Reset invalide run courant, attend arret, puis purge etat session cloud.
 
 ## Exports cloud
@@ -101,9 +96,9 @@ Header d export (run snapshot):
 
 - construit depuis `runExportHeaders.cloud` (settings effectivement utilises pendant le run),
 - provider-specifique sans melange de parametres:
-  - Gradio: endpoint + generation/context/preprocess cloud,
   - Whisper: chunking whisper + options whisper/preprocess cloud (pas de contexte envoye),
-  - Mistral: endpoint/model/chunking + diarization demandee/effective/fallback chunks.
+  - Mistral: endpoint/model/chunking + diarization demandee/effective/fallback chunks,
+  - Demeter Sante: provider backend + diarization demandee/effective/fallback chunks.
 
 ## Speakers et diarization en UI
 
@@ -125,7 +120,5 @@ Limitation connue:
 
 - `src/hooks/useCloudTranscription.ts`
 - `src/lib/cloud/preprocessCloudAudio.ts`
-- `src/lib/cloud/gradioClient.ts`
 - `src/lib/cloud/whisperClient.ts`
 - `src/lib/cloud/mistralClient.ts`
-- `src/lib/cloud/sessionSettings.ts`

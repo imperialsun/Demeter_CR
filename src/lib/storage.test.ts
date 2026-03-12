@@ -4,7 +4,12 @@ import { loadSettings, saveSettings, DEFAULT_SETTINGS } from './storage';
 import logger from '@/lib/logger';
 
 vi.mock('@/lib/logger', () => ({
-  default: { warn: vi.fn() },
+  default: {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  },
 }));
 
 describe('storage', () => {
@@ -51,12 +56,20 @@ describe('storage', () => {
   });
 
   it('loads persisted settings when present', () => {
-    const payload = { ...DEFAULT_SETTINGS, activePreset: 'balanced', micMinSilenceMs: 123 };
+    const payload = {
+      ...DEFAULT_SETTINGS,
+      activePreset: 'balanced',
+      micMinSilenceMs: 123,
+      cloudDemeterModel: 'voxtral-demeter-custom',
+      cloudDemeterDiarizationEnabled: false,
+    };
     window.localStorage.setItem(storageKey, JSON.stringify(payload));
 
     const loaded = loadSettings();
     expect(loaded?.activePreset).toBe('balanced');
     expect(loaded?.micMinSilenceMs).toBe(123);
+    expect(loaded?.cloudDemeterModel).toBe('voxtral-demeter-custom');
+    expect(loaded?.cloudDemeterDiarizationEnabled).toBe(false);
   });
 
   it('logs and returns null on invalid JSON', () => {
@@ -136,5 +149,10 @@ describe('storage', () => {
     expect(DEFAULT_SETTINGS.llmLocalSettingsByProfile?.qwen_0_6b.modelId).toContain("Qwen3-0.6B");
     expect(DEFAULT_SETTINGS.llmLocalSettingsByProfile?.qwen_1_7b.modelId).toContain("Qwen3-1.7B");
     expect(DEFAULT_SETTINGS.llmLocalSettingsByProfile?.ministral_3_3b.modelId).toContain("Ministral-3-3B");
+  });
+
+  it("defines dedicated demeter cloud defaults", () => {
+    expect(DEFAULT_SETTINGS.cloudDemeterModel).toBe("voxtral-mini-latest");
+    expect(DEFAULT_SETTINGS.cloudDemeterDiarizationEnabled).toBe(true);
   });
 });

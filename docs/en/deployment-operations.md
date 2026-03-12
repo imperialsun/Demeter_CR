@@ -26,8 +26,7 @@ Critical build args:
 
 Services:
 
-- `transcode`: static app via Nginx + Traefik labels,
-- `gradio-proxy`: Nginx reverse proxy to remote Gradio backend.
+- `transcode`: static app via Nginx + Traefik labels.
 
 Network prerequisite:
 

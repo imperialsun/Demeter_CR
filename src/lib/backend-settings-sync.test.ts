@@ -71,7 +71,7 @@ describe("backend-settings-sync", () => {
   });
 
   it("does not schedule retry after forbidden response", async () => {
-    queueBackendSettingsSync({ cloudApiUrl: "https://example.local" });
+    queueBackendSettingsSync({ cloudMaxTokens: 2048 });
 
     await vi.advanceTimersByTimeAsync(1000);
     expect(apiMocks.backendFetch).toHaveBeenCalledTimes(1);

@@ -11,7 +11,7 @@ describe("normaliseSegments", () => {
     useAsrStore.setState({
       dedupeMode: "fuzzy",
       enableWordTimestamps: false,
-      debugConfidence: false,
+      logLevel: "info",
       telemetryCollector: null,
     } as any);
   });
@@ -325,7 +325,7 @@ describe("normaliseSegments", () => {
   });
 
   it("produces debug confidence details when enabled", () => {
-    useAsrStore.setState({ debugConfidence: true } as any);
+    useAsrStore.setState({ logLevel: "debug" } as any);
     const result: any = {
       chunk: { id: "chunk-debug", start: 0, end: 2 },
       segments: [{ text: "texte sans confidence", start: 0, end: 1.5 }],

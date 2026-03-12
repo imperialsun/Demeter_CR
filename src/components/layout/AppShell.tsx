@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
+import logger from "@/lib/logger";
 import { cn } from "@/lib/utils";
 import { useAsrStore } from "@/store/asr-store";
 
@@ -15,6 +16,13 @@ export function AppShell({ children, className }: AppShellProps) {
   const resetSession = useAsrStore((state) => state.resetSession);
 
   React.useEffect(() => {
+    logger.info("[app-shell] mounted");
+    return () => {
+      logger.debug("[app-shell] unmounted");
+    };
+  }, []);
+
+  React.useEffect(() => {
     if (typeof document === "undefined") return;
     const baseTitle = "Demeter Speech";
     if (isTranscribing) {
@@ -26,8 +34,16 @@ export function AppShell({ children, className }: AppShellProps) {
   }, [isTranscribing, progress]);
 
   React.useEffect(() => {
+    logger.info("[app-shell] resetting session state on shell mount");
     resetSession();
   }, [resetSession]);
+
+  React.useEffect(() => {
+    logger.debug("[app-shell] transcription state updated", {
+      isTranscribing,
+      progress,
+    });
+  }, [isTranscribing, progress]);
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">

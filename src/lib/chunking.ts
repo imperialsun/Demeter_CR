@@ -1,3 +1,4 @@
+import logger from "@/lib/logger";
 import { detectSilenceRegions, type SilenceDetectionOptions } from "@/lib/silence";
 
 export type ChunkingStrategy = "sequential" | "overlap" | "silence";
@@ -30,6 +31,14 @@ export function buildChunks(
   monoPcm?: Float32Array,
   sampleRate?: number
 ): ChunkDefinition[] {
+  logger.debug("[chunking] build chunks requested", {
+    strategy: config.strategy,
+    durationSec: config.durationSec,
+    chunkDurationSec: config.chunkDurationSec,
+    overlapSec: config.overlapSec,
+    hasMonoPcm: Boolean(monoPcm),
+    sampleRate: sampleRate ?? null,
+  });
   switch (config.strategy) {
     case "overlap":
       return buildOverlapChunks(config);
@@ -61,6 +70,12 @@ export function buildFixedSegments(config: FixedSegmentConfig): ChunkDefinition[
     index += 1;
     if (end >= durationSec) break;
   }
+  logger.debug("[chunking] fixed segments built", {
+    durationSec,
+    segmentDurationSec,
+    overlapSec,
+    count: segments.length,
+  });
   return segments;
 }
 
@@ -69,6 +84,11 @@ export function offsetChunks(
   offsetSec: number,
   startIndex: number
 ): ChunkDefinition[] {
+  logger.debug("[chunking] offset chunks", {
+    count: chunks.length,
+    offsetSec,
+    startIndex,
+  });
   return chunks.map((chunk, idx) => ({
     id: crypto.randomUUID(),
     index: startIndex + idx,
@@ -88,6 +108,7 @@ function buildSequentialChunks(config: ChunkingConfig): ChunkDefinition[] {
     const end = Math.min(start + step, total);
     chunks.push(toChunkDefinition(index++, start, end, config.overlapSec));
   }
+  logger.debug("[chunking] sequential chunks built", { count: chunks.length });
   return chunks;
 }
 
@@ -101,6 +122,7 @@ function buildOverlapChunks(config: ChunkingConfig): ChunkDefinition[] {
     chunks.push(toChunkDefinition(index++, start, end, config.overlapSec));
     if (end >= total) break;
   }
+  logger.debug("[chunking] overlap chunks built", { count: chunks.length });
   return chunks;
 }
 
@@ -110,6 +132,9 @@ function buildSilenceAwareChunks(
   sampleRate: number | undefined
 ): ChunkDefinition[] {
   if (!monoPcm || !sampleRate) {
+    logger.warn("[chunking] silence-aware chunking fallback", {
+      reason: "missing_pcm_or_sample_rate",
+    });
     return buildOverlapChunks(config);
   }
 
@@ -119,6 +144,9 @@ function buildSilenceAwareChunks(
   });
 
   if (!ranges.length) {
+    logger.warn("[chunking] silence-aware chunking fallback", {
+      reason: "no_silence_ranges",
+    });
     return buildOverlapChunks(config);
   }
 
@@ -131,6 +159,9 @@ function buildSilenceAwareChunks(
     chunks.push(toChunkDefinition(index++, start, end, 0));
   }
 
+  logger.debug("[chunking] silence-aware chunks built", {
+    count: chunks.length,
+  });
   return chunks;
 }
 

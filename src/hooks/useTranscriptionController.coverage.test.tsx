@@ -196,6 +196,8 @@ describe("useTranscriptionController coverage", () => {
     expect(mocks.decodeFileFully).toHaveBeenCalled();
     expect(mocks.createAsrPipeline).toHaveBeenCalled();
     expect(useAsrStore.getState().telemetrySummary).not.toBeNull();
+    expect(useAsrStore.getState().sessionTranscriptMemories.upload?.provider).toBe("upload");
+    expect(useAsrStore.getState().sessionTranscriptMemories.upload?.segments.length).toBeGreaterThan(0);
   });
 
   it("runs progressive mode with segment cache and compressed segment decode", async () => {

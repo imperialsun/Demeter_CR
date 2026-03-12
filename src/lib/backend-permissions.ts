@@ -19,7 +19,7 @@ export type AppRoute =
   | "/telemetry"
   | "/forbidden";
 
-export type CloudProviderId = "gradio" | "whisper" | "mistral" | "demeter_sante";
+export type CloudProviderId = "whisper" | "mistral" | "demeter_sante";
 
 export type SettingsTabId = "local" | "cloud" | "llmlocal" | "llm";
 
@@ -44,7 +44,6 @@ const ROUTE_FEATURE_MAP: Record<string, FeaturePermission> = FEATURE_ROUTE_ORDER
 );
 
 const CLOUD_PROVIDER_PERMISSION_MAP: Record<CloudProviderId, string> = {
-  gradio: "provider.cloud.gradio",
   whisper: "provider.cloud.whisper",
   mistral: "provider.cloud.mistral",
   demeter_sante: "provider.cloud.demeter_sante",

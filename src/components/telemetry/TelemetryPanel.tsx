@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { exportLogsAsTelemetrySummary } from "@/lib/logger";
 import type { ChunkTelemetry, TelemetryEvent, TelemetrySummary } from "@/lib/telemetry";
 import {
   computeDomainStats,
@@ -113,7 +114,7 @@ export function TelemetryPanel({
   const [selectedEventKey, setSelectedEventKey] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!collector || liveMode !== "on") return;
+    if (liveMode !== "on") return;
     const timer = window.setInterval(() => {
       setLiveTick((prev) => prev + 1);
     }, 500);
@@ -123,15 +124,20 @@ export function TelemetryPanel({
     };
   }, [collector, liveMode]);
 
-  const liveSummary = (() => {
+  const liveSummary = useMemo(() => {
     void liveTick;
-    if (!collector) return null;
-    try {
-      return collector.exportSummary();
-    } catch {
+    if (collector) {
+      try {
+        return collector.exportSummary();
+      } catch {
+        return null;
+      }
+    }
+    if (summary) {
       return null;
     }
-  })();
+    return exportLogsAsTelemetrySummary();
+  }, [collector, liveTick, summary]);
 
   const hasTelemetrySession = Boolean(summary ?? liveSummary);
   const effective = summary ?? liveSummary ?? TELEMETRY_PREVIEW_SUMMARY;

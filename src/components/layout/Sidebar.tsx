@@ -1,9 +1,11 @@
+import { useEffect } from "react";
 import { NavLink } from "react-router-dom";
 import { Activity, type LucideIcon, Bot, Cloud, FileText, Monitor, Settings } from "lucide-react";
 
 import { BrandMark } from "@/components/branding/BrandMark";
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { canAccessFeature, type FeaturePermission } from "@/lib/backend-permissions";
+import logger from "@/lib/logger";
 import { cn } from "@/lib/utils";
 
 type NavItem = {
@@ -60,11 +62,19 @@ export function Sidebar() {
     if (!item.permission) return true;
     return canAccessFeature(item.permission);
   });
+  const visibleItemsKey = visibleItems.map((item) => item.to).join("|");
 
   const triggerPreload = (preload?: () => Promise<unknown>) => {
     if (!preload) return;
+    logger.debug("[ui][sidebar] preloading route chunk");
     void preload();
   };
+
+  useEffect(() => {
+    logger.info("[ui][sidebar] visible navigation updated", {
+      items: visibleItems.map((item) => item.to),
+    });
+  }, [visibleItems, visibleItemsKey]);
 
   return (
     <aside className="hidden w-64 border-r bg-card/40 p-4 md:flex md:flex-col">
@@ -76,8 +86,14 @@ export function Sidebar() {
           <NavLink
             key={to}
             to={to}
-            onMouseEnter={() => triggerPreload(preload)}
-            onFocus={() => triggerPreload(preload)}
+            onMouseEnter={() => {
+              logger.debug("[ui][sidebar] hover navigation item", { to, label });
+              triggerPreload(preload);
+            }}
+            onFocus={() => {
+              logger.debug("[ui][sidebar] focus navigation item", { to, label });
+              triggerPreload(preload);
+            }}
             className={({ isActive }) =>
               cn(
                 "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition",

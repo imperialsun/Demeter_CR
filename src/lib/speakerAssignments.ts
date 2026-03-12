@@ -6,19 +6,138 @@ export interface SpeakerAssignment {
 }
 
 export type SpeakerAssignmentMap = Record<string, SpeakerAssignment>;
+export type SpeakerAssignmentMode = "upload" | "mic" | "cloud";
 
-export function collectSpeakerIds(segments: TranscriptionSegment[]): string[] {
-  const orderedSpeakerIds: string[] = [];
+export interface SpeakerAssignmentEntry {
+  assignmentKey: string;
+  chunkId: string;
+  chunkLabel: string;
+  speakerId: string;
+  start: number;
+  end: number;
+}
+
+export function buildSpeakerAssignmentKey(
+  segment: Pick<TranscriptionSegment, "chunkId" | "speaker">,
+  mode: SpeakerAssignmentMode
+): string | undefined {
+  const speakerId = normalizeSpeakerId(segment.speaker);
+  if (!speakerId) return undefined;
+  if (mode !== "cloud") return speakerId;
+
+  const chunkId = normalizeChunkId(segment.chunkId);
+  if (!chunkId) return speakerId;
+  return `${chunkId}::${speakerId}`;
+}
+
+export function collectSpeakerAssignmentEntries(
+  segments: TranscriptionSegment[],
+  mode: SpeakerAssignmentMode
+): SpeakerAssignmentEntry[] {
+  const entries: SpeakerAssignmentEntry[] = [];
   const seen = new Set<string>();
+  const chunkMetaById = new Map<string, { label: string; start: number; end: number }>();
 
   for (const segment of segments) {
+    let chunkId = "";
+    let chunkLabel = "";
+    let start = segment.start;
+    let end = segment.end;
+
+    if (mode === "cloud") {
+      chunkId = normalizeChunkId(segment.chunkId) ?? "chunk";
+      const existingChunkMeta = chunkMetaById.get(chunkId);
+      if (existingChunkMeta) {
+        existingChunkMeta.start = Math.min(existingChunkMeta.start, segment.start);
+        existingChunkMeta.end = Math.max(existingChunkMeta.end, segment.end);
+        chunkLabel = existingChunkMeta.label;
+        start = existingChunkMeta.start;
+        end = existingChunkMeta.end;
+      } else {
+        const nextChunkMeta = {
+          label: `Chunk ${chunkMetaById.size + 1}`,
+          start: segment.start,
+          end: segment.end,
+        };
+        chunkMetaById.set(chunkId, nextChunkMeta);
+        chunkLabel = nextChunkMeta.label;
+      }
+    }
+
     const speakerId = normalizeSpeakerId(segment.speaker);
-    if (!speakerId || seen.has(speakerId)) continue;
-    seen.add(speakerId);
-    orderedSpeakerIds.push(speakerId);
+    if (!speakerId) continue;
+
+    const assignmentKey = buildSpeakerAssignmentKey(segment, mode);
+    if (!assignmentKey || seen.has(assignmentKey)) continue;
+
+    seen.add(assignmentKey);
+    entries.push({
+      assignmentKey,
+      chunkId,
+      chunkLabel,
+      speakerId,
+      start,
+      end,
+    });
   }
 
-  return orderedSpeakerIds;
+  if (mode !== "cloud") {
+    return entries;
+  }
+
+  return entries.map((entry) => {
+    const chunkMeta = chunkMetaById.get(entry.chunkId);
+    if (!chunkMeta) return entry;
+    return {
+      ...entry,
+      chunkLabel: chunkMeta.label,
+      start: chunkMeta.start,
+      end: chunkMeta.end,
+    };
+  });
+}
+
+export function collectSpeakerIds(segments: TranscriptionSegment[]): string[] {
+  return collectSpeakerAssignmentEntries(segments, "upload").map((entry) => entry.speakerId);
+}
+
+export function resolveSpeakerAssignment(
+  segment: Pick<TranscriptionSegment, "chunkId" | "speaker">,
+  assignmentMap: SpeakerAssignmentMap,
+  mode: SpeakerAssignmentMode
+): SpeakerAssignment | undefined {
+  const assignmentKey = buildSpeakerAssignmentKey(segment, mode);
+  if (!assignmentKey) return undefined;
+  return assignmentMap[assignmentKey];
+}
+
+export function resolveSegmentSpeakerLabel(
+  segment: Pick<TranscriptionSegment, "chunkId" | "speaker">,
+  assignmentMap: SpeakerAssignmentMap,
+  mode: SpeakerAssignmentMode
+): string | undefined {
+  return resolveSpeakerLabel(segment.speaker, resolveSpeakerAssignment(segment, assignmentMap, mode));
+}
+
+export function applySpeakerAssignments(
+  segments: TranscriptionSegment[],
+  assignmentMap: SpeakerAssignmentMap,
+  mode: SpeakerAssignmentMode
+): TranscriptionSegment[] {
+  return segments.map((segment) => {
+    const rawSpeaker = normalizeSpeakerId(segment.speaker);
+    if (!rawSpeaker) {
+      return {
+        ...segment,
+        speaker: undefined,
+      };
+    }
+
+    return {
+      ...segment,
+      speaker: resolveSpeakerLabel(rawSpeaker, resolveSpeakerAssignment(segment, assignmentMap, mode)),
+    };
+  });
 }
 
 export function formatAssignedSpeakerName(assignment: SpeakerAssignment): string {
@@ -40,27 +159,12 @@ export function resolveSpeakerLabel(
   return assignedLabel || normalizedRawSpeaker;
 }
 
-export function applySpeakerAssignments(
-  segments: TranscriptionSegment[],
-  assignmentMap: SpeakerAssignmentMap
-): TranscriptionSegment[] {
-  return segments.map((segment) => {
-    const rawSpeaker = normalizeSpeakerId(segment.speaker);
-    if (!rawSpeaker) {
-      return {
-        ...segment,
-        speaker: undefined,
-      };
-    }
-
-    return {
-      ...segment,
-      speaker: resolveSpeakerLabel(rawSpeaker, assignmentMap[rawSpeaker]),
-    };
-  });
+function normalizeSpeakerId(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
 }
 
-function normalizeSpeakerId(value: string | undefined): string | undefined {
+function normalizeChunkId(value: string | undefined): string | undefined {
   const normalized = value?.trim();
   return normalized ? normalized : undefined;
 }

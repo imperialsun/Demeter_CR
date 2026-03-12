@@ -28,6 +28,11 @@ import {
   type RuntimeModelLimits,
 } from "@/lib/llm/modelCatalog";
 import { resolveActiveLlmPipelineConfig } from "@/lib/llm/providerSettings";
+import {
+  getSessionTranscriptText,
+  type SessionTranscriptMemoryEntry,
+  type SessionTranscriptMode,
+} from "@/lib/sessionTranscriptMemory";
 import logger from "@/lib/logger";
 import {
   formatBackendErrorMessage,
@@ -43,10 +48,12 @@ const FORMAT_ORDER: Array<{ key: ReportResultKey; format: ReportFormat }> = [
   { key: "crs", format: "CRS" },
 ];
 
-type GenerateInput = { source: "transcription" | "text"; text?: string };
+type GenerateInput =
+  | { source: "transcription"; transcriptMode: SessionTranscriptMode }
+  | { source: "text"; text?: string };
 
 export function useLlmReports() {
-  const segments = useAsrStore((state) => state.segments);
+  const sessionTranscriptMemories = useAsrStore((state) => state.sessionTranscriptMemories);
 
   const hfApiToken = useAsrStore((state) => state.hfApiToken);
   const llmApiProvider = useAsrStore((state) => state.llmApiProvider);
@@ -137,7 +144,7 @@ export function useLlmReports() {
           throw new Error("Renseignez un model ID.");
         }
 
-        const sourceText = resolveSourceText(input, segments);
+        const sourceText = resolveSourceText(input, sessionTranscriptMemories);
         markStage("source_resolved", {
           sourceLength: sourceText.length,
           sourceTokenEstimate: estimateTokenCount(sourceText),
@@ -432,7 +439,7 @@ export function useLlmReports() {
       llmApiMistralTemperature,
       llmApiMistralMaxTokens,
       registerTelemetry,
-      segments,
+      sessionTranscriptMemories,
       setLlmApiProgress,
       setLlmApiResult,
       setLlmApiResults,
@@ -517,7 +524,10 @@ export function useLlmReports() {
   };
 }
 
-function resolveSourceText(input: GenerateInput, segments: Array<{ text: string }>): string {
+function resolveSourceText(
+  input: GenerateInput,
+  sessionTranscriptMemories: Record<SessionTranscriptMode, SessionTranscriptMemoryEntry | null>
+): string {
   if (input.source === "text") {
     const text = input.text?.trim() ?? "";
     if (!text) {
@@ -526,10 +536,8 @@ function resolveSourceText(input: GenerateInput, segments: Array<{ text: string 
     return text;
   }
 
-  const fromSegments = segments
-    .map((segment) => segment.text?.trim())
-    .filter((text): text is string => Boolean(text && text.length > 0))
-    .join("\n");
+  const entry = sessionTranscriptMemories[input.transcriptMode];
+  const fromSegments = entry ? getSessionTranscriptText(entry.segments) : "";
 
   if (!fromSegments) {
     throw new Error("Aucune transcription disponible dans la session.");

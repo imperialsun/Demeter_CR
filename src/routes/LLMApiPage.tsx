@@ -19,6 +19,11 @@ import {
 } from "@/lib/llm/modelCatalog";
 import { resolveActiveLlmPipelineConfig } from "@/lib/llm/providerSettings";
 import { emitLlmEvent } from "@/lib/llm/telemetrySession";
+import {
+  getSessionTranscriptText,
+  hasSessionTranscriptContent,
+  type SessionTranscriptMode,
+} from "@/lib/sessionTranscriptMemory";
 import { parseTranscriptFile, type ParsedTranscriptFile } from "@/lib/transcript/parseTranscriptFile";
 import { estimateTokenCount } from "@/lib/tokens";
 import logger from "@/lib/logger";
@@ -48,6 +53,16 @@ type ImportedFileMeta = {
   tokenCount: number;
 };
 
+type AvailableSessionTranscriptOption = {
+  mode: SessionTranscriptMode;
+  label: string;
+  text: string;
+  segmentCount: number;
+  charCount: number;
+  tokenCount: number;
+  updatedAt: string;
+};
+
 function LLMApiPage() {
   useBackendPermissions();
   const backendMode = isBackendMode();
@@ -55,7 +70,7 @@ function LLMApiPage() {
   const canUseMistralProvider = canUseLlmProvider("mistral");
   const canUseDemeterProvider = canUseLlmProvider("demeter_sante");
   const canOpenSettings = canAccessFeature("feature.settings");
-  const segments = useAsrStore((state) => state.segments);
+  const sessionTranscriptMemories = useAsrStore((state) => state.sessionTranscriptMemories);
   const llmApiProvider = useAsrStore((state) => state.llmApiProvider);
   const hfApiToken = useAsrStore((state) => state.hfApiToken);
   const llmApiHfModelId = useAsrStore((state) => state.llmApiHfModelId);
@@ -80,6 +95,7 @@ function LLMApiPage() {
   const [activeTab, setActiveTab] = useState<"cri" | "cro" | "crs">("cri");
   const [isImporting, setIsImporting] = useState(false);
   const [importedFileMeta, setImportedFileMeta] = useState<ImportedFileMeta | null>(null);
+  const [selectedTranscriptMode, setSelectedTranscriptMode] = useState<SessionTranscriptMode | null>(null);
   const sourceFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const allowedProviders = useMemo<LlmApiProvider[]>(() => {
@@ -96,17 +112,63 @@ function LLMApiPage() {
   const activeProvider = isCurrentProviderAllowed ? llmApiProvider : null;
 
   useEffect(() => {
-    logger.info("[llm-cloud][ui] page view", { route: "/llmapi", mode: "cloud" });
+    logger.debug("[llm-cloud][ui] page view", { route: "/llmapi", mode: "cloud" });
     emitLlmEvent("LLM_CLOUD_PAGE_VIEW", { route: "/llmapi", mode: "cloud" });
   }, []);
 
-  const transcriptionText = useMemo(() => {
-    return segments
-      .map((segment) => segment.text.trim())
-      .filter((text) => text.length > 0)
-      .join("\n");
-  }, [segments]);
-  const transcriptionTokenEstimate = useMemo(() => estimateTokenCount(transcriptionText), [transcriptionText]);
+  const availableTranscripts = useMemo<AvailableSessionTranscriptOption[]>(() => {
+    const memoryEntries: Array<[SessionTranscriptMode, (typeof sessionTranscriptMemories)[SessionTranscriptMode]]> = [
+      ["upload", sessionTranscriptMemories.upload],
+      ["mic", sessionTranscriptMemories.mic],
+      ["cloud", sessionTranscriptMemories.cloud],
+    ];
+
+    return memoryEntries
+      .map(([mode, entry]) => {
+        if (!hasSessionTranscriptContent(entry)) return null;
+        const text = getSessionTranscriptText(entry.segments);
+        return {
+          mode,
+          label: entry.label,
+          text,
+          segmentCount: entry.segments.length,
+          charCount: text.length,
+          tokenCount: estimateTokenCount(text),
+          updatedAt: entry.updatedAt,
+        };
+      })
+      .filter((entry): entry is AvailableSessionTranscriptOption => Boolean(entry))
+      .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+  }, [sessionTranscriptMemories]);
+
+  useEffect(() => {
+    if (availableTranscripts.length === 0) {
+      if (selectedTranscriptMode !== null) {
+        setSelectedTranscriptMode(null);
+      }
+      return;
+    }
+
+    const selectedStillAvailable = selectedTranscriptMode
+      ? availableTranscripts.some((entry) => entry.mode === selectedTranscriptMode)
+      : false;
+
+    if (!selectedStillAvailable) {
+      setSelectedTranscriptMode(availableTranscripts[0]?.mode ?? null);
+      return;
+    }
+
+    if (availableTranscripts.length === 1 && selectedTranscriptMode !== availableTranscripts[0]?.mode) {
+      setSelectedTranscriptMode(availableTranscripts[0]?.mode ?? null);
+    }
+  }, [availableTranscripts, selectedTranscriptMode]);
+
+  const activeTranscript = useMemo(
+    () => availableTranscripts.find((entry) => entry.mode === selectedTranscriptMode) ?? null,
+    [availableTranscripts, selectedTranscriptMode]
+  );
+
+  const transcriptionText = activeTranscript?.text ?? "";
 
   const activePipelineConfig = useMemo(
     () =>
@@ -221,7 +283,17 @@ function LLMApiPage() {
       return;
     }
 
-    await generateAll({ source, text: source === "text" ? manualText : undefined });
+    if (source === "transcription") {
+      if (!selectedTranscriptMode) {
+        setLlmApiStatus("error", "Aucune transcription disponible dans la session.");
+        toast("Aucune transcription disponible dans la session.");
+        return;
+      }
+      await generateAll({ source: "transcription", transcriptMode: selectedTranscriptMode });
+      return;
+    }
+
+    await generateAll({ source: "text", text: manualText });
   };
 
   const handleProviderChange = (value: string) => {
@@ -257,6 +329,19 @@ function LLMApiPage() {
       modelId: activePipelineConfig.modelId || "unset",
     });
     setSource(nextSource);
+  };
+
+  const handleTranscriptModeChange = (value: string) => {
+    const nextMode = value as SessionTranscriptMode;
+    const nextTranscript = availableTranscripts.find((entry) => entry.mode === nextMode);
+    if (!nextTranscript) return;
+    logger.info("[llm-cloud][ui] transcript source changed", {
+      previousTranscriptMode: selectedTranscriptMode,
+      nextTranscriptMode: nextMode,
+      provider: llmApiProvider,
+      modelId: activePipelineConfig.modelId || "unset",
+    });
+    setSelectedTranscriptMode(nextMode);
   };
 
   const runDownload = async (format: ReportResultKey) => {
@@ -566,20 +651,54 @@ function LLMApiPage() {
               </div>
 
               {source === "transcription" ? (
-                <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
-                  <p>
-                    Segments disponibles: <span className="font-medium text-foreground">{segments.length}</span>
-                  </p>
-                  <p>
-                    Taille source approx: <span className="font-medium text-foreground">{transcriptionText.length}</span>{" "}
-                    caracteres.
-                  </p>
-                  <p>
-                    Tokens source approx:{" "}
-                    <span className="font-medium text-foreground">{formatTokenCount(transcriptionTokenEstimate)}</span>{" "}
-                    tokens.
-                  </p>
-                  {!transcriptionText ? <p className="text-destructive">Aucune transcription active dans la session.</p> : null}
+                <div className="space-y-3">
+                  {availableTranscripts.length > 1 ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="llm-session-transcript">Transcription à utiliser</Label>
+                      <Select
+                        value={selectedTranscriptMode ?? availableTranscripts[0]?.mode}
+                        onValueChange={handleTranscriptModeChange}
+                      >
+                        <SelectTrigger id="llm-session-transcript">
+                          <SelectValue placeholder="Choisir une transcription" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableTranscripts.map((transcript) => (
+                            <SelectItem key={transcript.mode} value={transcript.mode}>
+                              {transcript.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : null}
+
+                  <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+                    {activeTranscript ? (
+                      <>
+                        <p>
+                          Source active: <span className="font-medium text-foreground">{activeTranscript.label}</span>
+                        </p>
+                        <p>
+                          Segments disponibles:{" "}
+                          <span className="font-medium text-foreground">{activeTranscript.segmentCount}</span>
+                        </p>
+                        <p>
+                          Taille source approx:{" "}
+                          <span className="font-medium text-foreground">{formatTokenCount(activeTranscript.charCount)}</span>{" "}
+                          caracteres.
+                        </p>
+                        <p>
+                          Tokens source approx:{" "}
+                          <span className="font-medium text-foreground">{formatTokenCount(activeTranscript.tokenCount)}</span>{" "}
+                          tokens.
+                        </p>
+                        <p>Disponible tant que l'application n'est pas rechargée.</p>
+                      </>
+                    ) : (
+                      <p className="text-destructive">Aucune transcription active dans la session.</p>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -588,11 +707,11 @@ function LLMApiPage() {
                     <p className="text-xs text-muted-foreground">
                       Importez un fichier texte pour alimenter la generation des comptes rendus.
                     </p>
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <div className="mt-3 flex flex-wrap items-start gap-2 sm:flex-nowrap">
                       <Button type="button" onClick={triggerSourceFilePicker} disabled={isImporting || isBusy}>
                         {isImporting ? "Import en cours..." : "Choisir un fichier"}
                       </Button>
-                      <span className="text-xs text-muted-foreground">
+                      <span className="min-w-0 flex-1 break-all text-xs text-muted-foreground [overflow-wrap:anywhere]">
                         {importedFileMeta ? importedFileMeta.name : "Aucun fichier importe"}
                       </span>
                     </div>
@@ -617,8 +736,11 @@ function LLMApiPage() {
                   ) : null}
                   {importedFileMeta ? (
                     <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
-                      <p>
-                        Fichier importe: <span className="font-medium text-foreground">{importedFileMeta.name}</span>
+                      <p className="min-w-0">
+                        Fichier importe:{" "}
+                        <span className="mt-1 block break-all font-medium text-foreground [overflow-wrap:anywhere]">
+                          {importedFileMeta.name}
+                        </span>
                       </p>
                       <p>
                         Format detecte:{" "}

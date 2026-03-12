@@ -22,7 +22,9 @@ vi.mock("@ffmpeg/ffmpeg", () => ({
 
 vi.mock("@/lib/logger", () => ({
   default: {
+    debug: vi.fn(),
     info: mocks.loggerInfo,
+    warn: vi.fn(),
     error: mocks.loggerError,
   },
 }));

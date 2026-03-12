@@ -32,6 +32,7 @@ function LocalUploadPage() {
   const audioMetadata = useAsrStore((state) => state.audioMetadata);
   const registerAudioSource = useAsrStore((state) => state.registerAudioSource);
   const resetSession = useAsrStore((state) => state.resetSession);
+  const clearSessionTranscriptMemory = useAsrStore((state) => state.clearSessionTranscriptMemory);
   const setStatus = useAsrStore((state) => state.setStatus);
   const activePreset = useAsrStore((state) => state.activePreset);
   const setPreset = useAsrStore((state) => state.setPreset);
@@ -51,14 +52,14 @@ function LocalUploadPage() {
   const [isResettingSession, setIsResettingSession] = useState(false);
 
   useEffect(() => {
-    logger.info("Local upload page view", { route: "/localupload", mode: "local" });
+    logger.debug("[local-upload][ui] page view", { route: "/localupload", mode: "local" });
     telemetry?.logEvent?.("LOCAL_UPLOAD_PAGE_VIEW", { route: "/localupload", mode: "local" });
   }, [telemetry]);
 
   const togglePrivacyNote = useCallback(() => {
     setPrivacyNoteOpen((value) => {
       const next = !value;
-      logger.info("Local upload privacy note toggled", { open: next });
+      logger.debug("[local-upload][ui] privacy note toggled", { open: next });
       telemetry?.logEvent?.("LOCAL_UPLOAD_PRIVACY_NOTE_TOGGLE", { open: next });
       return next;
     });
@@ -66,7 +67,7 @@ function LocalUploadPage() {
 
   const handleFileSelected = useCallback(
     (file: File) => {
-      logger.info("handleFileSelected called", { fileName: file?.name });
+      logger.debug("[local-upload][ui] file selection received", { fileName: file?.name });
       // Reset session first, then store the uploaded file to ensure the file remains available
       try {
         if (previewUrl) {
@@ -127,6 +128,7 @@ function LocalUploadPage() {
       setPreviewUrl(null);
       setUploadedFile(null);
       setTelemetrySummary(null);
+      clearSessionTranscriptMemory("upload");
       resetSession();
       setStatus("idle", "Session réinitialisée");
     } catch (error) {
@@ -140,6 +142,7 @@ function LocalUploadPage() {
     isResettingSession,
     isTranscribing,
     previewUrl,
+    clearSessionTranscriptMemory,
     resetSession,
     setPreviewUrl,
     setStatus,

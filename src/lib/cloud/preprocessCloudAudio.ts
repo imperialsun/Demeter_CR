@@ -60,7 +60,7 @@ export async function preprocessCloudAudio(
   settings: CloudPreprocessSettings,
   telemetry?: TelemetryCollector
 ): Promise<CloudPreprocessResult> {
-  logger.info("[cloud][preprocess] start", {
+  logger.debug("[cloud][preprocess] start", {
     fileName: file.name,
     mode: settings.preprocessingMode,
   });
@@ -85,7 +85,7 @@ export async function preprocessCloudAudio(
     vadUsed: profileResult.vadUsed,
     silenceRanges: profileResult.silenceRanges,
   });
-  logger.info("[cloud][preprocess] noise profile ready", {
+  logger.debug("[cloud][preprocess] noise profile ready", {
     frames: profileResult.frames,
     vadUsed: profileResult.vadUsed,
   });
@@ -111,7 +111,7 @@ export async function preprocessCloudAudio(
       overlapBlockSec: tuned.overlapBlockSec,
       overlapSec: tuned.overlapSec,
     });
-    logger.info("[cloud][preprocess][autotune] computed", {
+    logger.debug("[cloud][preprocess][autotune] computed", {
       noiseFloorDb: tuned.noiseFloorDb,
       reductionDb: tuned.reductionDb,
       smoothing: tuned.smoothing,
@@ -129,7 +129,7 @@ export async function preprocessCloudAudio(
 
   if (settings.preprocessingMode !== "full") {
     telemetry?.logEvent("PREPROCESS_DONE", { context: "cloud", applied: false });
-    logger.info("[cloud][preprocess] quick mode, no processing applied");
+    logger.debug("[cloud][preprocess] quick mode, no processing applied");
     return {
       decoded,
       processed: decoded,
@@ -166,7 +166,7 @@ export async function preprocessCloudAudio(
   );
 
   telemetry?.logEvent("PREPROCESS_DONE", { context: "cloud", applied: true });
-  logger.info("[cloud][preprocess] done", {
+  logger.debug("[cloud][preprocess] done", {
     frames: processed.pcm.length,
     sampleRate: processed.sampleRate,
   });

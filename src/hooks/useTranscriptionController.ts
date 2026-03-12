@@ -41,6 +41,7 @@ import {
   trimDebrisPrefix,
   shouldStopRun,
 } from "@/hooks/useTranscriptionController.steps";
+import { createSessionTranscriptMemoryEntry } from "@/lib/sessionTranscriptMemory";
 import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
 
 const sharedAbortRef: { current: AbortController | null } = { current: null };
@@ -58,6 +59,20 @@ export function getSharedRunId() {
 
 export function setSharedAbortController(controller: AbortController | null) {
   sharedAbortRef.current = controller;
+}
+
+function publishUploadTranscriptMemory(segments: TranscriptionSegment[]) {
+  const state = useAsrStore.getState();
+  state.setSessionTranscriptMemory(
+    "upload",
+    createSessionTranscriptMemoryEntry({
+      mode: "upload",
+      provider: "upload",
+      segments,
+      audioSource: state.audioSource,
+      audioMetadata: state.audioMetadata,
+    })
+  );
 }
 
 export function useTranscriptionController() {
@@ -103,13 +118,13 @@ export function useTranscriptionController() {
     });
 
     if (source === "estimated" && fallbackText && fallbackText.trim().length) {
-      logger.info("Computed overall from chunk text (fallback)", { chunkIndex, overall });
+      logger.debug("[transcription][progressive] overall from chunk text", { chunkIndex, overall });
     }
 
     useAsrStore.getState().setTranscriptionConfidence(overall);
     useAsrStore.getState().setTranscriptionConfidenceSource(source);
     telemetry?.logEvent("PROGRESS_CONFIDENCE", { chunkIndex, overall });
-    logger.info("Progressive transcript confidence", { chunkIndex, overall, source });
+    logger.debug("[transcription][progressive] overall confidence", { chunkIndex, overall, source });
   }, []);
 
   const setProgressThrottled = (value: number, force = false) => {
@@ -201,7 +216,7 @@ export function useTranscriptionController() {
       const state = useAsrStore.getState();
       teleportStateToReady();
 
-      logger.info("[decode] full pipeline start", {
+      logger.info("[transcription] full pipeline start", {
         fileName: file.name,
         mode: preprocessConfig ? "complete-preprocess" : "full-memory",
         reusedPreDecoded: Boolean(preDecoded),
@@ -215,7 +230,7 @@ export function useTranscriptionController() {
       let decoded = preDecoded ?? await decodeFileFully(file, telemetry);
       const pcmBytes = decoded.pcm.byteLength;
       const pcmMb = pcmBytes / (1024 * 1024);
-      logger.info("[decode] full decode RAM footprint", {
+      logger.debug("[decode] full decode RAM footprint", {
         samples: decoded.pcm.length,
         sampleRate: decoded.sampleRate,
         pcmBytes,
@@ -229,11 +244,11 @@ export function useTranscriptionController() {
         sampleRate: decoded.sampleRate,
       });
       if (preprocessConfig) {
-        logger.info("[preprocess] applying full pipeline on decoded audio", preprocessConfig);
+        logger.debug("[preprocess] applying full pipeline on decoded audio", preprocessConfig);
 
         // If preprocessed earlier (preDecoded contains preprocessed pcm), skip any calibration/apply steps
         if (preprocessed) {
-          logger.info("[preprocess] skipped because preprocessing was done prior to model init");
+          logger.debug("[preprocess] skipped because preprocessing was done prior to model init");
           useAsrStore.getState().setPreprocessingStatus("done");
           useAsrStore.getState().setPreprocessingProgress(1);
         } else {
@@ -304,7 +319,7 @@ export function useTranscriptionController() {
                     overlapBlockSec: tune.overlapBlockSec,
                     overlapSec: tune.overlapSec,
                   });
-                  logger.info("[preprocess][autotune] full applied", {
+                  logger.debug("[preprocess][autotune] full applied", {
                     noiseFloorDb: tune.noiseFloorDb,
                     reductionDb: tune.reductionDb,
                     smoothing: tune.smoothing,
@@ -374,7 +389,7 @@ export function useTranscriptionController() {
         decoded.sampleRate
       );
 
-      logger.info("[chunk-plan] full", {
+      logger.debug("[chunk-plan] full", {
         chunks: chunkPlan.length,
         strategy: state.chunkStrategy,
         chunkDurationSec: state.chunkDurationSec,
@@ -418,7 +433,7 @@ export function useTranscriptionController() {
           enableWordTimestamps: state.enableWordTimestamps,
           showSegmentConfidence: state.showSegmentConfidence,
         });
-        logger.info("[decode] full decode start", { chunk: definition });
+        logger.debug("[decode] full decode start", { chunk: definition });
 
         if (shouldStopAfterChunk(runId)) {
           break;
@@ -432,6 +447,7 @@ export function useTranscriptionController() {
           nextIndex += segments.length;
           lastSegment = segments[segments.length - 1];
           state.appendSegments(segments);
+          publishUploadTranscriptMemory(useAsrStore.getState().segments);
 
           // Recompute overall confidence immediately after appending segments (full pipeline mode)
           const fallbackDuration = Math.max(0.001, (definition.end ?? definition.start) - (definition.start ?? 0));
@@ -494,7 +510,7 @@ export function useTranscriptionController() {
       });
       const segmentSessionId = crypto.randomUUID();
 
-      logger.info("[progressive-segment] plan", {
+      logger.debug("[progressive-segment] plan", {
         segments: segmentPlan.length,
         segmentDurationSec,
         overlapSec: segmentOverlapSec,
@@ -536,7 +552,7 @@ export function useTranscriptionController() {
         preprocessOverlapBlockSec: state.preprocessOverlapBlockSec,
         preprocessOverlapSec: state.preprocessOverlapSec,
       };
-      logger.info("[preprocess] progressive segment mode", {
+      logger.debug("[preprocess] progressive segment mode", {
         enabled: Boolean(effectivePreprocessConfig),
         segmentDurationSec,
       });
@@ -563,7 +579,7 @@ export function useTranscriptionController() {
           });
           if (segmenting.aborted) {
             state.setSegmentationStatus("stopped");
-            logger.warn("[progressive-segment] segmentation stopped", {
+            logger.info("[progressive-segment] segmentation stopped", {
               completed: segmenting.completed,
               total: segmenting.total,
             });
@@ -586,7 +602,7 @@ export function useTranscriptionController() {
             startSec: segment.start,
             endSec: segment.end,
           });
-          logger.info("[progressive-segment] start", {
+          logger.debug("[progressive-segment] start", {
             segmentIndex: segment.index,
             startSec: segment.start,
             endSec: segment.end,
@@ -682,7 +698,7 @@ export function useTranscriptionController() {
                   overlapBlockSec: tune.overlapBlockSec,
                   overlapSec: tune.overlapSec,
                 });
-                logger.info("[preprocess][autotune] segment applied", {
+                logger.debug("[preprocess][autotune] segment applied", {
                   segmentIndex: segment.index,
                   noiseFloorDb: tune.noiseFloorDb,
                   reductionDb: tune.reductionDb,
@@ -769,7 +785,7 @@ export function useTranscriptionController() {
             segmentPcm,
             segmentSampleRate
           );
-          logger.info("[chunk-plan] segment", {
+          logger.debug("[chunk-plan] segment", {
             segmentIndex: segment.index,
             chunks: segmentChunkPlan.length,
             strategy: state.chunkStrategy,
@@ -829,6 +845,7 @@ export function useTranscriptionController() {
               nextIndex += segments.length;
               lastSegment = segments[segments.length - 1];
               state.appendSegments(segments);
+              publishUploadTranscriptMemory(useAsrStore.getState().segments);
             }
 
             const metric = {
@@ -863,7 +880,7 @@ export function useTranscriptionController() {
             startSec: segment.start,
             endSec: segment.end,
           });
-          logger.info("[progressive-segment] done", { segmentIndex: segment.index });
+          logger.debug("[progressive-segment] done", { segmentIndex: segment.index });
           segmentPcm = new Float32Array(0);
           if (preprocessingStopped) {
             break;
@@ -927,12 +944,8 @@ export function useTranscriptionController() {
       }
     };
 
-    // Preserve the debug toggle explicitly so that any transient resets inside the
-    // transcription flow do not change the UI state.
-    const previousDebug = state.debugConfidence;
-
     // Prepare for a new transcription without resetting the entire app state.
-    // This avoids clearing UI toggles like `debugConfidence` and other persisted settings.
+    // This avoids clearing persisted UI preferences during a transcription start.
     // If you need a full page reload on start, set Vite env var VITE_RELOAD_ON_START=1 at build time.
     const _env = (import.meta as unknown as { env?: { VITE_RELOAD_ON_START?: string } }).env;
     const reloadOnStart = _env?.VITE_RELOAD_ON_START === '1';
@@ -945,6 +958,7 @@ export function useTranscriptionController() {
     state.resetStopRequest();
     state.setProgress(0);
     state.clearSpeakerAssignments("upload");
+    state.clearSessionTranscriptMemory("upload");
     state.setSegments([]);
     state.setChunkPlan([]);
     state.setTelemetrySummary(null);
@@ -968,7 +982,7 @@ export function useTranscriptionController() {
     if (memoryModeResolution.switched) {
       state.setMemoryMode("progressive");
       toast("Audio > 15 min : passage automatique en mode progressif.");
-      logger.info("[memory-mode] auto switched to progressive", {
+      logger.warn("[memory-mode] auto switched to progressive", {
         durationSec: metadata.durationSec,
         thresholdSec: memoryModeResolution.thresholdSec,
       });
@@ -1064,10 +1078,10 @@ export function useTranscriptionController() {
         }
       : null;
     if (shouldPreprocess) {
-      logger.info("[preprocess] active", { ...preprocessConfig, memoryMode: effectiveMemoryMode });
+      logger.debug("[preprocess] active", { ...preprocessConfig, memoryMode: effectiveMemoryMode });
       state.clearNoiseCalibrationRequest();
       if (calibrationRequested) {
-        logger.info("[preprocess] calibration requested (1s noise capture)");
+        logger.debug("[preprocess] calibration requested (1s noise capture)");
         telemetry.logEvent("CALIBRATION_REQUESTED");
       }
     }
@@ -1090,7 +1104,7 @@ export function useTranscriptionController() {
           throwIfRunInvalidated();
           const pcmBytes = preDecoded.pcm.byteLength;
           const pcmMb = pcmBytes / (1024 * 1024);
-          logger.info("[decode] pre-model full decode RAM footprint", {
+          logger.debug("[decode] pre-model full decode RAM footprint", {
             samples: preDecoded.pcm.length,
             sampleRate: preDecoded.sampleRate,
             pcmBytes,
@@ -1151,7 +1165,7 @@ export function useTranscriptionController() {
                 overlapBlockSec: tune.overlapBlockSec,
                 overlapSec: tune.overlapSec,
               });
-              logger.info("[preprocess][autotune] pre-model applied", {
+              logger.debug("[preprocess][autotune] pre-model applied", {
                 noiseFloorDb: tune.noiseFloorDb,
                 reductionDb: tune.reductionDb,
                 smoothing: tune.smoothing,
@@ -1313,9 +1327,9 @@ export function useTranscriptionController() {
         const source = computeOverallConfidenceSource(segments);
         useAsrStore.getState().setTranscriptionConfidence(overall);
         useAsrStore.getState().setTranscriptionConfidenceSource(source);
-        logger.info("Computed transcript confidence", { overall, source });
+        logger.debug("[transcription][confidence] overall computed", { overall, source });
       } catch (err) {
-        logger.warn("Failed to compute transcript confidence", err);
+        logger.debug("[transcription][confidence] overall computation failed", err);
       }
 
       telemetry.logEvent("STOPPED");
@@ -1430,8 +1444,6 @@ export function useTranscriptionController() {
         state.resetStopRequest();
         state.registerTelemetry(null);
       }
-      // Restore debug toggle to previous value in case any flow changed it
-      state.setDebugConfidence(previousDebug);
       sharedAbortRef.current = null;
     }
   }, [clearErrorResetTimer, handleFullPipeline, handleProgressivePipeline, scheduleErrorReset]);
@@ -1528,7 +1540,10 @@ export function normaliseSegments(
     const trimmed = trimChunkOverlap(previous?.text, result.text, dedupeMode);
     const text = trimmed.text.trim();
     if (trimmed.overlapWords > 0) {
-      logger.info("Trimmed chunk overlap", { overlapWords: trimmed.overlapWords, chunkId: result.chunk.id });
+      logger.debug("[transcription][chunk] overlap trimmed", {
+        overlapWords: trimmed.overlapWords,
+        chunkId: result.chunk.id,
+      });
       try {
         const telemetry = useAsrStore.getState().telemetryCollector;
         telemetry?.logEvent("SEGMENT_DEDUP", { overlapWords: trimmed.overlapWords, mode: "chunks", dedupeMode });
@@ -1552,7 +1567,10 @@ export function normaliseSegments(
         : undefined;
 
       if (words && words.length) {
-        logger.info("Attaching word timestamps to chunk segment", { chunkId: result.chunk.id, wordCount: words.length });
+        logger.debug("[transcription][chunk] word timestamps attached", {
+          chunkId: result.chunk.id,
+          wordCount: words.length,
+        });
       }
 
       // Compute aggregated confidence for this chunk segment from child segments' confidences when available
@@ -1575,13 +1593,13 @@ export function normaliseSegments(
         try {
           const dur = Math.max(0.001, (result.chunk.end ?? result.chunk.start) - (result.chunk.start ?? 0));
           aggregateConf = estimateConfidenceFromText(text, dur);
-          logger.info("Computed chunk confidence from text", { chunkId: result.chunk.id, aggregateConf });
+          logger.debug("[transcription][chunk] confidence from text", { chunkId: result.chunk.id, aggregateConf });
         } catch (err) {
           void err;
         }
       }
 
-      logger.info("Chunk aggregate confidence", { chunkId: result.chunk.id, aggregateConf });
+      logger.debug("[transcription][chunk] aggregate confidence", { chunkId: result.chunk.id, aggregateConf });
 
       segments.push({
         index: startIndex,
@@ -1597,9 +1615,13 @@ export function normaliseSegments(
 
       // Optional detailed debug for chunk-level estimate
       try {
-        if (useAsrStore.getState().debugConfidence && typeof aggregateConf === 'number') {
+        if (logger.isLevelEnabled("debug") && typeof aggregateConf === 'number') {
           const details = scoreDetails(text, Math.max(0.001, (result.chunk.end ?? result.chunk.start) - (result.chunk.start ?? 0)));
-          logger.info("Chunk confidence details", { chunkId: result.chunk.id, source: usedModelConf ? 'model' : 'estimated', ...details });
+          logger.debug("[transcription][chunk] confidence details", {
+            chunkId: result.chunk.id,
+            source: usedModelConf ? 'model' : 'estimated',
+            ...details,
+          });
         }
       } catch (err) {
         void err;
@@ -1681,23 +1703,28 @@ export function normaliseSegments(
         const weighted = wordItems.reduce((a, b) => a + (b.conf ?? 0) * b.dur, 0) / tot;
         item.confidence = Math.max(0, Math.min(1, weighted));
         item.confidenceSource = 'model';
-        logger.info("Computed segment confidence from words", { index: item.index, confidence: item.confidence });
+        logger.debug("[transcription][segment] confidence from words", { index: item.index, confidence: item.confidence });
       }
     } else if (typeof item.confidence === 'number') {
       // segment had a numeric confidence supplied by the pipeline
       item.confidenceSource = 'model';
-      logger.info("Segment confidence present", { index: item.index, confidence: item.confidence });    }
+      logger.debug("[transcription][segment] confidence present", { index: item.index, confidence: item.confidence });
+    }
     if (typeof item.confidence !== "number" || Number.isNaN(item.confidence)) {
       try {
         const dur = Math.max(0.001, item.end - item.start);
         item.confidence = estimateConfidenceFromText(item.text, dur);
         item.confidenceSource = 'estimated';
-        logger.info("Computed segment confidence from text", { index: item.index, confidence: item.confidence });
+        logger.debug("[transcription][segment] confidence from text", { index: item.index, confidence: item.confidence });
         // Detailed debug when requested
         try {
-          if (useAsrStore.getState().debugConfidence) {
+          if (logger.isLevelEnabled("debug")) {
             const details = scoreDetails(item.text, dur);
-            logger.info("Segment confidence details", { index: item.index, source: item.confidenceSource, ...details });
+            logger.debug("[transcription][segment] confidence details", {
+              index: item.index,
+              source: item.confidenceSource,
+              ...details,
+            });
           }
         } catch (err) {
           void err;

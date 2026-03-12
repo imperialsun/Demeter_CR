@@ -68,31 +68,6 @@ services:
     networks:
       - proxy
 
-  gradio-proxy:
-    image: nginx:alpine
-    restart: unless-stopped
-    volumes:
-      - ./docker/gradio-proxy/nginx.conf:/etc/nginx/nginx.conf:ro
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.transcode-gradio.rule=Host(`transcode.demeter-sante.fr`) && PathPrefix(`/gradio_api`)"
-      - "traefik.http.routers.transcode-gradio.entrypoints=websecure"
-      - "traefik.http.routers.transcode-gradio.tls=true"
-      - "traefik.http.routers.transcode-gradio.tls.certresolver=le"
-      - "traefik.http.routers.transcode-gradio.priority=100"
-      - "traefik.http.routers.transcode-gradio.service=transcode-gradio"
-      - "traefik.http.routers.transcode-gradio-ui.rule=Host(`transcode.demeter-sante.fr`) && PathPrefix(`/gradio`)"
-      - "traefik.http.routers.transcode-gradio-ui.entrypoints=websecure"
-      - "traefik.http.routers.transcode-gradio-ui.tls=true"
-      - "traefik.http.routers.transcode-gradio-ui.tls.certresolver=le"
-      - "traefik.http.routers.transcode-gradio-ui.priority=90"
-      - "traefik.http.routers.transcode-gradio-ui.service=transcode-gradio"
-      - "traefik.http.routers.transcode-gradio-ui.middlewares=transcode-gradio-strip"
-      - "traefik.http.middlewares.transcode-gradio-strip.stripprefix.prefixes=/gradio"
-      - "traefik.http.services.transcode-gradio.loadbalancer.server.port=80"
-    networks:
-      - proxy
-
 networks:
   proxy:
     external: true

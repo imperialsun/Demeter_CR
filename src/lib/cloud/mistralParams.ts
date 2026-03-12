@@ -1,6 +1,6 @@
 export const DEFAULT_MISTRAL_SEGMENT_DURATION_SEC = 30;
 
-const VOXTRAL_MINI_MAX_DURATION_SEC = 30 * 60;
+const VOXTRAL_MINI_MAX_DURATION_SEC = 15 * 60;
 
 export function resolveMistralSegmentDurationSec(model: string): number {
   const normalized = model.trim().toLowerCase();

@@ -4,6 +4,8 @@ import logger from "@/lib/logger";
 
 export const BACKEND_FORBIDDEN_MESSAGE = "Accès refusé par vos permissions backend.";
 export const BACKEND_UNAUTHORIZED_MESSAGE = "Session expirée. Veuillez vous reconnecter.";
+export const BACKEND_NETWORK_ERROR_MESSAGE =
+  "Impossible de joindre le backend. Vérifiez l'accès réseau à l'API puis réessayez.";
 
 export class BackendHttpError extends Error {
   readonly status: number;
@@ -64,18 +66,53 @@ export function handleBackendUnauthorized(error: unknown): boolean {
   return true;
 }
 
+function isAbortError(error: unknown): error is Error {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function isNetworkFetchError(error: unknown): boolean {
+  if (error instanceof TypeError) {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return /failed to fetch|networkerror|load failed/i.test(message);
+}
+
+function toBackendFetchError(error: unknown, path: string, method: string, url: string): Error {
+  if (isAbortError(error)) {
+    return error;
+  }
+  if (isNetworkFetchError(error)) {
+    return new Error(`${BACKEND_NETWORK_ERROR_MESSAGE} (${method} ${path} -> ${url})`);
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 export async function backendFetch(path: string, init?: RequestInit): Promise<Response> {
   const url = toBackendUrl(path);
   const method = (init?.method ?? "GET").toUpperCase();
   const startedAt = performance.now();
-  const response = await fetch(url, {
-    credentials: "include",
-    ...init,
-    headers: {
-      ...(init?.headers ?? {}),
-    },
-  });
-  logger.info("[backend-api] request completed", {
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      credentials: "include",
+      ...init,
+      headers: {
+        ...(init?.headers ?? {}),
+      },
+    });
+  } catch (error) {
+    const normalizedError = toBackendFetchError(error, path, method, url);
+    logger.error("[backend-api] request failed", {
+      method,
+      path,
+      url,
+      durationMs: Math.round(performance.now() - startedAt),
+      message: normalizedError.message,
+    });
+    throw normalizedError;
+  }
+  logger.debug("[backend-api] request completed", {
     method,
     path,
     status: response.status,

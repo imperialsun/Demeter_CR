@@ -15,8 +15,7 @@ function resolveVendorChunk(id: string) {
   if (
     id.includes('/node_modules/@huggingface/transformers/') ||
     id.includes('/node_modules/onnxruntime-web/') ||
-    id.includes('/node_modules/@huggingface/inference/') ||
-    id.includes('/node_modules/@gradio/client/')
+    id.includes('/node_modules/@huggingface/inference/')
   ) {
     return 'vendor-asr'
   }

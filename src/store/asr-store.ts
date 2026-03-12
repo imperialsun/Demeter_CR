@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import logger from "@/lib/logger";
+import logger, { type LogLevel } from "@/lib/logger";
 import {
   loadSettings,
   saveSettings,
@@ -16,6 +16,12 @@ import type { AudioMetadata } from "@/lib/audio";
 import { computeDefaultOverlap } from "@/lib/chunking";
 import type { ChunkDefinition } from "@/lib/chunking";
 import type { ExportHeader, TranscriptionSegment } from "@/lib/export";
+import {
+  createEmptySessionTranscriptMemories,
+  type SessionSource,
+  type SessionTranscriptMemoryEntry,
+  type SessionTranscriptMode,
+} from "@/lib/sessionTranscriptMemory";
 import type { SpeakerAssignment, SpeakerAssignmentMap } from "@/lib/speakerAssignments";
 import type { TelemetryCollector, ChunkTelemetry, TelemetrySummary } from "@/lib/telemetry";
 import type { ReportResult, ReportResultKey } from "@/lib/llm/reportSchema";
@@ -53,6 +59,12 @@ const MODEL_DTYPE_VALUES: readonly ModelDtype[] = [
   "bnb4",
 ] as const;
 const ALLOWED_MODEL_DTYPES = new Set<ModelDtype>(MODEL_DTYPE_VALUES);
+const LOG_LEVEL_VALUES: readonly LogLevel[] = ["error", "warn", "info", "debug"] as const;
+const ALLOWED_LOG_LEVELS = new Set<LogLevel>(LOG_LEVEL_VALUES);
+
+function normalizeLogLevel(value: unknown, fallback: LogLevel = "info"): LogLevel {
+  return typeof value === "string" && ALLOWED_LOG_LEVELS.has(value as LogLevel) ? (value as LogLevel) : fallback;
+}
 
 export type PipelineStatus =
   | "idle"
@@ -240,25 +252,6 @@ const resolveBackendPreference = (
   return fallback;
 };
 
-export const normalizeCloudApiUrl = (value: string | undefined, fallback: string) => {
-  if (!value) return fallback;
-  const trimmed = value.trim();
-  if (!trimmed) return fallback;
-  const withoutTrailingSlash = trimmed.replace(/\/+$/, "");
-  try {
-    const parsed = new URL(trimmed);
-    if (parsed.pathname.startsWith("/gradio_api")) {
-      return parsed.origin;
-    }
-    if (parsed.pathname === "/gradio" || parsed.pathname.startsWith("/gradio/")) {
-      return `${parsed.origin}/gradio`;
-    }
-  } catch {
-    // Ignore invalid URLs and fall back to trimmed value.
-  }
-  return withoutTrailingSlash;
-};
-
 export const normalizeMistralModel = (value: string | undefined, fallback: string) => {
   const trimmed = value?.trim() ?? "";
   if (!trimmed) return fallback;
@@ -365,12 +358,6 @@ function normalizeSecureTokens(input: Partial<SecureTokens> | null | undefined):
 function hasAnySecureToken(tokens: SecureTokens) {
   return tokens.hfApiToken.trim().length > 0 || tokens.mistralApiKey.trim().length > 0;
 }
-
-type SessionSource = {
-  id: string;
-  label: string;
-  type: "file" | "mic";
-};
 
 type ExportMode = ExportHeader["mode"];
 
@@ -497,12 +484,13 @@ interface AsrConfigState {
   micShowSegmentConfidence: boolean;
   micForceSingleThread: boolean;
   // Cloud-specific settings
-  cloudApiUrl: string;
   hfApiToken: string;
   cloudMistralApiUrl: string;
   mistralApiKey: string;
   cloudMistralModel: string;
   cloudMistralDiarizationEnabled: boolean;
+  cloudDemeterModel: string;
+  cloudDemeterDiarizationEnabled: boolean;
   cloudWhisperChunkDurationSec: number;
   cloudWhisperOverlapSec: number;
   cloudMistralChunkDurationSec: number;
@@ -511,7 +499,6 @@ interface AsrConfigState {
   cloudTemperature: number;
   cloudTopP: number;
   cloudDoSample: boolean;
-  cloudContextPreset: string;
   cloudShowSegments: boolean;
   cloudShowExportVtt: boolean;
   cloudShowExportSrt: boolean;
@@ -591,6 +578,7 @@ interface AsrConfigState {
   segments: TranscriptionSegment[];
   audioMetadata: AudioMetadata | null;
   audioSource: SessionSource | null;
+  sessionTranscriptMemories: Record<SessionTranscriptMode, SessionTranscriptMemoryEntry | null>;
   // Persist the uploaded file in-memory so UI like pre-listen survives navigation
   uploadedFile: File | null;
   previewUrl: string | null;
@@ -599,7 +587,7 @@ interface AsrConfigState {
   speakerAssignments: Record<ExportMode, SpeakerAssignmentMap>;
   transcriptionConfidence: number | null; // 0..1 overall transcript confidence or null if unavailable
   transcriptionConfidenceSource?: 'model' | 'estimated' | null;
-  debugConfidence: boolean;
+  logLevel: LogLevel;
   isTranscribing: boolean;
   stopRequested: boolean;
   progress: number; 
@@ -706,12 +694,13 @@ interface AsrConfigActions {
   setMicShowSegmentConfidence: (value: boolean) => void;
   setMicForceSingleThread: (value: boolean) => void;
   setCloudStatus: (status: CloudTranscriptionStatus, detail?: string) => void;
-  setCloudApiUrl: (value: string) => void;
   setHfApiToken: (value: string) => void;
   setCloudMistralApiUrl: (value: string) => void;
   setMistralApiKey: (value: string) => void;
   setCloudMistralModel: (value: string) => void;
   setCloudMistralDiarizationEnabled: (value: boolean) => void;
+  setCloudDemeterModel: (value: string) => void;
+  setCloudDemeterDiarizationEnabled: (value: boolean) => void;
   setCloudWhisperChunking: (params: Partial<{
     chunkDurationSec: number;
     overlapSec: number;
@@ -724,7 +713,6 @@ interface AsrConfigActions {
   setCloudTemperature: (value: number) => void;
   setCloudTopP: (value: number) => void;
   setCloudDoSample: (value: boolean) => void;
-  setCloudContextPreset: (value: string) => void;
   setCloudShowSegments: (value: boolean) => void;
   setCloudShowExportVtt: (value: boolean) => void;
   setCloudShowExportSrt: (value: boolean) => void;
@@ -806,6 +794,9 @@ interface AsrConfigActions {
   hydrateFromStorage: () => void;
   registerTelemetry: (collector: TelemetryCollector | null) => void;
   registerAudioSource: (source: SessionSource | null, metadata?: AudioMetadata | null) => void;
+  setSessionTranscriptMemory: (mode: SessionTranscriptMode, entry: SessionTranscriptMemoryEntry | null) => void;
+  clearSessionTranscriptMemory: (mode: SessionTranscriptMode) => void;
+  clearAllSessionTranscriptMemories: () => void;
   setChunkPlan: (plan: ChunkDefinition[]) => void;
   setSegments: (segments: TranscriptionSegment[]) => void;
   appendSegments: (segments: TranscriptionSegment[]) => void;
@@ -818,7 +809,7 @@ interface AsrConfigActions {
   clearAllSpeakerAssignments: () => void;
   setTranscriptionConfidence: (value: number | null) => void;
   setTranscriptionConfidenceSource: (value: 'model' | 'estimated' | null) => void;
-  setDebugConfidence: (value: boolean) => void;
+  setLogLevel: (value: LogLevel) => void;
   setIsTranscribing: (value: boolean) => void; 
   setProgress: (value: number) => void;
   requestStop: () => void;
@@ -928,21 +919,21 @@ const initialState: AsrConfigState = {
   micEnableWordTimestamps: false,
   micShowSegmentConfidence: false,
   micForceSingleThread: false,
-  cloudApiUrl: "https://transcode.demeter-sante.fr/gradio",
   hfApiToken: "",
   cloudMistralApiUrl: "https://api.mistral.ai",
   mistralApiKey: "",
   cloudMistralModel: DEFAULT_MISTRAL_MODEL,
   cloudMistralDiarizationEnabled: true,
+  cloudDemeterModel: DEFAULT_MISTRAL_MODEL,
+  cloudDemeterDiarizationEnabled: true,
   cloudWhisperChunkDurationSec: 30,
   cloudWhisperOverlapSec: 0,
-  cloudMistralChunkDurationSec: 1800,
+  cloudMistralChunkDurationSec: 900,
   cloudMistralOverlapSec: 0,
   cloudMaxTokens: 32768,
   cloudTemperature: 0,
   cloudTopP: 1,
   cloudDoSample: false,
-  cloudContextPreset: "",
   cloudShowSegments: true,
   cloudShowExportVtt: true,
   cloudShowExportSrt: true,
@@ -1007,6 +998,7 @@ const initialState: AsrConfigState = {
   segments: [],
   audioMetadata: null,
   audioSource: null,
+  sessionTranscriptMemories: createEmptySessionTranscriptMemories(),
   // Persist uploaded file in-memory so pre-listen survives navigation
   uploadedFile: null,
   previewUrl: null,
@@ -1034,7 +1026,7 @@ const initialState: AsrConfigState = {
   // derived metrics
   transcriptionConfidence: null,
   transcriptionConfidenceSource: null,
-  debugConfidence: false,
+  logLevel: "info",
 };
 
 export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => ({
@@ -1121,6 +1113,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
     };
     const settings = loadSettings();
     if (!settings) {
+      logger.info("[asr-store] hydrate from storage using defaults");
       const currentTokens = normalizeSecureTokens({
         hfApiToken: get().hfApiToken,
         mistralApiKey: get().mistralApiKey,
@@ -1134,6 +1127,9 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       void syncSecureTokensFromVault();
       return;
     }
+    logger.info("[asr-store] hydrate from storage loaded persisted settings", {
+      keyCount: Object.keys(settings).length,
+    });
     const modelQuantizationOverrides = sanitizePresetQuantizationOverrides(
       settings.presetQuantizationOverrides,
       get().modelQuantizationOverrides
@@ -1167,15 +1163,6 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         ...support,
       });
     }
-    const currentCloudApiUrl = get().cloudApiUrl;
-    const normalizedCloudApiUrl = normalizeCloudApiUrl(settings.cloudApiUrl ?? currentCloudApiUrl, currentCloudApiUrl);
-    if ((settings.cloudApiUrl ?? currentCloudApiUrl) !== normalizedCloudApiUrl) {
-      const storedValue = settings.cloudApiUrl ?? currentCloudApiUrl;
-      logger.info("[asr-store] cloud api url normalized", {
-        stored: storedValue,
-        normalized: normalizedCloudApiUrl,
-      });
-    }
     const currentCloudMistralModel = get().cloudMistralModel;
     const normalizedCloudMistralModel = normalizeMistralModel(
       settings.cloudMistralModel ?? currentCloudMistralModel,
@@ -1188,6 +1175,30 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         normalized: normalizedCloudMistralModel,
       });
     }
+    const currentCloudDemeterModel = get().cloudDemeterModel;
+    const normalizedCloudDemeterModel = normalizeMistralModel(
+      settings.cloudDemeterModel ?? settings.cloudMistralModel ?? currentCloudDemeterModel,
+      currentCloudDemeterModel
+    );
+    if (
+      (settings.cloudDemeterModel ?? settings.cloudMistralModel ?? currentCloudDemeterModel) !==
+      normalizedCloudDemeterModel
+    ) {
+      const storedValue = settings.cloudDemeterModel ?? settings.cloudMistralModel ?? currentCloudDemeterModel;
+      logger.info("[asr-store] cloud demeter model normalized", {
+        stored: storedValue,
+        normalized: normalizedCloudDemeterModel,
+      });
+    }
+    const resolvedLogLevel = normalizeLogLevel(
+      settings.logLevel ?? (settings.debugConfidence ? "debug" : undefined),
+      get().logLevel
+    );
+    logger.info("[asr-store] log level resolved during hydration", {
+      stored: settings.logLevel ?? null,
+      legacyDebugConfidence: Boolean(settings.debugConfidence),
+      resolved: resolvedLogLevel,
+    });
     set((state) => {
       const persistedLlmProvider = normalizeLlmApiProvider(settings.llmApiProvider, state.llmApiProvider);
       const legacyLlmModelId = settings.llmApiModelId;
@@ -1301,8 +1312,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       showExportSrt: settings.showExportSrt ?? state.showExportSrt,
       showExportJson: settings.showExportJson ?? state.showExportJson,
       showExportTelemetry: settings.showExportTelemetry ?? state.showExportTelemetry,
-      // Persisted debug toggle
-      debugConfidence: settings.debugConfidence ?? state.debugConfidence,
+      logLevel: resolvedLogLevel,
       preprocessingMode: settings.preprocessingMode ?? state.preprocessingMode,
       denoiseNoiseFloorDb: settings.denoiseNoiseFloorDb ?? state.denoiseNoiseFloorDb,
       denoiseReductionDb: settings.denoiseReductionDb ?? state.denoiseReductionDb,
@@ -1358,13 +1368,17 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       micEnableWordTimestamps: settings.micEnableWordTimestamps ?? state.micEnableWordTimestamps,
       micShowSegmentConfidence: settings.micShowSegmentConfidence ?? state.micShowSegmentConfidence,
       micForceSingleThread: settings.micForceSingleThread ?? state.micForceSingleThread,
-      cloudApiUrl: normalizedCloudApiUrl,
       hfApiToken: hydratedSecureTokens.hfApiToken,
       cloudMistralApiUrl: settings.cloudMistralApiUrl ?? state.cloudMistralApiUrl,
       mistralApiKey: hydratedSecureTokens.mistralApiKey,
       cloudMistralModel: normalizedCloudMistralModel,
       cloudMistralDiarizationEnabled:
         settings.cloudMistralDiarizationEnabled ?? state.cloudMistralDiarizationEnabled,
+      cloudDemeterModel: normalizedCloudDemeterModel,
+      cloudDemeterDiarizationEnabled:
+        settings.cloudDemeterDiarizationEnabled ??
+        settings.cloudMistralDiarizationEnabled ??
+        state.cloudDemeterDiarizationEnabled,
       cloudWhisperChunkDurationSec:
         settings.cloudWhisperChunkDurationSec ?? state.cloudWhisperChunkDurationSec,
       cloudWhisperOverlapSec: settings.cloudWhisperOverlapSec ?? state.cloudWhisperOverlapSec,
@@ -1375,7 +1389,6 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       cloudTemperature: settings.cloudTemperature ?? state.cloudTemperature,
       cloudTopP: settings.cloudTopP ?? state.cloudTopP,
       cloudDoSample: settings.cloudDoSample ?? state.cloudDoSample,
-      cloudContextPreset: settings.cloudContextPreset ?? state.cloudContextPreset,
       cloudShowSegments: settings.cloudShowSegments ?? state.cloudShowSegments,
       cloudShowExportVtt: settings.cloudShowExportVtt ?? state.cloudShowExportVtt,
       cloudShowExportSrt: settings.cloudShowExportSrt ?? state.cloudShowExportSrt,
@@ -1425,11 +1438,40 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       showSegmentConfidence: settings.showSegmentConfidence ?? state.showSegmentConfidence,
     };
     });
+    logger.info("[asr-store] hydration applied", {
+      logLevel: resolvedLogLevel,
+      blockedPresetCount: blockedPresets.length,
+    });
     void syncSecureTokensFromVault();
   },
   registerTelemetry: (collector) => set(() => ({ telemetryCollector: collector })),
   registerAudioSource: (source, metadata) =>
     set(() => ({ audioSource: source, audioMetadata: metadata ?? null })),
+  setSessionTranscriptMemory: (mode, entry) =>
+    set((state) => ({
+      sessionTranscriptMemories: {
+        ...state.sessionTranscriptMemories,
+        [mode]: entry
+          ? {
+              ...entry,
+              segments: [...entry.segments],
+              audioSource: entry.audioSource ?? null,
+              audioMetadata: entry.audioMetadata ?? null,
+            }
+          : null,
+      },
+    })),
+  clearSessionTranscriptMemory: (mode) =>
+    set((state) => ({
+      sessionTranscriptMemories: {
+        ...state.sessionTranscriptMemories,
+        [mode]: null,
+      },
+    })),
+  clearAllSessionTranscriptMemories: () =>
+    set(() => ({
+      sessionTranscriptMemories: createEmptySessionTranscriptMemories(),
+    })),
   setChunkPlan: (plan) => set(() => ({ chunkPlan: plan })),
   setSegments: (segments) => set(() => ({ segments })),
   appendSegments: (segments) =>
@@ -1489,7 +1531,21 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
     })),
   setTranscriptionConfidence: (value: number | null) => set(() => ({ transcriptionConfidence: value })),
   setTranscriptionConfidenceSource: (value) => set(() => ({ transcriptionConfidenceSource: value })),
-  setDebugConfidence: (value) => set(() => ({ debugConfidence: value })),
+  setLogLevel: (value) => {
+    const previous = get().logLevel;
+    const next = normalizeLogLevel(value, previous);
+    set(() => ({ logLevel: next }));
+    logger.info("[asr-store] log level updated", {
+      previous,
+      next,
+    });
+    if (next === "debug") {
+      logger.debug("[asr-store] debug logging enabled", {
+        previous,
+        next,
+      });
+    }
+  },
   setUploadedFile: (file: File | null) => set(() => ({ uploadedFile: file })),
   setPreviewUrl: (url: string | null) => set(() => ({ previewUrl: url })),
 
@@ -1571,12 +1627,13 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       cloudStatus: status,
       cloudStatusDetail: detail ?? undefined,
     })),
-  setCloudApiUrl: (value) => set(() => ({ cloudApiUrl: value })),
   setHfApiToken: (value) => set(() => ({ hfApiToken: value })),
   setCloudMistralApiUrl: (value) => set(() => ({ cloudMistralApiUrl: value })),
   setMistralApiKey: (value) => set(() => ({ mistralApiKey: value })),
   setCloudMistralModel: (value) => set(() => ({ cloudMistralModel: value })),
   setCloudMistralDiarizationEnabled: (value) => set(() => ({ cloudMistralDiarizationEnabled: value })),
+  setCloudDemeterModel: (value) => set(() => ({ cloudDemeterModel: value })),
+  setCloudDemeterDiarizationEnabled: (value) => set(() => ({ cloudDemeterDiarizationEnabled: value })),
   setCloudWhisperChunking: (params) =>
     set((state) => ({
       cloudWhisperChunkDurationSec: params.chunkDurationSec ?? state.cloudWhisperChunkDurationSec,
@@ -1591,7 +1648,6 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
   setCloudTemperature: (value) => set(() => ({ cloudTemperature: value })),
   setCloudTopP: (value) => set(() => ({ cloudTopP: value })),
   setCloudDoSample: (value) => set(() => ({ cloudDoSample: value })),
-  setCloudContextPreset: (value) => set(() => ({ cloudContextPreset: value })),
   setCloudShowSegments: (value) => set(() => ({ cloudShowSegments: value })),
   setCloudShowExportVtt: (value) => set(() => ({ cloudShowExportVtt: value })),
   setCloudShowExportSrt: (value) => set(() => ({ cloudShowExportSrt: value })),
@@ -1876,52 +1932,62 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
   requestStop: () => set(() => ({ stopRequested: true })),
   resetStopRequest: () => set(() => ({ stopRequested: false })),
   resetSession: () =>
-    set((state) => ({
-      ...state,
-      resetCounter: state.resetCounter + 1,
-      status: "idle",
-      statusDetail: undefined,
-      cloudStatus: "idle",
-      cloudStatusDetail: undefined,
-      activeBackend: undefined,
-      telemetryCollector: null,
-      chunkPlan: [],
-      chunkMetrics: [],
-      segments: [],
-      audioMetadata: null,
-      audioSource: null,
-      runExportHeaders: {
-        upload: null,
-        mic: null,
-        cloud: null,
-      },
-      speakerAssignments: createEmptySpeakerAssignmentsByMode(),
-      isTranscribing: false,
-      stopRequested: false,
-      progress: 0,
-      preprocessingStatus: "idle",
-      preprocessingProgress: 0,
-      segmentationStatus: "idle",
-      segmentationProgress: 0,
-      transcriptionConfidence: null,
-      transcriptionConfidenceSource: null,
-      llmApiStatus: "idle",
-      llmApiStatusDetail: undefined,
-      llmApiProgress: 0,
-      llmApiResults: {},
-      llmLocalStatus: "idle",
-      llmLocalStatusDetail: undefined,
-      llmLocalProgress: 0,
-      llmLocalResults: {},
-      localUploadModelSizeAlert: null,
-      llmLocalModelSizeAlert: null,
-      // Preserve debug toggle across session resets
-      debugConfidence: state.debugConfidence,
-      previewUrl: state.previewUrl,
-    })),
+    set((state) => {
+      logger.info("[asr-store] session reset", {
+        previousStatus: state.status,
+        segmentCount: state.segments.length,
+        chunkMetricCount: state.chunkMetrics.length,
+      });
+      return {
+        ...state,
+        resetCounter: state.resetCounter + 1,
+        status: "idle",
+        statusDetail: undefined,
+        cloudStatus: "idle",
+        cloudStatusDetail: undefined,
+        activeBackend: undefined,
+        telemetryCollector: null,
+        chunkPlan: [],
+        chunkMetrics: [],
+        segments: [],
+        audioMetadata: null,
+        audioSource: null,
+        runExportHeaders: {
+          upload: null,
+          mic: null,
+          cloud: null,
+        },
+        speakerAssignments: createEmptySpeakerAssignmentsByMode(),
+        isTranscribing: false,
+        stopRequested: false,
+        progress: 0,
+        preprocessingStatus: "idle",
+        preprocessingProgress: 0,
+        segmentationStatus: "idle",
+        segmentationProgress: 0,
+        transcriptionConfidence: null,
+        transcriptionConfidenceSource: null,
+        llmApiStatus: "idle",
+        llmApiStatusDetail: undefined,
+        llmApiProgress: 0,
+        llmApiResults: {},
+        llmLocalStatus: "idle",
+        llmLocalStatusDetail: undefined,
+        llmLocalProgress: 0,
+        llmLocalResults: {},
+        localUploadModelSizeAlert: null,
+        llmLocalModelSizeAlert: null,
+        previewUrl: state.previewUrl,
+      };
+    }),
 
   resetApp: () =>
     set((state) => {
+      logger.warn("[asr-store] app reset requested", {
+        previousStatus: state.status,
+        segmentCount: state.segments.length,
+        chunkMetricCount: state.chunkMetrics.length,
+      });
       // Persist default settings and reset in-memory state
       try {
         saveSettings(DEFAULT_SETTINGS);
@@ -1930,7 +1996,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         logger.warn("resetApp: failed to persist default settings", e);
       }
       void clearSecureTokens();
-      return {
+      const nextState: Partial<AsrConfigStore> = {
         ...initialState,
         hasHydrated: true,
         resetCounter: state.resetCounter + 1,
@@ -1958,6 +2024,8 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         segmentationStatus: "idle",
         segmentationProgress: 0,
       };
+      logger.info("[asr-store] app reset applied");
+      return nextState;
     }),
 
   setWebGpuSupport: (supported) => set(() => ({ webGpuSupported: supported })),
@@ -2094,10 +2162,11 @@ useAsrStore.subscribe((state) => {
     forceSingleThread: state.forceSingleThread,
     micForceSingleThread: state.micForceSingleThread,
     // cloud
-    cloudApiUrl: state.cloudApiUrl,
     cloudMistralApiUrl: state.cloudMistralApiUrl,
     cloudMistralModel: state.cloudMistralModel,
     cloudMistralDiarizationEnabled: state.cloudMistralDiarizationEnabled,
+    cloudDemeterModel: state.cloudDemeterModel,
+    cloudDemeterDiarizationEnabled: state.cloudDemeterDiarizationEnabled,
     cloudWhisperChunkDurationSec: state.cloudWhisperChunkDurationSec,
     cloudWhisperOverlapSec: state.cloudWhisperOverlapSec,
     cloudMistralChunkDurationSec: state.cloudMistralChunkDurationSec,
@@ -2106,7 +2175,6 @@ useAsrStore.subscribe((state) => {
     cloudTemperature: state.cloudTemperature,
     cloudTopP: state.cloudTopP,
     cloudDoSample: state.cloudDoSample,
-    cloudContextPreset: state.cloudContextPreset,
     cloudShowSegments: state.cloudShowSegments,
     cloudShowExportVtt: state.cloudShowExportVtt,
     cloudShowExportSrt: state.cloudShowExportSrt,
@@ -2155,8 +2223,7 @@ useAsrStore.subscribe((state) => {
     showSegmentConfidence: state.showSegmentConfidence,
     micEnableWordTimestamps: state.micEnableWordTimestamps,
     micShowSegmentConfidence: state.micShowSegmentConfidence,
-    // debug
-    debugConfidence: state.debugConfidence,
+    logLevel: state.logLevel,
   };
   saveSettings(payload);
   const secureTokens = normalizeSecureTokens({

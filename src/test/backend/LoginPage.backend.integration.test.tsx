@@ -13,7 +13,9 @@ const smokeMocks = vi.hoisted(() => ({
 vi.mock("@/lib/logger", () => ({
   default: {
     info: vi.fn(),
+    debug: vi.fn(),
     warn: vi.fn(),
+    error: vi.fn(),
   },
 }));
 

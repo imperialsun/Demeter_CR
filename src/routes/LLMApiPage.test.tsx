@@ -80,7 +80,19 @@ describe("LLMApiPage", () => {
       llmApiResults: {},
       mistralApiKey: "",
       cloudMistralApiUrl: "https://api.mistral.ai",
-      segments: [{ text: "Segment 1" }, { text: "Segment 2" }],
+      sessionTranscriptMemories: {
+        upload: {
+          mode: "upload",
+          provider: "upload",
+          label: "Locale · demo.wav",
+          segments: [{ text: "Segment 1" }, { text: "Segment 2" }],
+          audioSource: { id: "upload-1", label: "demo.wav", type: "file" },
+          audioMetadata: null,
+          updatedAt: "2026-03-12T10:00:00.000Z",
+        },
+        mic: null,
+        cloud: null,
+      },
     } as any);
   });
 
@@ -99,7 +111,7 @@ describe("LLMApiPage", () => {
     expect(button).not.toBeDisabled();
 
     await userEvent.click(button);
-    expect(generateAll).toHaveBeenCalledWith({ source: "transcription", text: undefined });
+    expect(generateAll).toHaveBeenCalledWith({ source: "transcription", transcriptMode: "upload" });
   });
 
   it("emits cloud page view telemetry on mount", () => {
@@ -254,6 +266,46 @@ describe("LLMApiPage", () => {
     expect(screen.getByText(/tokens source approx/i)).toBeInTheDocument();
   });
 
+  it("lets the user choose explicitly between stored local and cloud transcriptions", async () => {
+    useAsrStore.setState({
+      sessionTranscriptMemories: {
+        upload: {
+          mode: "upload",
+          provider: "upload",
+          label: "Locale · demo.wav",
+          segments: [{ text: "Texte local" }],
+          audioSource: { id: "upload-1", label: "demo.wav", type: "file" },
+          audioMetadata: null,
+          updatedAt: "2026-03-12T10:00:00.000Z",
+        },
+        mic: null,
+        cloud: {
+          mode: "cloud",
+          provider: "mistral",
+          label: "Cloud Mistral · demo.wav",
+          segments: [{ text: "Texte cloud" }],
+          audioSource: { id: "cloud-1", label: "demo.wav", type: "file" },
+          audioMetadata: null,
+          updatedAt: "2026-03-12T10:05:00.000Z",
+        },
+      },
+    } as any);
+
+    renderPage();
+
+    expect(screen.getByLabelText("Transcription à utiliser", { selector: "button#llm-session-transcript" })).toBeInTheDocument();
+    expect(screen.getAllByText(/Cloud Mistral · demo.wav/i).length).toBeGreaterThan(0);
+
+    const transcriptSelect = screen.getByLabelText("Transcription à utiliser", {
+      selector: "button#llm-session-transcript",
+    });
+    fireEvent.click(transcriptSelect);
+    fireEvent.click(await screen.findByText("Locale · demo.wav"));
+
+    await userEvent.click(screen.getByRole("button", { name: /generer les 3 formats/i }));
+    expect(generateAll).toHaveBeenCalledWith({ source: "transcription", transcriptMode: "upload" });
+  });
+
   it("imports txt file and enables generation", async () => {
     parseTranscriptFileMock.mockResolvedValue({
       text: "Texte importe depuis fichier",
@@ -289,6 +341,7 @@ describe("LLMApiPage", () => {
       "LLM_CLOUD_IMPORT_SUCCESS",
       expect.objectContaining({ fileName: "source.txt" })
     );
+    expect(useAsrStore.getState().sessionTranscriptMemories.upload?.label).toBe("Locale · demo.wav");
   });
 
   it("imports srt and json file outputs into free text source", async () => {

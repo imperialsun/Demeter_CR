@@ -1,9 +1,10 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useAsrStore } from "@/store/asr-store";
+import logger from "@/lib/logger";
 import { Loader2, PauseCircle, Play } from "lucide-react";
 
 interface StatusBarProps {
@@ -118,6 +119,20 @@ export function StatusBar({
       : undefined;
   const etaDisplay = typeof etaSeconds === "number" && etaSeconds > 0 ? formatEta(etaSeconds) : undefined;
 
+  useEffect(() => {
+    logger.debug("[status-bar] snapshot updated", {
+      mode,
+      status,
+      statusDetail: statusDetail ?? null,
+      percent,
+      isTranscribing,
+      stopRequested,
+      doneCount,
+      totalChunks,
+      etaDisplay: etaDisplay ?? null,
+    });
+  }, [doneCount, etaDisplay, isTranscribing, mode, percent, status, statusDetail, stopRequested, totalChunks]);
+
   return (
     <Card>
       <CardContent className="flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between md:flex-wrap">
@@ -149,7 +164,10 @@ export function StatusBar({
             <Button
               size="sm"
               className="gap-2 whitespace-normal text-left leading-tight"
-              onClick={onStart}
+              onClick={() => {
+                logger.info("[status-bar] start requested", { mode });
+                onStart();
+              }}
               disabled={startDisabled}
             >
               <Play className="h-4 w-4" />
@@ -162,7 +180,10 @@ export function StatusBar({
               size="sm"
               className="gap-2 whitespace-normal text-left leading-tight"
               disabled={stopRequested}
-              onClick={onStop}
+              onClick={() => {
+                logger.warn("[status-bar] stop requested", { mode });
+                onStop();
+              }}
             >
               {stopRequested ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -178,6 +199,7 @@ export function StatusBar({
               size="sm"
               className="whitespace-normal border-border bg-background/60 text-left leading-tight"
               onClick={() => {
+                logger.info("[status-bar] reset session requested", { mode });
                 void onResetSession();
               }}
               disabled={Boolean(resetDisabled)}

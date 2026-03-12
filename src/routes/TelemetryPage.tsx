@@ -1,4 +1,5 @@
 import { TelemetryPanel } from "@/components/telemetry/TelemetryPanel";
+import logger from "@/lib/logger";
 import {
   normalizeTelemetryLiveMode,
   normalizeTelemetryScope,
@@ -10,7 +11,7 @@ import {
   type TelemetryDetailTab,
 } from "@/lib/telemetryView";
 import { useAsrStore } from "@/store/asr-store";
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 
 function TelemetryPage() {
@@ -45,6 +46,7 @@ function TelemetryPage() {
   );
 
   const resetViewParams = useCallback(() => {
+    logger.info("[route][telemetry] reset filters");
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -57,6 +59,19 @@ function TelemetryPage() {
       { replace: true }
     );
   }, [setSearchParams]);
+
+  useEffect(() => {
+    logger.info("[route][telemetry] page mounted", {
+      scope,
+      tab,
+      severity,
+      liveMode,
+      eventCount: summary?.events.length ?? 0,
+    });
+    return () => {
+      logger.debug("[route][telemetry] page unmounted");
+    };
+  }, [liveMode, scope, severity, summary?.events.length, tab]);
 
   return (
     <div className="space-y-6">
@@ -73,10 +88,22 @@ function TelemetryPage() {
         tab={tab}
         severity={severity}
         liveMode={liveMode}
-        onScopeChange={(nextScope) => setViewParam("scope", nextScope, "all")}
-        onTabChange={(nextTab) => setViewParam("tab", nextTab, "overview")}
-        onSeverityChange={(nextSeverity) => setViewParam("severity", nextSeverity, "all")}
-        onLiveModeChange={(nextLiveMode) => setViewParam("live", nextLiveMode, "on")}
+        onScopeChange={(nextScope) => {
+          logger.debug("[route][telemetry] scope updated", { from: scope, to: nextScope });
+          setViewParam("scope", nextScope, "all");
+        }}
+        onTabChange={(nextTab) => {
+          logger.debug("[route][telemetry] tab updated", { from: tab, to: nextTab });
+          setViewParam("tab", nextTab, "overview");
+        }}
+        onSeverityChange={(nextSeverity) => {
+          logger.debug("[route][telemetry] severity updated", { from: severity, to: nextSeverity });
+          setViewParam("severity", nextSeverity, "all");
+        }}
+        onLiveModeChange={(nextLiveMode) => {
+          logger.debug("[route][telemetry] live mode updated", { from: liveMode, to: nextLiveMode });
+          setViewParam("live", nextLiveMode, "on");
+        }}
         onResetFilters={resetViewParams}
       />
     </div>

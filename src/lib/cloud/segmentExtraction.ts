@@ -100,7 +100,7 @@ export async function extractSegmentBlob(
   const duration = Math.max(0, segment.endSec - segment.startSec);
 
   telemetry?.logEvent("START_DECODE", { strategy: "cloud_segment", segmentIndex: segment.index });
-  logger.info("[cloud][segment] extract start", {
+  logger.debug("[cloud][segment] extract start", {
     segmentIndex: segment.index,
     startSec: segment.startSec,
     endSec: segment.endSec,
@@ -137,7 +137,7 @@ export async function extractSegmentBlob(
     }
     argsCopy.push(outputPath);
 
-    logger.info("[cloud][segment] exec", { mode: "copy", segmentIndex: segment.index });
+    logger.debug("[cloud][segment] exec", { mode: "copy", segmentIndex: segment.index });
     let exitCode = await ffmpeg.exec(argsCopy, undefined, { signal: undefined });
     let finalMime = outputMimeType;
     let finalPath = outputPath;
@@ -167,7 +167,7 @@ export async function extractSegmentBlob(
         "-f", "webm",
         fallbackPath,
       ];
-      logger.info("[cloud][segment] exec", { mode: "opus", segmentIndex: segment.index });
+      logger.debug("[cloud][segment] exec", { mode: "opus", segmentIndex: segment.index });
       exitCode = await ffmpeg.exec(argsFallback, undefined, { signal: undefined });
       if (exitCode !== 0) {
         throw new Error(`ffmpeg failed with code ${exitCode}`);
@@ -188,7 +188,7 @@ export async function extractSegmentBlob(
     }
 
     telemetry?.logEvent("END_DECODE", { strategy: "cloud_segment", segmentIndex: segment.index });
-    logger.info("[cloud][segment] extract done", {
+    logger.debug("[cloud][segment] extract done", {
       segmentIndex: segment.index,
       sizeBytes: blob.size,
       mimeType: finalMime,

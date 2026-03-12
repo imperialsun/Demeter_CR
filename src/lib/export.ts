@@ -1,3 +1,4 @@
+import logger from "@/lib/logger";
 import type { TelemetrySummary } from "@/lib/telemetry";
 
 export interface WordSegment {
@@ -32,6 +33,10 @@ export interface ExportHeader {
 }
 
 export function serializeVtt(segments: TranscriptionSegment[], header?: ExportHeader): string {
+  logger.debug("[export] serializing VTT", {
+    segmentCount: segments.length,
+    hasHeader: Boolean(header),
+  });
   const headerLine = "WEBVTT";
   const headerBlock = header ? formatHeaderBlock(headerLine, header, "vtt") : headerLine;
   const body = segments
@@ -45,6 +50,10 @@ export function serializeVtt(segments: TranscriptionSegment[], header?: ExportHe
 }
 
 export function serializeSrt(segments: TranscriptionSegment[], header?: ExportHeader): string {
+  logger.debug("[export] serializing SRT", {
+    segmentCount: segments.length,
+    hasHeader: Boolean(header),
+  });
   const headerBlock = header ? formatHeaderBlock("NOTE SETTINGS", header, "srt") + "\n\n" : "";
   const body = segments
     .map((segment) => {
@@ -57,6 +66,10 @@ export function serializeSrt(segments: TranscriptionSegment[], header?: ExportHe
 }
 
 export function serializeSegmentsJson(segments: TranscriptionSegment[], header?: ExportHeader): string {
+  logger.debug("[export] serializing JSON", {
+    segmentCount: segments.length,
+    hasHeader: Boolean(header),
+  });
   return JSON.stringify(
     {
       header,
@@ -71,11 +84,20 @@ export function serializeSegmentsJson(segments: TranscriptionSegment[], header?:
 }
 
 export function serializeTelemetry(summary: TelemetrySummary, header?: ExportHeader): string {
+  logger.debug("[export] serializing telemetry", {
+    eventCount: summary.events.length,
+    hasHeader: Boolean(header),
+  });
   return JSON.stringify({ header, telemetry: summary }, null, 2);
 }
 
 export function downloadBlob(content: string, filename: string, type: string) {
   if (typeof document === "undefined") return;
+  logger.info("[export] download blob", {
+    filename,
+    type,
+    sizeBytes: content.length,
+  });
   const blob = new Blob([content], { type });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);

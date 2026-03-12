@@ -1,6 +1,8 @@
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { getAuthorizedSettingsTabs, type SettingsTabId } from "@/lib/backend-permissions";
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
+import logger from "@/lib/logger";
+import { useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 
 type SettingsTabQuery = "local" | "mic" | "cloud" | "llm" | "llmlocal";
@@ -17,10 +19,22 @@ function SettingsPage() {
   const [searchParams] = useSearchParams();
   const requestedTab = normalizeSettingsTab(searchParams.get("tab"));
   const authorizedTabs = getAuthorizedSettingsTabs();
+  const authorizedTabsKey = authorizedTabs.join("|");
   const firstAuthorizedTab = authorizedTabs[0] ?? "local";
   const initialTab = authorizedTabs.includes(requestedTab as SettingsTabId)
     ? (requestedTab as SettingsTabId)
     : firstAuthorizedTab;
+
+  useEffect(() => {
+    logger.info("[route][settings] page mounted", {
+      requestedTab,
+      initialTab,
+      authorizedTabs,
+    });
+    return () => {
+      logger.debug("[route][settings] page unmounted");
+    };
+  }, [authorizedTabs, authorizedTabsKey, initialTab, requestedTab]);
 
   return (
     <div className="space-y-6">

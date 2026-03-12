@@ -1,4 +1,5 @@
 import { isBackendMode } from "@/lib/runtime-config";
+import logger from "@/lib/logger";
 
 const BACKEND_AUTH_KEY = "demeter-backend-authenticated";
 const BACKEND_SESSION_KEY = "demeter-backend-session";
@@ -39,6 +40,11 @@ const ROUTE_PERMISSION_MAP: Array<{ path: string; permission: string }> = [
 
 function emitBackendSessionChange(reason: BackendSessionChangeDetail["reason"]) {
   if (typeof window === "undefined") return;
+  logger.info("[backend-session] session change emitted", {
+    reason,
+    authenticated: isBackendAuthenticated(),
+    permissionCount: getBackendPermissions().length,
+  });
   window.dispatchEvent(
     new CustomEvent<BackendSessionChangeDetail>(BACKEND_SESSION_CHANGE_EVENT, {
       detail: {
@@ -74,6 +80,11 @@ export function setBackendSession(payload: BackendSessionPayload) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(BACKEND_AUTH_KEY, "1");
   window.localStorage.setItem(BACKEND_SESSION_KEY, JSON.stringify(payload));
+  logger.info("[backend-session] session stored", {
+    userId: payload.user.id,
+    organizationId: payload.organization.id,
+    permissionCount: payload.permissions.length,
+  });
   emitBackendSessionChange("session_set");
 }
 
@@ -81,10 +92,12 @@ export function setBackendAuthenticatedFlag(value: boolean) {
   if (typeof window === "undefined") return;
   if (value) {
     window.localStorage.setItem(BACKEND_AUTH_KEY, "1");
+    logger.info("[backend-session] auth flag set", { authenticated: true });
     emitBackendSessionChange("auth_flag_set");
     return;
   }
   window.localStorage.removeItem(BACKEND_AUTH_KEY);
+  logger.info("[backend-session] auth flag cleared");
   emitBackendSessionChange("session_cleared");
 }
 
@@ -92,14 +105,21 @@ export function clearBackendSession() {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(BACKEND_AUTH_KEY);
   window.localStorage.removeItem(BACKEND_SESSION_KEY);
+  logger.info("[backend-session] session cleared");
   emitBackendSessionChange("session_cleared");
 }
 
 export function invalidateBackendSession(options?: { redirectToLogin?: boolean }) {
+  logger.warn("[backend-session] invalidating session", {
+    redirectToLogin: Boolean(options?.redirectToLogin),
+  });
   clearBackendSession();
   if (!options?.redirectToLogin) return;
   if (typeof window === "undefined") return;
   if (window.location.pathname === "/login") return;
+  logger.warn("[backend-session] redirecting to login after invalidation", {
+    from: window.location.pathname,
+  });
   window.location.assign("/login");
 }
 
@@ -115,7 +135,8 @@ export function getBackendSession(): BackendSessionPayload | null {
   if (!raw) return null;
   try {
     return JSON.parse(raw) as BackendSessionPayload;
-  } catch {
+  } catch (error) {
+    logger.warn("[backend-session] failed to parse stored session", error);
     return null;
   }
 }

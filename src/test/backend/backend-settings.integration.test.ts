@@ -28,7 +28,7 @@ describe("backend settings integration", () => {
       vi.useFakeTimers();
       try {
         settingsModule.queueBackendSettingsSync({
-          cloudApiUrl: "https://example.test/gradio",
+          cloudMaxTokens: 2048,
           showSegments: true,
           activePreset: "balanced",
         });
@@ -40,7 +40,7 @@ describe("backend settings integration", () => {
 
       const updatedEnvelope = await settingsModule.pullBackendSettings();
       expect(updatedEnvelope?.settings).toMatchObject({
-        cloudApiUrl: "https://example.test/gradio",
+        cloudMaxTokens: 2048,
         showSegments: true,
         activePreset: "balanced",
       });

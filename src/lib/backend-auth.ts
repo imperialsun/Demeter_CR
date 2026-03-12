@@ -33,19 +33,22 @@ export async function backendLogin(email: string, password: string): Promise<Bac
 }
 
 export async function backendRefresh(): Promise<boolean> {
+  logger.info("[backend-auth] refresh request");
   const response = await backendFetch("/auth/refresh", { method: "POST" });
   if (response.status === 401) {
+    logger.warn("[backend-auth] refresh unauthorized, invalidating session");
     invalidateBackendSession({ redirectToLogin: false });
   }
-  logger.info("[backend-auth] refresh response", { ok: response.ok, status: response.status });
+  logger.debug("[backend-auth] refresh response", { ok: response.ok, status: response.status });
   return response.ok;
 }
 
 export async function backendMe(): Promise<BackendSessionPayload | null> {
   const path = "/auth/me";
+  logger.info("[backend-auth] me request");
   const response = await backendFetch(path);
   if (response.status === 401) {
-    logger.info("[backend-auth] me unauthorized");
+    logger.debug("[backend-auth] me unauthorized");
     invalidateBackendSession({ redirectToLogin: false });
     return null;
   }
@@ -55,7 +58,7 @@ export async function backendMe(): Promise<BackendSessionPayload | null> {
   }
   const payload = await parseBackendJson<BackendSessionPayload>(response);
   setBackendSession(payload);
-  logger.info("[backend-auth] me success", {
+  logger.debug("[backend-auth] me success", {
     userId: payload.user.id,
     organizationId: payload.organization.id,
   });
@@ -63,28 +66,37 @@ export async function backendMe(): Promise<BackendSessionPayload | null> {
 }
 
 export async function initializeBackendSession(): Promise<BackendSessionPayload | null> {
+  logger.info("[backend-auth] session init start");
   try {
     const me = await backendMe();
-    if (me) return me;
+    if (me) {
+      logger.info("[backend-auth] session init completed from me");
+      return me;
+    }
+    logger.info("[backend-auth] session init retrying via refresh");
     const refreshed = await backendRefresh();
     if (!refreshed) {
       clearBackendSession();
+      logger.warn("[backend-auth] session init failed after refresh");
       return null;
     }
     const meAfterRefresh = await backendMe();
     if (!meAfterRefresh) {
       clearBackendSession();
+      logger.warn("[backend-auth] session init missing user after refresh");
       return null;
     }
+    logger.info("[backend-auth] session init completed after refresh");
     return meAfterRefresh;
-  } catch {
-    logger.warn("[backend-auth] session init failed, clearing local session");
+  } catch (error) {
+    logger.warn("[backend-auth] session init failed, clearing local session", error);
     clearBackendSession();
     return null;
   }
 }
 
 export async function backendLogout(): Promise<void> {
+  logger.info("[backend-auth] logout request start");
   try {
     await backendFetch("/auth/logout", { method: "POST" });
     logger.info("[backend-auth] logout request sent");

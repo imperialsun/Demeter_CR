@@ -218,7 +218,7 @@ export function AudioPlayer({ file, metadata, previewUrl, segments: segmentsProp
 
         {metadata ? (
           <div className="grid gap-1 text-sm text-muted-foreground">
-            <span>Nom : {metadata.name}</span>
+            <span className="min-w-0 break-all [overflow-wrap:anywhere]">Nom : {metadata.name}</span>
             <span>Durée : {formatDuration(metadata.durationSec)}</span>
             <span>Sample rate : {metadata.sampleRate ? `${metadata.sampleRate} Hz` : "Inconnu"}</span>
           </div>

@@ -99,7 +99,7 @@ export async function createSegmentCache(
   const copyFormat = getCopyFormat(outputExt);
   const outputMimeType = getSegmentMimeType(outputExt);
 
-  logger.info("[segmenter] mount input", { inputName, totalSegments: segments.length });
+  logger.debug("[segmenter] mount input", { inputName, totalSegments: segments.length });
   telemetry?.logEvent("SEGMENT_CACHE_START", { segments: segments.length });
 
   try {
@@ -140,7 +140,7 @@ export async function createSegmentCache(
       }
       argsCopy.push(outputPath);
 
-      logger.info("[segmenter] exec", { mode: "copy", segmentIndex: segment.index, startSec: segment.start, endSec: segment.end });
+      logger.debug("[segmenter] exec", { mode: "copy", segmentIndex: segment.index, startSec: segment.start, endSec: segment.end });
       let exitCode = await ffmpeg.exec(argsCopy, undefined, { signal });
       if (exitCode !== 0) {
         logger.warn("[segmenter] copy failed, falling back to opus", { segmentIndex: segment.index, exitCode });
@@ -160,7 +160,7 @@ export async function createSegmentCache(
           "-f", "webm",
           fallbackPath,
         ];
-        logger.info("[segmenter] exec", { mode: "opus", segmentIndex: segment.index, startSec: segment.start, endSec: segment.end });
+        logger.debug("[segmenter] exec", { mode: "opus", segmentIndex: segment.index, startSec: segment.start, endSec: segment.end });
         exitCode = await ffmpeg.exec(argsFallback, undefined, { signal });
         if (exitCode !== 0) {
           throw new Error(`ffmpeg failed with code ${exitCode}`);
@@ -231,12 +231,12 @@ export async function createSegmentCache(
     try {
       ffmpeg.terminate();
       resetFfmpeg();
-      logger.info("[segmenter] ffmpeg terminated");
+      logger.debug("[segmenter] ffmpeg terminated");
     } catch (err) {
       logger.warn("[segmenter] ffmpeg terminate failed", err);
     }
     telemetry?.logEvent("SEGMENT_CACHE_DONE", { segments: segments.length, completed, aborted });
-    logger.info("[segmenter] done", { segments: segments.length, completed, aborted });
+    logger.debug("[segmenter] done", { segments: segments.length, completed, aborted });
   }
   return { completed, total: segments.length, aborted };
 }

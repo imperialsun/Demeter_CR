@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { TranscriptionSegment } from "@/lib/export";
+import { exportLogEntries, setLogLevelProvider } from "@/lib/logger";
 import { DEFAULT_SETTINGS } from "@/lib/storage";
 import {
   type AsrConfigStore,
@@ -10,6 +12,13 @@ import {
 
 const STORAGE_KEY = "demeter-asr-settings";
 let originalLocalStorage: Storage | undefined;
+
+const createTestSegment = (text: string): TranscriptionSegment => ({
+  index: 0,
+  start: 0,
+  end: 1,
+  text,
+});
 
 const resetStore = () => {
   window.localStorage.clear();
@@ -43,6 +52,7 @@ describe("asr-store mutation guards", () => {
       value: localStorageMock,
       configurable: true,
     });
+    setLogLevelProvider(() => useAsrStore.getState().logLevel);
     resetStore();
   });
 
@@ -71,7 +81,69 @@ describe("asr-store mutation guards", () => {
     expect(useAsrStore.getState().hasHydrated).toBe(true);
   });
 
-  it("sanitizes persisted presets, quantization and cloud model/url values", () => {
+  it("emits an explicit debug confirmation entry when debug level is enabled", () => {
+    const beforeCount = exportLogEntries().length;
+
+    useAsrStore.getState().setLogLevel("debug");
+
+    const entries = exportLogEntries().slice(beforeCount);
+    expect(entries.some((entry) => entry.message === "debug logging enabled" && entry.level === "debug")).toBe(true);
+  });
+
+  it("manages session transcript memories independently and never persists them", () => {
+    useAsrStore.setState({ hasHydrated: true } as Partial<AsrConfigStore>);
+
+    const state = useAsrStore.getState();
+    state.setSessionTranscriptMemory("upload", {
+      mode: "upload",
+      provider: "upload",
+      label: "Locale · demo.wav",
+      segments: [createTestSegment("Bonjour")],
+      audioSource: { id: "upload-1", label: "demo.wav", type: "file" },
+      audioMetadata: { durationSec: 10, sampleRate: 16000, channels: 1 },
+      updatedAt: "2026-03-12T10:00:00.000Z",
+    });
+    state.setSessionTranscriptMemory("cloud", {
+      mode: "cloud",
+      provider: "mistral",
+      label: "Cloud Mistral · demo.wav",
+      segments: [createTestSegment("Salut")],
+      audioSource: { id: "cloud-1", label: "demo.wav", type: "file" },
+      audioMetadata: { durationSec: 12, sampleRate: 16000, channels: 1 },
+      updatedAt: "2026-03-12T10:05:00.000Z",
+    });
+
+    expect(useAsrStore.getState().sessionTranscriptMemories.upload?.label).toContain("Locale");
+    expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.label).toContain("Cloud Mistral");
+    expect(useAsrStore.getState().sessionTranscriptMemories.mic).toBeNull();
+
+    state.clearSessionTranscriptMemory("upload");
+    expect(useAsrStore.getState().sessionTranscriptMemories.upload).toBeNull();
+    expect(useAsrStore.getState().sessionTranscriptMemories.cloud).not.toBeNull();
+
+    const persisted = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}") as Record<string, unknown>;
+    expect(persisted.sessionTranscriptMemories).toBeUndefined();
+
+    state.resetApp();
+    expect(useAsrStore.getState().sessionTranscriptMemories.upload).toBeNull();
+    expect(useAsrStore.getState().sessionTranscriptMemories.cloud).toBeNull();
+    expect(useAsrStore.getState().sessionTranscriptMemories.mic).toBeNull();
+  });
+
+  it("migrates legacy debugConfidence to logLevel=debug", () => {
+    const payload = {
+      ...DEFAULT_SETTINGS,
+      logLevel: undefined,
+      debugConfidence: true,
+    };
+
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    useAsrStore.getState().hydrateFromStorage();
+
+    expect(useAsrStore.getState().logLevel).toBe("debug");
+  });
+
+  it("sanitizes persisted presets, quantization and cloud model values", () => {
     useAsrStore.setState(
       {
         webGpuSupported: false,
@@ -92,8 +164,8 @@ describe("asr-store mutation guards", () => {
       blockedPresets: ["custom", "balanced", "unknown-preset"],
       backendPreference: "webgpu",
       micBackendPreference: "webgpu",
-      cloudApiUrl: "https://cloud.example/gradio_api/info/",
       cloudMistralModel: "voxtral-mini-transcribe-26-02",
+      cloudDemeterModel: "voxtral-mini-transcribe-26-02",
       llmApiProvider: "invalid-provider",
       llmLocalModelProfile: "invalid-profile",
       llmLocalSettingsByProfile: {
@@ -126,8 +198,8 @@ describe("asr-store mutation guards", () => {
     expect(state.blockedPresets).toEqual(["balanced"]);
     expect(state.backendPreference).toBe("wasm");
     expect(state.micBackendPreference).toBe("wasm");
-    expect(state.cloudApiUrl).toBe("https://cloud.example");
     expect(state.cloudMistralModel).toBe("voxtral-mini-latest");
+    expect(state.cloudDemeterModel).toBe("voxtral-mini-latest");
     expect(state.llmApiProvider).toBe("huggingface");
     expect(state.llmLocalModelProfile).toBe("qwen_1_7b");
     expect(state.llmLocalSettingsByProfile.qwen_1_7b.modelId).toBe("onnx-community/Qwen3-1.7B-ONNX");
@@ -226,19 +298,19 @@ describe("asr-store mutation guards", () => {
     state.setMicForceSingleThread(true);
 
     state.setCloudStatus("transcribing");
-    state.setCloudApiUrl("https://api.local/gradio");
     state.setHfApiToken("hf-token");
     state.setCloudMistralApiUrl("https://mistral.local");
     state.setMistralApiKey("secret");
     state.setCloudMistralModel("voxtral-mini-latest");
     state.setCloudMistralDiarizationEnabled(false);
+    state.setCloudDemeterModel("voxtral-demeter-latest");
+    state.setCloudDemeterDiarizationEnabled(false);
     state.setCloudWhisperChunking({ chunkDurationSec: 55, overlapSec: 0.1 });
     state.setCloudMistralChunking({ chunkDurationSec: 400, overlapSec: 2 });
     state.setCloudMaxTokens(8192);
     state.setCloudTemperature(0.7);
     state.setCloudTopP(0.6);
     state.setCloudDoSample(true);
-    state.setCloudContextPreset("meeting");
     state.setCloudShowSegments(false);
     state.setCloudShowExportVtt(true);
     state.setCloudShowExportSrt(true);
@@ -266,7 +338,8 @@ describe("asr-store mutation guards", () => {
     expect(next.micPreprocessLowpassHz).toBe(5000);
     expect(next.micPreprocessOverlapSec).toBe(0.6);
     expect(next.cloudStatus).toBe("transcribing");
-    expect(next.cloudApiUrl).toBe("https://api.local/gradio");
+    expect(next.cloudDemeterModel).toBe("voxtral-demeter-latest");
+    expect(next.cloudDemeterDiarizationEnabled).toBe(false);
     expect(next.cloudWhisperChunkDurationSec).toBe(55);
     expect(next.cloudMistralOverlapSec).toBe(2);
     expect(next.cloudDoSample).toBe(true);
@@ -345,7 +418,7 @@ describe("asr-store mutation guards", () => {
     const file = new File(["demo"], "sample.txt", { type: "text/plain" });
     state.setUploadedFile(file);
     state.setPreviewUrl("blob:preview");
-    state.setDebugConfidence(true);
+    state.setLogLevel("debug");
     state.setTranscriptionConfidence(0.8);
     state.setTranscriptionConfidenceSource("model");
     state.setForceSingleThread(true);
@@ -359,7 +432,7 @@ describe("asr-store mutation guards", () => {
 
     state.resetSession();
     const afterSessionReset = useAsrStore.getState();
-    expect(afterSessionReset.debugConfidence).toBe(true);
+    expect(afterSessionReset.logLevel).toBe("debug");
     expect(afterSessionReset.previewUrl).toBe("blob:preview");
     expect(afterSessionReset.status).toBe("idle");
     expect(afterSessionReset.llmApiStatus).toBe("idle");

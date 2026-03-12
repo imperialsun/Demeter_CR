@@ -266,7 +266,7 @@ export async function preprocessDecodedAudio(
   telemetry?: TelemetryCollector
 ): Promise<PreprocessResult> {
   const startedAt = performance.now();
-  logger.info("[preprocess] start (full decode)", {
+  logger.debug("[preprocess] start (full decode)", {
     sampleRate: decoded.sampleRate,
     durationSec: decoded.metadata.durationSec,
     calibrationSeconds: params.calibrationSeconds ?? 1,
@@ -284,7 +284,7 @@ export async function preprocessDecodedAudio(
     lowpassHz: params.preprocessLowpassHz ?? DEFAULT_LOWPASS_HZ,
   });
   const filtersMs = performance.now() - tFilters;
-  logger.info("[preprocess] filters + compressor done", { durationMs: Math.round(filtersMs) });
+  logger.debug("[preprocess] filters + compressor done", { durationMs: Math.round(filtersMs) });
   telemetry?.logEvent("PREPROCESS_FILTERS", { durationMs: filtersMs, sampleRate: decoded.sampleRate });
 
   const lufsEnabled = params.preprocessEnableLufs ?? true;
@@ -293,7 +293,7 @@ export async function preprocessDecodedAudio(
   if (lufsEnabled) {
     const lufsResult = normalizeToLufs(filtered, decoded.sampleRate, targetLufs);
     normalized = lufsResult.pcm;
-    logger.info("[preprocess] loudness normalize", {
+    logger.debug("[preprocess] loudness normalize", {
       measuredLufs: Number(lufsResult.measuredLufs.toFixed(2)),
       targetLufs,
       gain: Number(lufsResult.gain.toFixed(3)),
@@ -310,7 +310,7 @@ export async function preprocessDecodedAudio(
   } else {
     const peakBeforeNorm = getPeak(filtered);
     normalized = safeNormalize(filtered, DEFAULT_TARGET_PEAK);
-    logger.info("[preprocess] normalize", {
+    logger.debug("[preprocess] normalize", {
       peakIn: Number(peakBeforeNorm.toFixed(4)),
       targetPeak: DEFAULT_TARGET_PEAK,
     });
@@ -331,7 +331,7 @@ export async function preprocessDecodedAudio(
         ? estimateNoiseProfileWithVad(normalized, decoded.sampleRate, calibrationSeconds, vadThresholdDb, vadMinSilenceMs)
         : { ...estimateNoiseProfile(normalized, decoded.sampleRate, calibrationSeconds), vadUsed: false, silenceRanges: 0 };
   const { profile: noiseProfile, frames: noiseFrames } = noiseProfileResult;
-  logger.info("[preprocess] noise profile ready", {
+  logger.debug("[preprocess] noise profile ready", {
     reused: noiseFrames === 0,
     frames: noiseFrames,
     calibrationSeconds,
@@ -354,7 +354,7 @@ export async function preprocessDecodedAudio(
     smoothing: params.smoothing,
   });
   const gateMs = performance.now() - tGate;
-  logger.info("[preprocess] spectral gate done", {
+  logger.debug("[preprocess] spectral gate done", {
     durationMs: Math.round(gateMs),
     noiseFloorDb: params.noiseFloorDb,
     reductionDb: params.reductionDb,
@@ -374,7 +374,7 @@ export async function preprocessDecodedAudio(
     ? applyOverlapAddSmoothing(gated, decoded.sampleRate, overlapBlockSec, overlapSec)
     : gated;
   if (overlapEnabled) {
-    logger.info("[preprocess] overlap-add smoothing", {
+    logger.debug("[preprocess] overlap-add smoothing", {
       blockSec: overlapBlockSec,
       overlapSec,
     });
@@ -383,7 +383,7 @@ export async function preprocessDecodedAudio(
 
   const peakAfterGate = getPeak(smoothed);
   const peakNormalized = safeNormalize(smoothed, DEFAULT_TARGET_PEAK);
-  logger.info("[preprocess] finalize normalize", {
+  logger.debug("[preprocess] finalize normalize", {
     peakIn: Number(peakAfterGate.toFixed(4)),
     targetPeak: DEFAULT_TARGET_PEAK,
   });
@@ -393,7 +393,7 @@ export async function preprocessDecodedAudio(
   const limiterSoftness = params.preprocessLimiterSoftness ?? DEFAULT_LIMITER_SOFTNESS;
   const finalPcm = limiterEnabled ? applyLimiter(peakNormalized, limiterThresholdDb, limiterSoftness) : peakNormalized;
   if (limiterEnabled) {
-    logger.info("[preprocess] limiter applied", {
+    logger.debug("[preprocess] limiter applied", {
       thresholdDb: limiterThresholdDb,
       softness: limiterSoftness,
     });
@@ -406,7 +406,7 @@ export async function preprocessDecodedAudio(
     sampleRate: decoded.sampleRate,
     mode: "full",
   });
-  logger.info("[preprocess] done", { durationMs: Math.round(totalMs) });
+  logger.debug("[preprocess] done", { durationMs: Math.round(totalMs) });
 
   return {
     pcm: finalPcm,
@@ -424,7 +424,7 @@ export async function preprocessPcmChunk(
 ): Promise<PreprocessResult> {
   const startedAt = performance.now();
   const mode = options?.mode ?? "full";
-  logger.info("[preprocess] start (progressive chunk)", {
+  logger.debug("[preprocess] start (progressive chunk)", {
     length: pcm.length,
     sampleRate,
     calibrationSeconds: params.calibrationSeconds ?? 1,
@@ -443,7 +443,7 @@ export async function preprocessPcmChunk(
     lowpassHz: params.preprocessLowpassHz ?? DEFAULT_LOWPASS_HZ,
   });
   const filtersMs = performance.now() - tFilters;
-  logger.info("[preprocess] filters + compressor done (chunk)", { durationMs: Math.round(filtersMs) });
+  logger.debug("[preprocess] filters + compressor done (chunk)", { durationMs: Math.round(filtersMs) });
   telemetry?.logEvent("PREPROCESS_FILTERS", { durationMs: filtersMs, sampleRate });
 
   const lufsEnabled = params.preprocessEnableLufs ?? true;
@@ -452,7 +452,7 @@ export async function preprocessPcmChunk(
   if (lufsEnabled) {
     const lufsResult = normalizeToLufs(filtered, sampleRate, targetLufs);
     normalized = lufsResult.pcm;
-    logger.info("[preprocess] loudness normalize (chunk)", {
+    logger.debug("[preprocess] loudness normalize (chunk)", {
       measuredLufs: Number(lufsResult.measuredLufs.toFixed(2)),
       targetLufs,
       gain: Number(lufsResult.gain.toFixed(3)),
@@ -469,7 +469,7 @@ export async function preprocessPcmChunk(
   } else {
     const peakBeforeNorm = getPeak(filtered);
     normalized = safeNormalize(filtered, DEFAULT_TARGET_PEAK);
-    logger.info("[preprocess] normalize (chunk)", {
+    logger.debug("[preprocess] normalize (chunk)", {
       peakIn: Number(peakBeforeNorm.toFixed(4)),
       targetPeak: DEFAULT_TARGET_PEAK,
     });
@@ -482,7 +482,7 @@ export async function preprocessPcmChunk(
   if (mode === "quick") {
     const peakAfterNorm = getPeak(normalized);
     const peakNormalized = safeNormalize(normalized, DEFAULT_TARGET_PEAK);
-    logger.info("[preprocess] finalize normalize (chunk)", {
+    logger.debug("[preprocess] finalize normalize (chunk)", {
       peakIn: Number(peakAfterNorm.toFixed(4)),
       targetPeak: DEFAULT_TARGET_PEAK,
     });
@@ -496,7 +496,7 @@ export async function preprocessPcmChunk(
     const limiterSoftness = params.preprocessLimiterSoftness ?? DEFAULT_LIMITER_SOFTNESS;
     const finalPcm = limiterEnabled ? applyLimiter(peakNormalized, limiterThresholdDb, limiterSoftness) : peakNormalized;
     if (limiterEnabled) {
-      logger.info("[preprocess] limiter applied (chunk)", {
+      logger.debug("[preprocess] limiter applied (chunk)", {
         thresholdDb: limiterThresholdDb,
         softness: limiterSoftness,
       });
@@ -509,7 +509,7 @@ export async function preprocessPcmChunk(
       sampleRate,
       mode: "quick",
     });
-    logger.info("[preprocess] done (chunk)", { durationMs: Math.round(totalMs), mode: "quick" });
+    logger.debug("[preprocess] done (chunk)", { durationMs: Math.round(totalMs), mode: "quick" });
 
     return {
       pcm: finalPcm,
@@ -529,7 +529,7 @@ export async function preprocessPcmChunk(
         ? estimateNoiseProfileWithVad(normalized, sampleRate, calibrationSeconds, vadThresholdDb, vadMinSilenceMs)
         : { ...estimateNoiseProfile(normalized, sampleRate, calibrationSeconds), vadUsed: false, silenceRanges: 0 };
   const { profile: noiseProfile, frames: noiseFrames } = noiseProfileResult;
-  logger.info("[preprocess] noise profile ready (chunk)", {
+  logger.debug("[preprocess] noise profile ready (chunk)", {
     reused: noiseFrames === 0,
     frames: noiseFrames,
     calibrationSeconds,
@@ -552,7 +552,7 @@ export async function preprocessPcmChunk(
     smoothing: params.smoothing,
   });
   const gateMs = performance.now() - tGate;
-  logger.info("[preprocess] spectral gate done (chunk)", {
+  logger.debug("[preprocess] spectral gate done (chunk)", {
     durationMs: Math.round(gateMs),
     noiseFloorDb: params.noiseFloorDb,
     reductionDb: params.reductionDb,
@@ -570,7 +570,7 @@ export async function preprocessPcmChunk(
   const overlapSec = params.preprocessOverlapSec ?? DEFAULT_OVERLAP_SEC;
   const smoothed = overlapEnabled ? applyOverlapAddSmoothing(gated, sampleRate, overlapBlockSec, overlapSec) : gated;
   if (overlapEnabled) {
-    logger.info("[preprocess] overlap-add smoothing (chunk)", {
+    logger.debug("[preprocess] overlap-add smoothing (chunk)", {
       blockSec: overlapBlockSec,
       overlapSec,
     });
@@ -579,7 +579,7 @@ export async function preprocessPcmChunk(
 
   const peakAfterGate = getPeak(smoothed);
   const peakNormalized = safeNormalize(smoothed, DEFAULT_TARGET_PEAK);
-  logger.info("[preprocess] finalize normalize (chunk)", {
+  logger.debug("[preprocess] finalize normalize (chunk)", {
     peakIn: Number(peakAfterGate.toFixed(4)),
     targetPeak: DEFAULT_TARGET_PEAK,
   });
@@ -589,7 +589,7 @@ export async function preprocessPcmChunk(
   const limiterSoftness = params.preprocessLimiterSoftness ?? DEFAULT_LIMITER_SOFTNESS;
   const finalPcm = limiterEnabled ? applyLimiter(peakNormalized, limiterThresholdDb, limiterSoftness) : peakNormalized;
   if (limiterEnabled) {
-    logger.info("[preprocess] limiter applied (chunk)", {
+    logger.debug("[preprocess] limiter applied (chunk)", {
       thresholdDb: limiterThresholdDb,
       softness: limiterSoftness,
     });
@@ -602,7 +602,7 @@ export async function preprocessPcmChunk(
     sampleRate,
     mode: "chunk",
   });
-  logger.info("[preprocess] done (chunk)", { durationMs: Math.round(totalMs) });
+  logger.debug("[preprocess] done (chunk)", { durationMs: Math.round(totalMs) });
 
   return {
     pcm: finalPcm,

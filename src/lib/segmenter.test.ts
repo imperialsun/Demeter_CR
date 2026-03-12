@@ -36,8 +36,10 @@ vi.mock("@/lib/segment-cache", () => ({
 
 vi.mock("@/lib/logger", () => ({
   default: {
+    debug: vi.fn(),
     info: mocks.loggerInfo,
     warn: mocks.loggerWarn,
+    error: vi.fn(),
   },
 }));
 

@@ -1,10 +1,11 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
 
 import { AppShell } from "@/components/layout/AppShell";
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { isAuthenticated } from "@/lib/auth";
 import { canAccessFeature, getFirstAuthorizedRoute, type FeaturePermission } from "@/lib/backend-permissions";
+import logger from "@/lib/logger";
 import { isBackendMode } from "@/lib/runtime-config";
 import LocalUploadPage from "@/routes/LocalUploadPage";
 import LoginPage from "@/routes/LoginPage";
@@ -18,7 +19,17 @@ const ForbiddenPage = lazy(() => import("@/routes/ForbiddenPage"));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const location = useLocation();
-  if (!isAuthenticated()) {
+  const authenticated = isAuthenticated();
+
+  useEffect(() => {
+    if (!authenticated) {
+      logger.warn("[auth][route] redirecting to login", { path: location.pathname });
+      return;
+    }
+    logger.debug("[auth][route] access granted", { path: location.pathname });
+  }, [authenticated, location.pathname]);
+
+  if (!authenticated) {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
   return <>{children}</>;
@@ -33,12 +44,29 @@ function RequireFeature({
 }) {
   const location = useLocation();
   useBackendPermissions();
+  const backendMode = isBackendMode();
+  const allowed = !backendMode || canAccessFeature(permission);
 
-  if (!isBackendMode()) {
+  useEffect(() => {
+    if (!backendMode) {
+      logger.debug("[route] feature gate bypassed in standalone mode", {
+        path: location.pathname,
+        permission,
+      });
+      return;
+    }
+    if (allowed) {
+      logger.debug("[route] feature gate granted", { path: location.pathname, permission });
+      return;
+    }
+    logger.warn("[route] feature gate denied", { path: location.pathname, permission });
+  }, [allowed, backendMode, location.pathname, permission]);
+
+  if (!backendMode) {
     return <>{children}</>;
   }
 
-  if (canAccessFeature(permission)) {
+  if (allowed) {
     return <>{children}</>;
   }
 
@@ -48,10 +76,25 @@ function RequireFeature({
 function PermissionAwareHomeRedirect() {
   useBackendPermissions();
   const target = isBackendMode() ? getFirstAuthorizedRoute() : "/localupload";
+
+  useEffect(() => {
+    logger.info("[route] home redirect resolved", {
+      mode: isBackendMode() ? "backend" : "standalone",
+      target,
+    });
+  }, [target]);
+
   return <Navigate to={target} replace />;
 }
 
 function ProtectedLayout() {
+  useEffect(() => {
+    logger.debug("[app-shell] protected layout mounted");
+    return () => {
+      logger.debug("[app-shell] protected layout unmounted");
+    };
+  }, []);
+
   return (
     <RequireAuth>
       <AppShell>
@@ -64,6 +107,15 @@ function ProtectedLayout() {
 }
 
 function App() {
+  useEffect(() => {
+    logger.info("[app] route tree mounted", {
+      runtimeMode: isBackendMode() ? "backend" : "standalone",
+    });
+    return () => {
+      logger.debug("[app] route tree unmounted");
+    };
+  }, []);
+
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />

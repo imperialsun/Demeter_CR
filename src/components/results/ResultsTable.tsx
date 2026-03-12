@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -11,8 +11,9 @@ import {
 } from "@/components/ui/table";
 import { useAsrStore } from "@/store/asr-store";
 import type { TranscriptionSegment } from "@/lib/export";
+import logger from "@/lib/logger";
 import { estimateTokenCount } from "@/lib/tokens";
-import { resolveSpeakerLabel } from "@/lib/speakerAssignments";
+import { resolveSegmentSpeakerLabel } from "@/lib/speakerAssignments";
 
 interface ResultsTableProps {
   segments: TranscriptionSegment[];
@@ -53,6 +54,28 @@ export function ResultsTable({
     [segments]
   );
 
+  useEffect(() => {
+    logger.info("[results] table mounted", {
+      mode,
+      segmentCount: segments.length,
+      showSpeaker: resolvedShowSpeaker,
+      showSegmentConfidence: resolvedShowSegmentConfidence,
+      enableWordTimestamps: resolvedEnableWordTimestamps,
+    });
+    return () => {
+      logger.debug("[results] table unmounted", { mode });
+    };
+  }, [mode, resolvedEnableWordTimestamps, resolvedShowSegmentConfidence, resolvedShowSpeaker, segments.length]);
+
+  useEffect(() => {
+    logger.debug("[results] table filter updated", {
+      mode,
+      query,
+      visibleSegments: filtered.length,
+      totalSegments: segments.length,
+    });
+  }, [filtered.length, mode, query, segments.length]);
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
@@ -62,7 +85,13 @@ export function ResultsTable({
       <Input
         placeholder="Rechercher un mot clé…"
         value={query}
-        onChange={(event) => setQuery(event.target.value)}
+        onChange={(event) => {
+          logger.debug("[results] search query changed", {
+            mode,
+            query: event.target.value,
+          });
+          setQuery(event.target.value);
+        }}
       />
       <ScrollArea className="h-[360px] rounded-md border">
         <Table>
@@ -85,10 +114,7 @@ export function ResultsTable({
                 <TableCell>{formatTimestamp(segment.end)}</TableCell>
                 {resolvedShowSpeaker ? (
                   <TableCell>
-                    {resolveSpeakerLabel(
-                      segment.speaker?.trim(),
-                      segment.speaker?.trim() ? speakerAssignments[segment.speaker.trim()] : undefined
-                    ) || "—"}
+                    {resolveSegmentSpeakerLabel(segment, speakerAssignments, mode) || "—"}
                   </TableCell>
                 ) : null}
                 {resolvedShowSegmentConfidence ? (

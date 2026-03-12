@@ -152,4 +152,21 @@ describe("AudioUploader component", () => {
 
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });
+
+  it("renders long file names in metadata without dropping them", () => {
+    render(
+      <AudioUploader
+        onFileSelected={() => undefined}
+        metadata={{
+          name: "consultation_audio_nom_extremement_long_2026_03_12_version_finale_avec_suffixe_preparation_et_revision.wav",
+          durationSec: 42,
+          mimeType: "audio/wav",
+          sizeBytes: 2048,
+          sampleRate: 16000,
+        }}
+      />
+    );
+
+    expect(screen.getByText(/consultation_audio_nom_extremement_long_2026_03_12/i)).toBeInTheDocument();
+  });
 });

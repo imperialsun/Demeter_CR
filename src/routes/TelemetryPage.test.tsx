@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
 import TelemetryPage from "@/routes/TelemetryPage";
+import { debug, setLogLevelProvider } from "@/lib/logger";
 import { useAsrStore } from "@/store/asr-store";
 
 function LocationSearchProbe() {
@@ -11,6 +12,11 @@ function LocationSearchProbe() {
 }
 
 describe("TelemetryPage", () => {
+  beforeEach(() => {
+    useAsrStore.setState({ telemetrySummary: null, telemetryCollector: null } as never);
+    setLogLevelProvider(() => "debug");
+  });
+
   it("reads valid query params for telemetry view", () => {
     useAsrStore.setState({
       telemetrySummary: {
@@ -187,6 +193,24 @@ describe("TelemetryPage", () => {
     await waitFor(() => {
       const search = screen.getByTestId("location-search").textContent ?? "";
       expect(search).not.toContain("live=");
+    });
+  });
+
+  it("shows buffered frontend logs when no telemetry session is active", async () => {
+    debug("[route][telemetry] debug fallback visible", { page: "/telemetry" });
+
+    render(
+      <MemoryRouter initialEntries={["/telemetry?severity=debug"]}>
+        <Routes>
+          <Route path="/telemetry" element={<TelemetryPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText(/aperçu de démonstration/i)).toBeNull();
+      expect(screen.getAllByText("LOG_DEBUG").length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/debug fallback visible/i).length).toBeGreaterThan(0);
     });
   });
 });

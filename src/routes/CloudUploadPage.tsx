@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useAsrStore } from "@/store/asr-store";
@@ -17,33 +16,34 @@ import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { useCloudTranscription } from "@/hooks/useCloudTranscription";
 import { canUseCloudProvider } from "@/lib/backend-permissions";
 import logger from "@/lib/logger";
-import { Loader2, PauseCircle, Play, Cloud, ChevronDown, ChevronUp } from "lucide-react";
+import { Loader2, PauseCircle, Play, Cloud } from "lucide-react";
 import { isBackendMode } from "@/lib/runtime-config";
 
 const CLOUD_HF_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans cle API Hugging Face.";
 const CLOUD_MISTRAL_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans cle API Mistral.";
 const CLOUD_PROVIDER_FORBIDDEN_MESSAGE = "Accès refusé par vos permissions backend.";
 
-type CloudProviderId = "gradio" | "whisper" | "mistral" | "demeter_sante";
+type CloudProviderId = "whisper" | "mistral" | "demeter_sante";
+
+function formatMebibytes(bytes: number) {
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MiB`;
+}
 
 function CloudUploadPage() {
   useBackendPermissions();
-  const [isContextOpen, setIsContextOpen] = useState(false);
   const backendMode = isBackendMode();
-  const canUseGradio = canUseCloudProvider("gradio");
   const canUseWhisper = canUseCloudProvider("whisper");
   const canUseMistral = canUseCloudProvider("mistral");
   const canUseDemeter = canUseCloudProvider("demeter_sante");
   const allowedProviders = useMemo<CloudProviderId[]>(() => {
     const providers: CloudProviderId[] = [];
-    if (canUseGradio) providers.push("gradio");
     if (canUseWhisper) providers.push("whisper");
     if (canUseMistral) providers.push("mistral");
     if (backendMode && canUseDemeter) providers.push("demeter_sante");
     return providers;
-  }, [backendMode, canUseDemeter, canUseGradio, canUseMistral, canUseWhisper]);
+  }, [backendMode, canUseDemeter, canUseMistral, canUseWhisper]);
   const preferredProvider: CloudProviderId =
-    backendMode && canUseDemeter ? "demeter_sante" : allowedProviders[0] ?? "gradio";
+    backendMode && canUseDemeter ? "demeter_sante" : allowedProviders[0] ?? "whisper";
   const [selectedProvider, setSelectedProvider] = useState<CloudProviderId>(preferredProvider);
   const hasAllowedProvider = allowedProviders.length > 0;
   const isCurrentProviderAllowed = allowedProviders.includes(selectedProvider);
@@ -53,9 +53,7 @@ function CloudUploadPage() {
   const isWhisper = activeProvider === "whisper";
   const isMistral = activeProvider === "mistral";
   const isDemeter = activeProvider === "demeter_sante";
-  const usesContext = activeProvider === "gradio";
   const telemetry = useAsrStore((state) => state.telemetryCollector);
-  const cloudContextPreset = useAsrStore((state) => state.cloudContextPreset);
   const hfApiToken = useAsrStore((state) => state.hfApiToken);
   const setHfApiToken = useAsrStore((state) => state.setHfApiToken);
   const mistralApiKey = useAsrStore((state) => state.mistralApiKey);
@@ -79,12 +77,10 @@ function CloudUploadPage() {
     status,
     statusDetail,
     progress,
+    preparedUpload,
     isTranscribing,
     isResettingSession,
     stopRequested,
-    sessionContext,
-    setSessionContext,
-    combinedContext,
     handleFileSelected,
     startTranscription,
     stopTranscription,
@@ -92,7 +88,7 @@ function CloudUploadPage() {
   } = useCloudTranscription(provider);
 
   useEffect(() => {
-    logger.info("Cloud upload page view", { route: "/cloudupload", mode: "cloud" });
+    logger.debug("[cloud][ui] page view", { route: "/cloudupload", mode: "cloud" });
     telemetry?.logEvent?.("CLOUD_UPLOAD_PAGE_VIEW", { route: "/cloudupload", mode: "cloud" });
   }, [telemetry]);
 
@@ -138,7 +134,7 @@ function CloudUploadPage() {
             onValueChange={(value) => {
               if (value === "__unauthorized__") return;
               const next: CloudProviderId =
-                value === "whisper" || value === "mistral" || value === "demeter_sante" ? value : "gradio";
+                value === "whisper" || value === "mistral" || value === "demeter_sante" ? value : "whisper";
               if (!canUseCloudProvider(next)) {
                 return;
               }
@@ -156,7 +152,6 @@ function CloudUploadPage() {
                   Sélectionnez un provider autorisé
                 </SelectItem>
               ) : null}
-              {canUseGradio ? <SelectItem value="gradio">Gradio</SelectItem> : null}
               {canUseWhisper ? <SelectItem value="whisper">Whisper</SelectItem> : null}
               {canUseMistral ? <SelectItem value="mistral">Mistral</SelectItem> : null}
               {backendMode && canUseDemeter ? <SelectItem value="demeter_sante">Demeter Santé</SelectItem> : null}
@@ -235,50 +230,6 @@ function CloudUploadPage() {
         </Card>
       ) : null}
 
-      {usesContext ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Contexte</CardTitle>
-            <CardDescription>Ajoutez des termes importants pour améliorer la reconnaissance.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <button
-              type="button"
-              className="flex w-full items-center justify-between rounded-md border bg-muted/10 px-3 py-2 text-sm"
-              onClick={() => setIsContextOpen((value) => !value)}
-              aria-expanded={isContextOpen}
-            >
-              <span className="font-medium">
-                {isContextOpen ? "Masquer le contexte" : "Afficher le contexte"}
-              </span>
-              {isContextOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-            </button>
-            {isContextOpen ? (
-              <>
-                <Label htmlFor="cloud-context-session">Contexte de session (prioritaire)</Label>
-                <Textarea
-                  id="cloud-context-session"
-                  rows={4}
-                  value={sessionContext}
-                  onChange={(event) => setSessionContext(event.target.value)}
-                  placeholder="Noms propres, jargon, acronymes..."
-                />
-                <div className="text-xs text-muted-foreground">
-                  Prérempli depuis les réglages: {cloudContextPreset?.trim() ? cloudContextPreset : "—"}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  Contexte envoyé: {combinedContext?.trim() ? "Personnalisé" : "Aucun"}
-                </div>
-              </>
-            ) : (
-              <div className="text-xs text-muted-foreground">
-                Contexte {combinedContext?.trim() ? "prêt à être envoyé" : "vide"}.
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      ) : null}
-
       <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
         <div className="space-y-4">
           <Card>
@@ -287,7 +238,7 @@ function CloudUploadPage() {
               <CardDescription>Suivez les étapes de la transcription cloud.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex items-center gap-2">
+              <div className="flex items-start gap-2">
                 <Badge variant={statusMeta.tone === "destructive" ? "destructive" : statusMeta.tone}>
                   {statusMeta.label}
                 </Badge>
@@ -299,14 +250,29 @@ function CloudUploadPage() {
                       ? "Mistral"
                       : isDemeter
                         ? "Demeter Santé"
-                        : isCurrentProviderAllowed
-                          ? "Gradio"
-                          : "Provider non autorisé"}
+                        : "Provider non autorisé"}
                 </Badge>
-                {statusDetail ? <span className="text-sm text-muted-foreground">{statusDetail}</span> : null}
+                {statusDetail ? <span className="min-w-0 break-words text-sm text-muted-foreground">{statusDetail}</span> : null}
               </div>
               <Progress value={percent} className="h-2 w-full" />
               <p className="text-xs text-muted-foreground">{percent}%</p>
+              {preparedUpload ? (
+                <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  <p className="font-medium text-foreground">Dernier fichier préparé avant envoi</p>
+                  <p>
+                    {preparedUpload.provider === "demeter_sante"
+                      ? "Demeter Santé"
+                      : preparedUpload.provider === "mistral"
+                        ? "Mistral"
+                        : "Whisper"}
+                    {` · chunk ${preparedUpload.chunkIndex}/${preparedUpload.totalChunks}`}
+                  </p>
+                  <p className="min-w-0 break-all text-foreground [overflow-wrap:anywhere]">{preparedUpload.fileName}</p>
+                  <p className="min-w-0 break-all [overflow-wrap:anywhere]">
+                    {formatMebibytes(preparedUpload.sizeBytes)} · {preparedUpload.sizeBytes} octets
+                  </p>
+                </div>
+              ) : null}
               {!hasAllowedProvider ? (
                 <p className="text-xs text-muted-foreground">
                   Cette fonctionnalité cloud est désactivée pour votre compte backend.

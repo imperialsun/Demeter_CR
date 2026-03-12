@@ -51,14 +51,6 @@ Actions:
 - switch to `progressive` mode,
 - force WASM single-thread on unstable MT hosts.
 
-## Gradio errors
-
-Actions:
-
-- verify `cloudApiUrl`,
-- verify `/gradio` and `/gradio_api` proxy routing,
-- validate `gradio_api/info` response.
-
 ## Whisper errors
 
 Actions:

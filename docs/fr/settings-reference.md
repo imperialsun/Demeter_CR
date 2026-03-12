@@ -78,7 +78,6 @@ Note explicite: `speakerAssignments` n est pas inclus dans `PersistedSettings`.
 
 ### Provider endpoints et auth
 
-- `cloudApiUrl` (Gradio).
 - `cloudMistralApiUrl`.
 - `cloudMistralModel`.
 - `hfApiToken` (secret vault).
@@ -87,13 +86,12 @@ Note explicite: `speakerAssignments` n est pas inclus dans `PersistedSettings`.
 ### Generation/transcription
 
 - `cloudMaxTokens`, `cloudTemperature`, `cloudTopP`, `cloudDoSample`.
-- `cloudContextPreset`.
 - `cloudMistralDiarizationEnabled`.
 
 ### Chunking provider-specific
 
 - Whisper: `cloudWhisperChunkDurationSec`, `cloudWhisperOverlapSec`.
-- Mistral: `cloudMistralChunkDurationSec`, `cloudMistralOverlapSec`.
+- Mistral et Demeter: `cloudMistralChunkDurationSec`, `cloudMistralOverlapSec`.
 
 ### Pretraitement cloud
 
