@@ -82,12 +82,16 @@
     "vitest": "^4.0.18"
   },
   "overrides": {
-    "@typescript-eslint/typescript-estree": {
-      "minimatch": "^10.2.1"
+    "eslint": {
+      "@eslint/eslintrc": "3.3.5",
+      "ajv": "6.14.0",
+      "minimatch": "3.1.5"
     },
     "multimatch": {
-      "minimatch": "^10.2.1"
+      "minimatch": "10.2.4"
     },
-    "onnxruntime-web": "1.24.2"
+    "onnxruntime-web": "1.24.2",
+    "rollup": "4.59.0",
+    "tar": "7.5.11"
   }
 }
