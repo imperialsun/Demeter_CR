@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -124,7 +124,11 @@ export default function LoginPage() {
         <CardHeader>
           <BrandMark className="mb-3" size="md" />
           <CardTitle>Connexion</CardTitle>
-          <CardDescription>Entrez le mot de passe pour accéder à l'application.</CardDescription>
+          <CardDescription>
+            {backendMode
+              ? "Entrez votre email et votre mot de passe pour accéder à l'application."
+              : "Entrez le mot de passe pour accéder à l'application."}
+          </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
@@ -154,6 +158,13 @@ export default function LoginPage() {
                 autoFocus={!backendMode}
               />
             </div>
+            {backendMode ? (
+              <div className="flex justify-end">
+                <Link className="text-sm text-primary underline-offset-4 hover:underline" to="/forgot-password">
+                  Mot de passe oublié ?
+                </Link>
+              </div>
+            ) : null}
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
           </CardContent>
           <CardFooter className="flex justify-end">

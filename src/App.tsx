@@ -8,7 +8,9 @@ import { canAccessFeature, getFirstAuthorizedRoute, type FeaturePermission } fro
 import logger from "@/lib/logger";
 import { isBackendMode } from "@/lib/runtime-config";
 import LocalUploadPage from "@/routes/LocalUploadPage";
+import ForgotPasswordPage from "@/routes/ForgotPasswordPage";
 import LoginPage from "@/routes/LoginPage";
+import ResetPasswordPage from "@/routes/ResetPasswordPage";
 
 const CloudUploadPage = lazy(() => import("@/routes/CloudUploadPage"));
 const LLMApiPage = lazy(() => import("@/routes/LLMApiPage"));
@@ -119,6 +121,8 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route element={<ProtectedLayout />}>
         <Route path="/" element={<PermissionAwareHomeRedirect />} />
         <Route

@@ -32,6 +32,40 @@ export async function backendLogin(email: string, password: string): Promise<Bac
   return payload;
 }
 
+export async function backendRequestPasswordReset(email: string): Promise<void> {
+  logger.info("[backend-auth] password reset request", { email });
+  const path = "/auth/forgot-password";
+  const response = await backendFetch(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ email }),
+  });
+
+  if (!response.ok) {
+    logger.warn("[backend-auth] password reset request failed", { email, status: response.status });
+    throw await parseBackendHttpError(response, path, "POST");
+  }
+}
+
+export async function backendResetPassword(token: string, password: string): Promise<void> {
+  logger.info("[backend-auth] password reset apply");
+  const path = "/auth/reset-password";
+  const response = await backendFetch(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ token, password }),
+  });
+
+  if (!response.ok) {
+    logger.warn("[backend-auth] password reset apply failed", { status: response.status });
+    throw await parseBackendHttpError(response, path, "POST");
+  }
+}
+
 export async function backendRefresh(): Promise<boolean> {
   logger.info("[backend-auth] refresh request");
   const response = await backendFetch("/auth/refresh", { method: "POST" });
