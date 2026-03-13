@@ -28,7 +28,7 @@ jobs:
         run: docker compose -f docker-compose.yml config >/dev/null
 
       - name: Start production services
-        run: docker compose -f docker-compose.yml up -d --build transcode gradio-proxy
+        run: docker compose -f docker-compose.yml up -d --build transcode
 
       - name: Wait for app availability
         run: |
