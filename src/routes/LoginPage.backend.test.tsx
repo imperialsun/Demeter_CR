@@ -36,9 +36,13 @@ vi.mock("@/lib/backend-activity-sync", () => ({
   flushBackendActivityQueueNow: vi.fn(),
 }));
 
-vi.mock("@/lib/storage", () => ({
-  replaceSettingsCacheFromBackend: vi.fn(),
-}));
+vi.mock("@/lib/storage", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/storage")>("@/lib/storage");
+  return {
+    ...actual,
+    replaceSettingsCacheFromBackend: vi.fn(),
+  };
+});
 
 vi.mock("@/components/ui/use-toast", () => ({
   toast: vi.fn(),
