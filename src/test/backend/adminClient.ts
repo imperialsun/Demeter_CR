@@ -32,7 +32,7 @@ export async function createBackendUser(options?: {
   const session = await getAdminSession();
   const harness = await ensureBackendHarness();
   const email = options?.email ?? uniqueEmail("integration-user");
-  const password = options?.password ?? "Secret123!";
+  const password = options?.password ?? uniquePassword();
   const status = options?.status ?? "active";
 
   const response = await session.jar.fetch(
@@ -127,6 +127,10 @@ export async function getActivitySummary(query?: { from?: string; to?: string })
 
 export function uniqueEmail(prefix: string) {
   return `${prefix}-${randomUUID()}@example.test`;
+}
+
+export function uniquePassword() {
+  return `Pw-${randomUUID()}-Aa1!`;
 }
 
 async function loginBootstrapAdmin(): Promise<AdminSession> {

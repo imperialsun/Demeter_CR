@@ -16,6 +16,7 @@ import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { useCloudTranscription } from "@/hooks/useCloudTranscription";
 import { canUseCloudProvider } from "@/lib/backend-permissions";
 import logger from "@/lib/logger";
+import { SESSION_ONLY_SECRET_NOTICE } from "@/lib/secret-storage-copy";
 import { Loader2, PauseCircle, Play, Cloud } from "lucide-react";
 import { isBackendMode } from "@/lib/runtime-config";
 
@@ -201,6 +202,7 @@ function CloudUploadPage() {
                 ? "Stocké localement. Aucun token n'est envoyé ailleurs que vers l'API Hugging Face."
                 : "Stocké localement. Aucun token n'est envoyé ailleurs que vers l'API Mistral."}
             </p>
+            <p className="text-xs text-muted-foreground">{SESSION_ONLY_SECRET_NOTICE}</p>
             {isMistral ? (
               <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
                 <div>

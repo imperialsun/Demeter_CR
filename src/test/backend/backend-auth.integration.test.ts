@@ -24,8 +24,9 @@ describe("backend auth integration", () => {
 
       const loginPayload = await authModule.backendLogin(user.email, user.password);
       expect(loginPayload.user.email).toBe(user.email);
-      expect(window.localStorage.getItem("demeter-backend-authenticated")).toBe("1");
-      expect(window.localStorage.getItem("demeter-backend-session")).toContain(user.email);
+      expect(window.sessionStorage.getItem("demeter-backend-authenticated")).toBe("1");
+      expect(window.sessionStorage.getItem("demeter-backend-session")).toBeNull();
+      expect(window.localStorage.getItem("demeter-backend-authenticated")).toBeNull();
       expect(sessionModule.isBackendAuthenticated()).toBe(true);
       expect(appAuthModule.isAuthenticated()).toBe(true);
 

@@ -9,7 +9,7 @@ services:
       - APP_ENV=development
       - PORT=8080
       - SQLITE_PATH=/data/backend.sqlite
-      - JWT_SECRET=${JWT_SECRET:-dev-insecure-jwt-secret-change-me}
+      - JWT_SECRET=${JWT_SECRET:?Set JWT_SECRET before starting the dev stack}
       - ACCESS_TTL_MINUTES=${ACCESS_TTL_MINUTES:-15}
       - REFRESH_TTL_HOURS=${REFRESH_TTL_HOURS:-720}
       - COOKIE_SECURE=false
@@ -17,7 +17,7 @@ services:
       - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
       - MISTRAL_API_BASE_URL=${MISTRAL_API_BASE_URL:-https://api.mistral.ai}
       - BOOTSTRAP_ADMIN_EMAIL=${BOOTSTRAP_ADMIN_EMAIL:-admin@demeter.local}
-      - BOOTSTRAP_ADMIN_PASSWORD=${BOOTSTRAP_ADMIN_PASSWORD:-ChangeMe123!}
+      - BOOTSTRAP_ADMIN_PASSWORD=${BOOTSTRAP_ADMIN_PASSWORD:?Set BOOTSTRAP_ADMIN_PASSWORD before starting the dev stack}
       - BOOTSTRAP_ORG_NAME=${BOOTSTRAP_ORG_NAME:-Demeter Santé}
     volumes:
       - transcode-backend-dev-sqlite:/data

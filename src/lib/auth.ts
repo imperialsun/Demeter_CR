@@ -7,7 +7,6 @@ import {
   setBackendAuthenticatedFlag,
 } from "@/lib/backend-session";
 
-const AUTH_KEY = "demeter-authenticated";
 const LOGIN_HASHES: string[] = typeof __LOGIN_HASHES__ !== "undefined" ? __LOGIN_HASHES__ : [];
 try {
   logger.info("Auth hashes loaded", { count: LOGIN_HASHES.length });
@@ -32,11 +31,7 @@ export function setAuthenticated(value: boolean): void {
     }
     return;
   }
-  if (value) {
-    window.localStorage.setItem(AUTH_KEY, "1");
-  } else {
-    window.localStorage.removeItem(AUTH_KEY);
-  }
+  logger.debug("[auth] standalone auth state remains in-memory only", { authenticated: value });
 }
 
 export function isPasswordValid(password: string): boolean {

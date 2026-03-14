@@ -34,6 +34,7 @@ import { computeDefaultOverlap } from "@/lib/chunking";
 import { cn } from "@/lib/utils";
 import { testWasmMultithreadSupport } from "@/lib/backend-support";
 import logger from "@/lib/logger";
+import { SESSION_ONLY_SECRET_NOTICE } from "@/lib/secret-storage-copy";
 import { clearSecureTokens } from "@/lib/secure-token-vault";
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { canUseCloudProvider, canUseLlmProvider } from "@/lib/backend-permissions";
@@ -2756,6 +2757,7 @@ export function SettingsPanel({
                       <p className="text-xs text-muted-foreground">
                         Stocké localement pour l'inférence Whisper.
                       </p>
+                      <p className="text-xs text-muted-foreground">{SESSION_ONLY_SECRET_NOTICE}</p>
                     </div>
                     <div className="grid gap-3 md:grid-cols-3">
                       <NumberField
@@ -2842,6 +2844,7 @@ export function SettingsPanel({
                         placeholder="..."
                         autoComplete="off"
                       />
+                      <p className="text-xs text-muted-foreground">{SESSION_ONLY_SECRET_NOTICE}</p>
                     </div>
                     <div className="rounded-md border bg-muted/30 p-3">
                       <p className="text-sm font-medium">Chunking Mistral</p>

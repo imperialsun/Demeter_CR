@@ -21,6 +21,7 @@ import {
   resolveMistralMaxTokens,
   type MistralModelMetadata,
 } from "@/lib/llm/mistralModelsClient";
+import { SESSION_ONLY_SECRET_NOTICE } from "@/lib/secret-storage-copy";
 
 interface LlmCloudSettingsTabProps {
   showHuggingFace?: boolean;
@@ -220,6 +221,7 @@ export function LlmCloudSettingsTab({
                 autoComplete="off"
               />
               <p className="text-xs text-muted-foreground">Token partage avec /llmapi.</p>
+              <p className="text-xs text-muted-foreground">{SESSION_ONLY_SECRET_NOTICE}</p>
             </div>
 
             <div className="space-y-2">
@@ -328,6 +330,7 @@ export function LlmCloudSettingsTab({
                 autoComplete="off"
               />
               <p className="text-xs text-muted-foreground">Cle partagee avec /llmapi et /cloudupload.</p>
+              <p className="text-xs text-muted-foreground">{SESSION_ONLY_SECRET_NOTICE}</p>
             </div>
 
             <div className="space-y-2">

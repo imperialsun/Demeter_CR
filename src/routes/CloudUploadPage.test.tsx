@@ -94,6 +94,7 @@ describe("CloudUploadPage", () => {
     });
 
     expect(screen.getByText(/ne peut pas fonctionner sans cle api hugging face/i)).toBeInTheDocument();
+    expect(screen.getByText(/session en cours du navigateur/i)).toBeInTheDocument();
   });
 
   it("shows inline alert when mistral token is missing", () => {
@@ -107,6 +108,7 @@ describe("CloudUploadPage", () => {
     fireEvent.click(screen.getByText("Mistral"));
 
     expect(screen.getByText(/ne peut pas fonctionner sans cle api mistral/i)).toBeInTheDocument();
+    expect(screen.getByText(/session en cours du navigateur/i)).toBeInTheDocument();
   });
 
   it("shows diarization switch when provider is mistral", () => {

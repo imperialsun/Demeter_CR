@@ -10,9 +10,8 @@ import {
 } from '@/lib/secure-token-vault';
 
 const DB_NAME = 'demeter-secure-vault';
-const KEYS_STORE = 'keys';
 const SECRETS_STORE = 'secrets';
-const KEY_RECORD_ID = 'aes-gcm-256';
+const SESSION_KEY_STORAGE = 'demeter-secure-vault-key';
 const TOKENS_RECORD_ID = 'tokens-v1';
 
 type StoredTokensRecord = {
@@ -70,16 +69,8 @@ async function writeRawSecretRecord(record: StoredTokensRecord): Promise<void> {
   });
 }
 
-async function deleteStoredKey(): Promise<void> {
-  await withDb(async (db) => {
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(KEYS_STORE, 'readwrite');
-      const store = tx.objectStore(KEYS_STORE);
-      const request = store.delete(KEY_RECORD_ID);
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(request.error);
-    });
-  });
+function clearSessionKey() {
+  window.sessionStorage.removeItem(SESSION_KEY_STORAGE);
 }
 
 describe('secure-token-vault', () => {
@@ -200,16 +191,20 @@ describe('secure-token-vault', () => {
   });
 
   it('returns null and warns when encryption key is missing', async () => {
-    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined as never);
-
     await saveSecureTokens({
       hfApiToken: 'hf_secret_token',
       mistralApiKey: 'mistral_secret_key',
     });
-    await deleteStoredKey();
+    clearSessionKey();
 
-    await expect(loadSecureTokens()).resolves.toBeNull();
+    vi.resetModules();
+    const reloadedLogger = (await import('@/lib/logger')).default;
+    const warnSpy = vi.spyOn(reloadedLogger, 'warn').mockImplementation(() => undefined as never);
+    const { loadSecureTokens: loadSecureTokensAfterReload } = await import('@/lib/secure-token-vault');
+
+    await expect(loadSecureTokensAfterReload()).resolves.toBeNull();
     expect(warnSpy).toHaveBeenCalledWith('[secure-token-vault] encryption key missing');
+    await expect(readRawSecretRecord()).resolves.toBeUndefined();
   });
 
   it('returns null and warns when decrypt fails', async () => {

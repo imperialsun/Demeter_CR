@@ -312,6 +312,7 @@ describe('SettingsPanel', () => {
     fireEvent.change(input, { target: { value: "hf_test_token" } });
 
     expect(useAsrStore.getState().hfApiToken).toBe("hf_test_token");
+    expect(screen.getByText(/session en cours du navigateur/i)).toBeInTheDocument();
   });
 
   it("updates cloud mistral token from settings", async () => {
@@ -331,6 +332,7 @@ describe('SettingsPanel', () => {
     );
 
     expect(useAsrStore.getState().mistralApiKey).toBe("mistral_secret");
+    expect(screen.getByText(/session en cours du navigateur/i)).toBeInTheDocument();
   });
 
   it("stores independent chunking/segmentation settings for whisper and mistral", async () => {

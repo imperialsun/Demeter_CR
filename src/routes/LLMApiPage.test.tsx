@@ -589,6 +589,8 @@ describe("LLMApiPage", () => {
     useAsrStore.setState({ llmApiProvider: "mistral", mistralApiKey: "" } as any);
     renderPage();
 
+    expect(screen.getByText(/session en cours du navigateur/i)).toBeInTheDocument();
+
     fireEvent.change(screen.getByLabelText("Cle API Mistral", { selector: "input#llm-mistral-api-key" }), {
       target: { value: "mistral_token_ui" },
     });

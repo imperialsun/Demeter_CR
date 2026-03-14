@@ -1,12 +1,12 @@
 import logger from "@/lib/logger";
 
 const DB_NAME = "demeter-secure-vault";
-const DB_VERSION = 1;
-const KEYS_STORE = "keys";
+const DB_VERSION = 2;
 const SECRETS_STORE = "secrets";
-const KEY_RECORD_ID = "aes-gcm-256";
+const SESSION_KEY_STORAGE = "demeter-secure-vault-key";
 const TOKENS_RECORD_ID = "tokens-v1";
 const TOKENS_RECORD_VERSION = 1;
+let cachedKey: CryptoKey | null = null;
 
 export interface SecureTokens {
   hfApiToken: string;
@@ -38,6 +38,18 @@ function getIndexedDbApi() {
   return globalThis.indexedDB;
 }
 
+function getSessionStorageApi() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    return window.sessionStorage;
+  } catch (error) {
+    logger.warn("[secure-token-vault] sessionStorage unavailable", error);
+    return null;
+  }
+}
+
 export function getSecureVaultAvailability(): Availability {
   if (!getIndexedDbApi()) {
     return { supported: false, reason: "indexeddb_unavailable" };
@@ -45,7 +57,36 @@ export function getSecureVaultAvailability(): Availability {
   if (!getCryptoApi()) {
     return { supported: false, reason: "webcrypto_unavailable" };
   }
+  if (!getSessionStorageApi()) {
+    return { supported: false, reason: "sessionstorage_unavailable" };
+  }
   return { supported: true };
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  if (typeof globalThis.btoa === "function") {
+    return globalThis.btoa(binary);
+  }
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(bytes).toString("base64");
+  }
+  throw new Error("Base64 encoding unavailable");
+}
+
+function base64ToUint8Array(value: string) {
+  if (typeof globalThis.atob === "function") {
+    const binary = globalThis.atob(value);
+    return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  }
+  if (typeof Buffer !== "undefined") {
+    return Uint8Array.from(Buffer.from(value, "base64"));
+  }
+  throw new Error("Base64 decoding unavailable");
 }
 
 function openVaultDb(): Promise<IDBDatabase> {
@@ -58,8 +99,8 @@ function openVaultDb(): Promise<IDBDatabase> {
     const request = indexedDb.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
-      if (!db.objectStoreNames.contains(KEYS_STORE)) {
-        db.createObjectStore(KEYS_STORE);
+      if (db.objectStoreNames.contains("keys")) {
+        db.deleteObjectStore("keys");
       }
       if (!db.objectStoreNames.contains(SECRETS_STORE)) {
         db.createObjectStore(SECRETS_STORE);
@@ -90,15 +131,45 @@ async function withStore<T>(
   });
 }
 
+async function clearCiphertextRecord() {
+  await withStore("readwrite", SECRETS_STORE, (store) => store.delete(TOKENS_RECORD_ID));
+}
+
 async function readKey(): Promise<CryptoKey | null> {
-  const key = await withStore<CryptoKey | undefined>("readonly", KEYS_STORE, (store) =>
-    store.get(KEY_RECORD_ID)
+  if (cachedKey) {
+    return cachedKey;
+  }
+  const storage = getSessionStorageApi();
+  const raw = storage?.getItem(SESSION_KEY_STORAGE);
+  if (!raw) {
+    return null;
+  }
+  const cryptoApi = getCryptoApi();
+  if (!cryptoApi) {
+    return null;
+  }
+  const imported = await cryptoApi.subtle.importKey(
+    "raw",
+    base64ToUint8Array(raw),
+    { name: "AES-GCM" },
+    false,
+    ["encrypt", "decrypt"]
   );
-  return key ?? null;
+  cachedKey = imported;
+  logger.debug("[secure-token-vault] imported session key from sessionStorage");
+  return imported;
 }
 
 async function writeKey(key: CryptoKey): Promise<void> {
-  await withStore("readwrite", KEYS_STORE, (store) => store.put(key, KEY_RECORD_ID));
+  const cryptoApi = getCryptoApi();
+  const storage = getSessionStorageApi();
+  if (!cryptoApi || !storage) return;
+  const exported = await cryptoApi.subtle.exportKey("raw", key);
+  storage.setItem(SESSION_KEY_STORAGE, arrayBufferToBase64(exported));
+  cachedKey = key;
+  logger.info("[secure-token-vault] stored session-scoped encryption key", {
+    bytes: exported.byteLength,
+  });
 }
 
 async function getOrCreateKey(): Promise<CryptoKey | null> {
@@ -108,10 +179,11 @@ async function getOrCreateKey(): Promise<CryptoKey | null> {
   if (existing) return existing;
   const generated = await cryptoApi.subtle.generateKey(
     { name: "AES-GCM", length: 256 },
-    false,
+    true,
     ["encrypt", "decrypt"]
   );
   await writeKey(generated);
+  logger.info("[secure-token-vault] generated session-scoped encryption key");
   return generated;
 }
 
@@ -158,6 +230,7 @@ export async function loadSecureTokens(): Promise<SecureTokens | null> {
     const key = await readKey();
     if (!key) {
       logger.warn("[secure-token-vault] encryption key missing");
+      await clearCiphertextRecord();
       return null;
     }
     const cryptoApi = getCryptoApi();
@@ -173,6 +246,7 @@ export async function loadSecureTokens(): Promise<SecureTokens | null> {
     return decodePayload(decrypted);
   } catch (error) {
     logger.warn("[secure-token-vault] failed to load secure tokens", error);
+    await clearCiphertextRecord().catch(() => undefined);
     return null;
   }
 }
@@ -209,8 +283,9 @@ export async function saveSecureTokens(tokens: SecureTokens): Promise<void> {
 export async function clearSecureTokens(): Promise<void> {
   if (!getSecureVaultAvailability().supported) return;
   try {
-    await withStore("readwrite", SECRETS_STORE, (store) => store.delete(TOKENS_RECORD_ID));
-    await withStore("readwrite", KEYS_STORE, (store) => store.delete(KEY_RECORD_ID));
+    cachedKey = null;
+    getSessionStorageApi()?.removeItem(SESSION_KEY_STORAGE);
+    await clearCiphertextRecord();
   } catch (error) {
     logger.warn("[secure-token-vault] failed to clear secure tokens", error);
   }

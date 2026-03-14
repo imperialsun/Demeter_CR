@@ -27,6 +27,7 @@ import {
 import { parseTranscriptFile, type ParsedTranscriptFile } from "@/lib/transcript/parseTranscriptFile";
 import { estimateTokenCount } from "@/lib/tokens";
 import logger from "@/lib/logger";
+import { SESSION_ONLY_SECRET_NOTICE } from "@/lib/secret-storage-copy";
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { canAccessFeature, canUseLlmProvider } from "@/lib/backend-permissions";
 import { isBackendMode } from "@/lib/runtime-config";
@@ -554,6 +555,7 @@ function LLMApiPage() {
                     placeholder="hf_..."
                     autoComplete="off"
                   />
+                  <p className="text-xs text-muted-foreground">{SESSION_ONLY_SECRET_NOTICE}</p>
                   {isLlmTokenMissing ? <p className="text-xs text-destructive">{tokenRequiredMessage}</p> : null}
                 </div>
               ) : activeProvider === "mistral" ? (
@@ -568,6 +570,7 @@ function LLMApiPage() {
                     autoComplete="off"
                   />
                   <p className="text-xs text-muted-foreground">Cle partagee avec la page /cloudupload.</p>
+                  <p className="text-xs text-muted-foreground">{SESSION_ONLY_SECRET_NOTICE}</p>
                   {isLlmTokenMissing ? <p className="text-xs text-destructive">{tokenRequiredMessage}</p> : null}
                 </div>
               ) : activeProvider === "demeter_sante" ? (

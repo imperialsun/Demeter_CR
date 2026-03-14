@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { access, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
@@ -6,12 +7,13 @@ import net from "node:net";
 import http from "node:http";
 
 const BOOTSTRAP_ADMIN_EMAIL = "admin@demeter.local";
-const BOOTSTRAP_ADMIN_PASSWORD = "ChangeMe123!";
 const BOOTSTRAP_ORG_NAME = "Demeter Integration";
 const BACKEND_READY_PATH = "/healthz";
 const HEALTH_CHECK_TIMEOUT_MS = 20_000;
 const HEALTH_CHECK_INTERVAL_MS = 250;
 const LOG_BUFFER_LIMIT = 200;
+const BOOTSTRAP_ADMIN_PASSWORD = buildStrongSecret(24);
+const INTEGRATION_JWT_SECRET = buildStrongSecret(48);
 
 type HarnessState = {
   backendDir: string;
@@ -78,7 +80,7 @@ async function startBackendHarness(): Promise<HarnessState> {
       APP_ENV: "development",
       PORT: String(port),
       SQLITE_PATH: sqlitePath,
-      JWT_SECRET: "demeter-integration-secret",
+      JWT_SECRET: INTEGRATION_JWT_SECRET,
       COOKIE_SECURE: "false",
       APP_CORS_ORIGINS: "http://localhost:3000,http://localhost:4173",
       BOOTSTRAP_ADMIN_EMAIL,
@@ -118,6 +120,10 @@ async function startBackendHarness(): Promise<HarnessState> {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`${message}\n${details}`);
   }
+}
+
+function buildStrongSecret(size: number) {
+  return randomBytes(size).toString("base64url");
 }
 
 async function assertBackendPrerequisites(backendDir: string) {

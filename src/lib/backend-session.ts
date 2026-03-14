@@ -4,6 +4,7 @@ import logger from "@/lib/logger";
 const BACKEND_AUTH_KEY = "demeter-backend-authenticated";
 const BACKEND_SESSION_KEY = "demeter-backend-session";
 const BACKEND_SESSION_CHANGE_EVENT = "demeter:backend-session-change";
+let currentSession: BackendSessionPayload | null = null;
 
 export interface BackendSessionPayload {
   user: {
@@ -37,6 +38,34 @@ const ROUTE_PERMISSION_MAP: Array<{ path: string; permission: string }> = [
   { path: "/settings", permission: "feature.settings" },
   { path: "/telemetry", permission: "feature.telemetry" },
 ];
+
+function getSessionStorageApi(): Storage | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.sessionStorage;
+  } catch (error) {
+    logger.warn("[backend-session] sessionStorage unavailable", error);
+    return null;
+  }
+}
+
+function clearLegacyStorageArtifacts() {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.removeItem(BACKEND_SESSION_KEY);
+  window.localStorage.removeItem(BACKEND_AUTH_KEY);
+  window.localStorage.removeItem(BACKEND_SESSION_KEY);
+}
+
+function cloneBackendSession(payload: BackendSessionPayload): BackendSessionPayload {
+  return {
+    user: { ...payload.user },
+    organization: { ...payload.organization },
+    globalRoles: [...payload.globalRoles],
+    orgRoles: [...payload.orgRoles],
+    permissions: [...payload.permissions],
+    runtimeMode: payload.runtimeMode,
+  };
+}
 
 function emitBackendSessionChange(reason: BackendSessionChangeDetail["reason"]) {
   if (typeof window === "undefined") return;
@@ -77,34 +106,43 @@ export function subscribeBackendSessionChange(
 }
 
 export function setBackendSession(payload: BackendSessionPayload) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(BACKEND_AUTH_KEY, "1");
-  window.localStorage.setItem(BACKEND_SESSION_KEY, JSON.stringify(payload));
+  currentSession = cloneBackendSession(payload);
+  const storage = getSessionStorageApi();
+  storage?.setItem(BACKEND_AUTH_KEY, "1");
+  clearLegacyStorageArtifacts();
   logger.info("[backend-session] session stored", {
     userId: payload.user.id,
     organizationId: payload.organization.id,
     permissionCount: payload.permissions.length,
+    storage: "session-memory",
   });
   emitBackendSessionChange("session_set");
 }
 
 export function setBackendAuthenticatedFlag(value: boolean) {
-  if (typeof window === "undefined") return;
+  const storage = getSessionStorageApi();
   if (value) {
-    window.localStorage.setItem(BACKEND_AUTH_KEY, "1");
-    logger.info("[backend-session] auth flag set", { authenticated: true });
+    storage?.setItem(BACKEND_AUTH_KEY, "1");
+    clearLegacyStorageArtifacts();
+    logger.info("[backend-session] auth flag set", {
+      authenticated: true,
+      hasSession: currentSession !== null,
+    });
     emitBackendSessionChange("auth_flag_set");
     return;
   }
-  window.localStorage.removeItem(BACKEND_AUTH_KEY);
+  currentSession = null;
+  storage?.removeItem(BACKEND_AUTH_KEY);
+  clearLegacyStorageArtifacts();
   logger.info("[backend-session] auth flag cleared");
   emitBackendSessionChange("session_cleared");
 }
 
 export function clearBackendSession() {
-  if (typeof window === "undefined") return;
-  window.localStorage.removeItem(BACKEND_AUTH_KEY);
-  window.localStorage.removeItem(BACKEND_SESSION_KEY);
+  currentSession = null;
+  const storage = getSessionStorageApi();
+  storage?.removeItem(BACKEND_AUTH_KEY);
+  clearLegacyStorageArtifacts();
   logger.info("[backend-session] session cleared");
   emitBackendSessionChange("session_cleared");
 }
@@ -125,20 +163,12 @@ export function invalidateBackendSession(options?: { redirectToLogin?: boolean }
 
 export function isBackendAuthenticated(): boolean {
   if (!isBackendMode()) return false;
-  if (typeof window === "undefined") return false;
-  return window.localStorage.getItem(BACKEND_AUTH_KEY) === "1";
+  const storage = getSessionStorageApi();
+  return storage?.getItem(BACKEND_AUTH_KEY) === "1" && currentSession !== null;
 }
 
 export function getBackendSession(): BackendSessionPayload | null {
-  if (typeof window === "undefined") return null;
-  const raw = window.localStorage.getItem(BACKEND_SESSION_KEY);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as BackendSessionPayload;
-  } catch (error) {
-    logger.warn("[backend-session] failed to parse stored session", error);
-    return null;
-  }
+  return currentSession ? cloneBackendSession(currentSession) : null;
 }
 
 export function getBackendPermissions(): string[] {
