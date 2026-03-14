@@ -16,6 +16,9 @@ jobs:
   prod-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      JWT_SECRET: smoke-jwt-secret-not-for-production
+      BOOTSTRAP_ADMIN_PASSWORD: SmokeOnlyPassword-ChangeOnDeploy-2026!
 
     steps:
       - name: Checkout
