@@ -16,6 +16,7 @@ import { initializeBackendSupport, resetWebGpuSupportCache } from "@/lib/backend
 import logger, { exportLogEntries, type LogLevel } from "@/lib/logger";
 import { setAuthenticated } from "@/lib/auth";
 import { backendLogout } from "@/lib/backend-auth";
+import { getBackendSession } from "@/lib/backend-session";
 import { isBackendMode } from "@/lib/runtime-config";
 import { useModelCompatibilityTest, type ModelTestStatus } from "@/hooks/useModelCompatibilityTest";
 import { getEnvMode } from "@/lib/env";
@@ -114,6 +115,7 @@ export function Topbar() {
   const backendKeys = ["webgpu", "wasm"] as const;
   const showDebugActions = true;
   const backendMode = isBackendMode();
+  const connectedEmail = backendMode ? (getBackendSession()?.user.email ?? "").trim() : "";
   const canOpenSettings = canAccessFeature("feature.settings");
   const isCloudRoute = location.pathname === "/cloudupload";
   const isLlmRoute = location.pathname === "/llmapi";
@@ -334,6 +336,15 @@ export function Topbar() {
             <span className="text-xs text-muted-foreground">{statusDetailLabel}</span>
           ) : null}
         </div>
+        {connectedEmail ? (
+          <Badge
+            className="max-w-40 overflow-hidden text-ellipsis whitespace-nowrap sm:max-w-56"
+            title={connectedEmail}
+            variant="outline"
+          >
+            {connectedEmail}
+          </Badge>
+        ) : null}
         {canOpenSettings ? (
           <Button
             variant="ghost"

@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { Topbar } from './Topbar';
 import { useAsrStore } from '@/store/asr-store';
 import * as backendSupport from '@/lib/backend-support';
+import * as backendSession from '@/lib/backend-session';
 import * as toastMod from '@/components/ui/use-toast';
 import * as rr from 'react-router-dom';
 import * as logger from '@/lib/logger';
@@ -41,6 +42,10 @@ const modelTestHook = vi.hoisted(() => ({
 const backendPermissionMocks = vi.hoisted(() => ({
   canAccessFeature: vi.fn((permission: string) => permission !== ""),
   getFirstAuthorizedRoute: vi.fn(() => "/localupload"),
+}));
+
+const runtimeConfigMocks = vi.hoisted(() => ({
+  isBackendMode: vi.fn(() => false),
 }));
 
 // Mock react-router hooks used by the component
@@ -85,6 +90,14 @@ vi.mock("@/lib/backend-permissions", () => ({
   getFirstAuthorizedRoute: (...args: unknown[]) => backendPermissionMocks.getFirstAuthorizedRoute(...args),
 }));
 
+vi.mock("@/lib/runtime-config", () => ({
+  isBackendMode: (...args: unknown[]) => runtimeConfigMocks.isBackendMode(...args),
+}));
+
+const BACKEND_AUTH_KEY = "demeter-backend-authenticated";
+const BACKEND_SESSION_KEY = "demeter-backend-session";
+const connectedEmail = "praticien@example.com";
+
 describe('Topbar', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -120,6 +133,10 @@ describe('Topbar', () => {
     backendPermissionMocks.canAccessFeature.mockReturnValue(true);
     backendPermissionMocks.getFirstAuthorizedRoute.mockReset();
     backendPermissionMocks.getFirstAuthorizedRoute.mockReturnValue("/localupload");
+    runtimeConfigMocks.isBackendMode.mockReset();
+    runtimeConfigMocks.isBackendMode.mockReturnValue(false);
+    window.localStorage.removeItem(BACKEND_AUTH_KEY);
+    window.localStorage.removeItem(BACKEND_SESSION_KEY);
     // reset store defaults used by Topbar
     useAsrStore.setState({
       activePreset: 'fast',
@@ -173,6 +190,45 @@ describe('Topbar', () => {
     render(<Topbar />);
 
     expect(screen.queryByLabelText("Aller aux paramètres")).toBeNull();
+  });
+
+  it("shows the connected email in backend mode when a session exists", () => {
+    runtimeConfigMocks.isBackendMode.mockReturnValue(true);
+    vi.spyOn(backendSession, "getBackendSession").mockReturnValue({
+      user: { id: "user-1", email: connectedEmail, status: "active" },
+      organization: { id: "org-1", name: "Org", code: "ORG", status: "active" },
+      globalRoles: ["user"],
+      orgRoles: ["org_member"],
+      permissions: ["feature.localupload"],
+    });
+
+    render(<Topbar />);
+
+    expect(screen.getByText(connectedEmail)).toBeInTheDocument();
+    expect(screen.getByTitle(connectedEmail)).toBeInTheDocument();
+  });
+
+  it("does not show the email in standalone mode", () => {
+    vi.spyOn(backendSession, "getBackendSession").mockReturnValue({
+      user: { id: "user-1", email: connectedEmail, status: "active" },
+      organization: { id: "org-1", name: "Org", code: "ORG", status: "active" },
+      globalRoles: ["user"],
+      orgRoles: ["org_member"],
+      permissions: ["feature.localupload"],
+    });
+
+    render(<Topbar />);
+
+    expect(screen.queryByText(connectedEmail)).toBeNull();
+  });
+
+  it("does not show the email when the backend session is missing or invalid", () => {
+    runtimeConfigMocks.isBackendMode.mockReturnValue(true);
+    vi.spyOn(backendSession, "getBackendSession").mockReturnValue(null);
+
+    render(<Topbar />);
+
+    expect(screen.queryByText(connectedEmail)).toBeNull();
   });
 
   it('opens confirm and calls resetApp on confirm', async () => {
