@@ -1,6 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { loadSettings, saveSettings, DEFAULT_SETTINGS } from './storage';
+import {
+  DEFAULT_SETTINGS,
+  LEGACY_PERSISTED_SETTINGS_KEYS,
+  loadSettings,
+  PERSISTED_SETTINGS_KEYS,
+  saveSettings,
+} from './storage';
 import logger from '@/lib/logger';
 
 vi.mock('@/lib/logger', () => ({
@@ -140,6 +146,16 @@ describe('storage', () => {
     expect(DEFAULT_SETTINGS.llmApiHfMaxTokens).toBeGreaterThan(0);
     expect(DEFAULT_SETTINGS.llmApiMistralModelId).toBeTruthy();
     expect(DEFAULT_SETTINGS.llmApiMistralMaxTokens).toBeGreaterThan(0);
+  });
+
+  it("defines defaults for every canonical persisted setting and excludes legacy-only keys", () => {
+    expect(PERSISTED_SETTINGS_KEYS.length).toBe(Object.keys(DEFAULT_SETTINGS).length);
+    for (const key of PERSISTED_SETTINGS_KEYS) {
+      expect(DEFAULT_SETTINGS[key]).not.toBeUndefined();
+    }
+    for (const key of LEGACY_PERSISTED_SETTINGS_KEYS) {
+      expect(PERSISTED_SETTINGS_KEYS).not.toContain(key as never);
+    }
   });
 
   it("defines llm local defaults", () => {

@@ -4,6 +4,7 @@ import {
   loadSettings,
   saveSettings,
   type PersistedSettings,
+  type PersistedSettingsInput,
   DEFAULT_SETTINGS,
 } from "@/lib/storage";
 import {
@@ -30,8 +31,6 @@ import {
   createDefaultLocalModelSettings,
   createDefaultLocalModelSettingsByProfile,
   DEFAULT_LLM_LOCAL_MAX_TOKENS,
-  DEFAULT_LLM_LOCAL_MODEL_ID,
-  DEFAULT_LLM_LOCAL_PROFILE,
   DEFAULT_LLM_LOCAL_TEMPERATURE,
   getLocalLlmModelProfile,
   resolveLocalLlmModelId,
@@ -185,14 +184,10 @@ const MEMORY_FALLBACK_PRESETS: Record<PresetKey, BuiltInPresetKey[]> = {
 };
 const DEFAULT_MISTRAL_MODEL = "voxtral-mini-latest";
 const LEGACY_MISTRAL_MODEL = "voxtral-mini-transcribe-26-02";
-const DEFAULT_LLM_HF_MODEL_ID = "openai/gpt-oss-20b";
 const DEFAULT_LLM_HF_TEMPERATURE = 0.2;
 const DEFAULT_LLM_HF_MAX_TOKENS = 131072;
-const DEFAULT_LLM_MISTRAL_MODEL_ID = "mistral-medium-latest";
 const DEFAULT_LLM_MISTRAL_TEMPERATURE = 0.2;
 const DEFAULT_LLM_MISTRAL_MAX_TOKENS = 8192;
-const DEFAULT_LLM_LOCAL_MODEL_PROFILE: LlmLocalModelProfile = DEFAULT_LLM_LOCAL_PROFILE;
-const DEFAULT_LLM_LOCAL_BACKEND: BackendImplementation = "webgpu";
 const DEFAULT_LLM_LOCAL_DTYPE_WEBGPU: ModelDtype = "q4f16";
 const DEFAULT_LLM_LOCAL_DTYPE_WASM: ModelDtype = "q8";
 const LLM_LOCAL_PROFILES: LlmLocalModelProfile[] = ["qwen_0_6b", "qwen_1_7b", "ministral_3_3b"];
@@ -830,13 +825,164 @@ interface AsrConfigActions {
 
 export type AsrConfigStore = AsrConfigState & AsrConfigActions;
 
+export function serializePersistedSettings(state: AsrConfigState): PersistedSettings {
+  return {
+    activePreset: state.activePreset,
+    customModelId: state.customModelId,
+    presetQuantizationOverrides: state.modelQuantizationOverrides,
+    blockedPresets: state.blockedPresets,
+    backendPreference: state.backendPreference,
+    memoryMode: state.memoryMode,
+    chunkStrategy: state.chunkStrategy,
+    segmentationMode: state.segmentationMode,
+    dedupeMode: state.dedupeMode,
+    cleanIntraChunk: state.cleanIntraChunk,
+    preprocessingMode: state.preprocessingMode,
+    chunkDurationSec: state.chunkDurationSec,
+    overlapSec: state.overlapSec,
+    progressiveSegmentDurationSec: state.progressiveSegmentDurationSec,
+    silenceThresholdDb: state.silenceThresholdDb,
+    minSilenceMs: state.minSilenceMs,
+    minChunkMs: state.minChunkMs,
+    maxChunkMs: state.maxChunkMs,
+    showSegments: state.showSegments,
+    showExportVtt: state.showExportVtt,
+    showExportSrt: state.showExportSrt,
+    showExportJson: state.showExportJson,
+    showExportTelemetry: state.showExportTelemetry,
+    denoiseNoiseFloorDb: state.denoiseNoiseFloorDb,
+    denoiseReductionDb: state.denoiseReductionDb,
+    denoiseSmoothing: state.denoiseSmoothing,
+    denoiseCalibrationSeconds: state.denoiseCalibrationSeconds,
+    preprocessEnableFilters: state.preprocessEnableFilters,
+    preprocessHighpassHz: state.preprocessHighpassHz,
+    preprocessLowpassHz: state.preprocessLowpassHz,
+    preprocessEnableLufs: state.preprocessEnableLufs,
+    preprocessTargetLufs: state.preprocessTargetLufs,
+    preprocessLimiterEnabled: state.preprocessLimiterEnabled,
+    preprocessLimiterThresholdDb: state.preprocessLimiterThresholdDb,
+    preprocessLimiterSoftness: state.preprocessLimiterSoftness,
+    preprocessVadEnabled: state.preprocessVadEnabled,
+    preprocessVadThresholdDb: state.preprocessVadThresholdDb,
+    preprocessVadMinSilenceMs: state.preprocessVadMinSilenceMs,
+    preprocessOverlapAdd: state.preprocessOverlapAdd,
+    preprocessOverlapBlockSec: state.preprocessOverlapBlockSec,
+    preprocessOverlapSec: state.preprocessOverlapSec,
+    autoTunePreprocess: state.autoTunePreprocess,
+    enableWordTimestamps: state.enableWordTimestamps,
+    showSegmentConfidence: state.showSegmentConfidence,
+    logLevel: state.logLevel,
+    forceSingleThread: state.forceSingleThread,
+    micActivePreset: state.micActivePreset,
+    micCustomModelId: state.micCustomModelId,
+    micBackendPreference: state.micBackendPreference,
+    micPreprocessingMode: state.micPreprocessingMode,
+    micSegmentationMode: state.micSegmentationMode,
+    micSilenceThresholdDb: state.micSilenceThresholdDb,
+    micNoiseCalibrationMarginDb: state.micNoiseCalibrationMarginDb,
+    micMinSilenceMs: state.micMinSilenceMs,
+    micMinChunkMs: state.micMinChunkMs,
+    micMaxChunkMs: state.micMaxChunkMs,
+    micShowExportVtt: state.micShowExportVtt,
+    micShowExportSrt: state.micShowExportSrt,
+    micShowExportJson: state.micShowExportJson,
+    micShowExportTelemetry: state.micShowExportTelemetry,
+    micDenoiseNoiseFloorDb: state.micDenoiseNoiseFloorDb,
+    micDenoiseReductionDb: state.micDenoiseReductionDb,
+    micDenoiseSmoothing: state.micDenoiseSmoothing,
+    micDenoiseCalibrationSeconds: state.micDenoiseCalibrationSeconds,
+    micPreprocessEnableFilters: state.micPreprocessEnableFilters,
+    micPreprocessHighpassHz: state.micPreprocessHighpassHz,
+    micPreprocessLowpassHz: state.micPreprocessLowpassHz,
+    micPreprocessEnableLufs: state.micPreprocessEnableLufs,
+    micPreprocessTargetLufs: state.micPreprocessTargetLufs,
+    micPreprocessLimiterEnabled: state.micPreprocessLimiterEnabled,
+    micPreprocessLimiterThresholdDb: state.micPreprocessLimiterThresholdDb,
+    micPreprocessLimiterSoftness: state.micPreprocessLimiterSoftness,
+    micPreprocessVadEnabled: state.micPreprocessVadEnabled,
+    micPreprocessVadThresholdDb: state.micPreprocessVadThresholdDb,
+    micPreprocessVadMinSilenceMs: state.micPreprocessVadMinSilenceMs,
+    micPreprocessOverlapAdd: state.micPreprocessOverlapAdd,
+    micPreprocessOverlapBlockSec: state.micPreprocessOverlapBlockSec,
+    micPreprocessOverlapSec: state.micPreprocessOverlapSec,
+    micAutoTunePreprocess: state.micAutoTunePreprocess,
+    micEnableWordTimestamps: state.micEnableWordTimestamps,
+    micShowSegmentConfidence: state.micShowSegmentConfidence,
+    micForceSingleThread: state.micForceSingleThread,
+    cloudMistralApiUrl: state.cloudMistralApiUrl,
+    cloudMistralModel: state.cloudMistralModel,
+    cloudMistralDiarizationEnabled: state.cloudMistralDiarizationEnabled,
+    cloudDemeterModel: state.cloudDemeterModel,
+    cloudDemeterDiarizationEnabled: state.cloudDemeterDiarizationEnabled,
+    cloudWhisperChunkDurationSec: state.cloudWhisperChunkDurationSec,
+    cloudWhisperOverlapSec: state.cloudWhisperOverlapSec,
+    cloudMistralChunkDurationSec: state.cloudMistralChunkDurationSec,
+    cloudMistralOverlapSec: state.cloudMistralOverlapSec,
+    cloudMaxTokens: state.cloudMaxTokens,
+    cloudTemperature: state.cloudTemperature,
+    cloudTopP: state.cloudTopP,
+    cloudDoSample: state.cloudDoSample,
+    cloudShowSegments: state.cloudShowSegments,
+    cloudShowExportVtt: state.cloudShowExportVtt,
+    cloudShowExportSrt: state.cloudShowExportSrt,
+    cloudShowExportJson: state.cloudShowExportJson,
+    cloudShowExportTelemetry: state.cloudShowExportTelemetry,
+    cloudPreprocessingMode: state.cloudPreprocessingMode,
+    cloudDenoiseNoiseFloorDb: state.cloudDenoiseNoiseFloorDb,
+    cloudDenoiseReductionDb: state.cloudDenoiseReductionDb,
+    cloudDenoiseSmoothing: state.cloudDenoiseSmoothing,
+    cloudDenoiseCalibrationSeconds: state.cloudDenoiseCalibrationSeconds,
+    cloudPreprocessEnableFilters: state.cloudPreprocessEnableFilters,
+    cloudPreprocessHighpassHz: state.cloudPreprocessHighpassHz,
+    cloudPreprocessLowpassHz: state.cloudPreprocessLowpassHz,
+    cloudPreprocessEnableLufs: state.cloudPreprocessEnableLufs,
+    cloudPreprocessTargetLufs: state.cloudPreprocessTargetLufs,
+    cloudPreprocessLimiterEnabled: state.cloudPreprocessLimiterEnabled,
+    cloudPreprocessLimiterThresholdDb: state.cloudPreprocessLimiterThresholdDb,
+    cloudPreprocessLimiterSoftness: state.cloudPreprocessLimiterSoftness,
+    cloudPreprocessVadEnabled: state.cloudPreprocessVadEnabled,
+    cloudPreprocessVadThresholdDb: state.cloudPreprocessVadThresholdDb,
+    cloudPreprocessVadMinSilenceMs: state.cloudPreprocessVadMinSilenceMs,
+    cloudPreprocessOverlapAdd: state.cloudPreprocessOverlapAdd,
+    cloudPreprocessOverlapBlockSec: state.cloudPreprocessOverlapBlockSec,
+    cloudPreprocessOverlapSec: state.cloudPreprocessOverlapSec,
+    cloudAutoTunePreprocess: state.cloudAutoTunePreprocess,
+    cloudEnableWordTimestamps: state.cloudEnableWordTimestamps,
+    cloudShowSegmentConfidence: state.cloudShowSegmentConfidence,
+    llmApiProvider: state.llmApiProvider,
+    llmApiHfModelId: state.llmApiHfModelId,
+    llmApiHfTemperature: state.llmApiHfTemperature,
+    llmApiHfMaxTokens: state.llmApiHfMaxTokens,
+    llmApiMistralModelId: state.llmApiMistralModelId,
+    llmApiMistralTemperature: state.llmApiMistralTemperature,
+    llmApiMistralMaxTokens: state.llmApiMistralMaxTokens,
+    llmLocalModelProfile: state.llmLocalModelProfile,
+    llmLocalModelId: state.llmLocalModelId,
+    llmLocalTemperature: state.llmLocalTemperature,
+    llmLocalMaxTokens: state.llmLocalMaxTokens,
+    llmLocalBackendPreference: state.llmLocalBackendPreference,
+    llmLocalDtypeWebgpu: state.llmLocalDtypeWebgpu,
+    llmLocalDtypeWasm: state.llmLocalDtypeWasm,
+    llmLocalSettingsByProfile: state.llmLocalSettingsByProfile,
+    llmLocalForceSingleThread: state.llmLocalForceSingleThread,
+  };
+}
+
+function getHydrationInputValue<K extends keyof PersistedSettings>(
+  settings: PersistedSettingsInput,
+  key: K,
+  fallback: PersistedSettings[K]
+): PersistedSettings[K] {
+  return (settings[key] ?? fallback) as PersistedSettings[K];
+}
+
 const initialState: AsrConfigState = {
   hasHydrated: false,
-  activePreset: "fast",
-  customModelId: "",
-  modelQuantizationOverrides: {},
-  blockedPresets: [],
-  backendPreference: "webgpu",
+  activePreset: DEFAULT_SETTINGS.activePreset,
+  customModelId: DEFAULT_SETTINGS.customModelId,
+  modelQuantizationOverrides: { ...DEFAULT_SETTINGS.presetQuantizationOverrides },
+  blockedPresets: [...DEFAULT_SETTINGS.blockedPresets],
+  backendPreference: DEFAULT_SETTINGS.backendPreference,
   webGpuSupported: true,
   wasmAvailable: true,
   status: "idle",
@@ -844,143 +990,142 @@ const initialState: AsrConfigState = {
   cloudStatus: "idle",
   cloudStatusDetail: undefined,
   activeBackend: undefined,
-  memoryMode: "full",
-  chunkStrategy: "overlap",
-  segmentationMode: "silence",
-  dedupeMode: "fuzzy",
-  cleanIntraChunk: true,
+  memoryMode: DEFAULT_SETTINGS.memoryMode,
+  chunkStrategy: DEFAULT_SETTINGS.chunkStrategy,
+  segmentationMode: DEFAULT_SETTINGS.segmentationMode,
+  dedupeMode: DEFAULT_SETTINGS.dedupeMode,
+  cleanIntraChunk: DEFAULT_SETTINGS.cleanIntraChunk,
   // Target chunk duration used when building chunks in 'silence' mode (seconds)
-  chunkDurationSec: 15,
-  overlapSec: computeDefaultOverlap(15),
-  progressiveSegmentDurationSec: 600,
-  silenceThresholdDb: -32,
-  minSilenceMs: 800,
-  minChunkMs: 4000,
-  // Max chunk size default is target + 5s (automatically recalculated when target changes)
-  maxChunkMs: (15 + 5) * 1000,
-  showSegments: true,
-  showExportVtt: true,
-  showExportSrt: true,
-  showExportJson: true,
-  showExportTelemetry: false,
-  preprocessingMode: "full",
-  denoiseNoiseFloorDb: -28,
-  denoiseReductionDb: 10,
-  denoiseSmoothing: 0.85,
-  denoiseCalibrationSeconds: 6,
-  preprocessEnableFilters: true,
-  preprocessHighpassHz: 90,
-  preprocessLowpassHz: 7500,
-  preprocessEnableLufs: true,
-  preprocessTargetLufs: -20,
-  preprocessLimiterEnabled: true,
-  preprocessLimiterThresholdDb: -1,
-  preprocessLimiterSoftness: 0.65,
-  preprocessVadEnabled: true,
-  preprocessVadThresholdDb: -38,
-  preprocessVadMinSilenceMs: 300,
-  preprocessOverlapAdd: true,
-  preprocessOverlapBlockSec: 1.4,
-  preprocessOverlapSec: 0.3,
+  chunkDurationSec: DEFAULT_SETTINGS.chunkDurationSec,
+  overlapSec: DEFAULT_SETTINGS.overlapSec,
+  progressiveSegmentDurationSec: DEFAULT_SETTINGS.progressiveSegmentDurationSec,
+  silenceThresholdDb: DEFAULT_SETTINGS.silenceThresholdDb,
+  minSilenceMs: DEFAULT_SETTINGS.minSilenceMs,
+  minChunkMs: DEFAULT_SETTINGS.minChunkMs,
+  maxChunkMs: DEFAULT_SETTINGS.maxChunkMs,
+  showSegments: DEFAULT_SETTINGS.showSegments,
+  showExportVtt: DEFAULT_SETTINGS.showExportVtt,
+  showExportSrt: DEFAULT_SETTINGS.showExportSrt,
+  showExportJson: DEFAULT_SETTINGS.showExportJson,
+  showExportTelemetry: DEFAULT_SETTINGS.showExportTelemetry,
+  preprocessingMode: DEFAULT_SETTINGS.preprocessingMode,
+  denoiseNoiseFloorDb: DEFAULT_SETTINGS.denoiseNoiseFloorDb,
+  denoiseReductionDb: DEFAULT_SETTINGS.denoiseReductionDb,
+  denoiseSmoothing: DEFAULT_SETTINGS.denoiseSmoothing,
+  denoiseCalibrationSeconds: DEFAULT_SETTINGS.denoiseCalibrationSeconds,
+  preprocessEnableFilters: DEFAULT_SETTINGS.preprocessEnableFilters,
+  preprocessHighpassHz: DEFAULT_SETTINGS.preprocessHighpassHz,
+  preprocessLowpassHz: DEFAULT_SETTINGS.preprocessLowpassHz,
+  preprocessEnableLufs: DEFAULT_SETTINGS.preprocessEnableLufs,
+  preprocessTargetLufs: DEFAULT_SETTINGS.preprocessTargetLufs,
+  preprocessLimiterEnabled: DEFAULT_SETTINGS.preprocessLimiterEnabled,
+  preprocessLimiterThresholdDb: DEFAULT_SETTINGS.preprocessLimiterThresholdDb,
+  preprocessLimiterSoftness: DEFAULT_SETTINGS.preprocessLimiterSoftness,
+  preprocessVadEnabled: DEFAULT_SETTINGS.preprocessVadEnabled,
+  preprocessVadThresholdDb: DEFAULT_SETTINGS.preprocessVadThresholdDb,
+  preprocessVadMinSilenceMs: DEFAULT_SETTINGS.preprocessVadMinSilenceMs,
+  preprocessOverlapAdd: DEFAULT_SETTINGS.preprocessOverlapAdd,
+  preprocessOverlapBlockSec: DEFAULT_SETTINGS.preprocessOverlapBlockSec,
+  preprocessOverlapSec: DEFAULT_SETTINGS.preprocessOverlapSec,
   // Mic defaults
-  micActivePreset: "fast",
-  micCustomModelId: "",
-  micBackendPreference: "webgpu",
-  micPreprocessingMode: "full",
-  micSegmentationMode: "silence",
-  micSilenceThresholdDb: -32,
-  micNoiseCalibrationMarginDb: 6,
-  micMinSilenceMs: 700,
-  micMinChunkMs: 12000,
-  micMaxChunkMs: 20000,
-  micShowExportVtt: false,
-  micShowExportSrt: false,
-  micShowExportJson: false,
-  micShowExportTelemetry: false,
-  micDenoiseNoiseFloorDb: -28,
-  micDenoiseReductionDb: 10,
-  micDenoiseSmoothing: 0.85,
-  micDenoiseCalibrationSeconds: 6,
-  micPreprocessEnableFilters: true,
-  micPreprocessHighpassHz: 90,
-  micPreprocessLowpassHz: 7500,
-  micPreprocessEnableLufs: true,
-  micPreprocessTargetLufs: -20,
-  micPreprocessLimiterEnabled: true,
-  micPreprocessLimiterThresholdDb: -1,
-  micPreprocessLimiterSoftness: 0.65,
-  micPreprocessVadEnabled: true,
-  micPreprocessVadThresholdDb: -38,
-  micPreprocessVadMinSilenceMs: 300,
-  micPreprocessOverlapAdd: true,
-  micPreprocessOverlapBlockSec: 1.4,
-  micPreprocessOverlapSec: 0.3,
-  micAutoTunePreprocess: true,
-  micEnableWordTimestamps: false,
-  micShowSegmentConfidence: false,
-  micForceSingleThread: false,
+  micActivePreset: DEFAULT_SETTINGS.micActivePreset,
+  micCustomModelId: DEFAULT_SETTINGS.micCustomModelId,
+  micBackendPreference: DEFAULT_SETTINGS.micBackendPreference,
+  micPreprocessingMode: DEFAULT_SETTINGS.micPreprocessingMode,
+  micSegmentationMode: DEFAULT_SETTINGS.micSegmentationMode,
+  micSilenceThresholdDb: DEFAULT_SETTINGS.micSilenceThresholdDb,
+  micNoiseCalibrationMarginDb: DEFAULT_SETTINGS.micNoiseCalibrationMarginDb,
+  micMinSilenceMs: DEFAULT_SETTINGS.micMinSilenceMs,
+  micMinChunkMs: DEFAULT_SETTINGS.micMinChunkMs,
+  micMaxChunkMs: DEFAULT_SETTINGS.micMaxChunkMs,
+  micShowExportVtt: DEFAULT_SETTINGS.micShowExportVtt,
+  micShowExportSrt: DEFAULT_SETTINGS.micShowExportSrt,
+  micShowExportJson: DEFAULT_SETTINGS.micShowExportJson,
+  micShowExportTelemetry: DEFAULT_SETTINGS.micShowExportTelemetry,
+  micDenoiseNoiseFloorDb: DEFAULT_SETTINGS.micDenoiseNoiseFloorDb,
+  micDenoiseReductionDb: DEFAULT_SETTINGS.micDenoiseReductionDb,
+  micDenoiseSmoothing: DEFAULT_SETTINGS.micDenoiseSmoothing,
+  micDenoiseCalibrationSeconds: DEFAULT_SETTINGS.micDenoiseCalibrationSeconds,
+  micPreprocessEnableFilters: DEFAULT_SETTINGS.micPreprocessEnableFilters,
+  micPreprocessHighpassHz: DEFAULT_SETTINGS.micPreprocessHighpassHz,
+  micPreprocessLowpassHz: DEFAULT_SETTINGS.micPreprocessLowpassHz,
+  micPreprocessEnableLufs: DEFAULT_SETTINGS.micPreprocessEnableLufs,
+  micPreprocessTargetLufs: DEFAULT_SETTINGS.micPreprocessTargetLufs,
+  micPreprocessLimiterEnabled: DEFAULT_SETTINGS.micPreprocessLimiterEnabled,
+  micPreprocessLimiterThresholdDb: DEFAULT_SETTINGS.micPreprocessLimiterThresholdDb,
+  micPreprocessLimiterSoftness: DEFAULT_SETTINGS.micPreprocessLimiterSoftness,
+  micPreprocessVadEnabled: DEFAULT_SETTINGS.micPreprocessVadEnabled,
+  micPreprocessVadThresholdDb: DEFAULT_SETTINGS.micPreprocessVadThresholdDb,
+  micPreprocessVadMinSilenceMs: DEFAULT_SETTINGS.micPreprocessVadMinSilenceMs,
+  micPreprocessOverlapAdd: DEFAULT_SETTINGS.micPreprocessOverlapAdd,
+  micPreprocessOverlapBlockSec: DEFAULT_SETTINGS.micPreprocessOverlapBlockSec,
+  micPreprocessOverlapSec: DEFAULT_SETTINGS.micPreprocessOverlapSec,
+  micAutoTunePreprocess: DEFAULT_SETTINGS.micAutoTunePreprocess,
+  micEnableWordTimestamps: DEFAULT_SETTINGS.micEnableWordTimestamps,
+  micShowSegmentConfidence: DEFAULT_SETTINGS.micShowSegmentConfidence,
+  micForceSingleThread: DEFAULT_SETTINGS.micForceSingleThread,
   hfApiToken: "",
-  cloudMistralApiUrl: "https://api.mistral.ai",
+  cloudMistralApiUrl: DEFAULT_SETTINGS.cloudMistralApiUrl,
   mistralApiKey: "",
-  cloudMistralModel: DEFAULT_MISTRAL_MODEL,
-  cloudMistralDiarizationEnabled: true,
-  cloudDemeterModel: DEFAULT_MISTRAL_MODEL,
-  cloudDemeterDiarizationEnabled: true,
-  cloudWhisperChunkDurationSec: 30,
-  cloudWhisperOverlapSec: 0,
-  cloudMistralChunkDurationSec: 900,
-  cloudMistralOverlapSec: 0,
-  cloudMaxTokens: 32768,
-  cloudTemperature: 0,
-  cloudTopP: 1,
-  cloudDoSample: false,
-  cloudShowSegments: true,
-  cloudShowExportVtt: true,
-  cloudShowExportSrt: true,
-  cloudShowExportJson: true,
-  cloudShowExportTelemetry: false,
-  cloudPreprocessingMode: "full",
-  cloudDenoiseNoiseFloorDb: -28,
-  cloudDenoiseReductionDb: 10,
-  cloudDenoiseSmoothing: 0.85,
-  cloudDenoiseCalibrationSeconds: 6,
-  cloudPreprocessEnableFilters: true,
-  cloudPreprocessHighpassHz: 90,
-  cloudPreprocessLowpassHz: 7500,
-  cloudPreprocessEnableLufs: true,
-  cloudPreprocessTargetLufs: -20,
-  cloudPreprocessLimiterEnabled: true,
-  cloudPreprocessLimiterThresholdDb: -1,
-  cloudPreprocessLimiterSoftness: 0.65,
-  cloudPreprocessVadEnabled: true,
-  cloudPreprocessVadThresholdDb: -42,
-  cloudPreprocessVadMinSilenceMs: 250,
-  cloudPreprocessOverlapAdd: true,
-  cloudPreprocessOverlapBlockSec: 1.4,
-  cloudPreprocessOverlapSec: 0.3,
-  cloudAutoTunePreprocess: true,
-  cloudEnableWordTimestamps: false,
-  cloudShowSegmentConfidence: false,
-  llmApiProvider: "huggingface",
-  llmApiHfModelId: DEFAULT_LLM_HF_MODEL_ID,
-  llmApiHfTemperature: DEFAULT_LLM_HF_TEMPERATURE,
-  llmApiHfMaxTokens: DEFAULT_LLM_HF_MAX_TOKENS,
-  llmApiMistralModelId: DEFAULT_LLM_MISTRAL_MODEL_ID,
-  llmApiMistralTemperature: DEFAULT_LLM_MISTRAL_TEMPERATURE,
-  llmApiMistralMaxTokens: DEFAULT_LLM_MISTRAL_MAX_TOKENS,
+  cloudMistralModel: DEFAULT_SETTINGS.cloudMistralModel,
+  cloudMistralDiarizationEnabled: DEFAULT_SETTINGS.cloudMistralDiarizationEnabled,
+  cloudDemeterModel: DEFAULT_SETTINGS.cloudDemeterModel,
+  cloudDemeterDiarizationEnabled: DEFAULT_SETTINGS.cloudDemeterDiarizationEnabled,
+  cloudWhisperChunkDurationSec: DEFAULT_SETTINGS.cloudWhisperChunkDurationSec,
+  cloudWhisperOverlapSec: DEFAULT_SETTINGS.cloudWhisperOverlapSec,
+  cloudMistralChunkDurationSec: DEFAULT_SETTINGS.cloudMistralChunkDurationSec,
+  cloudMistralOverlapSec: DEFAULT_SETTINGS.cloudMistralOverlapSec,
+  cloudMaxTokens: DEFAULT_SETTINGS.cloudMaxTokens,
+  cloudTemperature: DEFAULT_SETTINGS.cloudTemperature,
+  cloudTopP: DEFAULT_SETTINGS.cloudTopP,
+  cloudDoSample: DEFAULT_SETTINGS.cloudDoSample,
+  cloudShowSegments: DEFAULT_SETTINGS.cloudShowSegments,
+  cloudShowExportVtt: DEFAULT_SETTINGS.cloudShowExportVtt,
+  cloudShowExportSrt: DEFAULT_SETTINGS.cloudShowExportSrt,
+  cloudShowExportJson: DEFAULT_SETTINGS.cloudShowExportJson,
+  cloudShowExportTelemetry: DEFAULT_SETTINGS.cloudShowExportTelemetry,
+  cloudPreprocessingMode: DEFAULT_SETTINGS.cloudPreprocessingMode,
+  cloudDenoiseNoiseFloorDb: DEFAULT_SETTINGS.cloudDenoiseNoiseFloorDb,
+  cloudDenoiseReductionDb: DEFAULT_SETTINGS.cloudDenoiseReductionDb,
+  cloudDenoiseSmoothing: DEFAULT_SETTINGS.cloudDenoiseSmoothing,
+  cloudDenoiseCalibrationSeconds: DEFAULT_SETTINGS.cloudDenoiseCalibrationSeconds,
+  cloudPreprocessEnableFilters: DEFAULT_SETTINGS.cloudPreprocessEnableFilters,
+  cloudPreprocessHighpassHz: DEFAULT_SETTINGS.cloudPreprocessHighpassHz,
+  cloudPreprocessLowpassHz: DEFAULT_SETTINGS.cloudPreprocessLowpassHz,
+  cloudPreprocessEnableLufs: DEFAULT_SETTINGS.cloudPreprocessEnableLufs,
+  cloudPreprocessTargetLufs: DEFAULT_SETTINGS.cloudPreprocessTargetLufs,
+  cloudPreprocessLimiterEnabled: DEFAULT_SETTINGS.cloudPreprocessLimiterEnabled,
+  cloudPreprocessLimiterThresholdDb: DEFAULT_SETTINGS.cloudPreprocessLimiterThresholdDb,
+  cloudPreprocessLimiterSoftness: DEFAULT_SETTINGS.cloudPreprocessLimiterSoftness,
+  cloudPreprocessVadEnabled: DEFAULT_SETTINGS.cloudPreprocessVadEnabled,
+  cloudPreprocessVadThresholdDb: DEFAULT_SETTINGS.cloudPreprocessVadThresholdDb,
+  cloudPreprocessVadMinSilenceMs: DEFAULT_SETTINGS.cloudPreprocessVadMinSilenceMs,
+  cloudPreprocessOverlapAdd: DEFAULT_SETTINGS.cloudPreprocessOverlapAdd,
+  cloudPreprocessOverlapBlockSec: DEFAULT_SETTINGS.cloudPreprocessOverlapBlockSec,
+  cloudPreprocessOverlapSec: DEFAULT_SETTINGS.cloudPreprocessOverlapSec,
+  cloudAutoTunePreprocess: DEFAULT_SETTINGS.cloudAutoTunePreprocess,
+  cloudEnableWordTimestamps: DEFAULT_SETTINGS.cloudEnableWordTimestamps,
+  cloudShowSegmentConfidence: DEFAULT_SETTINGS.cloudShowSegmentConfidence,
+  llmApiProvider: DEFAULT_SETTINGS.llmApiProvider,
+  llmApiHfModelId: DEFAULT_SETTINGS.llmApiHfModelId,
+  llmApiHfTemperature: DEFAULT_SETTINGS.llmApiHfTemperature,
+  llmApiHfMaxTokens: DEFAULT_SETTINGS.llmApiHfMaxTokens,
+  llmApiMistralModelId: DEFAULT_SETTINGS.llmApiMistralModelId,
+  llmApiMistralTemperature: DEFAULT_SETTINGS.llmApiMistralTemperature,
+  llmApiMistralMaxTokens: DEFAULT_SETTINGS.llmApiMistralMaxTokens,
   llmApiStatus: "idle",
   llmApiStatusDetail: undefined,
   llmApiProgress: 0,
   llmApiResults: {},
   llmLocalSettingsByProfile: normalizeLlmLocalSettingsByProfile(undefined, DEFAULT_LLM_LOCAL_SETTINGS_BY_PROFILE),
-  llmLocalModelProfile: DEFAULT_LLM_LOCAL_MODEL_PROFILE,
-  llmLocalModelId: DEFAULT_LLM_LOCAL_MODEL_ID,
-  llmLocalTemperature: DEFAULT_LLM_LOCAL_TEMPERATURE,
-  llmLocalMaxTokens: DEFAULT_LLM_LOCAL_MAX_TOKENS,
-  llmLocalBackendPreference: DEFAULT_LLM_LOCAL_BACKEND,
-  llmLocalDtypeWebgpu: DEFAULT_LLM_LOCAL_DTYPE_WEBGPU,
-  llmLocalDtypeWasm: DEFAULT_LLM_LOCAL_DTYPE_WASM,
-  llmLocalForceSingleThread: false,
+  llmLocalModelProfile: DEFAULT_SETTINGS.llmLocalModelProfile,
+  llmLocalModelId: DEFAULT_SETTINGS.llmLocalModelId,
+  llmLocalTemperature: DEFAULT_SETTINGS.llmLocalTemperature,
+  llmLocalMaxTokens: DEFAULT_SETTINGS.llmLocalMaxTokens,
+  llmLocalBackendPreference: DEFAULT_SETTINGS.llmLocalBackendPreference,
+  llmLocalDtypeWebgpu: DEFAULT_SETTINGS.llmLocalDtypeWebgpu,
+  llmLocalDtypeWasm: DEFAULT_SETTINGS.llmLocalDtypeWasm,
+  llmLocalForceSingleThread: DEFAULT_SETTINGS.llmLocalForceSingleThread,
   llmLocalStatus: "idle",
   llmLocalStatusDetail: undefined,
   llmLocalProgress: 0,
@@ -990,7 +1135,7 @@ const initialState: AsrConfigState = {
   noiseCalibrationRequestedAt: null,
   segmentationStatus: "idle",
   segmentationProgress: 0,
-  autoTunePreprocess: true,
+  autoTunePreprocess: DEFAULT_SETTINGS.autoTunePreprocess,
   lastAutoTuneParams: null,
   telemetryCollector: null,
   chunkPlan: [],
@@ -1017,16 +1162,16 @@ const initialState: AsrConfigState = {
   preprocessingStatus: "idle",
   preprocessingProgress: 0,
   // defaults
-  forceSingleThread: false,
+  forceSingleThread: DEFAULT_SETTINGS.forceSingleThread,
   wasmThreads: null,
   // Whisper defaults
-  enableWordTimestamps: false,
+  enableWordTimestamps: DEFAULT_SETTINGS.enableWordTimestamps,
   // UI toggles
-  showSegmentConfidence: false,
+  showSegmentConfidence: DEFAULT_SETTINGS.showSegmentConfidence,
   // derived metrics
   transcriptionConfidence: null,
   transcriptionConfidenceSource: null,
-  logLevel: "info",
+  logLevel: DEFAULT_SETTINGS.logLevel,
 };
 
 export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => ({
@@ -1200,7 +1345,8 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       resolved: resolvedLogLevel,
     });
     set((state) => {
-      const persistedLlmProvider = normalizeLlmApiProvider(settings.llmApiProvider, state.llmApiProvider);
+      const fallbackSettings = serializePersistedSettings(state);
+      const persistedLlmProvider = normalizeLlmApiProvider(settings.llmApiProvider, fallbackSettings.llmApiProvider);
       const legacyLlmModelId = settings.llmApiModelId;
       const legacyLlmTemperature = settings.llmApiTemperature;
       const legacyLlmMaxTokens = settings.llmApiMaxTokens;
@@ -1208,40 +1354,40 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       const llmApiHfModelId =
         settings.llmApiHfModelId ??
         (persistedLlmProvider === "huggingface" ? legacyLlmModelId : undefined) ??
-        state.llmApiHfModelId;
+        fallbackSettings.llmApiHfModelId;
       const llmApiHfTemperature = normalizeLlmTemperature(
         settings.llmApiHfTemperature ??
           (persistedLlmProvider === "huggingface" ? legacyLlmTemperature : undefined),
-        state.llmApiHfTemperature
+        fallbackSettings.llmApiHfTemperature
       );
       const llmApiHfMaxTokens = normalizeLlmMaxTokens(
         settings.llmApiHfMaxTokens ??
           (persistedLlmProvider === "huggingface" ? legacyLlmMaxTokens : undefined),
-        state.llmApiHfMaxTokens
+        fallbackSettings.llmApiHfMaxTokens
       );
 
       const llmApiMistralModelId =
         settings.llmApiMistralModelId ??
         (persistedLlmProvider === "mistral" ? legacyLlmModelId : undefined) ??
-        state.llmApiMistralModelId;
+        fallbackSettings.llmApiMistralModelId;
       const llmApiMistralTemperature = normalizeLlmTemperature(
         settings.llmApiMistralTemperature ??
           (persistedLlmProvider === "mistral" ? legacyLlmTemperature : undefined),
-        state.llmApiMistralTemperature
+        fallbackSettings.llmApiMistralTemperature
       );
       const llmApiMistralMaxTokens = normalizeLlmMaxTokens(
         settings.llmApiMistralMaxTokens ??
           (persistedLlmProvider === "mistral" ? legacyLlmMaxTokens : undefined),
-        state.llmApiMistralMaxTokens
+        fallbackSettings.llmApiMistralMaxTokens
       );
 
       const llmLocalModelProfile = normalizeLlmLocalModelProfile(
         settings.llmLocalModelProfile,
-        state.llmLocalModelProfile
+        fallbackSettings.llmLocalModelProfile
       );
       const llmLocalSettingsByProfileFallback = normalizeLlmLocalSettingsByProfile(
         undefined,
-        state.llmLocalSettingsByProfile
+        fallbackSettings.llmLocalSettingsByProfile
       );
       let llmLocalSettingsByProfile = normalizeLlmLocalSettingsByProfile(
         settings.llmLocalSettingsByProfile,
@@ -1270,7 +1416,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       const llmLocalBackendPreference = resolveBackendPreference(
         settings.llmLocalBackendPreference,
         support,
-        state.llmLocalBackendPreference
+        fallbackSettings.llmLocalBackendPreference
       );
       const llmLocalDtypeWebgpu = activeLlmLocalSettings.dtypeWebgpu;
       const llmLocalDtypeWasm = activeLlmLocalSettings.dtypeWasm;
@@ -1283,139 +1429,382 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       return {
       ...state,
       hasHydrated: true,
-      activePreset: sanitizePreset(settings.activePreset ?? state.activePreset),
-      customModelId: settings.customModelId,
+      activePreset: sanitizePreset(getHydrationInputValue(settings, "activePreset", fallbackSettings.activePreset)),
+      customModelId: getHydrationInputValue(settings, "customModelId", fallbackSettings.customModelId),
       modelQuantizationOverrides,
       blockedPresets,
       backendPreference: resolvedBackendPreference,
-      micActivePreset: settings.micActivePreset ? sanitizePreset(settings.micActivePreset) : state.micActivePreset,
-      micCustomModelId: settings.micCustomModelId ?? state.micCustomModelId,
+      micActivePreset: settings.micActivePreset ? sanitizePreset(settings.micActivePreset) : fallbackSettings.micActivePreset,
+      micCustomModelId: getHydrationInputValue(settings, "micCustomModelId", fallbackSettings.micCustomModelId),
       micBackendPreference: resolvedMicBackendPreference,
-      memoryMode: settings.memoryMode,
-      chunkStrategy: settings.chunkStrategy,
-      segmentationMode: settings.segmentationMode,
+      memoryMode: getHydrationInputValue(settings, "memoryMode", fallbackSettings.memoryMode),
+      chunkStrategy: getHydrationInputValue(settings, "chunkStrategy", fallbackSettings.chunkStrategy),
+      segmentationMode: getHydrationInputValue(settings, "segmentationMode", fallbackSettings.segmentationMode),
       dedupeMode:
         settings.dedupeMode === "normal" || settings.dedupeMode === "fuzzy"
           ? settings.dedupeMode
-          : state.dedupeMode,
-      cleanIntraChunk:
-        typeof settings.cleanIntraChunk === "boolean" ? settings.cleanIntraChunk : state.cleanIntraChunk,
-      chunkDurationSec: settings.chunkDurationSec,
-      overlapSec: settings.overlapSec,
-      progressiveSegmentDurationSec: settings.progressiveSegmentDurationSec ?? state.progressiveSegmentDurationSec,
-      silenceThresholdDb: settings.silenceThresholdDb,
-      minSilenceMs: settings.minSilenceMs,
-      minChunkMs: settings.minChunkMs,
-      maxChunkMs: settings.maxChunkMs,
-      showSegments: settings.showSegments ?? state.showSegments,
-      showExportVtt: settings.showExportVtt ?? state.showExportVtt,
-      showExportSrt: settings.showExportSrt ?? state.showExportSrt,
-      showExportJson: settings.showExportJson ?? state.showExportJson,
-      showExportTelemetry: settings.showExportTelemetry ?? state.showExportTelemetry,
+          : fallbackSettings.dedupeMode,
+      cleanIntraChunk: getHydrationInputValue(settings, "cleanIntraChunk", fallbackSettings.cleanIntraChunk),
+      chunkDurationSec: getHydrationInputValue(settings, "chunkDurationSec", fallbackSettings.chunkDurationSec),
+      overlapSec: getHydrationInputValue(settings, "overlapSec", fallbackSettings.overlapSec),
+      progressiveSegmentDurationSec: getHydrationInputValue(
+        settings,
+        "progressiveSegmentDurationSec",
+        fallbackSettings.progressiveSegmentDurationSec
+      ),
+      silenceThresholdDb: getHydrationInputValue(settings, "silenceThresholdDb", fallbackSettings.silenceThresholdDb),
+      minSilenceMs: getHydrationInputValue(settings, "minSilenceMs", fallbackSettings.minSilenceMs),
+      minChunkMs: getHydrationInputValue(settings, "minChunkMs", fallbackSettings.minChunkMs),
+      maxChunkMs: getHydrationInputValue(settings, "maxChunkMs", fallbackSettings.maxChunkMs),
+      showSegments: getHydrationInputValue(settings, "showSegments", fallbackSettings.showSegments),
+      showExportVtt: getHydrationInputValue(settings, "showExportVtt", fallbackSettings.showExportVtt),
+      showExportSrt: getHydrationInputValue(settings, "showExportSrt", fallbackSettings.showExportSrt),
+      showExportJson: getHydrationInputValue(settings, "showExportJson", fallbackSettings.showExportJson),
+      showExportTelemetry: getHydrationInputValue(
+        settings,
+        "showExportTelemetry",
+        fallbackSettings.showExportTelemetry
+      ),
       logLevel: resolvedLogLevel,
-      preprocessingMode: settings.preprocessingMode ?? state.preprocessingMode,
-      denoiseNoiseFloorDb: settings.denoiseNoiseFloorDb ?? state.denoiseNoiseFloorDb,
-      denoiseReductionDb: settings.denoiseReductionDb ?? state.denoiseReductionDb,
-      denoiseSmoothing: settings.denoiseSmoothing ?? state.denoiseSmoothing,
-      denoiseCalibrationSeconds: settings.denoiseCalibrationSeconds ?? state.denoiseCalibrationSeconds,
-      preprocessEnableFilters: settings.preprocessEnableFilters ?? state.preprocessEnableFilters,
-      preprocessHighpassHz: settings.preprocessHighpassHz ?? state.preprocessHighpassHz,
-      preprocessLowpassHz: settings.preprocessLowpassHz ?? state.preprocessLowpassHz,
-      preprocessEnableLufs: settings.preprocessEnableLufs ?? state.preprocessEnableLufs,
-      preprocessTargetLufs: settings.preprocessTargetLufs ?? state.preprocessTargetLufs,
-      preprocessLimiterEnabled: settings.preprocessLimiterEnabled ?? state.preprocessLimiterEnabled,
-      preprocessLimiterThresholdDb: settings.preprocessLimiterThresholdDb ?? state.preprocessLimiterThresholdDb,
-      preprocessLimiterSoftness: settings.preprocessLimiterSoftness ?? state.preprocessLimiterSoftness,
-      preprocessVadEnabled: settings.preprocessVadEnabled ?? state.preprocessVadEnabled,
-      preprocessVadThresholdDb: settings.preprocessVadThresholdDb ?? state.preprocessVadThresholdDb,
-      preprocessVadMinSilenceMs: settings.preprocessVadMinSilenceMs ?? state.preprocessVadMinSilenceMs,
-      preprocessOverlapAdd: settings.preprocessOverlapAdd ?? state.preprocessOverlapAdd,
-      preprocessOverlapBlockSec: settings.preprocessOverlapBlockSec ?? state.preprocessOverlapBlockSec,
-      preprocessOverlapSec: settings.preprocessOverlapSec ?? state.preprocessOverlapSec,
-      micPreprocessingMode: settings.micPreprocessingMode ?? state.micPreprocessingMode,
-      micSegmentationMode: settings.micSegmentationMode ?? state.micSegmentationMode,
-      micSilenceThresholdDb: settings.micSilenceThresholdDb ?? state.micSilenceThresholdDb,
+      preprocessingMode: getHydrationInputValue(settings, "preprocessingMode", fallbackSettings.preprocessingMode),
+      denoiseNoiseFloorDb: getHydrationInputValue(settings, "denoiseNoiseFloorDb", fallbackSettings.denoiseNoiseFloorDb),
+      denoiseReductionDb: getHydrationInputValue(settings, "denoiseReductionDb", fallbackSettings.denoiseReductionDb),
+      denoiseSmoothing: getHydrationInputValue(settings, "denoiseSmoothing", fallbackSettings.denoiseSmoothing),
+      denoiseCalibrationSeconds: getHydrationInputValue(
+        settings,
+        "denoiseCalibrationSeconds",
+        fallbackSettings.denoiseCalibrationSeconds
+      ),
+      preprocessEnableFilters: getHydrationInputValue(
+        settings,
+        "preprocessEnableFilters",
+        fallbackSettings.preprocessEnableFilters
+      ),
+      preprocessHighpassHz: getHydrationInputValue(settings, "preprocessHighpassHz", fallbackSettings.preprocessHighpassHz),
+      preprocessLowpassHz: getHydrationInputValue(settings, "preprocessLowpassHz", fallbackSettings.preprocessLowpassHz),
+      preprocessEnableLufs: getHydrationInputValue(
+        settings,
+        "preprocessEnableLufs",
+        fallbackSettings.preprocessEnableLufs
+      ),
+      preprocessTargetLufs: getHydrationInputValue(settings, "preprocessTargetLufs", fallbackSettings.preprocessTargetLufs),
+      preprocessLimiterEnabled: getHydrationInputValue(
+        settings,
+        "preprocessLimiterEnabled",
+        fallbackSettings.preprocessLimiterEnabled
+      ),
+      preprocessLimiterThresholdDb: getHydrationInputValue(
+        settings,
+        "preprocessLimiterThresholdDb",
+        fallbackSettings.preprocessLimiterThresholdDb
+      ),
+      preprocessLimiterSoftness: getHydrationInputValue(
+        settings,
+        "preprocessLimiterSoftness",
+        fallbackSettings.preprocessLimiterSoftness
+      ),
+      preprocessVadEnabled: getHydrationInputValue(settings, "preprocessVadEnabled", fallbackSettings.preprocessVadEnabled),
+      preprocessVadThresholdDb: getHydrationInputValue(
+        settings,
+        "preprocessVadThresholdDb",
+        fallbackSettings.preprocessVadThresholdDb
+      ),
+      preprocessVadMinSilenceMs: getHydrationInputValue(
+        settings,
+        "preprocessVadMinSilenceMs",
+        fallbackSettings.preprocessVadMinSilenceMs
+      ),
+      preprocessOverlapAdd: getHydrationInputValue(settings, "preprocessOverlapAdd", fallbackSettings.preprocessOverlapAdd),
+      preprocessOverlapBlockSec: getHydrationInputValue(
+        settings,
+        "preprocessOverlapBlockSec",
+        fallbackSettings.preprocessOverlapBlockSec
+      ),
+      preprocessOverlapSec: getHydrationInputValue(settings, "preprocessOverlapSec", fallbackSettings.preprocessOverlapSec),
+      micPreprocessingMode: getHydrationInputValue(
+        settings,
+        "micPreprocessingMode",
+        fallbackSettings.micPreprocessingMode
+      ),
+      micSegmentationMode: getHydrationInputValue(settings, "micSegmentationMode", fallbackSettings.micSegmentationMode),
+      micSilenceThresholdDb: getHydrationInputValue(
+        settings,
+        "micSilenceThresholdDb",
+        fallbackSettings.micSilenceThresholdDb
+      ),
       micNoiseCalibrationMarginDb:
         typeof settings.micNoiseCalibrationMarginDb === "number"
           ? settings.micNoiseCalibrationMarginDb
-          : state.micNoiseCalibrationMarginDb,
-      micMinSilenceMs: settings.micMinSilenceMs ?? state.micMinSilenceMs,
-      micMinChunkMs: settings.micMinChunkMs ?? state.micMinChunkMs,
-      micMaxChunkMs: settings.micMaxChunkMs ?? state.micMaxChunkMs,
-      micShowExportVtt: settings.micShowExportVtt ?? state.micShowExportVtt,
-      micShowExportSrt: settings.micShowExportSrt ?? state.micShowExportSrt,
-      micShowExportJson: settings.micShowExportJson ?? state.micShowExportJson,
-      micShowExportTelemetry: settings.micShowExportTelemetry ?? state.micShowExportTelemetry,
-      micDenoiseNoiseFloorDb: settings.micDenoiseNoiseFloorDb ?? state.micDenoiseNoiseFloorDb,
-      micDenoiseReductionDb: settings.micDenoiseReductionDb ?? state.micDenoiseReductionDb,
-      micDenoiseSmoothing: settings.micDenoiseSmoothing ?? state.micDenoiseSmoothing,
-      micDenoiseCalibrationSeconds: settings.micDenoiseCalibrationSeconds ?? state.micDenoiseCalibrationSeconds,
-      micPreprocessEnableFilters: settings.micPreprocessEnableFilters ?? state.micPreprocessEnableFilters,
-      micPreprocessHighpassHz: settings.micPreprocessHighpassHz ?? state.micPreprocessHighpassHz,
-      micPreprocessLowpassHz: settings.micPreprocessLowpassHz ?? state.micPreprocessLowpassHz,
-      micPreprocessEnableLufs: settings.micPreprocessEnableLufs ?? state.micPreprocessEnableLufs,
-      micPreprocessTargetLufs: settings.micPreprocessTargetLufs ?? state.micPreprocessTargetLufs,
-      micPreprocessLimiterEnabled: settings.micPreprocessLimiterEnabled ?? state.micPreprocessLimiterEnabled,
-      micPreprocessLimiterThresholdDb: settings.micPreprocessLimiterThresholdDb ?? state.micPreprocessLimiterThresholdDb,
-      micPreprocessLimiterSoftness: settings.micPreprocessLimiterSoftness ?? state.micPreprocessLimiterSoftness,
-      micPreprocessVadEnabled: settings.micPreprocessVadEnabled ?? state.micPreprocessVadEnabled,
-      micPreprocessVadThresholdDb: settings.micPreprocessVadThresholdDb ?? state.micPreprocessVadThresholdDb,
-      micPreprocessVadMinSilenceMs: settings.micPreprocessVadMinSilenceMs ?? state.micPreprocessVadMinSilenceMs,
-      micPreprocessOverlapAdd: settings.micPreprocessOverlapAdd ?? state.micPreprocessOverlapAdd,
-      micPreprocessOverlapBlockSec: settings.micPreprocessOverlapBlockSec ?? state.micPreprocessOverlapBlockSec,
-      micPreprocessOverlapSec: settings.micPreprocessOverlapSec ?? state.micPreprocessOverlapSec,
-      micAutoTunePreprocess: settings.micAutoTunePreprocess ?? state.micAutoTunePreprocess,
-      micEnableWordTimestamps: settings.micEnableWordTimestamps ?? state.micEnableWordTimestamps,
-      micShowSegmentConfidence: settings.micShowSegmentConfidence ?? state.micShowSegmentConfidence,
-      micForceSingleThread: settings.micForceSingleThread ?? state.micForceSingleThread,
+          : fallbackSettings.micNoiseCalibrationMarginDb,
+      micMinSilenceMs: getHydrationInputValue(settings, "micMinSilenceMs", fallbackSettings.micMinSilenceMs),
+      micMinChunkMs: getHydrationInputValue(settings, "micMinChunkMs", fallbackSettings.micMinChunkMs),
+      micMaxChunkMs: getHydrationInputValue(settings, "micMaxChunkMs", fallbackSettings.micMaxChunkMs),
+      micShowExportVtt: getHydrationInputValue(settings, "micShowExportVtt", fallbackSettings.micShowExportVtt),
+      micShowExportSrt: getHydrationInputValue(settings, "micShowExportSrt", fallbackSettings.micShowExportSrt),
+      micShowExportJson: getHydrationInputValue(settings, "micShowExportJson", fallbackSettings.micShowExportJson),
+      micShowExportTelemetry: getHydrationInputValue(
+        settings,
+        "micShowExportTelemetry",
+        fallbackSettings.micShowExportTelemetry
+      ),
+      micDenoiseNoiseFloorDb: getHydrationInputValue(
+        settings,
+        "micDenoiseNoiseFloorDb",
+        fallbackSettings.micDenoiseNoiseFloorDb
+      ),
+      micDenoiseReductionDb: getHydrationInputValue(
+        settings,
+        "micDenoiseReductionDb",
+        fallbackSettings.micDenoiseReductionDb
+      ),
+      micDenoiseSmoothing: getHydrationInputValue(settings, "micDenoiseSmoothing", fallbackSettings.micDenoiseSmoothing),
+      micDenoiseCalibrationSeconds: getHydrationInputValue(
+        settings,
+        "micDenoiseCalibrationSeconds",
+        fallbackSettings.micDenoiseCalibrationSeconds
+      ),
+      micPreprocessEnableFilters: getHydrationInputValue(
+        settings,
+        "micPreprocessEnableFilters",
+        fallbackSettings.micPreprocessEnableFilters
+      ),
+      micPreprocessHighpassHz: getHydrationInputValue(
+        settings,
+        "micPreprocessHighpassHz",
+        fallbackSettings.micPreprocessHighpassHz
+      ),
+      micPreprocessLowpassHz: getHydrationInputValue(
+        settings,
+        "micPreprocessLowpassHz",
+        fallbackSettings.micPreprocessLowpassHz
+      ),
+      micPreprocessEnableLufs: getHydrationInputValue(
+        settings,
+        "micPreprocessEnableLufs",
+        fallbackSettings.micPreprocessEnableLufs
+      ),
+      micPreprocessTargetLufs: getHydrationInputValue(
+        settings,
+        "micPreprocessTargetLufs",
+        fallbackSettings.micPreprocessTargetLufs
+      ),
+      micPreprocessLimiterEnabled: getHydrationInputValue(
+        settings,
+        "micPreprocessLimiterEnabled",
+        fallbackSettings.micPreprocessLimiterEnabled
+      ),
+      micPreprocessLimiterThresholdDb: getHydrationInputValue(
+        settings,
+        "micPreprocessLimiterThresholdDb",
+        fallbackSettings.micPreprocessLimiterThresholdDb
+      ),
+      micPreprocessLimiterSoftness: getHydrationInputValue(
+        settings,
+        "micPreprocessLimiterSoftness",
+        fallbackSettings.micPreprocessLimiterSoftness
+      ),
+      micPreprocessVadEnabled: getHydrationInputValue(
+        settings,
+        "micPreprocessVadEnabled",
+        fallbackSettings.micPreprocessVadEnabled
+      ),
+      micPreprocessVadThresholdDb: getHydrationInputValue(
+        settings,
+        "micPreprocessVadThresholdDb",
+        fallbackSettings.micPreprocessVadThresholdDb
+      ),
+      micPreprocessVadMinSilenceMs: getHydrationInputValue(
+        settings,
+        "micPreprocessVadMinSilenceMs",
+        fallbackSettings.micPreprocessVadMinSilenceMs
+      ),
+      micPreprocessOverlapAdd: getHydrationInputValue(
+        settings,
+        "micPreprocessOverlapAdd",
+        fallbackSettings.micPreprocessOverlapAdd
+      ),
+      micPreprocessOverlapBlockSec: getHydrationInputValue(
+        settings,
+        "micPreprocessOverlapBlockSec",
+        fallbackSettings.micPreprocessOverlapBlockSec
+      ),
+      micPreprocessOverlapSec: getHydrationInputValue(
+        settings,
+        "micPreprocessOverlapSec",
+        fallbackSettings.micPreprocessOverlapSec
+      ),
+      micAutoTunePreprocess: getHydrationInputValue(
+        settings,
+        "micAutoTunePreprocess",
+        fallbackSettings.micAutoTunePreprocess
+      ),
+      micEnableWordTimestamps: getHydrationInputValue(
+        settings,
+        "micEnableWordTimestamps",
+        fallbackSettings.micEnableWordTimestamps
+      ),
+      micShowSegmentConfidence: getHydrationInputValue(
+        settings,
+        "micShowSegmentConfidence",
+        fallbackSettings.micShowSegmentConfidence
+      ),
+      micForceSingleThread: getHydrationInputValue(
+        settings,
+        "micForceSingleThread",
+        fallbackSettings.micForceSingleThread
+      ),
       hfApiToken: hydratedSecureTokens.hfApiToken,
-      cloudMistralApiUrl: settings.cloudMistralApiUrl ?? state.cloudMistralApiUrl,
+      cloudMistralApiUrl: getHydrationInputValue(
+        settings,
+        "cloudMistralApiUrl",
+        fallbackSettings.cloudMistralApiUrl
+      ),
       mistralApiKey: hydratedSecureTokens.mistralApiKey,
       cloudMistralModel: normalizedCloudMistralModel,
       cloudMistralDiarizationEnabled:
-        settings.cloudMistralDiarizationEnabled ?? state.cloudMistralDiarizationEnabled,
+        settings.cloudMistralDiarizationEnabled ?? fallbackSettings.cloudMistralDiarizationEnabled,
       cloudDemeterModel: normalizedCloudDemeterModel,
       cloudDemeterDiarizationEnabled:
         settings.cloudDemeterDiarizationEnabled ??
         settings.cloudMistralDiarizationEnabled ??
-        state.cloudDemeterDiarizationEnabled,
+        fallbackSettings.cloudDemeterDiarizationEnabled,
       cloudWhisperChunkDurationSec:
-        settings.cloudWhisperChunkDurationSec ?? state.cloudWhisperChunkDurationSec,
-      cloudWhisperOverlapSec: settings.cloudWhisperOverlapSec ?? state.cloudWhisperOverlapSec,
+        getHydrationInputValue(settings, "cloudWhisperChunkDurationSec", fallbackSettings.cloudWhisperChunkDurationSec),
+      cloudWhisperOverlapSec: getHydrationInputValue(
+        settings,
+        "cloudWhisperOverlapSec",
+        fallbackSettings.cloudWhisperOverlapSec
+      ),
       cloudMistralChunkDurationSec:
-        settings.cloudMistralChunkDurationSec ?? state.cloudMistralChunkDurationSec,
-      cloudMistralOverlapSec: settings.cloudMistralOverlapSec ?? state.cloudMistralOverlapSec,
-      cloudMaxTokens: settings.cloudMaxTokens ?? state.cloudMaxTokens,
-      cloudTemperature: settings.cloudTemperature ?? state.cloudTemperature,
-      cloudTopP: settings.cloudTopP ?? state.cloudTopP,
-      cloudDoSample: settings.cloudDoSample ?? state.cloudDoSample,
-      cloudShowSegments: settings.cloudShowSegments ?? state.cloudShowSegments,
-      cloudShowExportVtt: settings.cloudShowExportVtt ?? state.cloudShowExportVtt,
-      cloudShowExportSrt: settings.cloudShowExportSrt ?? state.cloudShowExportSrt,
-      cloudShowExportJson: settings.cloudShowExportJson ?? state.cloudShowExportJson,
-      cloudShowExportTelemetry: settings.cloudShowExportTelemetry ?? state.cloudShowExportTelemetry,
-      cloudPreprocessingMode: settings.cloudPreprocessingMode ?? state.cloudPreprocessingMode,
-      cloudDenoiseNoiseFloorDb: settings.cloudDenoiseNoiseFloorDb ?? state.cloudDenoiseNoiseFloorDb,
-      cloudDenoiseReductionDb: settings.cloudDenoiseReductionDb ?? state.cloudDenoiseReductionDb,
-      cloudDenoiseSmoothing: settings.cloudDenoiseSmoothing ?? state.cloudDenoiseSmoothing,
-      cloudDenoiseCalibrationSeconds: settings.cloudDenoiseCalibrationSeconds ?? state.cloudDenoiseCalibrationSeconds,
-      cloudPreprocessEnableFilters: settings.cloudPreprocessEnableFilters ?? state.cloudPreprocessEnableFilters,
-      cloudPreprocessHighpassHz: settings.cloudPreprocessHighpassHz ?? state.cloudPreprocessHighpassHz,
-      cloudPreprocessLowpassHz: settings.cloudPreprocessLowpassHz ?? state.cloudPreprocessLowpassHz,
-      cloudPreprocessEnableLufs: settings.cloudPreprocessEnableLufs ?? state.cloudPreprocessEnableLufs,
-      cloudPreprocessTargetLufs: settings.cloudPreprocessTargetLufs ?? state.cloudPreprocessTargetLufs,
-      cloudPreprocessLimiterEnabled: settings.cloudPreprocessLimiterEnabled ?? state.cloudPreprocessLimiterEnabled,
-      cloudPreprocessLimiterThresholdDb: settings.cloudPreprocessLimiterThresholdDb ?? state.cloudPreprocessLimiterThresholdDb,
-      cloudPreprocessLimiterSoftness: settings.cloudPreprocessLimiterSoftness ?? state.cloudPreprocessLimiterSoftness,
-      cloudPreprocessVadEnabled: settings.cloudPreprocessVadEnabled ?? state.cloudPreprocessVadEnabled,
-      cloudPreprocessVadThresholdDb: settings.cloudPreprocessVadThresholdDb ?? state.cloudPreprocessVadThresholdDb,
-      cloudPreprocessVadMinSilenceMs: settings.cloudPreprocessVadMinSilenceMs ?? state.cloudPreprocessVadMinSilenceMs,
-      cloudPreprocessOverlapAdd: settings.cloudPreprocessOverlapAdd ?? state.cloudPreprocessOverlapAdd,
-      cloudPreprocessOverlapBlockSec: settings.cloudPreprocessOverlapBlockSec ?? state.cloudPreprocessOverlapBlockSec,
-      cloudPreprocessOverlapSec: settings.cloudPreprocessOverlapSec ?? state.cloudPreprocessOverlapSec,
-      cloudAutoTunePreprocess: settings.cloudAutoTunePreprocess ?? state.cloudAutoTunePreprocess,
-      cloudEnableWordTimestamps: settings.cloudEnableWordTimestamps ?? state.cloudEnableWordTimestamps,
-      cloudShowSegmentConfidence: settings.cloudShowSegmentConfidence ?? state.cloudShowSegmentConfidence,
+        getHydrationInputValue(settings, "cloudMistralChunkDurationSec", fallbackSettings.cloudMistralChunkDurationSec),
+      cloudMistralOverlapSec: getHydrationInputValue(
+        settings,
+        "cloudMistralOverlapSec",
+        fallbackSettings.cloudMistralOverlapSec
+      ),
+      cloudMaxTokens: getHydrationInputValue(settings, "cloudMaxTokens", fallbackSettings.cloudMaxTokens),
+      cloudTemperature: getHydrationInputValue(settings, "cloudTemperature", fallbackSettings.cloudTemperature),
+      cloudTopP: getHydrationInputValue(settings, "cloudTopP", fallbackSettings.cloudTopP),
+      cloudDoSample: getHydrationInputValue(settings, "cloudDoSample", fallbackSettings.cloudDoSample),
+      cloudShowSegments: getHydrationInputValue(settings, "cloudShowSegments", fallbackSettings.cloudShowSegments),
+      cloudShowExportVtt: getHydrationInputValue(settings, "cloudShowExportVtt", fallbackSettings.cloudShowExportVtt),
+      cloudShowExportSrt: getHydrationInputValue(settings, "cloudShowExportSrt", fallbackSettings.cloudShowExportSrt),
+      cloudShowExportJson: getHydrationInputValue(settings, "cloudShowExportJson", fallbackSettings.cloudShowExportJson),
+      cloudShowExportTelemetry: getHydrationInputValue(
+        settings,
+        "cloudShowExportTelemetry",
+        fallbackSettings.cloudShowExportTelemetry
+      ),
+      cloudPreprocessingMode: getHydrationInputValue(
+        settings,
+        "cloudPreprocessingMode",
+        fallbackSettings.cloudPreprocessingMode
+      ),
+      cloudDenoiseNoiseFloorDb: getHydrationInputValue(
+        settings,
+        "cloudDenoiseNoiseFloorDb",
+        fallbackSettings.cloudDenoiseNoiseFloorDb
+      ),
+      cloudDenoiseReductionDb: getHydrationInputValue(
+        settings,
+        "cloudDenoiseReductionDb",
+        fallbackSettings.cloudDenoiseReductionDb
+      ),
+      cloudDenoiseSmoothing: getHydrationInputValue(
+        settings,
+        "cloudDenoiseSmoothing",
+        fallbackSettings.cloudDenoiseSmoothing
+      ),
+      cloudDenoiseCalibrationSeconds: getHydrationInputValue(
+        settings,
+        "cloudDenoiseCalibrationSeconds",
+        fallbackSettings.cloudDenoiseCalibrationSeconds
+      ),
+      cloudPreprocessEnableFilters: getHydrationInputValue(
+        settings,
+        "cloudPreprocessEnableFilters",
+        fallbackSettings.cloudPreprocessEnableFilters
+      ),
+      cloudPreprocessHighpassHz: getHydrationInputValue(
+        settings,
+        "cloudPreprocessHighpassHz",
+        fallbackSettings.cloudPreprocessHighpassHz
+      ),
+      cloudPreprocessLowpassHz: getHydrationInputValue(
+        settings,
+        "cloudPreprocessLowpassHz",
+        fallbackSettings.cloudPreprocessLowpassHz
+      ),
+      cloudPreprocessEnableLufs: getHydrationInputValue(
+        settings,
+        "cloudPreprocessEnableLufs",
+        fallbackSettings.cloudPreprocessEnableLufs
+      ),
+      cloudPreprocessTargetLufs: getHydrationInputValue(
+        settings,
+        "cloudPreprocessTargetLufs",
+        fallbackSettings.cloudPreprocessTargetLufs
+      ),
+      cloudPreprocessLimiterEnabled: getHydrationInputValue(
+        settings,
+        "cloudPreprocessLimiterEnabled",
+        fallbackSettings.cloudPreprocessLimiterEnabled
+      ),
+      cloudPreprocessLimiterThresholdDb: getHydrationInputValue(
+        settings,
+        "cloudPreprocessLimiterThresholdDb",
+        fallbackSettings.cloudPreprocessLimiterThresholdDb
+      ),
+      cloudPreprocessLimiterSoftness: getHydrationInputValue(
+        settings,
+        "cloudPreprocessLimiterSoftness",
+        fallbackSettings.cloudPreprocessLimiterSoftness
+      ),
+      cloudPreprocessVadEnabled: getHydrationInputValue(
+        settings,
+        "cloudPreprocessVadEnabled",
+        fallbackSettings.cloudPreprocessVadEnabled
+      ),
+      cloudPreprocessVadThresholdDb: getHydrationInputValue(
+        settings,
+        "cloudPreprocessVadThresholdDb",
+        fallbackSettings.cloudPreprocessVadThresholdDb
+      ),
+      cloudPreprocessVadMinSilenceMs: getHydrationInputValue(
+        settings,
+        "cloudPreprocessVadMinSilenceMs",
+        fallbackSettings.cloudPreprocessVadMinSilenceMs
+      ),
+      cloudPreprocessOverlapAdd: getHydrationInputValue(
+        settings,
+        "cloudPreprocessOverlapAdd",
+        fallbackSettings.cloudPreprocessOverlapAdd
+      ),
+      cloudPreprocessOverlapBlockSec: getHydrationInputValue(
+        settings,
+        "cloudPreprocessOverlapBlockSec",
+        fallbackSettings.cloudPreprocessOverlapBlockSec
+      ),
+      cloudPreprocessOverlapSec: getHydrationInputValue(
+        settings,
+        "cloudPreprocessOverlapSec",
+        fallbackSettings.cloudPreprocessOverlapSec
+      ),
+      cloudAutoTunePreprocess: getHydrationInputValue(
+        settings,
+        "cloudAutoTunePreprocess",
+        fallbackSettings.cloudAutoTunePreprocess
+      ),
+      cloudEnableWordTimestamps: getHydrationInputValue(
+        settings,
+        "cloudEnableWordTimestamps",
+        fallbackSettings.cloudEnableWordTimestamps
+      ),
+      cloudShowSegmentConfidence: getHydrationInputValue(
+        settings,
+        "cloudShowSegmentConfidence",
+        fallbackSettings.cloudShowSegmentConfidence
+      ),
       llmApiProvider: persistedLlmProvider,
       llmApiHfModelId,
       llmApiHfTemperature,
@@ -1431,11 +1820,23 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       llmLocalBackendPreference,
       llmLocalDtypeWebgpu,
       llmLocalDtypeWasm,
-      llmLocalForceSingleThread: settings.llmLocalForceSingleThread ?? state.llmLocalForceSingleThread,
-      autoTunePreprocess: settings.autoTunePreprocess ?? state.autoTunePreprocess,
-      forceSingleThread: settings.forceSingleThread ?? state.forceSingleThread,
-      enableWordTimestamps: settings.enableWordTimestamps ?? state.enableWordTimestamps,
-      showSegmentConfidence: settings.showSegmentConfidence ?? state.showSegmentConfidence,
+      llmLocalForceSingleThread: getHydrationInputValue(
+        settings,
+        "llmLocalForceSingleThread",
+        fallbackSettings.llmLocalForceSingleThread
+      ),
+      autoTunePreprocess: getHydrationInputValue(settings, "autoTunePreprocess", fallbackSettings.autoTunePreprocess),
+      forceSingleThread: getHydrationInputValue(settings, "forceSingleThread", fallbackSettings.forceSingleThread),
+      enableWordTimestamps: getHydrationInputValue(
+        settings,
+        "enableWordTimestamps",
+        fallbackSettings.enableWordTimestamps
+      ),
+      showSegmentConfidence: getHydrationInputValue(
+        settings,
+        "showSegmentConfidence",
+        fallbackSettings.showSegmentConfidence
+      ),
     };
     });
     logger.info("[asr-store] hydration applied", {
@@ -2083,148 +2484,7 @@ useAsrStore.subscribe((state) => {
   if (!state.hasHydrated) {
     return;
   }
-  const payload: PersistedSettings = {
-      activePreset: state.activePreset,
-      customModelId: state.customModelId,
-      presetQuantizationOverrides: state.modelQuantizationOverrides,
-      blockedPresets: state.blockedPresets,
-      backendPreference: state.backendPreference,
-    micActivePreset: state.micActivePreset,
-    micCustomModelId: state.micCustomModelId,
-    micBackendPreference: state.micBackendPreference,
-    memoryMode: state.memoryMode,
-    chunkStrategy: state.chunkStrategy,
-    segmentationMode: state.segmentationMode,
-    dedupeMode: state.dedupeMode,
-    cleanIntraChunk: state.cleanIntraChunk,
-    chunkDurationSec: state.chunkDurationSec,
-    overlapSec: state.overlapSec,
-    progressiveSegmentDurationSec: state.progressiveSegmentDurationSec,
-    silenceThresholdDb: state.silenceThresholdDb,
-    minSilenceMs: state.minSilenceMs,
-    minChunkMs: state.minChunkMs,
-    maxChunkMs: state.maxChunkMs,
-    showSegments: state.showSegments,
-    showExportVtt: state.showExportVtt,
-    showExportSrt: state.showExportSrt,
-    showExportJson: state.showExportJson,
-    showExportTelemetry: state.showExportTelemetry,
-    preprocessingMode: state.preprocessingMode,
-    denoiseNoiseFloorDb: state.denoiseNoiseFloorDb,
-    denoiseReductionDb: state.denoiseReductionDb,
-    denoiseSmoothing: state.denoiseSmoothing,
-    denoiseCalibrationSeconds: state.denoiseCalibrationSeconds,
-    preprocessEnableFilters: state.preprocessEnableFilters,
-    preprocessHighpassHz: state.preprocessHighpassHz,
-    preprocessLowpassHz: state.preprocessLowpassHz,
-    preprocessEnableLufs: state.preprocessEnableLufs,
-    preprocessTargetLufs: state.preprocessTargetLufs,
-    preprocessLimiterEnabled: state.preprocessLimiterEnabled,
-    preprocessLimiterThresholdDb: state.preprocessLimiterThresholdDb,
-    preprocessLimiterSoftness: state.preprocessLimiterSoftness,
-    preprocessVadEnabled: state.preprocessVadEnabled,
-    preprocessVadThresholdDb: state.preprocessVadThresholdDb,
-    preprocessVadMinSilenceMs: state.preprocessVadMinSilenceMs,
-    preprocessOverlapAdd: state.preprocessOverlapAdd,
-    preprocessOverlapBlockSec: state.preprocessOverlapBlockSec,
-    preprocessOverlapSec: state.preprocessOverlapSec,
-    micPreprocessingMode: state.micPreprocessingMode,
-    micSegmentationMode: state.micSegmentationMode,
-    micSilenceThresholdDb: state.micSilenceThresholdDb,
-    micNoiseCalibrationMarginDb: state.micNoiseCalibrationMarginDb,
-    micMinSilenceMs: state.micMinSilenceMs,
-    micMinChunkMs: state.micMinChunkMs,
-    micMaxChunkMs: state.micMaxChunkMs,
-    micShowExportVtt: state.micShowExportVtt,
-    micShowExportSrt: state.micShowExportSrt,
-    micShowExportJson: state.micShowExportJson,
-    micShowExportTelemetry: state.micShowExportTelemetry,
-    micDenoiseNoiseFloorDb: state.micDenoiseNoiseFloorDb,
-    micDenoiseReductionDb: state.micDenoiseReductionDb,
-    micDenoiseSmoothing: state.micDenoiseSmoothing,
-    micDenoiseCalibrationSeconds: state.micDenoiseCalibrationSeconds,
-    micPreprocessEnableFilters: state.micPreprocessEnableFilters,
-    micPreprocessHighpassHz: state.micPreprocessHighpassHz,
-    micPreprocessLowpassHz: state.micPreprocessLowpassHz,
-    micPreprocessEnableLufs: state.micPreprocessEnableLufs,
-    micPreprocessTargetLufs: state.micPreprocessTargetLufs,
-    micPreprocessLimiterEnabled: state.micPreprocessLimiterEnabled,
-    micPreprocessLimiterThresholdDb: state.micPreprocessLimiterThresholdDb,
-    micPreprocessLimiterSoftness: state.micPreprocessLimiterSoftness,
-    micPreprocessVadEnabled: state.micPreprocessVadEnabled,
-    micPreprocessVadThresholdDb: state.micPreprocessVadThresholdDb,
-    micPreprocessVadMinSilenceMs: state.micPreprocessVadMinSilenceMs,
-    micPreprocessOverlapAdd: state.micPreprocessOverlapAdd,
-    micPreprocessOverlapBlockSec: state.micPreprocessOverlapBlockSec,
-    micPreprocessOverlapSec: state.micPreprocessOverlapSec,
-    micAutoTunePreprocess: state.micAutoTunePreprocess,
-    // performance
-    forceSingleThread: state.forceSingleThread,
-    micForceSingleThread: state.micForceSingleThread,
-    // cloud
-    cloudMistralApiUrl: state.cloudMistralApiUrl,
-    cloudMistralModel: state.cloudMistralModel,
-    cloudMistralDiarizationEnabled: state.cloudMistralDiarizationEnabled,
-    cloudDemeterModel: state.cloudDemeterModel,
-    cloudDemeterDiarizationEnabled: state.cloudDemeterDiarizationEnabled,
-    cloudWhisperChunkDurationSec: state.cloudWhisperChunkDurationSec,
-    cloudWhisperOverlapSec: state.cloudWhisperOverlapSec,
-    cloudMistralChunkDurationSec: state.cloudMistralChunkDurationSec,
-    cloudMistralOverlapSec: state.cloudMistralOverlapSec,
-    cloudMaxTokens: state.cloudMaxTokens,
-    cloudTemperature: state.cloudTemperature,
-    cloudTopP: state.cloudTopP,
-    cloudDoSample: state.cloudDoSample,
-    cloudShowSegments: state.cloudShowSegments,
-    cloudShowExportVtt: state.cloudShowExportVtt,
-    cloudShowExportSrt: state.cloudShowExportSrt,
-    cloudShowExportJson: state.cloudShowExportJson,
-    cloudShowExportTelemetry: state.cloudShowExportTelemetry,
-    cloudPreprocessingMode: state.cloudPreprocessingMode,
-    cloudDenoiseNoiseFloorDb: state.cloudDenoiseNoiseFloorDb,
-    cloudDenoiseReductionDb: state.cloudDenoiseReductionDb,
-    cloudDenoiseSmoothing: state.cloudDenoiseSmoothing,
-    cloudDenoiseCalibrationSeconds: state.cloudDenoiseCalibrationSeconds,
-    cloudPreprocessEnableFilters: state.cloudPreprocessEnableFilters,
-    cloudPreprocessHighpassHz: state.cloudPreprocessHighpassHz,
-    cloudPreprocessLowpassHz: state.cloudPreprocessLowpassHz,
-    cloudPreprocessEnableLufs: state.cloudPreprocessEnableLufs,
-    cloudPreprocessTargetLufs: state.cloudPreprocessTargetLufs,
-    cloudPreprocessLimiterEnabled: state.cloudPreprocessLimiterEnabled,
-    cloudPreprocessLimiterThresholdDb: state.cloudPreprocessLimiterThresholdDb,
-    cloudPreprocessLimiterSoftness: state.cloudPreprocessLimiterSoftness,
-    cloudPreprocessVadEnabled: state.cloudPreprocessVadEnabled,
-    cloudPreprocessVadThresholdDb: state.cloudPreprocessVadThresholdDb,
-    cloudPreprocessVadMinSilenceMs: state.cloudPreprocessVadMinSilenceMs,
-    cloudPreprocessOverlapAdd: state.cloudPreprocessOverlapAdd,
-    cloudPreprocessOverlapBlockSec: state.cloudPreprocessOverlapBlockSec,
-    cloudPreprocessOverlapSec: state.cloudPreprocessOverlapSec,
-    cloudAutoTunePreprocess: state.cloudAutoTunePreprocess,
-    cloudEnableWordTimestamps: state.cloudEnableWordTimestamps,
-    cloudShowSegmentConfidence: state.cloudShowSegmentConfidence,
-    llmApiProvider: state.llmApiProvider,
-    llmApiHfModelId: state.llmApiHfModelId,
-    llmApiHfTemperature: state.llmApiHfTemperature,
-    llmApiHfMaxTokens: state.llmApiHfMaxTokens,
-    llmApiMistralModelId: state.llmApiMistralModelId,
-    llmApiMistralTemperature: state.llmApiMistralTemperature,
-    llmApiMistralMaxTokens: state.llmApiMistralMaxTokens,
-    llmLocalModelProfile: state.llmLocalModelProfile,
-    llmLocalModelId: state.llmLocalModelId,
-    llmLocalTemperature: state.llmLocalTemperature,
-    llmLocalMaxTokens: state.llmLocalMaxTokens,
-    llmLocalBackendPreference: state.llmLocalBackendPreference,
-    llmLocalDtypeWebgpu: state.llmLocalDtypeWebgpu,
-    llmLocalDtypeWasm: state.llmLocalDtypeWasm,
-    llmLocalSettingsByProfile: state.llmLocalSettingsByProfile,
-    llmLocalForceSingleThread: state.llmLocalForceSingleThread,
-    // whisper
-    enableWordTimestamps: state.enableWordTimestamps,
-    showSegmentConfidence: state.showSegmentConfidence,
-    micEnableWordTimestamps: state.micEnableWordTimestamps,
-    micShowSegmentConfidence: state.micShowSegmentConfidence,
-    logLevel: state.logLevel,
-  };
+  const payload = serializePersistedSettings(state);
   saveSettings(payload);
   const secureTokens = normalizeSecureTokens({
     hfApiToken: state.hfApiToken,

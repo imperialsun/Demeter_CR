@@ -33,16 +33,16 @@ const LEGACY_SETTING_KEYS = ["cloudApiUrl", "cloudContextPreset"] as const;
 export interface PersistedSettings {
   activePreset: PresetKey;
   customModelId: string;
-  presetQuantizationOverrides?: Partial<
+  presetQuantizationOverrides: Partial<
     Record<Exclude<PresetKey, "custom">, Partial<Record<BackendImplementation, ModelDtype>>>
   >;
-  blockedPresets?: PresetKey[];
+  blockedPresets: PresetKey[];
   backendPreference: BackendImplementation;
   memoryMode: "full" | "progressive";
   chunkStrategy: "sequential" | "overlap" | "silence";
   segmentationMode: "chunks" | "silence";
-  dedupeMode?: DedupeMode;
-  cleanIntraChunk?: boolean;
+  dedupeMode: DedupeMode;
+  cleanIntraChunk: boolean;
   preprocessingMode: "quick" | "full";
   chunkDurationSec: number;
   overlapSec: number;
@@ -74,116 +74,119 @@ export interface PersistedSettings {
   preprocessOverlapAdd: boolean;
   preprocessOverlapBlockSec: number;
   preprocessOverlapSec: number;
-  autoTunePreprocess?: boolean;
+  autoTunePreprocess: boolean;
   // Whisper options
-  enableWordTimestamps?: boolean;
-  showSegmentConfidence?: boolean;
-  logLevel?: LogLevel;
-  // Legacy migration toggle, no longer persisted by the store.
-  debugConfidence?: boolean;
+  enableWordTimestamps: boolean;
+  showSegmentConfidence: boolean;
+  logLevel: LogLevel;
   // performance
-  forceSingleThread?: boolean;
+  forceSingleThread: boolean;
   // Mic-specific settings
-  micActivePreset?: PresetKey;
-  micCustomModelId?: string;
-  micBackendPreference?: BackendImplementation;
-  micPreprocessingMode?: "quick" | "full";
-  micSegmentationMode?: "chunks" | "silence";
-  micSilenceThresholdDb?: number;
-  micNoiseCalibrationMarginDb?: number;
-  micMinSilenceMs?: number;
-  micMinChunkMs?: number;
-  micMaxChunkMs?: number;
-  micShowExportVtt?: boolean;
-  micShowExportSrt?: boolean;
-  micShowExportJson?: boolean;
-  micShowExportTelemetry?: boolean;
-  micDenoiseNoiseFloorDb?: number;
-  micDenoiseReductionDb?: number;
-  micDenoiseSmoothing?: number;
-  micDenoiseCalibrationSeconds?: number;
-  micPreprocessEnableFilters?: boolean;
-  micPreprocessHighpassHz?: number;
-  micPreprocessLowpassHz?: number;
-  micPreprocessEnableLufs?: boolean;
-  micPreprocessTargetLufs?: number;
-  micPreprocessLimiterEnabled?: boolean;
-  micPreprocessLimiterThresholdDb?: number;
-  micPreprocessLimiterSoftness?: number;
-  micPreprocessVadEnabled?: boolean;
-  micPreprocessVadThresholdDb?: number;
-  micPreprocessVadMinSilenceMs?: number;
-  micPreprocessOverlapAdd?: boolean;
-  micPreprocessOverlapBlockSec?: number;
-  micPreprocessOverlapSec?: number;
-  micAutoTunePreprocess?: boolean;
-  micEnableWordTimestamps?: boolean;
-  micShowSegmentConfidence?: boolean;
-  micForceSingleThread?: boolean;
+  micActivePreset: PresetKey;
+  micCustomModelId: string;
+  micBackendPreference: BackendImplementation;
+  micPreprocessingMode: "quick" | "full";
+  micSegmentationMode: "chunks" | "silence";
+  micSilenceThresholdDb: number;
+  micNoiseCalibrationMarginDb: number;
+  micMinSilenceMs: number;
+  micMinChunkMs: number;
+  micMaxChunkMs: number;
+  micShowExportVtt: boolean;
+  micShowExportSrt: boolean;
+  micShowExportJson: boolean;
+  micShowExportTelemetry: boolean;
+  micDenoiseNoiseFloorDb: number;
+  micDenoiseReductionDb: number;
+  micDenoiseSmoothing: number;
+  micDenoiseCalibrationSeconds: number;
+  micPreprocessEnableFilters: boolean;
+  micPreprocessHighpassHz: number;
+  micPreprocessLowpassHz: number;
+  micPreprocessEnableLufs: boolean;
+  micPreprocessTargetLufs: number;
+  micPreprocessLimiterEnabled: boolean;
+  micPreprocessLimiterThresholdDb: number;
+  micPreprocessLimiterSoftness: number;
+  micPreprocessVadEnabled: boolean;
+  micPreprocessVadThresholdDb: number;
+  micPreprocessVadMinSilenceMs: number;
+  micPreprocessOverlapAdd: boolean;
+  micPreprocessOverlapBlockSec: number;
+  micPreprocessOverlapSec: number;
+  micAutoTunePreprocess: boolean;
+  micEnableWordTimestamps: boolean;
+  micShowSegmentConfidence: boolean;
+  micForceSingleThread: boolean;
   // Cloud-specific settings
-  cloudMistralApiUrl?: string;
-  cloudMistralModel?: string;
-  cloudMistralDiarizationEnabled?: boolean;
-  cloudDemeterModel?: string;
-  cloudDemeterDiarizationEnabled?: boolean;
-  cloudWhisperChunkDurationSec?: number;
-  cloudWhisperOverlapSec?: number;
-  cloudMistralChunkDurationSec?: number;
-  cloudMistralOverlapSec?: number;
-  cloudMaxTokens?: number;
-  cloudTemperature?: number;
-  cloudTopP?: number;
-  cloudDoSample?: boolean;
-  cloudShowSegments?: boolean;
-  cloudShowExportVtt?: boolean;
-  cloudShowExportSrt?: boolean;
-  cloudShowExportJson?: boolean;
-  cloudShowExportTelemetry?: boolean;
-  cloudPreprocessingMode?: "quick" | "full";
-  cloudDenoiseNoiseFloorDb?: number;
-  cloudDenoiseReductionDb?: number;
-  cloudDenoiseSmoothing?: number;
-  cloudDenoiseCalibrationSeconds?: number;
-  cloudPreprocessEnableFilters?: boolean;
-  cloudPreprocessHighpassHz?: number;
-  cloudPreprocessLowpassHz?: number;
-  cloudPreprocessEnableLufs?: boolean;
-  cloudPreprocessTargetLufs?: number;
-  cloudPreprocessLimiterEnabled?: boolean;
-  cloudPreprocessLimiterThresholdDb?: number;
-  cloudPreprocessLimiterSoftness?: number;
-  cloudPreprocessVadEnabled?: boolean;
-  cloudPreprocessVadThresholdDb?: number;
-  cloudPreprocessVadMinSilenceMs?: number;
-  cloudPreprocessOverlapAdd?: boolean;
-  cloudPreprocessOverlapBlockSec?: number;
-  cloudPreprocessOverlapSec?: number;
-  cloudAutoTunePreprocess?: boolean;
-  cloudEnableWordTimestamps?: boolean;
-  cloudShowSegmentConfidence?: boolean;
+  cloudMistralApiUrl: string;
+  cloudMistralModel: string;
+  cloudMistralDiarizationEnabled: boolean;
+  cloudDemeterModel: string;
+  cloudDemeterDiarizationEnabled: boolean;
+  cloudWhisperChunkDurationSec: number;
+  cloudWhisperOverlapSec: number;
+  cloudMistralChunkDurationSec: number;
+  cloudMistralOverlapSec: number;
+  cloudMaxTokens: number;
+  cloudTemperature: number;
+  cloudTopP: number;
+  cloudDoSample: boolean;
+  cloudShowSegments: boolean;
+  cloudShowExportVtt: boolean;
+  cloudShowExportSrt: boolean;
+  cloudShowExportJson: boolean;
+  cloudShowExportTelemetry: boolean;
+  cloudPreprocessingMode: "quick" | "full";
+  cloudDenoiseNoiseFloorDb: number;
+  cloudDenoiseReductionDb: number;
+  cloudDenoiseSmoothing: number;
+  cloudDenoiseCalibrationSeconds: number;
+  cloudPreprocessEnableFilters: boolean;
+  cloudPreprocessHighpassHz: number;
+  cloudPreprocessLowpassHz: number;
+  cloudPreprocessEnableLufs: boolean;
+  cloudPreprocessTargetLufs: number;
+  cloudPreprocessLimiterEnabled: boolean;
+  cloudPreprocessLimiterThresholdDb: number;
+  cloudPreprocessLimiterSoftness: number;
+  cloudPreprocessVadEnabled: boolean;
+  cloudPreprocessVadThresholdDb: number;
+  cloudPreprocessVadMinSilenceMs: number;
+  cloudPreprocessOverlapAdd: boolean;
+  cloudPreprocessOverlapBlockSec: number;
+  cloudPreprocessOverlapSec: number;
+  cloudAutoTunePreprocess: boolean;
+  cloudEnableWordTimestamps: boolean;
+  cloudShowSegmentConfidence: boolean;
   // LLM API settings
-  llmApiProvider?: LlmApiProvider;
-  llmApiHfModelId?: string;
-  llmApiHfTemperature?: number;
-  llmApiHfMaxTokens?: number;
-  llmApiMistralModelId?: string;
-  llmApiMistralTemperature?: number;
-  llmApiMistralMaxTokens?: number;
+  llmApiProvider: LlmApiProvider;
+  llmApiHfModelId: string;
+  llmApiHfTemperature: number;
+  llmApiHfMaxTokens: number;
+  llmApiMistralModelId: string;
+  llmApiMistralTemperature: number;
+  llmApiMistralMaxTokens: number;
   // LLM local settings
-  llmLocalModelProfile?: LlmLocalModelProfile;
-  llmLocalModelId?: string;
-  llmLocalTemperature?: number;
-  llmLocalMaxTokens?: number;
-  llmLocalBackendPreference?: BackendImplementation;
-  llmLocalDtypeWebgpu?: ModelDtype;
-  llmLocalDtypeWasm?: ModelDtype;
-  llmLocalSettingsByProfile?: Record<LlmLocalModelProfile, LlmLocalModelSettings>;
-  llmLocalForceSingleThread?: boolean;
-  // Legacy shared llm pipeline settings (read-only fallback migration)
+  llmLocalModelProfile: LlmLocalModelProfile;
+  llmLocalModelId: string;
+  llmLocalTemperature: number;
+  llmLocalMaxTokens: number;
+  llmLocalBackendPreference: BackendImplementation;
+  llmLocalDtypeWebgpu: ModelDtype;
+  llmLocalDtypeWasm: ModelDtype;
+  llmLocalSettingsByProfile: Record<LlmLocalModelProfile, LlmLocalModelSettings>;
+  llmLocalForceSingleThread: boolean;
+}
+
+export interface LegacyPersistedSettings {
+  debugConfidence?: boolean;
   llmApiModelId?: string;
   llmApiTemperature?: number;
   llmApiMaxTokens?: number;
 }
+
+export type PersistedSettingsInput = Partial<PersistedSettings> & LegacyPersistedSettings;
 
 function stripSensitiveSettings<T extends object>(settings: T): T {
   const sanitized = { ...settings } as Record<string, unknown>;
@@ -208,14 +211,18 @@ function hasLegacySettings(settings: object) {
   return LEGACY_SETTING_KEYS.some((key) => key in settings);
 }
 
-function parseStoredSettings(): PersistedSettings | null {
+function parseStoredSettings(): PersistedSettingsInput | null {
   if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem(STORAGE_KEY);
   if (!raw) return null;
-  return JSON.parse(raw) as PersistedSettings;
+  const parsed = JSON.parse(raw);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  return parsed as PersistedSettingsInput;
 }
 
-export function loadSettings(): Partial<PersistedSettings> | null {
+export function loadSettings(): PersistedSettingsInput | null {
   if (typeof window === "undefined") return null;
   try {
     const parsed = parseStoredSettings();
@@ -424,3 +431,14 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   llmLocalSettingsByProfile: createDefaultLocalModelSettingsByProfile(),
   llmLocalForceSingleThread: false,
 };
+
+export const PERSISTED_SETTINGS_KEYS = Object.freeze(
+  Object.keys(DEFAULT_SETTINGS) as Array<keyof PersistedSettings>
+);
+
+export const LEGACY_PERSISTED_SETTINGS_KEYS = [
+  "debugConfidence",
+  "llmApiModelId",
+  "llmApiTemperature",
+  "llmApiMaxTokens",
+] as const satisfies ReadonlyArray<keyof LegacyPersistedSettings>;

@@ -8,8 +8,9 @@ import {
   resolveEffectiveModelDtype,
   resolveModelDtype,
   resolveModelId,
+  serializePersistedSettings,
 } from "./asr-store";
-import { DEFAULT_SETTINGS, loadSettings } from "@/lib/storage";
+import { DEFAULT_SETTINGS, loadSettings, PERSISTED_SETTINGS_KEYS } from "@/lib/storage";
 import { clearSecureTokens, loadSecureTokens, saveSecureTokens } from "@/lib/secure-token-vault";
 import {
   createDefaultLocalModelSettingsByProfile,
@@ -134,6 +135,46 @@ describe("llm provider config hydration", () => {
     expect(state.llmApiMistralModelId).toBe(DEFAULT_SETTINGS.llmApiMistralModelId);
   });
 
+  it("hydrates an empty persisted blob with canonical defaults and no undefined settings", () => {
+    window.localStorage.setItem(storageKey, JSON.stringify({}));
+    useAsrStore.getState().hydrateFromStorage();
+
+    const state = useAsrStore.getState();
+    expect(state.memoryMode).toBe(DEFAULT_SETTINGS.memoryMode);
+    expect(state.chunkStrategy).toBe(DEFAULT_SETTINGS.chunkStrategy);
+    expect(state.segmentationMode).toBe(DEFAULT_SETTINGS.segmentationMode);
+    expect(state.chunkDurationSec).toBe(DEFAULT_SETTINGS.chunkDurationSec);
+    expect(state.overlapSec).toBe(DEFAULT_SETTINGS.overlapSec);
+    expect(state.maxChunkMs).toBe(DEFAULT_SETTINGS.maxChunkMs);
+    expect(state.autoTunePreprocess).toBe(DEFAULT_SETTINGS.autoTunePreprocess);
+
+    const serialized = serializePersistedSettings(state);
+    for (const key of PERSISTED_SETTINGS_KEYS) {
+      expect(serialized[key]).not.toBeUndefined();
+    }
+  });
+
+  it("falls back to frontend defaults for missing backend settings while keeping provided values", () => {
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        activePreset: "balanced",
+        chunkDurationSec: 42,
+      })
+    );
+
+    useAsrStore.getState().hydrateFromStorage();
+
+    const state = useAsrStore.getState();
+    expect(state.activePreset).toBe("balanced");
+    expect(state.chunkDurationSec).toBe(42);
+    expect(state.memoryMode).toBe(DEFAULT_SETTINGS.memoryMode);
+    expect(state.chunkStrategy).toBe(DEFAULT_SETTINGS.chunkStrategy);
+    expect(state.overlapSec).toBe(DEFAULT_SETTINGS.overlapSec);
+    expect(state.maxChunkMs).toBe(DEFAULT_SETTINGS.maxChunkMs);
+    expect(state.micPreprocessVadThresholdDb).toBe(DEFAULT_SETTINGS.micPreprocessVadThresholdDb);
+  });
+
   it("migrates legacy llm fields into mistral config when provider is mistral", () => {
     const payload = {
       ...DEFAULT_SETTINGS,
@@ -158,6 +199,34 @@ describe("llm provider config hydration", () => {
     expect(state.llmApiMistralTemperature).toBe(0.4);
     expect(state.llmApiMistralMaxTokens).toBe(4444);
     expect(state.llmApiHfModelId).toBe(DEFAULT_SETTINGS.llmApiHfModelId);
+  });
+
+  it("rewrites a full canonical payload after mutating a partial legacy blob", () => {
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        llmApiProvider: "huggingface",
+        llmApiModelId: "legacy/hf-model",
+        llmApiTemperature: 0.6,
+        llmApiMaxTokens: 7777,
+        debugConfidence: true,
+      })
+    );
+
+    useAsrStore.getState().hydrateFromStorage();
+    useAsrStore.getState().setShowSegments(false);
+
+    const persisted = JSON.parse(window.localStorage.getItem(storageKey) ?? "{}") as Record<string, unknown>;
+    expect(Object.keys(persisted).sort()).toEqual([...PERSISTED_SETTINGS_KEYS].sort());
+    expect(persisted.showSegments).toBe(false);
+    expect(persisted.autoTunePreprocess).toBe(DEFAULT_SETTINGS.autoTunePreprocess);
+    expect(persisted.debugConfidence).toBeUndefined();
+    expect(persisted.llmApiModelId).toBeUndefined();
+    expect(persisted.llmApiTemperature).toBeUndefined();
+    expect(persisted.llmApiMaxTokens).toBeUndefined();
+    expect(persisted.llmApiHfModelId).toBe("legacy/hf-model");
+    expect(persisted.llmApiHfTemperature).toBe(0.6);
+    expect(persisted.llmApiHfMaxTokens).toBe(7777);
   });
 
   it("hydrates llm local profile settings", () => {
