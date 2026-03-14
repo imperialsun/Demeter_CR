@@ -3,8 +3,10 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ThemeProvider } from "@/components/theme-provider";
+import { formatTokenCount } from "@/lib/llm/modelCatalog";
 import { useAsrStore } from "@/store/asr-store";
 import LLMApiPage from "@/routes/LLMApiPage";
+import { DEMETER_SANTE_MAX_TOKENS } from "@/lib/llm/providerSettings";
 
 const generateAll = vi.fn(async () => undefined);
 const downloadDocx = vi.fn(async () => undefined);
@@ -211,6 +213,23 @@ describe("LLMApiPage", () => {
       "LLM_CLOUD_PROVIDER_CHANGE",
       expect.objectContaining({ previousProvider: "huggingface", nextProvider: "mistral" })
     );
+  });
+
+  it("shows hardcoded demeter max tokens in pipeline config", async () => {
+    useAsrStore.setState({
+      llmApiProvider: "demeter_sante",
+      llmApiMistralModelId: "mistral-medium-latest",
+      llmApiMistralMaxTokens: 8192,
+    } as any);
+
+    renderPage();
+
+    expect(
+      screen.getByText((_, element) =>
+        element?.tagName === "P" &&
+        (element.textContent ?? "").includes(`Max tokens: ${formatTokenCount(DEMETER_SANTE_MAX_TOKENS)}`)
+      )
+    ).toBeInTheDocument();
   });
 
   it("hides settings links when feature.settings is forbidden", () => {

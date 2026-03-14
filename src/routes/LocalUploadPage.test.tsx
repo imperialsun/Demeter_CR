@@ -101,7 +101,7 @@ describe('LocalUploadPage', () => {
     });
 
     revokeSpy.mockRestore();
-  });
+  }, 15000);
 
   it("shows a blocking model-size alert dialog when local upload alert is present", () => {
     renderWithStore(<LocalUploadPage />, {

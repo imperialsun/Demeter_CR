@@ -21,6 +21,7 @@ import {
   resolveMistralMaxTokens,
   type MistralModelMetadata,
 } from "@/lib/llm/mistralModelsClient";
+import { DEMETER_SANTE_MAX_TOKENS } from "@/lib/llm/providerSettings";
 import { SESSION_ONLY_SECRET_NOTICE } from "@/lib/secret-storage-copy";
 
 interface LlmCloudSettingsTabProps {
@@ -492,11 +493,14 @@ export function LlmCloudSettingsTab({
                     min={128}
                     max={262144}
                     step={128}
-                    value={llmApiMistralMaxTokens}
+                    value={DEMETER_SANTE_MAX_TOKENS}
                     disabled
-                    onChange={(event) => setLlmApiMistralMaxTokens(Number(event.target.value))}
                   />
                 </div>
+              </div>
+
+              <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
+                Max tokens Demeter impose par le backend: {formatTokenCount(DEMETER_SANTE_MAX_TOKENS)} tokens.
               </div>
             </CardContent>
           </Card>

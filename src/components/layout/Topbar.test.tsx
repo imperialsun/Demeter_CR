@@ -8,6 +8,7 @@ import * as backendSession from '@/lib/backend-session';
 import * as toastMod from '@/components/ui/use-toast';
 import * as rr from 'react-router-dom';
 import * as logger from '@/lib/logger';
+import { DEMETER_SANTE_MAX_TOKENS } from '@/lib/llm/providerSettings';
 
 const modelTestHook = vi.hoisted(() => ({
   runTest: vi.fn(),
@@ -323,6 +324,21 @@ describe('Topbar', () => {
     render(<Topbar />);
 
     expect(screen.getByText('Mistral API')).toBeInTheDocument();
+  });
+
+  it('shows hardcoded demeter token budget on /llmapi', () => {
+    vi.spyOn(rr, 'useLocation').mockReturnValue({ pathname: '/llmapi', search: '', state: null, hash: '', key: '' } as any);
+    useAsrStore.setState({
+      llmApiStatus: 'generating',
+      llmApiProvider: 'demeter_sante',
+      llmApiMistralModelId: 'mistral-medium-latest',
+      llmApiMistralMaxTokens: 8192,
+    } as any);
+
+    render(<Topbar />);
+
+    expect(screen.getByText('Demeter Santé')).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`Max ${Math.round(DEMETER_SANTE_MAX_TOKENS / 1000)}`))).toBeInTheDocument();
   });
 
   it('keeps debug controls visible in production', () => {
