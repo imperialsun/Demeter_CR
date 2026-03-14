@@ -57,7 +57,6 @@ jobs:
           CODECOV_HEAD_LABEL: ${{ github.event.pull_request.head.label }}
           CODECOV_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           CODECOV_PR_NUMBER: ${{ github.event.pull_request.number }}
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -82,10 +81,6 @@ jobs:
             --file ./coverage/lcov.info
             --slug "$GITHUB_REPOSITORY"
           )
-
-          if [ -n "${CODECOV_TOKEN:-}" ]; then
-            codecov_args+=(--token "$CODECOV_TOKEN")
-          fi
 
           if [ -n "${CODECOV_PR_NUMBER:-}" ]; then
             codecov_args+=(--pull-request-number "$CODECOV_PR_NUMBER")
