@@ -35,13 +35,9 @@ async function checkWasmAssets(): Promise<boolean> {
     logger.info("checkWasmAssets: skipped (non-browser)");
     return false;
   }
-  const candidates = [
-    "/onnx/ort-wasm-simd-threaded.jsep.wasm",
-    "/onnx/ort-wasm-simd-threaded.wasm",
-    "/onnx/ort-wasm-simd-threaded.asyncify.wasm",
-    "/onnx/ort-wasm-simd.jsep.wasm",
-    "/onnx/ort-wasm-simd.wasm",
-  ];
+  // Keep this aligned with the pinned onnxruntime-web package.
+  // The runtime forces useJsep=false, so this threaded WASM binary is the required asset.
+  const candidates = ["/onnx/ort-wasm-simd-threaded.wasm"];
   for (const url of candidates) {
     try {
       // Diagnostic logging to help debug deployment and caching issues
