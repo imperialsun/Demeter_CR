@@ -1,5 +1,6 @@
 import type { ChunkDefinition } from "@/lib/chunking";
 import type { WordSegment } from "@/lib/export";
+import { createOrtWasmPaths } from "@/lib/ort-wasm-paths";
 
 export interface PipelineInvokeChunk {
   text?: string;
@@ -44,8 +45,7 @@ const MODEL_TOO_LARGE_RE =
 const WEBGPU_RUNTIME_RE = /onnxruntime::webgpu|\/providers\/webgpu\/|webgpu\/program\.cc/i;
 const WEBGPU_ALIGNMENT_RE =
   /cannot reduce shape|getreducedshape|component\s*=\s*4|%\s*component\s*==\s*0\s*was\s*false/i;
-
-const DEFAULT_WASM_PATH = "/onnx/";
+const WASM_CSP_RE = /content security policy|wasm-unsafe-eval|unsafe-eval/i;
 
 export function normalizeWhitespace(value: string | undefined | null) {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
@@ -78,7 +78,7 @@ export function resolveWasmExecutionOptions(args: {
   forceSingleThread?: boolean;
   crossOriginIsolated: boolean;
   hardwareConcurrency?: number;
-  wasmPath?: string;
+  wasmBinaryPath?: string;
 }) {
   const forceSingle = args.forceSingleThread === true;
   let numThreads = 1;
@@ -86,12 +86,17 @@ export function resolveWasmExecutionOptions(args: {
     numThreads = Math.max(2, args.hardwareConcurrency || 2);
   }
   return {
-    wasmPaths: args.wasmPath ?? DEFAULT_WASM_PATH,
+    wasmPaths: createOrtWasmPaths(args.wasmBinaryPath),
     numThreads,
-    proxy: true,
+    // Keep WASM execution on the main thread to avoid the proxy-worker bundle path.
+    proxy: false,
     simd: true,
     useJsep: false,
   } as const;
+}
+
+export function isWasmCspBlockedMessage(message: string) {
+  return WASM_CSP_RE.test(message);
 }
 
 function normalizeWords(
@@ -197,6 +202,9 @@ export function resolveBackendSelectionErrorMessage(args: {
   if (!args.webGpuAvailable && !args.wasmAvailable) {
     message =
       "Aucun backend utilisable trouvé : WebGPU non supporté et fichiers WASM manquants ou inaccessibles (/onnx/). Vérifiez que les assets WASM ont bien été déployés et que les en-têtes COOP/COEP sont configurés pour permettre WASM multithread (SharedArrayBuffer).";
+  } else if (!args.webGpuAvailable && args.wasmAvailable && isWasmCspBlockedMessage(lastMessage)) {
+    message =
+      `Erreur d'initialisation WASM : ${lastMessage}. La CSP bloque la compilation WebAssembly. Ajoutez 'wasm-unsafe-eval' à script-src sur la réponse HTML, ou desserrez la policy du reverse proxy.`;
   } else if (!args.webGpuAvailable && args.wasmAvailable && /WASM/i.test(lastMessage)) {
     message = `Erreur d'initialisation WASM : ${lastMessage}. Vérifiez la disponibilité des assets et les en-têtes COOP/COEP.`;
   }

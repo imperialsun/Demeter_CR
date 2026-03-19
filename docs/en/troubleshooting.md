@@ -25,6 +25,19 @@ Checks:
 2. COOP/COEP headers must be present.
 3. inspect `WASM_MULTITHREAD_TEST` telemetry/logs.
 
+## WASM compilation blocked by CSP
+
+Symptoms:
+
+- `no available backend found. ERR: [wasm] RuntimeError: Aborted(CompileError: WebAssembly.instantiate()...)`,
+- message mentions `Content Security Policy` or `unsafe-eval`.
+
+Checks:
+
+1. verify that `script-src` allows `wasm-unsafe-eval`,
+2. verify the CSP is applied on the HTML response served by the reverse proxy,
+3. hard-refresh the app after deployment to clear any cached HTML/CSP.
+
 ## WebGPU error "Cannot reduce shape ... component=4"
 
 Symptoms:
@@ -156,6 +169,6 @@ Actions:
 
 ## Debug tools
 
-- topbar log export,
+- `Download logs` button in the topbar: downloads a `demeter-logs-*.json` file with application logs, browser errors, `unhandledrejection` events, telemetry, and a state snapshot,
 - `/telemetry` page,
 - `docker compose logs -f transcode` for container runtime.

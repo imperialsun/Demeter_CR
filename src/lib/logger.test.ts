@@ -64,18 +64,16 @@ describe("logger", () => {
     expect(logSpy.mock.calls[0]?.[1]).toEqual({ status: 200 });
   });
 
-  it("emits debug entries through console.debug", async () => {
-    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+  it("emits debug entries through console.log", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const { debug, setLogLevelProvider } = await import("./logger");
 
     setLogLevelProvider(() => "debug");
     debug("[test] visible debug", { enabled: true });
 
-    expect(debugSpy).toHaveBeenCalledTimes(1);
-    expect(debugSpy.mock.calls[0]?.[0]).toMatch(/DEBUG test visible debug$/);
-    expect(debugSpy.mock.calls[0]?.[1]).toEqual({ enabled: true });
-    expect(logSpy).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(logSpy.mock.calls[0]?.[0]).toMatch(/DEBUG test visible debug$/);
+    expect(logSpy.mock.calls[0]?.[1]).toEqual({ enabled: true });
   });
 
   it("exports structured entries with scopes, message, context and raw args", async () => {
@@ -87,12 +85,78 @@ describe("logger", () => {
     const entries = exportLogEntries();
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({
+      origin: "logger",
       level: "info",
       scopes: ["cloud", "demeter"],
       message: "request",
       context: { endpoint: "/demo" },
       rawArgs: ["[cloud][demeter] request", { endpoint: "/demo" }],
     });
+  });
+
+  it("resolves persisted debug level before hydration", async () => {
+    localStorage.setItem("demeter-asr-settings", JSON.stringify({ debugConfidence: true }));
+
+    const { resolveBootstrapLogLevel } = await import("./logger");
+
+    expect(resolveBootstrapLogLevel({ hasHydrated: false, logLevel: "info" })).toBe("debug");
+
+    localStorage.setItem("demeter-asr-settings", JSON.stringify({ logLevel: "warn" }));
+    expect(resolveBootstrapLogLevel({ hasHydrated: false, logLevel: "info" })).toBe("warn");
+    expect(resolveBootstrapLogLevel({ hasHydrated: true, logLevel: "error" })).toBe("error");
+  });
+
+  it("captures browser diagnostics and exports them in the bundle", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { debug, exportDiagnosticLogBundle, initializeLogCapture, setLogLevelProvider } = await import("./logger");
+
+    setLogLevelProvider(() => "debug");
+    initializeLogCapture();
+
+    debug("[test] visible debug", { enabled: true });
+
+    const errorEvent = new Event("error") as Event & {
+      message?: string;
+      error?: Error;
+      filename?: string;
+      lineno?: number;
+      colno?: number;
+    };
+    Object.assign(errorEvent, {
+      message: "window boom",
+      error: new Error("window boom"),
+      filename: "/runtime.js",
+      lineno: 12,
+      colno: 34,
+    });
+    window.dispatchEvent(errorEvent);
+
+    const rejectionEvent = new Event("unhandledrejection");
+    Object.defineProperty(rejectionEvent, "reason", {
+      configurable: true,
+      value: new Error("promise boom"),
+    });
+    window.dispatchEvent(rejectionEvent);
+
+    const bundle = exportDiagnosticLogBundle({
+      session: { status: "idle" },
+      settings: { logLevel: "debug" },
+      telemetry: null,
+    });
+
+    expect(bundle.schemaVersion).toBe(1);
+    expect(bundle.logs.some((entry) => entry.origin === "logger" && entry.level === "debug")).toBe(true);
+    expect(bundle.logs.some((entry) => entry.origin === "browser-error")).toBe(true);
+    expect(bundle.logs.some((entry) => entry.origin === "unhandledrejection")).toBe(true);
+    expect(bundle.diagnostics.sourceCounts).toMatchObject({
+      logger: expect.any(Number),
+      "browser-error": expect.any(Number),
+      unhandledrejection: expect.any(Number),
+    });
+    expect(bundle.diagnostics.persistenceStatus).toBe("complete");
+    expect(logSpy).toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalled();
   });
 
   it("mirrors warn and error always, and info/debug only when enabled, into telemetry", async () => {
@@ -153,6 +217,26 @@ describe("logger", () => {
     expect(cached[4]?.message).toBe("log 4");
   });
 
+  it("keeps spilled logs in memory even when localStorage is unavailable", async () => {
+    vi.stubGlobal("localStorage", undefined);
+
+    const { info, exportLogEntries, getLogCaptureDiagnostics, setLogLevelProvider } = await import("./logger");
+    setLogLevelProvider(() => "error");
+
+    for (let i = 0; i < 2005; i += 1) {
+      info(`log ${i}`);
+    }
+
+    const entries = exportLogEntries();
+    expect(entries).toHaveLength(2005);
+    expect(entries[0]?.message).toBe("log 0");
+    expect(entries[entries.length - 1]?.message).toBe("log 2004");
+
+    const diagnostics = getLogCaptureDiagnostics(entries);
+    expect(diagnostics.persistenceStatus).toBe("memory-only");
+    expect(diagnostics.totalEntries).toBe(2005);
+  });
+
   it("exports cached legacy logs before in-memory logs and normalizes their shape", async () => {
     localStorage.setItem(
       LOG_CACHE_KEY,
@@ -168,11 +252,13 @@ describe("logger", () => {
     expect(entries[0]).toMatchObject({
       timestamp: "t0",
       level: "info",
+      origin: "logger",
       scopes: ["legacy"],
       message: "cached",
       rawArgs: ["[legacy] cached", "{\"x\":1}"],
     });
     expect(entries[1]).toMatchObject({
+      origin: "logger",
       scopes: ["live"],
       message: "ready",
     });
@@ -191,6 +277,7 @@ describe("logger", () => {
       type: "LOG_DEBUG",
       data: expect.objectContaining({
         source: "logger",
+        origin: "logger",
         scopes: ["cloud", "demeter"],
         message: "prepared upload failed",
       }),

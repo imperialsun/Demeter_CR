@@ -1,5 +1,6 @@
 import { useAsrStore } from "@/store/asr-store";
 import logger from "@/lib/logger";
+import { ORT_WASM_BINARY_PATH } from "@/lib/ort-wasm-paths";
 
 let webGpuSupportPromise: Promise<boolean> | null = null;
 
@@ -36,8 +37,8 @@ async function checkWasmAssets(): Promise<boolean> {
     return false;
   }
   // Keep this aligned with the pinned onnxruntime-web package.
-  // The runtime forces useJsep=false, so this threaded WASM binary is the required asset.
-  const candidates = ["/onnx/ort-wasm-simd-threaded.wasm"];
+  // Accept both the current JSEP binary and the legacy non-JSEP binary.
+  const candidates = [ORT_WASM_BINARY_PATH, "/onnx/ort-wasm-simd-threaded.wasm"];
   for (const url of candidates) {
     try {
       // Diagnostic logging to help debug deployment and caching issues

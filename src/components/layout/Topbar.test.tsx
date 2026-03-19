@@ -6,6 +6,7 @@ import { useAsrStore } from '@/store/asr-store';
 import * as backendSupport from '@/lib/backend-support';
 import * as backendSession from '@/lib/backend-session';
 import * as toastMod from '@/components/ui/use-toast';
+import * as exportLib from '@/lib/export';
 import * as rr from 'react-router-dom';
 import * as logger from '@/lib/logger';
 import { DEMETER_SANTE_MAX_TOKENS } from '@/lib/llm/providerSettings';
@@ -71,7 +72,26 @@ vi.mock('@/lib/logger', () => ({
     warn: vi.fn(),
     error: vi.fn(),
   },
-  exportLogEntries: vi.fn(() => [{ timestamp: 't1', level: 'info', scopes: ['test'], message: 'log', rawArgs: ['log'] }]),
+  exportDiagnosticLogBundle: vi.fn((context: { session: Record<string, unknown>; settings: Record<string, unknown>; telemetry: unknown }) => ({
+    schemaVersion: 1,
+    exportedAt: '2026-03-19T12:34:56.000Z',
+    session: context.session,
+    settings: context.settings,
+    telemetry: context.telemetry,
+    logs: [
+      {
+        timestamp: 't1',
+        level: 'info',
+        origin: 'logger',
+        scopes: ['test'],
+        message: 'log',
+        rawArgs: ['log'],
+      },
+    ],
+    diagnostics: {
+      persistenceStatus: 'complete',
+    },
+  })),
 }));
 
 vi.mock('@/lib/env', () => ({
@@ -140,6 +160,7 @@ describe('Topbar', () => {
     window.localStorage.removeItem(BACKEND_SESSION_KEY);
     // reset store defaults used by Topbar
     useAsrStore.setState({
+      hasHydrated: false,
       activePreset: 'fast',
       customModelId: undefined,
       backendPreference: 'webgpu',
@@ -155,6 +176,12 @@ describe('Topbar', () => {
       llmApiMistralModelId: 'mistral-medium-latest',
       llmApiMistralTemperature: 0.2,
       llmApiMistralMaxTokens: 8192,
+      telemetryCollector: null,
+      telemetrySummary: null,
+      audioSource: null,
+      audioMetadata: null,
+      webGpuSupported: true,
+      wasmAvailable: true,
       wasmThreads: 1,
       preprocessingMode: 'fast',
       logLevel: 'info',
@@ -264,20 +291,43 @@ describe('Topbar', () => {
     expect(screen.getByLabelText('Niveau de logs')).toHaveTextContent('Debug');
   });
 
-  it('exports logs to clipboard', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText },
-      configurable: true,
-    });
+  it('downloads a diagnostic log file instead of copying to clipboard', () => {
+    const promptSpy = vi.spyOn(window, "prompt").mockImplementation(() => null);
+    const downloadSpy = vi.spyOn(exportLib, "downloadBlob").mockImplementation(() => undefined);
     vi.spyOn(toastMod, 'toast').mockImplementation(() => 't-id' as any);
 
     render(<Topbar />);
-    fireEvent.click(screen.getByText('Exporter logs'));
+    fireEvent.click(screen.getByText('Télécharger logs'));
 
-    expect(writeText).toHaveBeenCalled();
-    const payload = JSON.parse(writeText.mock.calls[0]![0] as string) as { logs?: unknown[] };
-    expect(payload.logs).toEqual(logger.exportLogEntries());
+    expect(downloadSpy).toHaveBeenCalledTimes(1);
+    expect(promptSpy).not.toHaveBeenCalled();
+    expect(logger.exportDiagnosticLogBundle).toHaveBeenCalledTimes(1);
+
+    const [content, filename, type] = downloadSpy.mock.calls[0]!;
+    expect(filename).toMatch(/^demeter-logs-.*\.json$/);
+    expect(type).toBe("application/json");
+
+    const bundleContext = logger.exportDiagnosticLogBundle.mock.calls[0]![0] as {
+      session: Record<string, unknown>;
+      settings: Record<string, unknown>;
+      telemetry: unknown;
+    };
+    expect(bundleContext.settings).toEqual(expect.objectContaining({ logLevel: "info" }));
+    expect(bundleContext.session).toEqual(expect.objectContaining({ hasHydrated: false, status: "idle", logLevel: "info" }));
+
+    const payload = JSON.parse(content as string) as { schemaVersion?: number; logs?: unknown[] };
+    expect(payload.schemaVersion).toBe(1);
+    expect(payload.logs).toEqual([
+      {
+        timestamp: 't1',
+        level: 'info',
+        origin: 'logger',
+        scopes: ['test'],
+        message: 'log',
+        rawArgs: ['log'],
+      },
+    ]);
+    expect(toastMod.toast).toHaveBeenCalledWith("Fichier de logs téléchargé.");
   });
 
   it('hides backend info and shows cloud status badges on /cloudupload', () => {
@@ -343,7 +393,7 @@ describe('Topbar', () => {
 
   it('keeps debug controls visible in production', () => {
     render(<Topbar />);
-    expect(screen.getByText('Exporter logs')).toBeInTheDocument();
+    expect(screen.getByText('Télécharger logs')).toBeInTheDocument();
     expect(screen.getByLabelText('Niveau de logs')).toBeInTheDocument();
   });
 

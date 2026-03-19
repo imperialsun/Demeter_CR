@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useAsrStore } from "@/store/asr-store";
+import { ORT_WASM_BINARY_PATH } from "@/lib/ort-wasm-paths";
 
 const mocks = vi.hoisted(() => {
   const state = {
@@ -254,6 +255,18 @@ describe("asr module", () => {
       expect.any(String),
       expect.objectContaining({
         device: "wasm",
+        session_options: expect.objectContaining({
+          executionProviders: [
+            {
+              name: "wasm",
+              options: expect.objectContaining({
+                wasmPaths: {
+                  wasm: ORT_WASM_BINARY_PATH,
+                },
+              }),
+            },
+          ],
+        }),
       })
     );
     expect(ortMocks.flagWasmSessionOptions).toHaveBeenCalled();
@@ -292,6 +305,25 @@ describe("asr module", () => {
     expect(result.backend).toBe("wasm");
     expect(mocks.pipelineFactory).toHaveBeenCalledTimes(2);
     expect(ortMocks.patchOrtWasmEnv).toHaveBeenCalled();
+  });
+
+  it("does not retry wasm initialization when CSP blocks WebAssembly compilation", async () => {
+    const { createAsrPipeline } = await import("@/lib/asr");
+    mocks.pipelineFactory.mockRejectedValueOnce(
+      new Error(
+        "RuntimeError: Aborted(CompileError: WebAssembly.instantiate(): Compiling or instantiating WebAssembly module violates the following Content Security Policy directive because 'unsafe-eval' is not an allowed source of script in the following Content Security Policy directive: )"
+      )
+    );
+
+    await expect(
+      createAsrPipeline({
+        modelPreset: "fast",
+        customModelId: "",
+        backendPreference: "wasm",
+        forceSingleThread: false,
+      })
+    ).rejects.toThrow("wasm-unsafe-eval");
+    expect(mocks.pipelineFactory).toHaveBeenCalledTimes(1);
   });
 
   it("records model fetch diagnostics and memory snapshots during pipeline load", async () => {

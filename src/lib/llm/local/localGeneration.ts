@@ -1,6 +1,7 @@
 import { loadTransformers } from "@/lib/transformers-loader";
 import logger from "@/lib/logger";
 import { useAsrStore, type BackendImplementation, type ModelDtype } from "@/store/asr-store";
+import { createOrtWasmPaths } from "@/lib/ort-wasm-paths";
 
 interface PipelineProgressPayload {
   progress?: number;
@@ -201,9 +202,9 @@ function buildPipelineOptions(params: {
         {
           name: "wasm",
           options: {
-            wasmPaths: "/onnx/",
+            wasmPaths: createOrtWasmPaths(),
             numThreads: params.wasmThreads ?? 1,
-            proxy: true,
+            proxy: false,
             simd: true,
             useJsep: false,
           },

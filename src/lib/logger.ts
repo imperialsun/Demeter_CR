@@ -2,24 +2,61 @@ import { getTransformersVersion, type TelemetryCollector, type TelemetryEvent, t
 
 const LOG_BUFFER_LIMIT = 2000;
 const LOG_CACHE_KEY = "demeter-log-cache";
+const SETTINGS_STORAGE_KEY = "demeter-asr-settings";
 const TELEMETRY_PREVIEW_HEAD = 256;
 const TELEMETRY_PREVIEW_TAIL = 256;
 const TELEMETRY_MAX_ARGS = 6;
 
 export type LogLevel = "error" | "warn" | "info" | "debug";
+export type LogOrigin = "logger" | "console" | "browser-error" | "unhandledrejection";
+export type LogPersistenceStatus = "complete" | "memory-only" | "degraded";
 
 export type LogEntry = {
   timestamp: string;
   level: LogLevel;
+  origin: LogOrigin;
   scopes: string[];
   message: string;
   context?: unknown;
   rawArgs: unknown[];
 };
 
+export interface LogCaptureDiagnostics {
+  currentLogLevel: LogLevel;
+  persistedLogLevel: LogLevel | null;
+  initializedAt: string | null;
+  consoleBridgeInstalled: boolean;
+  browserListenersInstalled: boolean;
+  storageAvailable: boolean;
+  persistenceStatus: LogPersistenceStatus;
+  cacheWriteFailures: number;
+  cachedEntryCount: number;
+  pendingEntryCount: number;
+  totalEntries: number;
+  sourceCounts: Record<LogOrigin, number>;
+  levelCounts: Record<LogLevel, number>;
+}
+
+export interface DiagnosticLogBundle<TSession extends object = Record<string, unknown>, TSettings extends object = Record<string, unknown>> {
+  schemaVersion: 1;
+  exportedAt: string;
+  session: TSession;
+  settings: TSettings;
+  telemetry: TelemetrySummary | null;
+  logs: LogEntry[];
+  diagnostics: LogCaptureDiagnostics;
+}
+
+export interface DiagnosticLogBundleContext<TSession extends object = Record<string, unknown>, TSettings extends object = Record<string, unknown>> {
+  session: TSession;
+  settings: TSettings;
+  telemetry: TelemetrySummary | null;
+}
+
 type LegacyLogEntry = {
   timestamp?: unknown;
   level?: unknown;
+  origin?: unknown;
   message?: unknown;
   scopes?: unknown;
   context?: unknown;
@@ -35,6 +72,7 @@ const LOG_LEVEL_ORDER: Record<LogLevel, number> = {
 
 const nativeConsole = {
   debug: console.debug.bind(console),
+  info: typeof console.info === "function" ? console.info.bind(console) : console.log.bind(console),
   log: console.log.bind(console),
   warn: console.warn.bind(console),
   error: console.error.bind(console),
@@ -42,6 +80,29 @@ const nativeConsole = {
 
 let logLevelProvider: (() => LogLevel) | null = null;
 let telemetryProvider: (() => TelemetryCollector | null) | null = null;
+let logCaptureInitializedAt: string | null = null;
+let consoleBridgeInstalled = false;
+let browserListenersInstalled = false;
+let cacheWriteFailures = 0;
+
+type LogCaptureHandlerRegistry = {
+  errorHandler: EventListener | null;
+  rejectionHandler: EventListener | null;
+};
+
+const globalLogCaptureRegistry = globalThis as typeof globalThis & {
+  __demeterLogCaptureHandlers__?: LogCaptureHandlerRegistry;
+};
+
+function getLogCaptureHandlerRegistry(): LogCaptureHandlerRegistry {
+  if (!globalLogCaptureRegistry.__demeterLogCaptureHandlers__) {
+    globalLogCaptureRegistry.__demeterLogCaptureHandlers__ = {
+      errorHandler: null,
+      rejectionHandler: null,
+    };
+  }
+  return globalLogCaptureRegistry.__demeterLogCaptureHandlers__;
+}
 
 const logBuffer: LogEntry[] = [];
 let cachedLogsMemo: LogEntry[] | null = null;
@@ -70,6 +131,47 @@ export function getCurrentLogLevel(): LogLevel {
 
 export function isLevelEnabled(level: LogLevel) {
   return LOG_LEVEL_ORDER[level] <= LOG_LEVEL_ORDER[getCurrentLogLevel()];
+}
+
+function isLogOrigin(value: unknown): value is LogOrigin {
+  return value === "logger" || value === "console" || value === "browser-error" || value === "unhandledrejection";
+}
+
+function normalizeLogOrigin(value: unknown): LogOrigin {
+  return isLogOrigin(value) ? value : "logger";
+}
+
+function readPersistedLogLevel(): LogLevel | null {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return null;
+    const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const settings = parsed as { logLevel?: unknown; debugConfidence?: unknown };
+    if (isLogLevel(settings.logLevel)) {
+      return settings.logLevel;
+    }
+    if (settings.debugConfidence === true) {
+      return "debug";
+    }
+  } catch {
+    // ignore storage and parsing failures when resolving the bootstrap log level
+  }
+  return null;
+}
+
+export function resolveBootstrapLogLevel(state: { hasHydrated?: boolean; logLevel?: unknown } | null | undefined): LogLevel {
+  if (state?.hasHydrated) {
+    return isLogLevel(state.logLevel) ? state.logLevel : "info";
+  }
+
+  const persistedLogLevel = readPersistedLogLevel();
+  if (persistedLogLevel) {
+    return persistedLogLevel;
+  }
+
+  return isLogLevel(state?.logLevel) ? state.logLevel : "info";
 }
 
 function safeStringify(value: unknown) {
@@ -141,7 +243,7 @@ function parseScopesAndMessage(input: string): { scopes: string[]; message: stri
   };
 }
 
-function buildLogEntry(level: LogLevel, args: unknown[]): LogEntry {
+function buildLogEntry(level: LogLevel, args: unknown[], origin: LogOrigin = "logger"): LogEntry {
   const normalizedArgs = args.map(normalizeForStorage);
   const first = args[0];
   const firstString = typeof first === "string" ? first : formatArg(first);
@@ -156,6 +258,7 @@ function buildLogEntry(level: LogLevel, args: unknown[]): LogEntry {
   return {
     timestamp: new Date().toISOString(),
     level,
+    origin,
     scopes: parsed.scopes,
     message: parsed.message || firstString,
     context: contextSource,
@@ -178,6 +281,7 @@ function getStorage(): Storage | null {
 
 function normalizeLegacyLogEntry(value: LegacyLogEntry): LogEntry | null {
   const level = isLogLevel(value.level) ? value.level : "info";
+  const origin = normalizeLogOrigin(value.origin);
   const timestamp = typeof value.timestamp === "string" ? value.timestamp : new Date().toISOString();
   const rawArgs = Array.isArray(value.rawArgs)
     ? value.rawArgs.map(normalizeForStorage)
@@ -205,6 +309,7 @@ function normalizeLegacyLogEntry(value: LegacyLogEntry): LogEntry | null {
   return {
     timestamp,
     level,
+    origin,
     scopes: parsed.scopes,
     message: parsed.message || String(firstArg ?? ""),
     context,
@@ -236,15 +341,20 @@ function ensureCachedMemoLoaded() {
 
 function flushCachedLogs() {
   const storage = getStorage();
-  if (!storage) return;
-  if (!cachedLogsMemo) return;
-  if (!cachePending.length) return;
+  if (!cachedLogsMemo || !cachePending.length) {
+    cacheFlushScheduled = false;
+    return;
+  }
+  if (!storage) {
+    cacheFlushScheduled = false;
+    return;
+  }
   try {
     storage.setItem(LOG_CACHE_KEY, JSON.stringify(cachedLogsMemo));
-  } catch {
-    // ignore cache write failures
-  } finally {
     cachePending = [];
+  } catch {
+    cacheWriteFailures += 1;
+  } finally {
     cacheFlushScheduled = false;
   }
 }
@@ -270,8 +380,7 @@ function scheduleCacheFlush() {
 }
 
 function appendCachedLogs(entries: LogEntry[]) {
-  const storage = getStorage();
-  if (!storage || !entries.length) return;
+  if (!entries.length) return;
   try {
     const memo = ensureCachedMemoLoaded();
     memo.push(...entries);
@@ -323,10 +432,10 @@ function emitConsole(entry: LogEntry) {
 
   if (entry.level === "debug") {
     if (typeof entry.context !== "undefined") {
-      nativeConsole.debug(line, entry.context);
+      nativeConsole.log(line, entry.context);
       return;
     }
-    nativeConsole.debug(line);
+    nativeConsole.log(line);
     return;
   }
 
@@ -362,7 +471,7 @@ function shouldEmitTelemetry(level: LogLevel) {
 }
 
 function emitTelemetry(entry: LogEntry) {
-  if (!shouldEmitTelemetry(entry.level) || !telemetryProvider) return;
+  if (entry.origin === "console" || !shouldEmitTelemetry(entry.level) || !telemetryProvider) return;
 
   let telemetry: TelemetryCollector | null;
   try {
@@ -385,6 +494,7 @@ function emitTelemetry(entry: LogEntry) {
     const first = previews[0];
 
     telemetry.logEvent(eventType, {
+      origin: entry.origin,
       level: entry.level,
       scopes: entry.scopes,
       message: entry.message,
@@ -402,16 +512,200 @@ function emitTelemetry(entry: LogEntry) {
   }
 }
 
-function log(level: LogLevel, args: unknown[]) {
-  const entry = buildLogEntry(level, args);
+function appendLogEntry(entry: LogEntry, options?: { emitConsoleOutput?: boolean }) {
   pushLogEntry(entry);
   emitTelemetry(entry);
+  if (options?.emitConsoleOutput === false) {
+    return;
+  }
   emitConsole(entry);
+}
+
+function mapConsoleMethodToLevel(method: "debug" | "log" | "info" | "warn" | "error"): LogLevel {
+  if (method === "warn") return "warn";
+  if (method === "error") return "error";
+  if (method === "debug") return "debug";
+  return "info";
+}
+
+function forwardConsoleCall(method: "debug" | "log" | "info" | "warn" | "error", args: unknown[]) {
+  if (method === "warn") {
+    nativeConsole.warn(...args);
+    return;
+  }
+  if (method === "error") {
+    nativeConsole.error(...args);
+    return;
+  }
+  if (method === "debug") {
+    nativeConsole.log(...args);
+    return;
+  }
+  if (method === "info") {
+    nativeConsole.log(...args);
+    return;
+  }
+  nativeConsole.log(...args);
+}
+
+function captureConsoleCall(method: "debug" | "log" | "info" | "warn" | "error", args: unknown[]) {
+  const entry = buildLogEntry(mapConsoleMethodToLevel(method), args, "console");
+  appendLogEntry(entry, { emitConsoleOutput: false });
+  forwardConsoleCall(method, args);
+}
+
+function buildBrowserDiagnosticEntry(
+  origin: "browser-error" | "unhandledrejection",
+  details: Record<string, unknown>
+) {
+  const severity: LogLevel = "error";
+  const message = origin === "browser-error" ? "window error" : "unhandled rejection";
+  const entry = buildLogEntry(severity, [`[runtime][${origin}] ${message}`, details], origin);
+  appendLogEntry(entry);
+}
+
+function installConsoleBridge() {
+  if (consoleBridgeInstalled || typeof console === "undefined") return;
+  const bridgeMethods: Array<"debug" | "log" | "info" | "warn" | "error"> = [
+    "debug",
+    "log",
+    "info",
+    "warn",
+    "error",
+  ];
+
+  for (const method of bridgeMethods) {
+    try {
+      const bridge = (...args: unknown[]) => {
+        captureConsoleCall(method, args);
+      };
+      Object.defineProperty(console, method, {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: bridge,
+      });
+    } catch {
+      // ignore consoles that cannot be patched
+    }
+  }
+
+  consoleBridgeInstalled = true;
+}
+
+function installBrowserListeners() {
+  if (typeof window === "undefined") return;
+
+  try {
+    const registry = getLogCaptureHandlerRegistry();
+    if (registry.errorHandler) {
+      window.removeEventListener("error", registry.errorHandler, true);
+    }
+    if (registry.rejectionHandler) {
+      window.removeEventListener("unhandledrejection", registry.rejectionHandler, true);
+    }
+
+    const errorHandler: EventListener = (event) => {
+      const errorEvent = event as ErrorEvent;
+      const error = typeof errorEvent.error !== "undefined" ? errorEvent.error : null;
+      const details = {
+        message: errorEvent.message ?? "window error",
+        source: errorEvent.filename ?? null,
+        line: typeof errorEvent.lineno === "number" ? errorEvent.lineno : null,
+        column: typeof errorEvent.colno === "number" ? errorEvent.colno : null,
+        error,
+      };
+      buildBrowserDiagnosticEntry("browser-error", details);
+    };
+    const rejectionHandler: EventListener = (event) => {
+      const rejectionEvent = event as PromiseRejectionEvent;
+      const reason = rejectionEvent.reason;
+      const message =
+        typeof reason === "string"
+          ? reason
+          : reason instanceof Error
+            ? reason.message
+            : formatArg(reason);
+      const details = {
+        message: message || "unhandled rejection",
+        reason,
+      };
+      buildBrowserDiagnosticEntry("unhandledrejection", details);
+    };
+
+    window.addEventListener("error", errorHandler, true);
+    window.addEventListener("unhandledrejection", rejectionHandler, true);
+    registry.errorHandler = errorHandler;
+    registry.rejectionHandler = rejectionHandler;
+    browserListenersInstalled = true;
+  } catch {
+    // ignore listener installation failures
+  }
+}
+
+export function initializeLogCapture() {
+  installConsoleBridge();
+  installBrowserListeners();
+  if (!logCaptureInitializedAt) {
+    logCaptureInitializedAt = new Date().toISOString();
+  }
+  return getLogCaptureDiagnostics();
+}
+
+function log(level: LogLevel, args: unknown[]) {
+  const entry = buildLogEntry(level, args, "logger");
+  appendLogEntry(entry);
 }
 
 export function exportLogEntries() {
   flushCachedLogs();
   return [...ensureCachedMemoLoaded(), ...logBuffer];
+}
+
+function buildCountMap<T extends string>(entries: LogEntry[], key: (entry: LogEntry) => T, values: readonly T[]) {
+  const counts = Object.fromEntries(values.map((value) => [value, 0])) as Record<T, number>;
+  for (const entry of entries) {
+    const value = key(entry);
+    counts[value] = (counts[value] ?? 0) + 1;
+  }
+  return counts;
+}
+
+export function getLogCaptureDiagnostics(entries = exportLogEntries()): LogCaptureDiagnostics {
+  const sourceCounts = buildCountMap(entries, (entry) => entry.origin, ["logger", "console", "browser-error", "unhandledrejection"] as const);
+  const levelCounts = buildCountMap(entries, (entry) => entry.level, ["error", "warn", "info", "debug"] as const);
+  const storageAvailable = getStorage() !== null;
+
+  return {
+    currentLogLevel: getCurrentLogLevel(),
+    persistedLogLevel: readPersistedLogLevel(),
+    initializedAt: logCaptureInitializedAt,
+    consoleBridgeInstalled,
+    browserListenersInstalled,
+    storageAvailable,
+    persistenceStatus: !storageAvailable ? "memory-only" : cacheWriteFailures > 0 ? "degraded" : "complete",
+    cacheWriteFailures,
+    cachedEntryCount: ensureCachedMemoLoaded().length,
+    pendingEntryCount: cachePending.length,
+    totalEntries: entries.length,
+    sourceCounts,
+    levelCounts,
+  };
+}
+
+export function exportDiagnosticLogBundle<TSession extends object, TSettings extends object>(
+  context: DiagnosticLogBundleContext<TSession, TSettings>
+): DiagnosticLogBundle<TSession, TSettings> {
+  const logs = exportLogEntries();
+  return {
+    schemaVersion: 1,
+    exportedAt: new Date().toISOString(),
+    session: context.session,
+    settings: context.settings,
+    telemetry: context.telemetry,
+    logs,
+    diagnostics: getLogCaptureDiagnostics(logs),
+  };
 }
 
 function resolveTelemetryEventType(level: LogLevel): TelemetryEvent["type"] {
@@ -440,7 +734,8 @@ export function exportLogsAsTelemetrySummary(): TelemetrySummary | null {
       type: resolveTelemetryEventType(entry.level),
       timestamp: relativeTimestamp,
       data: {
-        source: "logger",
+        source: entry.origin,
+        origin: entry.origin,
         level: entry.level,
         scopes: entry.scopes,
         message: entry.message,
@@ -488,5 +783,13 @@ export default {
   warn,
   error,
   isLevelEnabled,
+  initializeLogCapture,
+  getLogCaptureDiagnostics,
+  exportDiagnosticLogBundle,
+  resolveBootstrapLogLevel,
   setTelemetryProvider,
 };
+
+if (typeof window !== "undefined" && typeof process !== "undefined" && process.env.NODE_ENV !== "test") {
+  initializeLogCapture();
+}

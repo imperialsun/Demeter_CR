@@ -1,6 +1,7 @@
 import type { AutomaticSpeechRecognitionPipeline } from "@huggingface/transformers";
 import { setTransformersVersion } from "@/lib/telemetry";
 import logger from "@/lib/logger";
+import { createOrtWasmPaths } from "@/lib/ort-wasm-paths";
 
 
 type GenericPipeline = {
@@ -74,9 +75,12 @@ function configureEnvironment(module: TransformersModule) {
   const wasmBackend = (onnxBackends.wasm ??= {}) as Record<string, unknown>;
   onnxBackends.webgpu = onnxBackends.webgpu ?? {};
 
-  wasmBackend.wasmPaths = wasmBackend.wasmPaths ?? "/onnx/";
-  // Default to single-threaded, proxy worker on, no-JSEP to avoid COEP requirements while keeping UI responsive.
-  wasmBackend.proxy = true;
+  if (typeof wasmBackend.wasmPaths === "string" || wasmBackend.wasmPaths == null) {
+    wasmBackend.wasmPaths = createOrtWasmPaths();
+  }
+  // Keep execution on the main thread: the proxy-worker path is brittle in the production bundle
+  // and is what currently trips the `window is not defined` failure during WASM init.
+  wasmBackend.proxy = false;
   wasmBackend.useJsep = false;
   wasmBackend.simd = true;
   wasmBackend.numThreads = 1;
@@ -88,7 +92,7 @@ function configureEnvironment(module: TransformersModule) {
     wasmUseJsep: wasmBackend.useJsep,
     wasmSimd: wasmBackend.simd,
     wasmThreads: wasmBackend.numThreads,
-    wasmPaths: typeof wasmBackend.wasmPaths === "string" ? wasmBackend.wasmPaths : "custom",
+    wasmPaths: wasmBackend.wasmPaths,
   });
 }
 

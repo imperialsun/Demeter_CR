@@ -6,8 +6,10 @@ import { Toaster } from "@/components/ui/toaster";
 import { toast } from "@/components/ui/use-toast";
 import { initializeBackendSupport } from "@/lib/backend-support";
 import logger, {
+  initializeLogCapture,
   setLogLevelProvider,
   setTelemetryProvider,
+  resolveBootstrapLogLevel,
 } from "@/lib/logger";
 import { isBackendMode } from "@/lib/runtime-config";
 import { initializeBackendSession } from "@/lib/backend-auth";
@@ -19,7 +21,8 @@ import "./index.css";
 import App from "./App";
 
 import { useAsrStore } from "@/store/asr-store";
-setLogLevelProvider(() => useAsrStore.getState().logLevel);
+initializeLogCapture();
+setLogLevelProvider(() => resolveBootstrapLogLevel(useAsrStore.getState()));
 setTelemetryProvider(() => useAsrStore.getState().telemetryCollector);
 
 logger.info("[app] bootstrap start", {

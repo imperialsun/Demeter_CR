@@ -9,6 +9,7 @@ import {
   resolveBackendSelectionErrorMessage,
   resolveWasmExecutionOptions,
 } from "@/lib/asr-internals";
+import { ORT_WASM_BINARY_PATH } from "@/lib/ort-wasm-paths";
 
 describe("asr-internals", () => {
   it("normalizes whitespace", () => {
@@ -37,12 +38,14 @@ describe("asr-internals", () => {
       forceSingleThread: false,
       crossOriginIsolated: true,
       hardwareConcurrency: 8,
-      wasmPath: "/onnx/",
+      wasmBinaryPath: ORT_WASM_BINARY_PATH,
     });
     expect(opts).toMatchObject({
-      wasmPaths: "/onnx/",
+      wasmPaths: {
+        wasm: ORT_WASM_BINARY_PATH,
+      },
       numThreads: 8,
-      proxy: true,
+      proxy: false,
       simd: true,
       useJsep: false,
     });
@@ -151,5 +154,18 @@ describe("asr-internals", () => {
         wasmAvailable: false,
       })
     ).toContain("Aucun backend utilisable");
+  });
+
+  it("surfaces a CSP-specific guidance message for wasm failures", () => {
+    const message = resolveBackendSelectionErrorMessage({
+      lastError: new Error(
+        "RuntimeError: Aborted(CompileError: WebAssembly.instantiate(): Compiling or instantiating WebAssembly module violates the following Content Security Policy directive because 'unsafe-eval' is not an allowed source of script in the following Content Security Policy directive: )"
+      ),
+      webGpuAvailable: false,
+      wasmAvailable: true,
+    });
+
+    expect(message).toContain("wasm-unsafe-eval");
+    expect(message).toContain("CSP");
   });
 });

@@ -424,6 +424,7 @@ export function useTranscriptionController() {
           break;
         }
         const chunkPcm = extractChunkPcm(decoded.pcm, decoded.sampleRate, definition);
+        const chunkBytes = chunkPcm.byteLength;
         const result = await transcribeChunk({
           pipeline,
           chunk: definition,
@@ -469,9 +470,13 @@ export function useTranscriptionController() {
 
         // Memory snapshot for this chunk (useful to track per-chunk heap usage)
         try {
-          const bytes = (chunkPcm as Float32Array).byteLength ?? 0;
           telemetry.snapshotMemory(`CHUNK_AFTER_PROCESS_${definition.index}`);
-          telemetry.logEvent("RAM_USAGE", { context: "chunk", index: definition.index, bytes, mb: Number((bytes / (1024 * 1024)).toFixed(3)) });
+          telemetry.logEvent("RAM_USAGE", {
+            context: "chunk",
+            index: definition.index,
+            bytes: chunkBytes,
+            mb: Number((chunkBytes / (1024 * 1024)).toFixed(3)),
+          });
         } catch (err) {
           void err;
         }
@@ -822,6 +827,7 @@ export function useTranscriptionController() {
             const localChunk = segmentChunkPlan[i]!;
             const globalChunk = segmentChunkPlanGlobal[i]!;
             const chunkPcm = extractChunkPcm(segmentPcm, segmentSampleRate, localChunk);
+            const chunkBytes = chunkPcm.byteLength;
             const result = await transcribeChunk({
               pipeline,
               chunk: globalChunk,
@@ -867,9 +873,13 @@ export function useTranscriptionController() {
             updateOverallConfidence(segments, telemetry, globalChunk.index, result?.text, fallbackDuration);
 
             try {
-              const bytes = (chunkPcm as Float32Array).byteLength ?? 0;
               telemetry.snapshotMemory(`CHUNK_AFTER_PROCESS_${globalChunk.index}`);
-              telemetry.logEvent("RAM_USAGE", { context: "chunk", index: globalChunk.index, bytes, mb: Number((bytes / (1024 * 1024)).toFixed(3)) });
+              telemetry.logEvent("RAM_USAGE", {
+                context: "chunk",
+                index: globalChunk.index,
+                bytes: chunkBytes,
+                mb: Number((chunkBytes / (1024 * 1024)).toFixed(3)),
+              });
             } catch (err) {
               void err;
             }
@@ -1615,7 +1625,7 @@ export function normaliseSegments(
 
       // Optional detailed debug for chunk-level estimate
       try {
-        if (logger.isLevelEnabled("debug") && typeof aggregateConf === 'number') {
+        if (typeof aggregateConf === 'number') {
           const details = scoreDetails(text, Math.max(0.001, (result.chunk.end ?? result.chunk.start) - (result.chunk.start ?? 0)));
           logger.debug("[transcription][chunk] confidence details", {
             chunkId: result.chunk.id,
@@ -1718,14 +1728,12 @@ export function normaliseSegments(
         logger.debug("[transcription][segment] confidence from text", { index: item.index, confidence: item.confidence });
         // Detailed debug when requested
         try {
-          if (logger.isLevelEnabled("debug")) {
-            const details = scoreDetails(item.text, dur);
-            logger.debug("[transcription][segment] confidence details", {
-              index: item.index,
-              source: item.confidenceSource,
-              ...details,
-            });
-          }
+          const details = scoreDetails(item.text, dur);
+          logger.debug("[transcription][segment] confidence details", {
+            index: item.index,
+            source: item.confidenceSource,
+            ...details,
+          });
         } catch (err) {
           void err;
         }

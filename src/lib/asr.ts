@@ -18,13 +18,16 @@ import type {
 } from "@/lib/transformers-loader";
 import { detectWebGpuSupport } from "@/lib/backend-support";
 import { cleanTranscriptText } from "@/lib/text-cleanup";
+import { createAsrWorkerRuntime, getWorkerRuntimeSession } from "@/lib/asr-worker-runtime";
 import {
   isModelTooLargeMessage,
+  isWasmCspBlockedMessage,
   normalizePipelineOutput,
   resolveBackendSelectionErrorMessage,
   resolveWasmExecutionOptions,
   type PipelineInvokeResult,
 } from "@/lib/asr-internals";
+import { createOrtWasmPaths } from "@/lib/ort-wasm-paths";
 
 interface PipelineProgressPayload {
   progress?: number;
@@ -38,6 +41,7 @@ export interface CreatePipelineOptions {
   modelPreset: PresetKey;
   customModelId: string;
   backendPreference: BackendImplementation;
+  runtimeMode?: "auto" | "direct";
   forceBackend?: BackendImplementation;
   forceSingleThread?: boolean;
   telemetry?: TelemetryCollector;
@@ -75,7 +79,17 @@ const BACKEND_SEQUENCE: Record<BackendImplementation, BackendImplementation[]> =
   wasm: ["wasm"],
 };
 const WEBGPU_SUPPORT_PROMISE = detectWebGpuSupport();
-const WASM_PATH = "/onnx/";
+
+function isWorkerRuntimeEnabled(runtimeMode: "auto" | "direct" | undefined) {
+  if (runtimeMode === "direct") {
+    return false;
+  }
+  if (typeof window === "undefined" || typeof Worker === "undefined") {
+    return false;
+  }
+  const mode = (import.meta as unknown as { env?: { MODE?: string } }).env?.MODE;
+  return mode !== "test";
+}
 
 
 async function forceSingleThreadedWasmEnv() {
@@ -83,9 +97,9 @@ async function forceSingleThreadedWasmEnv() {
   const moduleEnv = (module as unknown as { env?: { backends?: { onnx?: { wasm?: Record<string, unknown> } } } }).env;
   const config = {
     numThreads: 1,
-    proxy: true,
+    proxy: false,
     simd: true,
-    wasmPaths: WASM_PATH,
+    wasmPaths: createOrtWasmPaths(),
     useJsep: false,
   };
 
@@ -107,6 +121,7 @@ export async function createAsrPipeline({
   modelPreset,
   customModelId,
   backendPreference,
+  runtimeMode,
   forceBackend,
   forceSingleThread,
   telemetry,
@@ -117,6 +132,20 @@ export async function createAsrPipeline({
   backend: BackendImplementation;
   modelId: string;
 }> {
+  if (isWorkerRuntimeEnabled(runtimeMode)) {
+    return createAsrWorkerRuntime({
+      modelPreset,
+      customModelId,
+      backendPreference,
+      runtimeMode,
+      forceBackend,
+      forceSingleThread,
+      telemetry,
+      onStatus,
+      onProgress,
+    });
+  }
+
   const modelId = resolveModelId(modelPreset, customModelId);
   const modelQuantizationOverrides = useAsrStore.getState().modelQuantizationOverrides;
   telemetry?.setRuntimeContext({ backend: backendPreference, modelId });
@@ -145,13 +174,12 @@ export async function createAsrPipeline({
     const forceSingle =
       typeof forceSingleThread === "boolean" ? forceSingleThread : useAsrStore.getState().forceSingleThread;
     const crossIsolated =
-      typeof window !== "undefined" &&
-      ((window as unknown) as { crossOriginIsolated?: boolean }).crossOriginIsolated === true;
+      typeof globalThis !== "undefined" &&
+      (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated === true;
     return resolveWasmExecutionOptions({
       forceSingleThread: forceSingle,
       crossOriginIsolated: crossIsolated,
       hardwareConcurrency: typeof navigator !== "undefined" ? navigator.hardwareConcurrency : undefined,
-      wasmPath: WASM_PATH,
     });
   }
 
@@ -284,26 +312,35 @@ export async function createAsrPipeline({
 
       logger.info("ASR model load success", { backend, modelId });
       onStatus?.("ready", `Backend ${backend}`);
+      if (backend !== "wasm") {
+        useAsrStore.getState().setWasmThreads(null);
+      }
 
       return { pipeline: pipe, backend, modelId };
     } catch (error) {
       logger.warn(`Échec initialisation backend ${backend}`, error);
       lastError = error;
       telemetry?.logEvent("ERROR", { backend, message: (error as Error).message });
+      const errorMessage = (error as Error).message;
+      const wasCspBlocked = isWasmCspBlockedMessage(errorMessage);
       const friendly = backend === "wasm"
-        ? `Erreur initialisation WASM : ${(error as Error).message}. Vérifiez que les fichiers WASM sont accessibles dans /onnx/ et que les en-têtes COOP/COEP sont configurés si vous utilisez des threads.`
-        : (error as Error).message;
+        ? wasCspBlocked
+          ? `Erreur initialisation WASM : ${errorMessage}. La CSP de la page bloque la compilation WebAssembly ; ajoutez 'wasm-unsafe-eval' à script-src ou desserrez la policy du reverse proxy.`
+          : `Erreur initialisation WASM : ${errorMessage}. Vérifiez que les fichiers WASM sont accessibles dans /onnx/ et que les en-têtes COOP/COEP sont configurés si vous utilisez des threads.`
+        : errorMessage;
       onStatus?.("error", friendly);
 
       // If wasm init failed and we haven't tried a no-threads fallback, try it now.
-      if (backend === "wasm" && !triedWasmNoThreads) {
+      if (backend === "wasm" && !triedWasmNoThreads && !wasCspBlocked) {
         triedWasmNoThreads = true;
 
         // If we attempted multithread and it failed, log/telemetry/toast and persist fallback to single-thread
         if (attemptedThreads > 1) {
           logger.warn("WASM multithread failed, falling back to single-threaded mode");
           if (telemetry?.recordAlert) telemetry.recordAlert("WASM_MULTITHREAD_UNAVAILABLE", { attemptedThreads, message: (error as Error).message });
-          try { toast("mode multithread indisponible sur cette plateforme"); } catch (err) { void err; }
+          if (typeof window !== "undefined") {
+            try { toast("mode multithread indisponible sur cette plateforme"); } catch (err) { void err; }
+          }
           // Persist fallback so UI updates
           useAsrStore.getState().setForceSingleThread(true);
         }
@@ -320,9 +357,9 @@ export async function createAsrPipeline({
               {
                 name: "wasm",
                 options: {
-                  wasmPaths: WASM_PATH,
+                  wasmPaths: createOrtWasmPaths(),
                   numThreads: 1,
-                  proxy: true,
+                  proxy: false,
                   simd: true,
                   useJsep: false,
                 },
@@ -367,6 +404,7 @@ export async function createAsrPipeline({
           telemetry?.stopTimer("load_model_total");
           telemetry?.logEvent("READY", { backend: `${backend}-single-thread` });
           telemetry?.setRuntimeContext({ backend: `${backend}-single-thread`, modelId });
+          useAsrStore.getState().setWasmThreads(1);
           onStatus?.("ready", `Backend ${backend} (sans threads)`);
 
           return { pipeline: pipe2, backend, modelId };
@@ -418,6 +456,20 @@ export async function transcribeChunk({
   if (abortSignal?.aborted) {
     throw new Error("Transcription annulée");
   }
+
+  const workerSession = getWorkerRuntimeSession(asr);
+  if (workerSession) {
+    return workerSession.transcribeChunk({
+      chunk,
+      pcm,
+      sampleRate,
+      telemetry,
+      abortSignal,
+      enableWordTimestamps,
+      showSegmentConfidence,
+    });
+  }
+
   telemetry?.logEvent("START_CHUNK", {
     chunkId: chunk.id,
     index: chunk.index,
@@ -658,6 +710,11 @@ export function isModelTooLargeError(err: unknown): boolean {
 export async function disposePipeline(pipe: GenericPipeline | undefined) {
   if (!pipe) return;
   try {
+    const workerSession = getWorkerRuntimeSession(pipe);
+    if (workerSession) {
+      workerSession.terminate();
+      return;
+    }
     await pipe.dispose?.();
   } catch (error) {
     logger.warn("Erreur lors de la libération du pipeline", error);

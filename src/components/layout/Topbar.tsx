@@ -2,9 +2,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useAsrStore, MODEL_PRESETS, type CloudTranscriptionStatus } from "@/store/asr-store";
+import { useAsrStore, MODEL_PRESETS, serializePersistedSettings, type CloudTranscriptionStatus } from "@/store/asr-store";
 import { cn } from "@/lib/utils";
-import { ActivitySquare, Bot, Cloud, Cog, Loader2, LogOut, RotateCw } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "@/components/ui/use-toast";
 import { useEffect, useState } from "react";
@@ -13,7 +12,7 @@ import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { useTranscriptionController } from "@/hooks/useTranscriptionController";
 import { canAccessFeature, getFirstAuthorizedRoute } from "@/lib/backend-permissions";
 import { initializeBackendSupport, resetWebGpuSupportCache } from "@/lib/backend-support";
-import logger, { exportLogEntries, type LogLevel } from "@/lib/logger";
+import logger, { exportDiagnosticLogBundle, type LogLevel } from "@/lib/logger";
 import { setAuthenticated } from "@/lib/auth";
 import { backendLogout } from "@/lib/backend-auth";
 import { getBackendSession } from "@/lib/backend-session";
@@ -24,6 +23,8 @@ import { findSuggestedReportModel, formatTokenCount } from "@/lib/llm/modelCatal
 import { LLM_API_STATUS_META } from "@/lib/llm/llmStatusMeta";
 import { resolveActiveLlmPipelineConfig } from "@/lib/llm/providerSettings";
 import { getLocalLlmModelProfile } from "@/lib/llm/localModelCatalog";
+import { downloadBlob } from "@/lib/export";
+import { Download, ActivitySquare, Bot, Cloud, Cog, Loader2, LogOut, RotateCw } from "lucide-react";
 
 const STATUS_LABELS: Record<string, string> = {
   idle: "Inactif",
@@ -61,6 +62,45 @@ const LOG_LEVEL_LABELS: Record<LogLevel, string> = {
   info: "Info",
   debug: "Debug",
 };
+
+function buildDiagnosticLogSessionSnapshot(snapshot: ReturnType<typeof useAsrStore.getState>) {
+  return {
+    hasHydrated: snapshot.hasHydrated,
+    status: snapshot.status,
+    statusDetail: snapshot.statusDetail,
+    activePreset: snapshot.activePreset,
+    customModelId: snapshot.customModelId,
+    backendPreference: snapshot.backendPreference,
+    activeBackend: snapshot.activeBackend,
+    memoryMode: snapshot.memoryMode,
+    segmentationMode: snapshot.segmentationMode,
+    chunkStrategy: snapshot.chunkStrategy,
+    preprocessingMode: snapshot.preprocessingMode,
+    isTranscribing: snapshot.isTranscribing,
+    progress: snapshot.progress,
+    audioSource: snapshot.audioSource,
+    audioMetadata: snapshot.audioMetadata,
+    logLevel: snapshot.logLevel,
+    webGpuSupported: snapshot.webGpuSupported,
+    wasmAvailable: snapshot.wasmAvailable,
+    blockedPresets: snapshot.blockedPresets,
+    cloudStatus: snapshot.cloudStatus,
+    cloudStatusDetail: snapshot.cloudStatusDetail,
+    llmApiStatus: snapshot.llmApiStatus,
+    llmApiStatusDetail: snapshot.llmApiStatusDetail,
+    llmApiProvider: snapshot.llmApiProvider,
+    llmLocalStatus: snapshot.llmLocalStatus,
+    llmLocalStatusDetail: snapshot.llmLocalStatusDetail,
+    llmLocalModelProfile: snapshot.llmLocalModelProfile,
+    wasmThreads: snapshot.wasmThreads,
+    telemetryCollectorActive: Boolean(snapshot.telemetryCollector),
+    telemetrySummaryAvailable: Boolean(snapshot.telemetrySummary),
+  };
+}
+
+function buildDiagnosticLogFilename(exportedAt: string) {
+  return `demeter-logs-${exportedAt.replace(/[:.]/g, "-")}.json`;
+}
 
 export function Topbar() {
   const navigate = useNavigate();
@@ -177,45 +217,27 @@ export function Topbar() {
     setLogLevel(value as LogLevel);
   };
 
-  const handleExportLogs = async () => {
-    logger.info("[topbar] exporting logs");
+  const handleExportLogs = () => {
     const snapshot = useAsrStore.getState();
     const telemetry = snapshot.telemetryCollector?.exportSummary() ?? snapshot.telemetrySummary ?? null;
-    const payload = {
-      exportedAt: new Date().toISOString(),
-      session: {
-        status: snapshot.status,
-        statusDetail: snapshot.statusDetail,
-        activePreset: snapshot.activePreset,
-        customModelId: snapshot.customModelId,
-        backendPreference: snapshot.backendPreference,
-        activeBackend: snapshot.activeBackend,
-        memoryMode: snapshot.memoryMode,
-        segmentationMode: snapshot.segmentationMode,
-        chunkStrategy: snapshot.chunkStrategy,
-        preprocessingMode: snapshot.preprocessingMode,
-        isTranscribing: snapshot.isTranscribing,
-        progress: snapshot.progress,
-        audioSource: snapshot.audioSource,
-        audioMetadata: snapshot.audioMetadata,
-        logLevel: snapshot.logLevel,
-      },
+    logger.info("[topbar] diagnostic log export requested", {
+      logLevel: snapshot.logLevel,
+      telemetryAvailable: Boolean(telemetry),
+      hydrated: snapshot.hasHydrated,
+    });
+    const bundle = exportDiagnosticLogBundle({
+      session: buildDiagnosticLogSessionSnapshot(snapshot),
+      settings: serializePersistedSettings(snapshot),
       telemetry,
-      logs: exportLogEntries(),
-    };
-    const text = JSON.stringify(payload, null, 2);
-    try {
-      await navigator.clipboard.writeText(text);
-      logger.info("[topbar] logs copied to clipboard", {
-        entryCount: payload.logs.length,
-      });
-      toast("Logs copiés dans le presse-papiers.");
-    } catch (error) {
-      logger.warn("[topbar] clipboard export failed, falling back to prompt", error);
-      if (typeof window !== "undefined") {
-        window.prompt("Copiez les logs ci-dessous :", text);
-      }
-    }
+    });
+    const filename = buildDiagnosticLogFilename(bundle.exportedAt);
+    logger.info("[topbar] diagnostic log export prepared", {
+      entryCount: bundle.logs.length,
+      filename,
+      persistenceStatus: bundle.diagnostics.persistenceStatus,
+    });
+    downloadBlob(JSON.stringify(bundle, null, 2), filename, "application/json");
+    toast("Fichier de logs téléchargé.");
   };
 
   const handleLogout = async () => {
@@ -382,7 +404,8 @@ export function Topbar() {
                 className="gap-2"
                 onClick={handleExportLogs}
               >
-                Exporter logs
+                <Download className="h-4 w-4" />
+                Télécharger logs
               </Button>
             </>
           ) : null}

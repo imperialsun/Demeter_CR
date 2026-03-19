@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ORT_WASM_BINARY_PATH } from "@/lib/ort-wasm-paths";
 
 const mocks = vi.hoisted(() => {
   const state = {
@@ -65,8 +66,10 @@ describe("transformers-loader", () => {
     expect(mocks.module.env.allowLocalModels).toBe(false);
     expect(mocks.module.env.useBrowserCache).toBe(true);
     expect(mocks.module.env.backends.onnx.wasm).toMatchObject({
-      wasmPaths: "/onnx/",
-      proxy: true,
+      wasmPaths: {
+        wasm: ORT_WASM_BINARY_PATH,
+      },
+      proxy: false,
       useJsep: false,
       simd: true,
       numThreads: 1,
