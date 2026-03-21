@@ -85,22 +85,21 @@ export async function flushNow() {
       logger.warn("[backend-settings-sync] unauthorized, attempting refresh", {
         error: formatBackendErrorMessage(error),
       });
-      let refreshed = false;
       try {
-        refreshed = await backendRefresh();
+        const refreshed = await backendRefresh();
+        if (!refreshed) {
+          handleBackendUnauthorized(error);
+          clearRetry();
+          logger.warn("[backend-settings-sync] refresh failed, stopping retries", {
+            error: formatBackendErrorMessage(error),
+          });
+          return;
+        }
       } catch (refreshError) {
         logger.warn("[backend-settings-sync] refresh request failed", {
           error: refreshError instanceof Error ? refreshError.message : String(refreshError),
         });
         scheduleRetry();
-        return;
-      }
-      if (!refreshed) {
-        handleBackendUnauthorized(error);
-        clearRetry();
-        logger.warn("[backend-settings-sync] refresh failed, stopping retries", {
-          error: formatBackendErrorMessage(error),
-        });
         return;
       }
 

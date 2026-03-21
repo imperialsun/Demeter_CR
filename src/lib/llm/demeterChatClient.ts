@@ -133,7 +133,9 @@ async function requestDemeterChat(params: {
       logger.warn("[llm-api][demeter] refresh request failed", {
         message: refreshError instanceof Error ? refreshError.message : String(refreshError),
       });
-      throw new Error(`Impossible de renouveler la session backend Demeter Santé. ${toErrorMessage(refreshError)}`);
+      throw new Error(`Impossible de renouveler la session backend Demeter Santé. ${toErrorMessage(refreshError)}`, {
+        cause: refreshError,
+      });
     }
 
     response = await request();

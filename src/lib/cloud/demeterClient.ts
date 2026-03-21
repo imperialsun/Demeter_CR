@@ -195,7 +195,7 @@ export async function transcribeWithDemeterSante(
       probeReachable: probe.reachable,
       probeDetail: probe.detail,
     });
-    throw new Error(surfacedMessage);
+    throw new Error(surfacedMessage, { cause: error });
   }
 
   if (!response.ok) {
@@ -287,7 +287,9 @@ async function sendDemeterTranscriptionRequest(
     logger.warn("[cloud][demeter] refresh request failed", {
       message: refreshError instanceof Error ? refreshError.message : String(refreshError),
     });
-    throw new Error(`Impossible de renouveler la session backend Demeter Santé. ${formatBackendErrorMessage(refreshError)}`);
+    throw new Error(`Impossible de renouveler la session backend Demeter Santé. ${formatBackendErrorMessage(refreshError)}`, {
+      cause: refreshError,
+    });
   }
 
   response = await send();

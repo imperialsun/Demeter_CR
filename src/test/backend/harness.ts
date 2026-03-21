@@ -118,7 +118,7 @@ async function startBackendHarness(): Promise<HarnessState> {
     await stopBackendHarness().catch(() => undefined);
     const details = formatHarnessLogs(state);
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`${message}\n${details}`);
+    throw new Error(`${message}\n${details}`, { cause: error });
   }
 }
 

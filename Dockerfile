@@ -15,8 +15,8 @@ RUN npm run build:prod
 
 # Production image
 FROM nginx:1.29.6-alpine3.23
-# Refresh zlib from Alpine repositories when the upstream nginx image lags behind security rebuilds.
-RUN apk upgrade --no-cache zlib
+# Refresh Alpine security-sensitive packages when the upstream nginx image lags behind security rebuilds.
+RUN apk upgrade --no-cache zlib libexpat
 
 # Copy built static assets
 COPY --from=builder /app/dist /srv
