@@ -16,12 +16,14 @@ import { MISTRAL_MAX_UPLOAD_BYTES, transcribeWithMistral } from "@/lib/cloud/mis
 import { resolveMistralSegmentDurationSec } from "@/lib/cloud/mistralParams";
 import { parseMistralOutput } from "@/lib/cloud/mistralSegments";
 import { transcribeWithDemeterSante } from "@/lib/cloud/demeterClient";
+import { backendRefresh } from "@/lib/backend-auth";
 import {
   formatBackendErrorMessage,
   handleBackendUnauthorized,
   isBackendForbiddenError,
   isBackendUnauthorizedError,
 } from "@/lib/backend-api";
+import { isBackendAuthenticated } from "@/lib/backend-session";
 import { resolveChunkingConfig } from "@/hooks/useCloudTranscription.steps";
 import { createSessionTranscriptMemoryEntry } from "@/lib/sessionTranscriptMemory";
 import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
@@ -701,7 +703,6 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         output = isDemeter
           ? await transcribeWithDemeterSante(
               {
-                model,
                 file: processedFile,
                 diarize: diarizationEnabled,
                 onDiarizationResolved,
@@ -1049,7 +1050,17 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       const unauthorized = isBackendUnauthorizedError(err);
       const forbidden = isBackendForbiddenError(err);
       if (unauthorized) {
-        handleBackendUnauthorized(err);
+        logger.warn("[cloud] unauthorized, attempting refresh before final error handling");
+        try {
+          const refreshed = await backendRefresh();
+          if (!refreshed && !isBackendAuthenticated()) {
+            handleBackendUnauthorized(err);
+          }
+        } catch (refreshError) {
+          logger.warn("[cloud] refresh request failed", {
+            message: refreshError instanceof Error ? refreshError.message : String(refreshError),
+          });
+        }
       }
       const message = unauthorized || forbidden ? formatBackendErrorMessage(err) : (err as Error)?.message ?? "Erreur inconnue";
       if (stopRequestedRef.current || runIdRef.current !== runId) {

@@ -14,6 +14,10 @@ const backendApiMocks = vi.hoisted(() => ({
   parseBackendHttpError: vi.fn(),
 }));
 
+const backendAuthMocks = vi.hoisted(() => ({
+  backendRefresh: vi.fn(),
+}));
+
 const loggerMock = vi.hoisted(() => ({
   debug: vi.fn(),
   info: vi.fn(),
@@ -35,6 +39,10 @@ vi.mock("@/lib/backend-api", async () => {
     parseBackendHttpError: (...args: unknown[]) => backendApiMocks.parseBackendHttpError(...args),
   };
 });
+
+vi.mock("@/lib/backend-auth", () => ({
+  backendRefresh: (...args: unknown[]) => backendAuthMocks.backendRefresh(...args),
+}));
 
 vi.mock("@/lib/logger", () => ({
   default: {
@@ -58,6 +66,7 @@ describe("demeterClient", () => {
     );
     backendApiMocks.handleBackendUnauthorized.mockReset();
     backendApiMocks.parseBackendHttpError.mockReset();
+    backendAuthMocks.backendRefresh.mockReset();
     runtimeConfigMock.getRuntimeConfig.mockReset();
     runtimeConfigMock.getRuntimeConfig.mockReturnValue({
       mode: "backend",
@@ -80,7 +89,6 @@ describe("demeterClient", () => {
     await expect(
       transcribeWithDemeterSante(
         {
-          model: "voxtral-mini-latest",
           file,
         },
         telemetry
@@ -139,7 +147,6 @@ describe("demeterClient", () => {
     await expect(
       transcribeWithDemeterSante(
         {
-          model: "voxtral-mini-latest",
           file,
         },
         telemetry
@@ -155,5 +162,35 @@ describe("demeterClient", () => {
         probeDetail: expect.stringContaining("probe status 401"),
       })
     );
+  });
+
+  it("refreshes backend auth and retries the transcription request when access has expired", async () => {
+    const telemetry = new TelemetryCollector("demeter-refresh-retry");
+    const file = new File(["audio"], "audio.wav", { type: "audio/wav" });
+
+    backendAuthMocks.backendRefresh.mockResolvedValue(true);
+    backendApiMocks.backendFetch
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ text: "bonjour" }), { status: 200 }));
+    backendApiMocks.parseBackendHttpError.mockResolvedValue(
+      new BackendHttpError({
+        status: 401,
+        code: "unauthorized",
+        message: "Session expirée. Veuillez vous reconnecter.",
+        path: "/providers/demeter-sante/audio/transcriptions",
+        method: "POST",
+      })
+    );
+
+    const result = await transcribeWithDemeterSante(
+      {
+        file,
+      },
+      telemetry
+    );
+
+    expect(result.text).toBe("bonjour");
+    expect(backendAuthMocks.backendRefresh).toHaveBeenCalledTimes(1);
+    expect(backendApiMocks.handleBackendUnauthorized).not.toHaveBeenCalled();
   });
 });

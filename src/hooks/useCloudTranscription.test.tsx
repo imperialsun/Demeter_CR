@@ -327,7 +327,6 @@ describe("useCloudTranscription", () => {
     expect(mocks.transcribeWithDemeterSante).toHaveBeenCalledTimes(1);
     expect(mocks.transcribeWithDemeterSante).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: "voxtral-demeter-latest",
         diarize: false,
       }),
       expect.anything()

@@ -4,9 +4,11 @@ import { getRuntimeConfig } from "@/lib/runtime-config";
 import {
   backendFetch,
   formatBackendErrorMessage,
+  isBackendUnauthorizedError,
   handleBackendUnauthorized,
   parseBackendHttpError,
 } from "@/lib/backend-api";
+import { backendRefresh } from "@/lib/backend-auth";
 
 const DEMETER_TRANSCRIPTIONS_PATH = "/providers/demeter-sante/audio/transcriptions";
 const DEMETER_MODELS_PATH = "/providers/demeter-sante/models";
@@ -25,7 +27,6 @@ export type DemeterTranscriptionResponse = {
 };
 
 type DemeterTranscriptionRequest = {
-  model: string;
   file: File;
   diarize?: boolean;
   signal?: AbortSignal;
@@ -78,12 +79,10 @@ async function probeDemeterBackendReachability(
 }
 
 async function probeDemeterMultipartReachability(
-  model: string,
   telemetryContext: Record<string, unknown>,
   telemetry?: TelemetryCollector
 ): Promise<{ reachable: boolean; detail: string }> {
   const probeFormData = new FormData();
-  probeFormData.set("model", model);
   probeFormData.set("diarize", "false");
   probeFormData.set("file", new File([new Uint8Array([0])], "demeter-probe.wav", { type: "audio/wav" }));
 
@@ -131,14 +130,8 @@ export async function transcribeWithDemeterSante(
   request: DemeterTranscriptionRequest,
   telemetry?: TelemetryCollector
 ): Promise<DemeterTranscriptionResponse> {
-  const model = request.model.trim();
-  if (!model) {
-    throw new Error("Modèle Demeter Santé manquant");
-  }
-
   const diarize = request.diarize ?? true;
   const formData = new FormData();
-  formData.set("model", model);
   formData.set("diarize", diarize ? "true" : "false");
   if (diarize) {
     formData.append("timestamp_granularities", "segment");
@@ -149,7 +142,6 @@ export async function transcribeWithDemeterSante(
   const endpoint = `${backendBaseUrl.replace(/\/+$/, "")}${DEMETER_TRANSCRIPTIONS_PATH}`;
   const telemetryContext = {
     provider: "demeter_sante",
-    model,
     diarize,
     fileName: request.file.name,
     sizeBytes: request.file.size,
@@ -165,14 +157,10 @@ export async function transcribeWithDemeterSante(
 
   let response: Response;
   try {
-    response = await backendFetch(DEMETER_TRANSCRIPTIONS_PATH, {
-      method: "POST",
-      body: formData,
-      signal: request.signal,
-    });
+    response = await sendDemeterTranscriptionRequest(formData, request.signal);
   } catch (error) {
     const message = formatBackendErrorMessage(error);
-    const multipartProbe = await probeDemeterMultipartReachability(model, telemetryContext, telemetry);
+    const multipartProbe = await probeDemeterMultipartReachability(telemetryContext, telemetry);
     const probe = await probeDemeterBackendReachability(telemetryContext, telemetry);
     const surfacedMessage = multipartProbe.reachable
       ? `${DEMETER_MULTIPART_PROBE_DIAGNOSTIC_MESSAGE} (taille fichier: ${request.file.size} octets; ${multipartProbe.detail})`
@@ -212,7 +200,6 @@ export async function transcribeWithDemeterSante(
 
   if (!response.ok) {
     const error = await parseBackendHttpError(response, DEMETER_TRANSCRIPTIONS_PATH, "POST");
-    handleBackendUnauthorized(error);
     const message = formatBackendErrorMessage(error);
     logger.error("[cloud][demeter] request failed", { status: response.status, message, endpoint });
     telemetry?.logEvent("CLOUD_UPLOAD_FAILED", {
@@ -266,4 +253,47 @@ export async function transcribeWithDemeterSante(
   });
 
   return payload;
+}
+
+async function sendDemeterTranscriptionRequest(
+  formData: FormData,
+  signal?: AbortSignal
+): Promise<Response> {
+  const send = () =>
+    backendFetch(DEMETER_TRANSCRIPTIONS_PATH, {
+      method: "POST",
+      body: formData,
+      signal,
+    });
+
+  let response = await send();
+  if (response.ok || response.status !== 401) {
+    return response;
+  }
+
+  const unauthorizedError = await parseBackendHttpError(response, DEMETER_TRANSCRIPTIONS_PATH, "POST");
+  if (!isBackendUnauthorizedError(unauthorizedError)) {
+    return response;
+  }
+
+  logger.warn("[cloud][demeter] unauthorized, attempting refresh before retry");
+  try {
+    const refreshed = await backendRefresh();
+    if (!refreshed) {
+      handleBackendUnauthorized(unauthorizedError);
+      return response;
+    }
+  } catch (refreshError) {
+    logger.warn("[cloud][demeter] refresh request failed", {
+      message: refreshError instanceof Error ? refreshError.message : String(refreshError),
+    });
+    throw new Error(`Impossible de renouveler la session backend Demeter Santé. ${formatBackendErrorMessage(refreshError)}`);
+  }
+
+  response = await send();
+  if (!response.ok && response.status === 401) {
+    const retryError = await parseBackendHttpError(response, DEMETER_TRANSCRIPTIONS_PATH, "POST");
+    handleBackendUnauthorized(retryError);
+  }
+  return response;
 }

@@ -283,7 +283,6 @@ export function SettingsPanel({
     cloudTopP,
     cloudDoSample,
     mistralApiKey,
-    cloudDemeterModel,
     cloudDemeterDiarizationEnabled,
     cloudWhisperChunkDurationSec,
     cloudWhisperOverlapSec,
@@ -319,7 +318,6 @@ export function SettingsPanel({
     hfApiToken,
     setHfApiToken,
     setMistralApiKey,
-    setCloudDemeterModel,
     setCloudDemeterDiarizationEnabled,
     setCloudWhisperChunking,
     setCloudMistralChunking,
@@ -345,7 +343,6 @@ export function SettingsPanel({
       cloudTopP: state.cloudTopP,
       cloudDoSample: state.cloudDoSample,
       mistralApiKey: state.mistralApiKey,
-      cloudDemeterModel: state.cloudDemeterModel,
       cloudDemeterDiarizationEnabled: state.cloudDemeterDiarizationEnabled,
       cloudWhisperChunkDurationSec: state.cloudWhisperChunkDurationSec,
       cloudWhisperOverlapSec: state.cloudWhisperOverlapSec,
@@ -381,7 +378,6 @@ export function SettingsPanel({
       hfApiToken: state.hfApiToken,
       setHfApiToken: state.setHfApiToken,
       setMistralApiKey: state.setMistralApiKey,
-      setCloudDemeterModel: state.setCloudDemeterModel,
       setCloudDemeterDiarizationEnabled: state.setCloudDemeterDiarizationEnabled,
       setCloudWhisperChunking: state.setCloudWhisperChunking,
       setCloudMistralChunking: state.setCloudMistralChunking,
@@ -2880,16 +2876,8 @@ export function SettingsPanel({
                   {canUseCloudDemeter ? (
                   <TabsContent value="demeter" className="mt-4 space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="cloud-demeter-model">Model ID (Demeter Santé)</Label>
-                      <Input
-                        id="cloud-demeter-model"
-                        value={cloudDemeterModel}
-                        onChange={(event) => setCloudDemeterModel(event.target.value)}
-                        placeholder="voxtral-mini-latest"
-                        autoComplete="off"
-                      />
                       <p className="text-xs text-muted-foreground">
-                        Appel relayé par le backend Demeter Santé. Aucun token front n'est nécessaire.
+                        Appel relayé par le backend Demeter Santé. Aucun réglage supplémentaire côté front.
                       </p>
                     </div>
                     <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">

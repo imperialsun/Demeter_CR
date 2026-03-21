@@ -1013,7 +1013,6 @@ describe('SettingsPanel', () => {
 
   it("shows dedicated demeter cloud settings only in backend mode", async () => {
     useAsrStore.setState({
-      cloudDemeterModel: "voxtral-mini-latest",
       cloudDemeterDiarizationEnabled: true,
     } as any);
 
@@ -1030,13 +1029,10 @@ describe('SettingsPanel', () => {
     );
 
     await userEvent.click(screen.getByRole("tab", { name: "Demeter Santé" }));
-    fireEvent.change(screen.getByLabelText("Model ID (Demeter Santé)"), {
-      target: { value: "voxtral-demeter-custom" },
-    });
+    expect(screen.queryByLabelText("Model ID (Demeter Santé)")).toBeNull();
     fireEvent.click(screen.getByRole("switch", { name: "Diarization Demeter Santé" }));
 
     await waitFor(() => {
-      expect(useAsrStore.getState().cloudDemeterModel).toBe("voxtral-demeter-custom");
       expect(useAsrStore.getState().cloudDemeterDiarizationEnabled).toBe(false);
     });
     expect(screen.getByText(/backend demeter santé/i)).toBeInTheDocument();

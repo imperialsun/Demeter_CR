@@ -1,4 +1,5 @@
 import { backendFetch, parseBackendJson, readBackendError } from "@/lib/backend-api";
+import { backendRefresh } from "@/lib/backend-auth";
 import { isAuthenticated } from "@/lib/auth";
 import logger from "@/lib/logger";
 import { isBackendMode } from "@/lib/runtime-config";
@@ -83,13 +84,7 @@ export async function flushBackendActivityQueueNow() {
   try {
     while (queue.length > 0 && isAuthenticated()) {
       const batch = queue.slice(0, FLUSH_BATCH_SIZE);
-      const response = await backendFetch("/activity/events", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ events: batch }),
-      });
+      const response = await sendActivityBatch(batch);
 
       if (response.status === 401 || response.status === 403) {
         logger.warn("[backend-activity-sync] flush denied by backend", { status: response.status });
@@ -126,6 +121,38 @@ export async function flushBackendActivityQueueNow() {
   } finally {
     flushInFlight = false;
   }
+}
+
+async function sendActivityBatch(batch: BackendActivityQueuedEvent[]): Promise<Response> {
+  const requestBatch = async () =>
+    backendFetch("/activity/events", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ events: batch }),
+    });
+
+  let response = await requestBatch();
+  if (response.status !== 401) {
+    return response;
+  }
+
+  logger.warn("[backend-activity-sync] flush unauthorized, attempting refresh");
+  try {
+    const refreshed = await backendRefresh();
+    if (!refreshed) {
+      return response;
+    }
+  } catch (error) {
+    logger.warn("[backend-activity-sync] refresh request failed", {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return response;
+  }
+
+  response = await requestBatch();
+  return response;
 }
 
 function loadQueue() {

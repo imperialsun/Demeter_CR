@@ -7,6 +7,7 @@ import {
   parseBackendHttpError,
   parseBackendJson,
 } from "@/lib/backend-api";
+import { backendRefresh } from "@/lib/backend-auth";
 import { isBackendAuthenticated } from "@/lib/backend-session";
 import { isBackendMode } from "@/lib/runtime-config";
 import logger from "@/lib/logger";
@@ -69,21 +70,11 @@ export async function flushNow() {
 
   try {
     const snapshot = pendingSettings;
-    const response = await backendFetch("/settings", {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        schemaVersion: 1,
-        settings: snapshot,
-      }),
-    });
-
-    if (!response.ok) {
-      throw await parseBackendHttpError(response, "/settings", "PUT");
+    if (!snapshot) {
+      clearRetry();
+      return;
     }
-
+    await sendSettingsSnapshot(snapshot);
     if (pendingSettings === snapshot) {
       pendingSettings = null;
     }
@@ -91,12 +82,65 @@ export async function flushNow() {
     clearRetry();
   } catch (error) {
     if (isBackendUnauthorizedError(error)) {
-      handleBackendUnauthorized(error);
-      clearRetry();
-      logger.warn("[backend-settings-sync] unauthorized, stopping retries", {
+      logger.warn("[backend-settings-sync] unauthorized, attempting refresh", {
         error: formatBackendErrorMessage(error),
       });
-      return;
+      let refreshed = false;
+      try {
+        refreshed = await backendRefresh();
+      } catch (refreshError) {
+        logger.warn("[backend-settings-sync] refresh request failed", {
+          error: refreshError instanceof Error ? refreshError.message : String(refreshError),
+        });
+        scheduleRetry();
+        return;
+      }
+      if (!refreshed) {
+        handleBackendUnauthorized(error);
+        clearRetry();
+        logger.warn("[backend-settings-sync] refresh failed, stopping retries", {
+          error: formatBackendErrorMessage(error),
+        });
+        return;
+      }
+
+      try {
+        const snapshot = pendingSettings;
+        if (!snapshot) {
+          clearRetry();
+          return;
+        }
+        await sendSettingsSnapshot(snapshot);
+        if (pendingSettings === snapshot) {
+          pendingSettings = null;
+        }
+        logger.debug("[backend-settings-sync] flush success after refresh");
+        clearRetry();
+        return;
+      } catch (retryError) {
+        if (isBackendUnauthorizedError(retryError)) {
+          handleBackendUnauthorized(retryError);
+          clearRetry();
+          logger.warn("[backend-settings-sync] unauthorized after refresh, stopping retries", {
+            error: formatBackendErrorMessage(retryError),
+          });
+          return;
+        }
+
+        if (isBackendForbiddenError(retryError)) {
+          clearRetry();
+          logger.warn("[backend-settings-sync] forbidden after refresh, stopping retries", {
+            error: formatBackendErrorMessage(retryError),
+          });
+          return;
+        }
+
+        logger.warn("[backend-settings-sync] flush retry failed, scheduling retry", {
+          error: retryError instanceof Error ? retryError.message : String(retryError),
+        });
+        scheduleRetry();
+        return;
+      }
     }
 
     if (isBackendForbiddenError(error)) {
@@ -116,29 +160,97 @@ export async function flushNow() {
   }
 }
 
+async function sendSettingsSnapshot(snapshot: Record<string, unknown>) {
+  const response = await backendFetch("/settings", {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      schemaVersion: 1,
+      settings: snapshot,
+    }),
+  });
+
+  if (!response.ok) {
+    throw await parseBackendHttpError(response, "/settings", "PUT");
+  }
+
+  return response;
+}
+
 export async function pullBackendSettings(): Promise<BackendSettingsEnvelope | null> {
   if (!isBackendMode() || !isBackendAuthenticated()) return null;
-  const response = await backendFetch("/settings", { method: "GET" });
-  if (!response.ok) {
-    const error = await parseBackendHttpError(response, "/settings", "GET");
-    if (isBackendUnauthorizedError(error)) {
-      handleBackendUnauthorized(error);
-      logger.debug("[backend-settings-sync] pull unauthorized", { status: error.status });
-      return null;
-    }
-    if (isBackendForbiddenError(error)) {
-      logger.debug("[backend-settings-sync] pull forbidden", { status: error.status });
-      return null;
-    }
+  const requestSettings = () => backendFetch("/settings", { method: "GET" });
+
+  const parseSettingsEnvelope = async (response: Response) => {
+    const payload = await parseBackendJson<BackendSettingsEnvelope>(response);
+    return {
+      ...payload,
+      settings: stripLegacySettings(payload.settings),
+    };
+  };
+
+  let response = await requestSettings();
+  if (response.ok) {
+    const payload = await parseSettingsEnvelope(response);
+    logger.debug("[backend-settings-sync] pull success", { version: payload.version });
+    return payload;
+  }
+
+  const error = await parseBackendHttpError(response, "/settings", "GET");
+  if (isBackendForbiddenError(error)) {
+    logger.debug("[backend-settings-sync] pull forbidden", { status: error.status });
+    return null;
+  }
+  if (!isBackendUnauthorizedError(error)) {
     logger.warn("[backend-settings-sync] pull failed", { status: error.status, message: error.message });
     throw error;
   }
-  const payload = await parseBackendJson<BackendSettingsEnvelope>(response);
-  logger.debug("[backend-settings-sync] pull success", { version: payload.version });
-  return {
-    ...payload,
-    settings: stripLegacySettings(payload.settings),
-  };
+
+  logger.warn("[backend-settings-sync] pull unauthorized, attempting refresh", {
+    error: formatBackendErrorMessage(error),
+  });
+  try {
+    const refreshed = await backendRefresh();
+    if (!refreshed) {
+      if (!isBackendAuthenticated()) {
+        handleBackendUnauthorized(error);
+      }
+      logger.warn("[backend-settings-sync] pull refresh failed", {
+        error: formatBackendErrorMessage(error),
+      });
+      return null;
+    }
+  } catch (refreshError) {
+    logger.warn("[backend-settings-sync] pull refresh request failed", {
+      error: refreshError instanceof Error ? refreshError.message : String(refreshError),
+    });
+    return null;
+  }
+
+  response = await requestSettings();
+  if (response.ok) {
+    const payload = await parseSettingsEnvelope(response);
+    logger.debug("[backend-settings-sync] pull success after refresh", { version: payload.version });
+    return payload;
+  }
+
+  const retryError = await parseBackendHttpError(response, "/settings", "GET");
+  if (isBackendForbiddenError(retryError)) {
+    logger.debug("[backend-settings-sync] pull forbidden after refresh", { status: retryError.status });
+    return null;
+  }
+  if (isBackendUnauthorizedError(retryError)) {
+    handleBackendUnauthorized(retryError);
+    logger.debug("[backend-settings-sync] pull unauthorized after refresh", { status: retryError.status });
+    return null;
+  }
+  logger.warn("[backend-settings-sync] pull failed after refresh", {
+    status: retryError.status,
+    message: retryError.message,
+  });
+  throw retryError;
 }
 
 function clearRetry() {

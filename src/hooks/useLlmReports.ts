@@ -12,6 +12,7 @@ import { generateReportDetailed } from "@/lib/llm/reportService";
 import { getLlmHfClient, generateWithChatThenFallbackText } from "@/lib/llm/hfClient";
 import { generateWithMistralChat } from "@/lib/llm/mistralChatClient";
 import { generateWithDemeterChat } from "@/lib/llm/demeterChatClient";
+import { backendRefresh } from "@/lib/backend-auth";
 import {
   FALLBACK_MISTRAL_MAX_TOKENS,
   fetchMistralModelsSafe,
@@ -40,6 +41,7 @@ import {
   isBackendForbiddenError,
   isBackendUnauthorizedError,
 } from "@/lib/backend-api";
+import { isBackendAuthenticated } from "@/lib/backend-session";
 import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
 
 const FORMAT_ORDER: Array<{ key: ReportResultKey; format: ReportFormat }> = [
@@ -389,7 +391,17 @@ export function useLlmReports() {
         const unauthorized = isBackendUnauthorizedError(error);
         const forbidden = isBackendForbiddenError(error);
         if (unauthorized) {
-          handleBackendUnauthorized(error);
+          logger.warn("[llm-api] unauthorized, attempting refresh before final error handling");
+          try {
+            const refreshed = await backendRefresh();
+            if (!refreshed && !isBackendAuthenticated()) {
+              handleBackendUnauthorized(error);
+            }
+          } catch (refreshError) {
+            logger.warn("[llm-api] refresh request failed", {
+              message: refreshError instanceof Error ? refreshError.message : String(refreshError),
+            });
+          }
         }
         const message =
           unauthorized || forbidden
