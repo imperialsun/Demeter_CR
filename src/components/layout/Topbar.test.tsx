@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { Topbar } from './Topbar';
 import { useAsrStore } from '@/store/asr-store';
 import * as backendSupport from '@/lib/backend-support';
@@ -44,6 +45,11 @@ const modelTestHook = vi.hoisted(() => ({
 const backendPermissionMocks = vi.hoisted(() => ({
   canAccessFeature: vi.fn((permission: string) => permission !== ""),
   getFirstAuthorizedRoute: vi.fn(() => "/localupload"),
+}));
+
+const backendAuthMocks = vi.hoisted(() => ({
+  backendLogout: vi.fn(),
+  backendChangePassword: vi.fn(),
 }));
 
 const runtimeConfigMocks = vi.hoisted(() => ({
@@ -106,6 +112,11 @@ vi.mock("@/hooks/useBackendPermissions", () => ({
   useBackendPermissions: () => ({}),
 }));
 
+vi.mock("@/lib/backend-auth", () => ({
+  backendLogout: (...args: unknown[]) => backendAuthMocks.backendLogout(...args),
+  backendChangePassword: (...args: unknown[]) => backendAuthMocks.backendChangePassword(...args),
+}));
+
 vi.mock("@/lib/backend-permissions", () => ({
   canAccessFeature: (...args: unknown[]) => backendPermissionMocks.canAccessFeature(...args),
   getFirstAuthorizedRoute: (...args: unknown[]) => backendPermissionMocks.getFirstAuthorizedRoute(...args),
@@ -122,6 +133,7 @@ const connectedEmail = "praticien@example.com";
 describe('Topbar', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    mockNavigate.mockReset();
     Object.defineProperty(HTMLElement.prototype, "hasPointerCapture", {
       configurable: true,
       value: () => false,
@@ -154,6 +166,10 @@ describe('Topbar', () => {
     backendPermissionMocks.canAccessFeature.mockReturnValue(true);
     backendPermissionMocks.getFirstAuthorizedRoute.mockReset();
     backendPermissionMocks.getFirstAuthorizedRoute.mockReturnValue("/localupload");
+    backendAuthMocks.backendLogout.mockReset();
+    backendAuthMocks.backendLogout.mockResolvedValue(undefined);
+    backendAuthMocks.backendChangePassword.mockReset();
+    backendAuthMocks.backendChangePassword.mockResolvedValue(undefined);
     runtimeConfigMocks.isBackendMode.mockReset();
     runtimeConfigMocks.isBackendMode.mockReturnValue(false);
     window.localStorage.removeItem(BACKEND_AUTH_KEY);
@@ -232,8 +248,7 @@ describe('Topbar', () => {
 
     render(<Topbar />);
 
-    expect(screen.getByText(connectedEmail)).toBeInTheDocument();
-    expect(screen.getByTitle(connectedEmail)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: connectedEmail })).toBeInTheDocument();
   });
 
   it("does not show the email in standalone mode", () => {
@@ -256,7 +271,88 @@ describe('Topbar', () => {
 
     render(<Topbar />);
 
-    expect(screen.queryByText(connectedEmail)).toBeNull();
+    expect(screen.queryByRole("button", { name: connectedEmail })).toBeNull();
+  });
+
+  it("opens the password change dialog from the account menu and submits it", async () => {
+    runtimeConfigMocks.isBackendMode.mockReturnValue(true);
+    vi.spyOn(backendSession, "getBackendSession").mockReturnValue({
+      user: { id: "user-1", email: connectedEmail, status: "active" },
+      organization: { id: "org-1", name: "Org", code: "ORG", status: "active" },
+      globalRoles: ["user"],
+      orgRoles: ["org_member"],
+      permissions: ["feature.localupload"],
+    });
+    const toastSpy = vi.spyOn(toastMod, "toast").mockImplementation(() => "toast-id" as any);
+    const user = userEvent.setup();
+
+    render(<Topbar />);
+
+    await user.click(screen.getByRole("button", { name: connectedEmail }));
+    await user.click(await screen.findByRole("menuitem", { name: /changer le mot de passe/i }));
+
+    expect(screen.getByRole("dialog", { name: /changer le mot de passe/i })).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Sécurité du mot de passe" })).toHaveAttribute(
+      "aria-valuenow",
+      "0"
+    );
+
+    fireEvent.change(screen.getByLabelText("Mot de passe actuel"), {
+      target: { value: "ChangeMe123!" },
+    });
+    fireEvent.change(screen.getByLabelText("Nouveau mot de passe"), {
+      target: { value: "NewPass123!" },
+    });
+    expect(screen.getByRole("progressbar", { name: "Sécurité du mot de passe" })).toHaveAttribute(
+      "aria-valuenow",
+      "3"
+    );
+    fireEvent.change(screen.getByLabelText("Confirmer le mot de passe"), {
+      target: { value: "NewPass123!" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Mettre à jour" }));
+
+    await waitFor(() => {
+      expect(backendAuthMocks.backendChangePassword).toHaveBeenCalledWith("ChangeMe123!", "NewPass123!");
+    });
+    expect(backendAuthMocks.backendLogout).toHaveBeenCalledTimes(1);
+    expect(toastSpy).toHaveBeenCalledWith("Mot de passe modifié.");
+    expect(mockNavigate).toHaveBeenCalledWith("/login", { replace: true });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /changer le mot de passe/i })).toBeNull();
+    });
+  });
+
+  it("shows a validation error when the password confirmation does not match", async () => {
+    runtimeConfigMocks.isBackendMode.mockReturnValue(true);
+    vi.spyOn(backendSession, "getBackendSession").mockReturnValue({
+      user: { id: "user-1", email: connectedEmail, status: "active" },
+      organization: { id: "org-1", name: "Org", code: "ORG", status: "active" },
+      globalRoles: ["user"],
+      orgRoles: ["org_member"],
+      permissions: ["feature.localupload"],
+    });
+    const user = userEvent.setup();
+
+    render(<Topbar />);
+
+    await user.click(screen.getByRole("button", { name: connectedEmail }));
+    await user.click(await screen.findByRole("menuitem", { name: /changer le mot de passe/i }));
+    expect(screen.getByRole("progressbar", { name: "Sécurité du mot de passe" })).toHaveAttribute(
+      "aria-valuenow",
+      "0"
+    );
+    await user.type(screen.getByLabelText("Mot de passe actuel"), "ChangeMe123!");
+    await user.type(screen.getByLabelText("Nouveau mot de passe"), "NewPass123!");
+    expect(screen.getByRole("progressbar", { name: "Sécurité du mot de passe" })).toHaveAttribute(
+      "aria-valuenow",
+      "3"
+    );
+    await user.type(screen.getByLabelText("Confirmer le mot de passe"), "Mismatch123!");
+    await user.click(screen.getByRole("button", { name: "Mettre à jour" }));
+
+    expect(screen.getByText("Les mots de passe ne correspondent pas.")).toBeInTheDocument();
+    expect(backendAuthMocks.backendChangePassword).not.toHaveBeenCalled();
   });
 
   it('opens confirm and calls resetApp on confirm', async () => {

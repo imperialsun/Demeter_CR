@@ -76,12 +76,16 @@ describe("ResetPasswordPage", () => {
       </MemoryRouter>
     );
 
+    expect(screen.getByRole("progressbar", { name: "Sécurité du mot de passe" })).toHaveAttribute("aria-valuenow", "0");
+
     fireEvent.change(screen.getByLabelText("Nouveau mot de passe"), {
       target: { value: "NewPass123!" },
     });
     fireEvent.change(screen.getByLabelText("Confirmer le mot de passe"), {
       target: { value: "NewPass123!" },
     });
+
+    expect(screen.getByRole("progressbar", { name: "Sécurité du mot de passe" })).toHaveAttribute("aria-valuenow", "3");
     fireEvent.click(screen.getByRole("button", { name: "Mettre a jour" }));
 
     expect(screen.getByText("Le lien de reinitialisation est invalide ou incomplet.")).toBeInTheDocument();
@@ -103,6 +107,8 @@ describe("ResetPasswordPage", () => {
     fireEvent.change(screen.getByLabelText("Confirmer le mot de passe"), {
       target: { value: "OtherPass123!" },
     });
+
+    expect(screen.getByRole("progressbar", { name: "Sécurité du mot de passe" })).toHaveAttribute("aria-valuenow", "3");
     fireEvent.click(screen.getByRole("button", { name: "Mettre a jour" }));
 
     expect(screen.getByText("Les mots de passe ne correspondent pas.")).toBeInTheDocument();
@@ -125,6 +131,8 @@ describe("ResetPasswordPage", () => {
     fireEvent.change(screen.getByLabelText("Confirmer le mot de passe"), {
       target: { value: "NewPass123!" },
     });
+
+    expect(screen.getByRole("progressbar", { name: "Sécurité du mot de passe" })).toHaveAttribute("aria-valuenow", "3");
     fireEvent.click(screen.getByRole("button", { name: "Mettre a jour" }));
 
     await waitFor(() => expect(mocks.backendResetPassword).toHaveBeenCalledWith("abc", "NewPass123!"));

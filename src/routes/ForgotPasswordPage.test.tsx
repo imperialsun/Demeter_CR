@@ -59,6 +59,7 @@ describe("ForgotPasswordPage", () => {
     );
 
     expect(screen.getByText("login-target")).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar", { name: "Sécurité du mot de passe" })).toBeNull();
   });
 
   it("submits the trimmed email and shows a generic success message", async () => {
@@ -79,5 +80,6 @@ describe("ForgotPasswordPage", () => {
     expect(
       screen.getByText("Si un compte actif correspond a cet email, un lien de reinitialisation vient d etre envoye.")
     ).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar", { name: "Sécurité du mot de passe" })).toBeNull();
   });
 });

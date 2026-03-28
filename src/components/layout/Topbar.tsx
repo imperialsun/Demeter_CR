@@ -2,19 +2,21 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useAsrStore, MODEL_PRESETS, serializePersistedSettings, type CloudTranscriptionStatus } from "@/store/asr-store";
 import { cn } from "@/lib/utils";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "@/components/ui/use-toast";
 import { useEffect, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { ChangePasswordDialog } from "@/components/layout/ChangePasswordDialog";
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { useTranscriptionController } from "@/hooks/useTranscriptionController";
 import { canAccessFeature, getFirstAuthorizedRoute } from "@/lib/backend-permissions";
 import { initializeBackendSupport, resetWebGpuSupportCache } from "@/lib/backend-support";
 import logger, { exportDiagnosticLogBundle, type LogLevel } from "@/lib/logger";
 import { setAuthenticated } from "@/lib/auth";
-import { backendLogout } from "@/lib/backend-auth";
+import { backendChangePassword, backendLogout } from "@/lib/backend-auth";
 import { getBackendSession } from "@/lib/backend-session";
 import { isBackendMode } from "@/lib/runtime-config";
 import { useModelCompatibilityTest, type ModelTestStatus } from "@/hooks/useModelCompatibilityTest";
@@ -24,7 +26,7 @@ import { LLM_API_STATUS_META } from "@/lib/llm/llmStatusMeta";
 import { resolveActiveLlmPipelineConfig } from "@/lib/llm/providerSettings";
 import { getLocalLlmModelProfile } from "@/lib/llm/localModelCatalog";
 import { downloadBlob } from "@/lib/export";
-import { Download, ActivitySquare, Bot, Cloud, Cog, Loader2, LogOut, RotateCw } from "lucide-react";
+import { Download, ActivitySquare, Bot, ChevronDown, Cloud, Cog, KeyRound, Loader2, LogOut, RotateCw } from "lucide-react";
 
 const STATUS_LABELS: Record<string, string> = {
   idle: "Inactif",
@@ -133,6 +135,7 @@ export function Topbar() {
 
   const { abortTranscription } = useTranscriptionController();
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
 
   const logLevel = useAsrStore((s) => s.logLevel);
   const setLogLevel = useAsrStore((s) => s.setLogLevel);
@@ -156,6 +159,7 @@ export function Topbar() {
   const showDebugActions = true;
   const backendMode = isBackendMode();
   const connectedEmail = backendMode ? (getBackendSession()?.user.email ?? "").trim() : "";
+  const showAccountMenu = backendMode && connectedEmail.length > 0;
   const canOpenSettings = canAccessFeature("feature.settings");
   const isCloudRoute = location.pathname === "/cloudupload";
   const isLlmRoute = location.pathname === "/llmapi";
@@ -249,6 +253,14 @@ export function Topbar() {
     }
     toast("Déconnecté.");
     logger.info("[topbar] logout completed");
+    navigate("/login", { replace: true });
+  };
+
+  const handlePasswordChange = async (currentPassword: string, password: string) => {
+    logger.info("[topbar] password change requested");
+    await backendChangePassword(currentPassword, password);
+    toast("Mot de passe modifié.");
+    await backendLogout();
     navigate("/login", { replace: true });
   };
 
@@ -358,14 +370,50 @@ export function Topbar() {
             <span className="text-xs text-muted-foreground">{statusDetailLabel}</span>
           ) : null}
         </div>
-        {connectedEmail ? (
-          <Badge
-            className="max-w-40 overflow-hidden text-ellipsis whitespace-nowrap sm:max-w-56"
-            title={connectedEmail}
-            variant="outline"
-          >
-            {connectedEmail}
-          </Badge>
+        {showAccountMenu ? (
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <Button
+                className="max-w-52 justify-between gap-2 sm:max-w-64"
+                size="sm"
+                title={connectedEmail}
+                variant="outline"
+              >
+                <span className="overflow-hidden text-ellipsis whitespace-nowrap">{connectedEmail}</span>
+                <ChevronDown className="h-4 w-4 shrink-0" />
+              </Button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content
+                align="end"
+                sideOffset={8}
+                className="z-[65] min-w-64 rounded-md border bg-popover p-1 text-popover-foreground shadow-lg outline-none"
+              >
+                <DropdownMenu.Label className="px-2 py-1.5 text-xs text-muted-foreground">
+                  {connectedEmail}
+                </DropdownMenu.Label>
+                <DropdownMenu.Separator className="my-1 h-px bg-border" />
+                <DropdownMenu.Item
+                  className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none transition hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                  onSelect={() => {
+                    setChangePasswordOpen(true);
+                  }}
+                >
+                  <KeyRound className="h-4 w-4" />
+                  Changer le mot de passe
+                </DropdownMenu.Item>
+                <DropdownMenu.Item
+                  className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none transition hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                  onSelect={() => {
+                    void handleLogout();
+                  }}
+                >
+                  <LogOut className="h-4 w-4" />
+                  Déconnexion
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
         ) : null}
         {canOpenSettings ? (
           <Button
@@ -425,15 +473,6 @@ export function Topbar() {
             Tester les modèles
           </Button>
           <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            onClick={handleLogout}
-          >
-            <LogOut className="h-4 w-4" />
-            Déconnexion
-          </Button>
-          <Button
             variant="destructive"
             size="sm"
             className="gap-2"
@@ -458,6 +497,13 @@ export function Topbar() {
         </>
       </div>
     </header>
+      <ChangePasswordDialog
+        open={changePasswordOpen}
+        onClose={() => {
+          setChangePasswordOpen(false);
+        }}
+        onSubmit={handlePasswordChange}
+      />
       {modelTestState.running || modelTestState.summaryOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs">
           <div className="absolute inset-0 opacity-30">

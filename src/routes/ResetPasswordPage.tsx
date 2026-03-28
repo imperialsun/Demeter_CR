@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordStrengthMeter } from "@/components/ui/PasswordStrengthMeter";
 import { toast } from "@/components/ui/use-toast";
 import { backendResetPassword } from "@/lib/backend-auth";
 import { formatBackendErrorMessage } from "@/lib/backend-api";
@@ -82,6 +83,7 @@ export default function ResetPasswordPage() {
                 type="password"
                 value={password}
               />
+              <PasswordStrengthMeter password={password} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="confirm-password">Confirmer le mot de passe</Label>

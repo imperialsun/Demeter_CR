@@ -49,6 +49,23 @@ export async function backendRequestPasswordReset(email: string): Promise<void> 
   }
 }
 
+export async function backendChangePassword(currentPassword: string, password: string): Promise<void> {
+  logger.info("[backend-auth] password change request");
+  const path = "/auth/me/password";
+  const response = await backendFetch(path, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ currentPassword, password }),
+  });
+
+  if (!response.ok) {
+    logger.warn("[backend-auth] password change failed", { status: response.status });
+    throw await parseBackendHttpError(response, path, "PUT");
+  }
+}
+
 export async function backendResetPassword(token: string, password: string): Promise<void> {
   logger.info("[backend-auth] password reset apply");
   const path = "/auth/reset-password";
