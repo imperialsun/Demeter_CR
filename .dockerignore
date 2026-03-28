@@ -16,3 +16,7 @@ yarn-error.log*
 pnpm-debug.log*
 worktrees
 transcriptions
+audio_pour_test
+docs
+*.md
+*.test.*
