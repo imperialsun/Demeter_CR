@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useAsrStore, MODEL_PRESETS, serializePersistedSettings, type CloudTranscriptionStatus } from "@/store/asr-store";
 import { cn } from "@/lib/utils";
@@ -26,7 +26,20 @@ import { LLM_API_STATUS_META } from "@/lib/llm/llmStatusMeta";
 import { resolveActiveLlmPipelineConfig } from "@/lib/llm/providerSettings";
 import { getLocalLlmModelProfile } from "@/lib/llm/localModelCatalog";
 import { downloadBlob } from "@/lib/export";
-import { Download, ActivitySquare, Bot, ChevronDown, Cloud, Cog, KeyRound, Loader2, LogOut, RotateCw } from "lucide-react";
+import {
+  ActivitySquare,
+  Bot,
+  Check,
+  ChevronDown,
+  Cloud,
+  Cog,
+  Download,
+  EllipsisVertical,
+  KeyRound,
+  Loader2,
+  LogOut,
+  RotateCw,
+} from "lucide-react";
 
 const STATUS_LABELS: Record<string, string> = {
   idle: "Inactif",
@@ -65,6 +78,13 @@ const LOG_LEVEL_LABELS: Record<LogLevel, string> = {
   debug: "Debug",
 };
 
+const LOG_LEVEL_OPTIONS: Array<{ value: LogLevel; label: string }> = [
+  { value: "error", label: LOG_LEVEL_LABELS.error },
+  { value: "warn", label: LOG_LEVEL_LABELS.warn },
+  { value: "info", label: LOG_LEVEL_LABELS.info },
+  { value: "debug", label: LOG_LEVEL_LABELS.debug },
+];
+
 function buildDiagnosticLogSessionSnapshot(snapshot: ReturnType<typeof useAsrStore.getState>) {
   return {
     hasHydrated: snapshot.hasHydrated,
@@ -102,6 +122,75 @@ function buildDiagnosticLogSessionSnapshot(snapshot: ReturnType<typeof useAsrSto
 
 function buildDiagnosticLogFilename(exportedAt: string) {
   return `demeter-logs-${exportedAt.replace(/[:.]/g, "-")}.json`;
+}
+
+type TopbarLogsMenuProps = {
+  logLevel: LogLevel;
+  onLogLevelChange: (value: LogLevel) => void;
+  onExportLogs: () => void;
+};
+
+function TopbarLogsMenu({ logLevel, onLogLevelChange, onExportLogs }: TopbarLogsMenuProps) {
+  const selectedLabel = LOG_LEVEL_OPTIONS.find((option) => option.value === logLevel)?.label ?? logLevel;
+
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <DropdownMenu.Root>
+          <TooltipTrigger asChild>
+            <DropdownMenu.Trigger asChild>
+              <Button
+                aria-label="Actions de logs"
+                className="h-9 w-9 shrink-0 text-muted-foreground hover:text-foreground"
+                size="icon"
+                variant="ghost"
+              >
+                <EllipsisVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenu.Trigger>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Logs · {selectedLabel}</TooltipContent>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              align="end"
+              sideOffset={8}
+              className="z-[65] min-w-56 rounded-md border bg-popover p-1 text-popover-foreground shadow-lg outline-none"
+            >
+              <DropdownMenu.Label className="px-2 py-1.5 text-xs text-muted-foreground">
+                Niveau de logs
+              </DropdownMenu.Label>
+              <DropdownMenu.RadioGroup value={logLevel} onValueChange={(value) => onLogLevelChange(value as LogLevel)}>
+                {LOG_LEVEL_OPTIONS.map((option) => (
+                  <DropdownMenu.RadioItem
+                    key={option.value}
+                    value={option.value}
+                    className="relative flex cursor-pointer select-none items-center rounded-sm py-2 pl-8 pr-2 text-sm outline-none transition hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                  >
+                    <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+                      <DropdownMenu.ItemIndicator>
+                        <Check className="h-4 w-4" />
+                      </DropdownMenu.ItemIndicator>
+                    </span>
+                    {option.label}
+                  </DropdownMenu.RadioItem>
+                ))}
+              </DropdownMenu.RadioGroup>
+              <DropdownMenu.Separator className="my-1 h-px bg-border" />
+              <DropdownMenu.Item
+                className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none transition hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                onSelect={() => {
+                  onExportLogs();
+                }}
+              >
+                <Download className="h-4 w-4" />
+                Télécharger logs
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 export function Topbar() {
@@ -160,6 +249,8 @@ export function Topbar() {
   const backendMode = isBackendMode();
   const connectedEmail = backendMode ? (getBackendSession()?.user.email ?? "").trim() : "";
   const showAccountMenu = backendMode && connectedEmail.length > 0;
+  const normalizedPathname = location.pathname.replace(/\/+$/, "") || "/";
+  const isLocalUploadRoute = normalizedPathname === "/localupload";
   const canOpenSettings = canAccessFeature("feature.settings");
   const isCloudRoute = location.pathname === "/cloudupload";
   const isLlmRoute = location.pathname === "/llmapi";
@@ -431,47 +522,29 @@ export function Topbar() {
         ) : null}
         <>
           {showDebugActions ? (
-            <>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Logs</span>
-                <Select value={logLevel} onValueChange={handleLogLevelChange}>
-                  <SelectTrigger aria-label="Niveau de logs" className="h-9 w-28">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="error">{LOG_LEVEL_LABELS.error}</SelectItem>
-                    <SelectItem value="warn">{LOG_LEVEL_LABELS.warn}</SelectItem>
-                    <SelectItem value="info">{LOG_LEVEL_LABELS.info}</SelectItem>
-                    <SelectItem value="debug">{LOG_LEVEL_LABELS.debug}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-2"
-                onClick={handleExportLogs}
-              >
-                <Download className="h-4 w-4" />
-                Télécharger logs
-              </Button>
-            </>
+            <TopbarLogsMenu
+              logLevel={logLevel}
+              onLogLevelChange={handleLogLevelChange}
+              onExportLogs={handleExportLogs}
+            />
           ) : null}
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            onClick={() => {
-              logger.info("[topbar] model compatibility test requested");
-              runTest();
-            }}
-            disabled={modelTestState.running}
-          >
-            {modelTestState.running ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : null}
-            Tester les modèles
-          </Button>
+          {isLocalUploadRoute ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => {
+                logger.info("[topbar] model compatibility test requested");
+                runTest();
+              }}
+              disabled={modelTestState.running}
+            >
+              {modelTestState.running ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : null}
+              Tester les modèles
+            </Button>
+          ) : null}
           <Button
             variant="destructive"
             size="sm"

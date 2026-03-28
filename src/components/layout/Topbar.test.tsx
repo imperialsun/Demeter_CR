@@ -56,6 +56,16 @@ const runtimeConfigMocks = vi.hoisted(() => ({
   isBackendMode: vi.fn(() => false),
 }));
 
+function mockLocation(pathname: string) {
+  vi.spyOn(rr, "useLocation").mockReturnValue({
+    pathname,
+    search: "",
+    state: null,
+    hash: "",
+    key: "",
+  } as any);
+}
+
 // Mock react-router hooks used by the component
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async () => {
@@ -375,25 +385,39 @@ describe('Topbar', () => {
     expect(toastSpy).toHaveBeenCalledWith(expect.stringMatching(/multithread WASM actif/i));
   });
 
-  it('renders the log level selector and reflects store updates', () => {
+  it("renders the compact logs menu trigger and hides inline controls", () => {
     render(<Topbar />);
-    const trigger = screen.getByLabelText('Niveau de logs');
 
-    expect(trigger).toHaveTextContent('Info');
-    act(() => {
-      useAsrStore.setState({ logLevel: 'debug' } as any);
-    });
-
-    expect(screen.getByLabelText('Niveau de logs')).toHaveTextContent('Debug');
+    expect(screen.getByLabelText("Actions de logs")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Niveau de logs")).toBeNull();
+    expect(screen.queryByText("Télécharger logs")).toBeNull();
   });
 
-  it('downloads a diagnostic log file instead of copying to clipboard', () => {
+  it("opens the logs menu and reflects the selected level", async () => {
+    const user = userEvent.setup();
+    render(<Topbar />);
+
+    await user.click(screen.getByLabelText("Actions de logs"));
+
+    expect(await screen.findByRole("menuitemradio", { name: "Info" })).toHaveAttribute("aria-checked", "true");
+
+    act(() => {
+      useAsrStore.setState({ logLevel: "debug" } as any);
+    });
+
+    expect(screen.getByRole("menuitemradio", { name: "Debug" })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("downloads a diagnostic log file from the compact logs menu", async () => {
     const promptSpy = vi.spyOn(window, "prompt").mockImplementation(() => null);
     const downloadSpy = vi.spyOn(exportLib, "downloadBlob").mockImplementation(() => undefined);
     vi.spyOn(toastMod, 'toast').mockImplementation(() => 't-id' as any);
+    const user = userEvent.setup();
 
     render(<Topbar />);
-    fireEvent.click(screen.getByText('Télécharger logs'));
+
+    await user.click(screen.getByLabelText("Actions de logs"));
+    await user.click(await screen.findByRole("menuitem", { name: /télécharger logs/i }));
 
     expect(downloadSpy).toHaveBeenCalledTimes(1);
     expect(promptSpy).not.toHaveBeenCalled();
@@ -487,16 +511,33 @@ describe('Topbar', () => {
     expect(screen.getByText(new RegExp(`Max ${Math.round(DEMETER_SANTE_MAX_TOKENS / 1000)}`))).toBeInTheDocument();
   });
 
-  it('keeps debug controls visible in production', () => {
+  it("renders the compact logs trigger in production", () => {
     render(<Topbar />);
-    expect(screen.getByText('Télécharger logs')).toBeInTheDocument();
-    expect(screen.getByLabelText('Niveau de logs')).toBeInTheDocument();
+    expect(screen.getByLabelText("Actions de logs")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Niveau de logs")).toBeNull();
   });
 
   it("calls runTest when clicking model compatibility test button", () => {
+    mockLocation("/localupload");
     render(<Topbar />);
     fireEvent.click(screen.getByRole("button", { name: /tester les modèles/i }));
     expect(modelTestHook.runTest).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the model compatibility test button visible on /localupload/", () => {
+    mockLocation("/localupload/");
+
+    render(<Topbar />);
+
+    expect(screen.getByRole("button", { name: /tester les modèles/i })).toBeInTheDocument();
+  });
+
+  it("hides the model compatibility test button outside /localupload", () => {
+    mockLocation("/llmapi");
+
+    render(<Topbar />);
+
+    expect(screen.queryByRole("button", { name: /tester les modèles/i })).toBeNull();
   });
 
   it("shows running model test modal and allows stop request", () => {
