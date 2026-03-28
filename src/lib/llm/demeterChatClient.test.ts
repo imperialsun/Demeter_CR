@@ -24,7 +24,7 @@ vi.mock("@/lib/backend-auth", () => ({
   backendRefresh: (...args: unknown[]) => backendAuthMocks.backendRefresh(...args),
 }));
 
-import { BackendHttpError } from "@/lib/backend-api";
+import { BACKEND_NETWORK_ERROR_MESSAGE, BackendHttpError } from "@/lib/backend-api";
 import { generateWithDemeterChat } from "@/lib/llm/demeterChatClient";
 
 describe("demeterChatClient", () => {
@@ -74,5 +74,76 @@ describe("demeterChatClient", () => {
     expect(result.text).toBe("rapport ok");
     expect(backendAuthMocks.backendRefresh).toHaveBeenCalledTimes(1);
     expect(backendApiMocks.handleBackendUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it("retries the chat completion request after a transient backend outage", async () => {
+    backendApiMocks.backendFetch
+      .mockRejectedValueOnce(new Error(BACKEND_NETWORK_ERROR_MESSAGE))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: "rapport ok",
+                },
+              },
+            ],
+          }),
+          { status: 200 }
+        )
+      );
+
+    const result = await generateWithDemeterChat({
+      modelId: "mistral-medium-latest",
+      systemPrompt: "system",
+      userPrompt: "user",
+      temperature: 0.2,
+      maxTokens: 2048,
+      initialBackoffMs: 1,
+    });
+
+    expect(result.text).toBe("rapport ok");
+    expect(backendApiMocks.backendFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries the chat completion request after a transient 404", async () => {
+    backendApiMocks.backendFetch
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: "not found" }), { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: "rapport ok",
+                },
+              },
+            ],
+          }),
+          { status: 200 }
+        )
+      );
+    backendApiMocks.parseBackendHttpError.mockResolvedValue(
+      new BackendHttpError({
+        status: 404,
+        code: "not_found",
+        message: "not found",
+        path: "/providers/demeter-sante/chat/completions",
+        method: "POST",
+      })
+    );
+
+    const result = await generateWithDemeterChat({
+      modelId: "mistral-medium-latest",
+      systemPrompt: "system",
+      userPrompt: "user",
+      temperature: 0.2,
+      maxTokens: 2048,
+      initialBackoffMs: 1,
+    });
+
+    expect(result.text).toBe("rapport ok");
+    expect(backendApiMocks.backendFetch).toHaveBeenCalledTimes(2);
   });
 });

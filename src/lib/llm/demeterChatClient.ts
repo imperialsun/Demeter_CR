@@ -1,9 +1,15 @@
 import logger from "@/lib/logger";
-import { backendFetch, handleBackendUnauthorized, parseBackendHttpError } from "@/lib/backend-api";
+import {
+  backendFetch,
+  handleBackendUnauthorized,
+  isBackendRetryableTransportError,
+  parseBackendHttpError,
+} from "@/lib/backend-api";
 import { backendRefresh } from "@/lib/backend-auth";
 import type { GenerationStrategy } from "@/lib/llm/hfClient";
 
 const MIN_CONTEXT_RETRY_TOKENS = 1024;
+const DEMETER_CHAT_REQUEST_TIMEOUT_MS = 180_000;
 
 type ErrorWithStatus = Error & { status?: number };
 
@@ -117,6 +123,7 @@ async function requestDemeterChat(params: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
+      timeoutMs: DEMETER_CHAT_REQUEST_TIMEOUT_MS,
     });
 
   let response = await request();
@@ -167,6 +174,11 @@ async function withRetry<T>(
       }
       const delayMs = initialBackoffMs * 2 ** attempt;
       attempt += 1;
+      logger.warn("[llm-api][demeter] retrying request", {
+        attempt,
+        delayMs,
+        reason: toErrorMessage(error),
+      });
       await sleep(delayMs);
     }
   }
@@ -228,13 +240,21 @@ function sanitizeMaxTokens(value: number): number {
 }
 
 function isRetryableError(error: unknown): boolean {
+  if (isBackendRetryableTransportError(error)) {
+    return true;
+  }
+
   const status = extractStatus(error);
-  if (status === 429 || status === 503) return true;
+  if (status === 404 || status === 408 || status === 429 || status === 502 || status === 503 || status === 504) return true;
 
   const message = toErrorMessage(error).toLowerCase();
   return (
     message.includes("429") ||
+    message.includes("404") ||
+    message.includes("408") ||
+    message.includes("502") ||
     message.includes("503") ||
+    message.includes("504") ||
     message.includes("rate limit") ||
     message.includes("temporarily unavailable")
   );

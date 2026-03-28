@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   BACKEND_NETWORK_ERROR_MESSAGE,
+  BACKEND_TIMEOUT_ERROR_MESSAGE,
   BackendHttpError,
   backendFetch,
   formatBackendErrorMessage,
@@ -54,6 +55,54 @@ describe("backend-api", () => {
 
     expect(formatBackendErrorMessage(forbidden)).toBe("Accès refusé par vos permissions backend.");
     expect(formatBackendErrorMessage(unauthorized)).toBe("Session expirée. Veuillez vous reconnecter.");
+  });
+
+  it("retries safe requests after a transient 404", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("Not found", { status: 404 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await backendFetch("/auth/me", {
+      retryAttempts: 1,
+      retryInitialBackoffMs: 1,
+    });
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails fast when the configured timeout expires", async () => {
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        const abortHandler = () => {
+          const abortError = new Error("The operation was aborted.");
+          abortError.name = "AbortError";
+          reject(abortError);
+        };
+
+        if (init?.signal?.aborted) {
+          abortHandler();
+          return;
+        }
+
+        init?.signal?.addEventListener("abort", abortHandler, { once: true });
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      backendFetch("/auth/me", {
+        timeoutMs: 5,
+        retryAttempts: 0,
+      })
+    ).rejects.toMatchObject({
+      name: "BackendTimeoutError",
+      message: expect.stringContaining(BACKEND_TIMEOUT_ERROR_MESSAGE),
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("rewords network fetch failures into an actionable backend message", async () => {

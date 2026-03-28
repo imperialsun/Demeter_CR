@@ -6,6 +6,41 @@ export const BACKEND_FORBIDDEN_MESSAGE = "Accès refusé par vos permissions bac
 export const BACKEND_UNAUTHORIZED_MESSAGE = "Session expirée. Veuillez vous reconnecter.";
 export const BACKEND_NETWORK_ERROR_MESSAGE =
   "Impossible de joindre le backend. Vérifiez l'accès réseau à l'API puis réessayez.";
+export const BACKEND_TIMEOUT_ERROR_MESSAGE =
+  "Le backend met trop de temps à répondre. Réessayez dans quelques instants.";
+
+const DEFAULT_SAFE_TIMEOUT_MS = 15_000;
+const DEFAULT_MUTATING_TIMEOUT_MS = 30_000;
+const DEFAULT_RETRY_ATTEMPTS = 2;
+const DEFAULT_RETRY_INITIAL_BACKOFF_MS = 300;
+const DEFAULT_RETRY_MAX_BACKOFF_MS = 2_000;
+const RETRYABLE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+const RETRYABLE_HTTP_STATUSES = new Set([404, 408, 502, 503, 504]);
+
+export type BackendFetchOptions = RequestInit & {
+  timeoutMs?: number;
+  retryAttempts?: number;
+  retryInitialBackoffMs?: number;
+  retryMaxBackoffMs?: number;
+};
+
+export class BackendTimeoutError extends Error {
+  readonly path: string;
+  readonly method: string;
+  readonly url: string;
+  readonly timeoutMs: number;
+
+  constructor(params: { path: string; method: string; url: string; timeoutMs: number }) {
+    super(
+      `${BACKEND_TIMEOUT_ERROR_MESSAGE} (${params.method} ${params.path} -> ${params.url}, délai ${params.timeoutMs} ms)`
+    );
+    this.name = "BackendTimeoutError";
+    this.path = params.path;
+    this.method = params.method;
+    this.url = params.url;
+    this.timeoutMs = params.timeoutMs;
+  }
+}
 
 export class BackendHttpError extends Error {
   readonly status: number;
@@ -78,8 +113,36 @@ function isNetworkFetchError(error: unknown): boolean {
   return /failed to fetch|networkerror|load failed/i.test(message);
 }
 
-function toBackendFetchError(error: unknown, path: string, method: string, url: string): Error {
+function isRetryableMethod(method: string): boolean {
+  return RETRYABLE_METHODS.has(method);
+}
+
+function isRetryableHttpStatus(status: number): boolean {
+  return RETRYABLE_HTTP_STATUSES.has(status);
+}
+
+export function isBackendRetryableTransportError(error: unknown): boolean {
+  if (error instanceof BackendTimeoutError || isNetworkFetchError(error)) {
+    return true;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes(BACKEND_NETWORK_ERROR_MESSAGE) || message.includes(BACKEND_TIMEOUT_ERROR_MESSAGE);
+}
+
+function getDefaultTimeoutMs(method: string): number {
+  return isRetryableMethod(method) ? DEFAULT_SAFE_TIMEOUT_MS : DEFAULT_MUTATING_TIMEOUT_MS;
+}
+
+function calculateRetryDelayMs(attempt: number, initialBackoffMs: number, maxBackoffMs: number): number {
+  return Math.min(initialBackoffMs * 2 ** attempt, maxBackoffMs);
+}
+
+function normalizeBackendFetchError(error: unknown, path: string, method: string, url: string): Error {
   if (isAbortError(error)) {
+    return error;
+  }
+  if (error instanceof BackendTimeoutError) {
     return error;
   }
   if (isNetworkFetchError(error)) {
@@ -88,37 +151,127 @@ function toBackendFetchError(error: unknown, path: string, method: string, url: 
   return error instanceof Error ? error : new Error(String(error));
 }
 
-export async function backendFetch(path: string, init?: RequestInit): Promise<Response> {
-  const url = toBackendUrl(path);
-  const method = (init?.method ?? "GET").toUpperCase();
-  const startedAt = performance.now();
-  let response: Response;
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  path: string,
+  method: string,
+  timeoutMs: number
+): Promise<Response> {
+  const externalSignal = init.signal;
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof globalThis.setTimeout> | undefined;
+  let timedOut = false;
+
+  const onExternalAbort = () => {
+    controller.abort();
+  };
+
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+    }
+  }
+
+  if (timeoutMs > 0) {
+    timeoutId = globalThis.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+  }
+
   try {
-    response = await fetch(url, {
-      credentials: "include",
+    return await fetch(url, {
       ...init,
-      headers: {
-        ...(init?.headers ?? {}),
-      },
+      credentials: "include",
+      signal: controller.signal,
     });
   } catch (error) {
-    const normalizedError = toBackendFetchError(error, path, method, url);
-    logger.error("[backend-api] request failed", {
-      method,
-      path,
-      url,
-      durationMs: Math.round(performance.now() - startedAt),
-      message: normalizedError.message,
-    });
-    throw normalizedError;
+    if (timedOut && isAbortError(error)) {
+      throw new BackendTimeoutError({
+        path,
+        method,
+        url,
+        timeoutMs,
+      });
+    }
+    throw error;
+  } finally {
+    if (timeoutId !== undefined) {
+      globalThis.clearTimeout(timeoutId);
+    }
+    if (externalSignal) {
+      externalSignal.removeEventListener("abort", onExternalAbort);
+    }
   }
-  logger.debug("[backend-api] request completed", {
-    method,
-    path,
-    status: response.status,
-    durationMs: Math.round(performance.now() - startedAt),
-  });
-  return response;
+}
+
+export async function backendFetch(path: string, init?: BackendFetchOptions): Promise<Response> {
+  const url = toBackendUrl(path);
+  const method = (init?.method ?? "GET").toUpperCase();
+  const retryAttempts = init?.retryAttempts ?? (isRetryableMethod(method) ? DEFAULT_RETRY_ATTEMPTS : 0);
+  const retryInitialBackoffMs = init?.retryInitialBackoffMs ?? DEFAULT_RETRY_INITIAL_BACKOFF_MS;
+  const retryMaxBackoffMs = init?.retryMaxBackoffMs ?? DEFAULT_RETRY_MAX_BACKOFF_MS;
+  const timeoutMs = init?.timeoutMs ?? getDefaultTimeoutMs(method);
+  const startedAt = performance.now();
+
+  let attempt = 0;
+  while (true) {
+    try {
+      const response = await fetchWithTimeout(url, init ?? {}, path, method, timeoutMs);
+      if (isRetryableHttpStatus(response.status) && attempt < retryAttempts) {
+        const delayMs = calculateRetryDelayMs(attempt, retryInitialBackoffMs, retryMaxBackoffMs);
+        logger.warn("[backend-api] retryable response", {
+          method,
+          path,
+          url,
+          status: response.status,
+          attempt: attempt + 1,
+          delayMs,
+        });
+        attempt += 1;
+        await new Promise((resolve) => globalThis.setTimeout(resolve, delayMs));
+        continue;
+      }
+
+      logger.debug("[backend-api] request completed", {
+        method,
+        path,
+        status: response.status,
+        durationMs: Math.round(performance.now() - startedAt),
+        attempts: attempt + 1,
+      });
+      return response;
+    } catch (error) {
+      const normalizedError = normalizeBackendFetchError(error, path, method, url);
+      if (attempt < retryAttempts && isBackendRetryableTransportError(error)) {
+        const delayMs = calculateRetryDelayMs(attempt, retryInitialBackoffMs, retryMaxBackoffMs);
+        logger.warn("[backend-api] retrying request after transport failure", {
+          method,
+          path,
+          url,
+          attempt: attempt + 1,
+          delayMs,
+          message: normalizedError.message,
+        });
+        attempt += 1;
+        await new Promise((resolve) => globalThis.setTimeout(resolve, delayMs));
+        continue;
+      }
+
+      logger.error("[backend-api] request failed", {
+        method,
+        path,
+        url,
+        durationMs: Math.round(performance.now() - startedAt),
+        attempts: attempt + 1,
+        message: normalizedError.message,
+      });
+      throw normalizedError;
+    }
+  }
 }
 
 export async function parseBackendJson<T>(response: Response): Promise<T> {

@@ -12,6 +12,8 @@ import { backendRefresh } from "@/lib/backend-auth";
 
 const DEMETER_TRANSCRIPTIONS_PATH = "/providers/demeter-sante/audio/transcriptions";
 const DEMETER_MODELS_PATH = "/providers/demeter-sante/models";
+const DEMETER_TRANSCRIPTION_REQUEST_TIMEOUT_MS = 300_000;
+const DEMETER_PROBE_REQUEST_TIMEOUT_MS = 10_000;
 const DEMETER_UPLOAD_NETWORK_DIAGNOSTIC_MESSAGE =
   "Le backend Demeter Santé répond, mais l'envoi du fichier échoue avant réponse. Vérifiez le proxy, la taille du fichier et la stabilité réseau puis réessayez.";
 const DEMETER_MULTIPART_PROBE_DIAGNOSTIC_MESSAGE =
@@ -42,7 +44,11 @@ async function probeDemeterBackendReachability(
   telemetry?: TelemetryCollector
 ): Promise<{ reachable: boolean; detail: string }> {
   try {
-    const response = await backendFetch(DEMETER_MODELS_PATH, { method: "GET" });
+    const response = await backendFetch(DEMETER_MODELS_PATH, {
+      method: "GET",
+      timeoutMs: DEMETER_PROBE_REQUEST_TIMEOUT_MS,
+      retryAttempts: 0,
+    });
     if (response.ok) {
       telemetry?.logEvent("LOG_INFO", {
         ...telemetryContext,
@@ -90,6 +96,8 @@ async function probeDemeterMultipartReachability(
     const response = await backendFetch(DEMETER_TRANSCRIPTIONS_PATH, {
       method: "POST",
       body: probeFormData,
+      timeoutMs: DEMETER_PROBE_REQUEST_TIMEOUT_MS,
+      retryAttempts: 0,
     });
     if (response.ok) {
       telemetry?.logEvent("LOG_INFO", {
@@ -159,6 +167,9 @@ export async function transcribeWithDemeterSante(
   try {
     response = await sendDemeterTranscriptionRequest(formData, request.signal);
   } catch (error) {
+    if (request.signal?.aborted) {
+      throw error;
+    }
     const message = formatBackendErrorMessage(error);
     const multipartProbe = await probeDemeterMultipartReachability(telemetryContext, telemetry);
     const probe = await probeDemeterBackendReachability(telemetryContext, telemetry);
@@ -264,6 +275,7 @@ async function sendDemeterTranscriptionRequest(
       method: "POST",
       body: formData,
       signal,
+      timeoutMs: DEMETER_TRANSCRIPTION_REQUEST_TIMEOUT_MS,
     });
 
   let response = await send();
