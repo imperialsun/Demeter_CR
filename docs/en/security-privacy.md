@@ -61,7 +61,7 @@ Applied via:
 
 ## Container hardening
 
-In `docker-compose.yml` (`transcode` service):
+In `compose.yml` (`front` service):
 
 - `read_only: true`,
 - `tmpfs` writable areas,

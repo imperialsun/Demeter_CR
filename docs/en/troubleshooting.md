@@ -171,4 +171,4 @@ Actions:
 
 - `Download logs` button in the topbar: downloads a `demeter-logs-*.json` file with application logs, browser errors, `unhandledrejection` events, telemetry, and a state snapshot,
 - `/telemetry` page,
-- `docker compose logs -f transcode` for container runtime.
+- `docker compose logs -f front` for container runtime.

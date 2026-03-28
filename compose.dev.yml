@@ -1,0 +1,16 @@
+services:
+  front:
+    image: node:25.8.1-alpine3.23
+    working_dir: /app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - .:/app:delegated
+      - front-node-modules:/app/node_modules
+    command: ["sh", "-lc", "npm ci --silent && npm run dev"]
+    environment:
+      NODE_ENV: "development"
+
+volumes:
+  front-node-modules:

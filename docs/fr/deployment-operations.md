@@ -5,34 +5,35 @@
 Le repo fournit:
 
 - image multi-stage (`Dockerfile`),
-- compose production (`docker-compose.yml`),
-- compose dev (`docker-compose.dev.yml`),
-- scripts auxiliaires (`install.sh`, `deploy.sh`).
+- compose production (`compose.yml`),
+- compose dev (`compose.dev.yml`),
+- orchestrateur du workspace (`../deploy-transcode.sh`).
 
 ## Dockerfile production
 
 Etapes:
 
-1. build sur `node:25.6.1-alpine`.
+1. build sur `node:25.8.1-alpine3.23`.
 2. `npm ci` puis `npm run build:prod`.
-3. runtime `nginx:alpine` servant `dist/` sur port `3000`.
+3. runtime `nginx:1.29.6-alpine3.23` servant `dist/` sur port `3000`.
 
-Args build critiques:
+Variable de build critique:
 
-- `VITE_OBFUSCATE`.
 - `LOGIN_PASSWORDS`.
+
+`scripts/obfuscate-dist.mjs` active l obfuscation selective par defaut.
 
 ## Compose production
 
 Services:
 
-- `transcode`: app statique Nginx + labels Traefik.
+- `front`: app statique Nginx sur le port `3000`.
+- la configuration runtime est fixee explicitement dans le compose sur l URL backend de production.
 
-Prerequis reseau:
+Environnement:
 
-```bash
-docker network create proxy || true
-```
+- `APP_RUNTIME_MODE=backend`
+- `APP_BACKEND_BASE_URL=https://trapi.demeter-sante.fr/api/v1`
 
 Lancement:
 
@@ -48,12 +49,14 @@ docker compose down
 
 ## Compose dev
 
-Service principal: `transcode-dev` (Node, mount source, `npm run dev -- --host 0.0.0.0 --port 3000`).
+Service principal: `front` (Node, mount source, `npm ci --silent && npm run dev`).
+
+Le fallback [`public/runtime-config.js`](../public/runtime-config.js) pointe deja vers `http://localhost:8080/api/v1`, donc aucune couche proxy n est necessaire.
 
 Lancement:
 
 ```bash
-docker compose -f docker-compose.dev.yml up -d
+docker compose -f compose.dev.yml up -d
 ```
 
 ## Nginx runtime et cache policy
@@ -70,10 +73,8 @@ docker compose -f docker-compose.dev.yml up -d
 
 ### Demarrage
 
-1. verifier `proxy` network,
-2. verifier valeurs de build args,
-3. `docker compose up --build -d`,
-4. valider health:
+1. `docker compose up --build -d`,
+2. valider health:
 
 ```bash
 docker compose ps
@@ -104,27 +105,22 @@ docker compose up --build -d
 - `Cross-Origin-Embedder-Policy: require-corp`
 - `Cross-Origin-Resource-Policy: same-origin`
 
-## Script `install.sh`
+## Deploiement workspace
 
-Role:
+Depuis la racine du workspace:
 
-- assistant deployment interactif/non-interactif,
-- genere fichiers override runtime,
-- configure URL publique, upstream Gradio, obfuscation, `LOGIN_PASSWORDS`.
+```bash
+./deploy-transcode.sh local
+./deploy-transcode.sh ariane
+```
 
-Ne modifie pas directement `docker-compose.yml`.
-
-## Script `deploy.sh`
-
-Role:
-
-- upload du repo vers machine distante via `rsync` (fallback `tar+ssh`).
-
-Ne redemarre pas automatiquement les conteneurs distants.
+- `local` demarre les stacks dev du Backend, de Front user et d Admin panel dans l ordre.
+- `ariane` synchronise le workspace vers l hote distant et demarre la stack de production.
+- `--dry-run` affiche les actions sans rien modifier.
 
 ## Monitoring et incident response
 
-- logs: `docker compose logs -f transcode`.
+- logs: `docker compose logs -f front`.
 - pipeline smoke prod: `prod-smoke.yml`.
 - scans securite: `trivy.yml`.
 - analyse statique: `codeql.yml`.

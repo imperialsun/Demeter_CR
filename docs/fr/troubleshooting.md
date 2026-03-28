@@ -171,4 +171,4 @@ Actions:
 
 - bouton `Télécharger logs` dans la topbar: télécharge un fichier `demeter-logs-*.json` contenant les logs applicatifs, les erreurs navigateur, les `unhandledrejection`, la télémétrie et un snapshot d'état,
 - page `/telemetry`,
-- `docker compose logs -f transcode` en conteneurise.
+- `docker compose logs -f front` en conteneurise.

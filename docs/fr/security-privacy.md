@@ -61,7 +61,7 @@ Appliques via:
 
 ## Hardening conteneur
 
-Dans `docker-compose.yml` (service `transcode`):
+Dans `compose.yml` (service `front`):
 
 - `read_only: true`,
 - `tmpfs` pour zones ecriture,

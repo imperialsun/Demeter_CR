@@ -2,7 +2,7 @@
 
 ## Prerequis
 
-- Node.js `25.6.1` (voir `.nvmrc`).
+- Node.js `25.8.1` (voir `.nvmrc`).
 - npm.
 - Docker Engine + Compose plugin pour execution conteneurisee.
 - Navigateur moderne (Chrome/Edge recommande).
@@ -15,6 +15,7 @@ npm run dev
 ```
 
 Serveur Vite par defaut: `http://localhost:3000`.
+La configuration runtime de dev pointe vers `http://localhost:8080/api/v1`, donc la stack Backend doit tourner sur ce port pour le mode backend.
 
 ## Build local
 
@@ -24,7 +25,7 @@ npm run build:prod
 npm run preview
 ```
 
-`build:prod` applique l obfuscation selective (`scripts/obfuscate-dist.mjs`) si `VITE_OBFUSCATE != 0`.
+`build:prod` applique l obfuscation selective par defaut (`scripts/obfuscate-dist.mjs`).
 
 ## Scripts npm utiles
 
@@ -40,7 +41,6 @@ npm run preview
 ## Setup Docker production
 
 ```bash
-docker network create proxy || true
 docker compose up --build -d
 ```
 
@@ -54,14 +54,13 @@ curl -I http://localhost:3000/index.html
 ## Setup Docker dev
 
 ```bash
-docker network create proxy || true
-docker compose -f docker-compose.dev.yml up -d
+docker compose -f compose.dev.yml up -d
 ```
 
 ## Parametres sensibles
 
+- Le repo conserve seulement deux fichiers env suivis pour les hashes de login: `.env.development` et `.env.production`.
 - `LOGIN_PASSWORDS`: mots de passe login (hashes injectes au build via `vite.config.ts`).
-- `VITE_OBFUSCATE`: `1` (actif) ou `0` (desactive).
 
 ## Erreurs frequentes de setup
 

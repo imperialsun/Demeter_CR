@@ -41,8 +41,7 @@ const terserOptions: MinifyOptions = {
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const devBackendProxyTarget = (process.env.DEV_BACKEND_PROXY_TARGET ?? '').trim()
-  const rawPasswords = (env.LOGIN_PASSWORDS ?? env.LOGIN_PASSWORD ?? '').trim()
+  const rawPasswords = (env.LOGIN_PASSWORDS ?? '').trim()
   const passwords = rawPasswords
     ? rawPasswords.split(/[,;\n]/).map((p) => p.trim()).filter(Boolean)
     : ['demo']
@@ -104,19 +103,7 @@ export default defineConfig(({ mode }) => {
       strictPort: true, // fail if the port is unavailable so Traefik mapping remains predictable
       // enable polling which can be more reliable when editing files over network mounts
       watch: { usePolling: true },
-      // Optional local backend proxy to avoid browser CORS in dev:
-      // requests to /api/* are forwarded to DEV_BACKEND_PROXY_TARGET.
-      proxy: devBackendProxyTarget
-        ? {
-            '/api': {
-              target: devBackendProxyTarget,
-              changeOrigin: true,
-              secure: false,
-            },
-          }
-        : undefined,
-      // Allow common host headers (local + Traefik).
-      // Note: forcing HMR host/protocol breaks local dev (it will try to connect to the public host).
+      // Allow common host headers for local development and LAN access.
       allowedHosts: ["transcode.demeter-sante.fr", "localhost", "127.0.0.1"],
       // Only force HMR settings when explicitly requested (e.g. behind TLS termination).
       hmr: process.env.VITE_HMR_HOST

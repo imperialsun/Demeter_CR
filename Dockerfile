@@ -1,11 +1,7 @@
 # Multi-stage Dockerfile: build with Node, serve with Nginx (static files)
 
-FROM node:25.8.1-alpine AS builder
+FROM node:25.8.1-alpine3.23 AS builder
 WORKDIR /app
-ARG VITE_OBFUSCATE=1
-ARG LOGIN_PASSWORDS=
-ENV VITE_OBFUSCATE=${VITE_OBFUSCATE}
-ENV LOGIN_PASSWORDS=${LOGIN_PASSWORDS}
 
 # Install deps and build
 COPY package.json package-lock.json* ./

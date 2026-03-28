@@ -39,9 +39,18 @@ Prerequisites:
 ### Docker production stack
 
 ```bash
-docker network create proxy || true
 docker compose up --build -d
 ```
+
+### Docker dev stack
+
+```bash
+docker compose -f compose.dev.yml up -d
+```
+
+### Workspace local deployment
+
+From the workspace root, `./deploy-transcode.sh local` starts Backend, Front user, and Admin panel together.
 
 ## Which mode should I use?
 
@@ -60,7 +69,7 @@ docker compose up --build -d
 
 ## Compatibility and prerequisites
 
-- Node.js `25.6.1` (`.nvmrc`) for local build and scripts.
+- Node.js `25.8.1` (`.nvmrc`) for local build and scripts.
 - npm (lockfile is `package-lock.json`).
 - Modern browser with WebGPU/WASM support (Chrome/Edge recommended).
 - Cross-origin isolation headers for multithreaded WASM:
@@ -71,6 +80,7 @@ docker compose up --build -d
 
 - Login is a client-side gate (`src/lib/auth.ts`), not a server-side IAM.
 - Password hashes are injected at build time from `LOGIN_PASSWORDS`.
+- The repo keeps only two tracked env files for that purpose: `.env.development` and `.env.production`.
 - API tokens are not persisted in clear text settings; sensitive tokens are stored in an encrypted browser vault (`src/lib/secure-token-vault.ts`, AES-GCM + IndexedDB + WebCrypto).
 
 ## Full documentation
