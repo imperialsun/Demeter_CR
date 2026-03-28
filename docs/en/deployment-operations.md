@@ -51,7 +51,7 @@ docker compose down
 
 Main service: `front` (Node container, source mount, `npm ci --silent && npm run dev`).
 
-The repository fallback [`public/runtime-config.js`](../public/runtime-config.js) already points to `http://localhost:8080/api/v1`, so no proxy layer is needed.
+The repository fallback [`public/runtime-config.js`](../../public/runtime-config.js) already points to `http://localhost:8080/api/v1`, so no proxy layer is needed.
 
 Start:
 

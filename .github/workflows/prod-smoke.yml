@@ -24,14 +24,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Create external proxy network
-        run: docker network create proxy || true
-
       - name: Validate compose config
-        run: docker compose -f docker-compose.yml config >/dev/null
+        run: docker compose -f compose.yml config >/dev/null
 
       - name: Start production services
-        run: docker compose -f docker-compose.yml up -d --build transcode
+        run: docker compose -f compose.yml up -d --build
 
       - name: Wait for app availability
         run: |
@@ -101,10 +98,9 @@ jobs:
 
       - name: Dump logs on failure
         if: failure()
-        run: docker compose -f docker-compose.yml logs --no-color
+        run: docker compose -f compose.yml logs --no-color
 
       - name: Teardown
         if: always()
         run: |
-          docker compose -f docker-compose.yml down -v || true
-          docker network rm proxy || true
+          docker compose -f compose.yml down -v || true

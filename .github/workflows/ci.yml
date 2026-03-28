@@ -37,7 +37,7 @@ jobs:
         run: npm run test:ci
 
       - name: Build coverage hotspots report
-        if: always()
+        if: always() && hashFiles('coverage/lcov.info') != ''
         run: node scripts/coverage-hotspots.mjs
 
       - name: Upload coverage artifact
