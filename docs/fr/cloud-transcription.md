@@ -111,6 +111,9 @@ Assignation:
 
 - le bouton `Assigner speakers` apparait seulement si des speakers sont detectes dans les segments,
 - les assignations appliquees (nom/prenom) se refletent dans la table et les exports `VTT`/`SRT`/`JSON`.
+- sur `/cloudupload`, cliquer sur le texte d'un segment ouvre une edition locale du texte,
+- les modifications sont appliquees a la session en cours et se refletent dans les exports et les rapports,
+- l'edition reste desactivee pendant une transcription active pour eviter les collisions avec de nouveaux segments.
 
 Limitation connue:
 

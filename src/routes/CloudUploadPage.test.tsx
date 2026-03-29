@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { renderWithStore } from "@/test/utils";
 import { useAsrStore } from "@/store/asr-store";
 import CloudUploadPage from "./CloudUploadPage";
@@ -48,6 +49,7 @@ function createHookValue(overrides: Partial<ReturnType<typeof cloudHook.useCloud
     startTranscription: vi.fn(),
     stopTranscription: vi.fn(),
     resetTranscriptionSession: vi.fn(),
+    updateSegmentText: vi.fn(),
     ...overrides,
   } satisfies ReturnType<typeof cloudHook.useCloudTranscription>;
 }
@@ -242,6 +244,46 @@ describe("CloudUploadPage", () => {
     expect(screen.getByText(/dernier fichier préparé avant envoi/i)).toBeInTheDocument();
     expect(screen.getByText(/consultation_super_longue_avec_un_nom_de_fichier_extremement_verbeux/i)).toBeInTheDocument();
     expect(screen.getByText(/21313456 octets/i)).toBeInTheDocument();
+    hookSpy.mockRestore();
+  });
+
+  it("allows editing a cloud segment from the table", async () => {
+    const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockImplementation(() => {
+      const [segments, setSegments] = useState([
+        {
+          index: 0,
+          start: 0,
+          end: 1,
+          text: "Bonjour",
+          chunkId: "cloud-1",
+          strategy: "chunks" as const,
+        },
+      ]);
+
+      return createHookValue({
+        segments,
+        updateSegmentText: (segmentIndex: number, text: string) => {
+          setSegments((current) =>
+            current.map((segment) => (segment.index === segmentIndex ? { ...segment, text: text.trim() } : segment))
+          );
+        },
+      });
+    });
+
+    renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
+
+    fireEvent.click(screen.getByRole("button", { name: /modifier le segment 1/i }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/texte du segment/i), {
+      target: { value: "Texte cloud modifié" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /enregistrer/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Texte cloud modifié")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Bonjour")).toBeNull();
     hookSpy.mockRestore();
   });
 });

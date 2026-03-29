@@ -76,6 +76,8 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
   const runIdRef = useRef(0);
   const isTranscribingRef = useRef(false);
   const stopRequestedRef = useRef(false);
+  const segmentsRef = useRef<TranscriptionSegment[]>([]);
+  const activeTranscriptProviderRef = useRef(provider);
   const telemetryRef = useRef<TelemetryCollector | null>(null);
 
   const hfApiToken = useAsrStore((s) => s.hfApiToken);
@@ -126,6 +128,10 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
   }, [status, statusDetail]);
 
   useEffect(() => {
+    segmentsRef.current = segments;
+  }, [segments]);
+
+  useEffect(() => {
     return () => {
       if (previewUrl) {
         try {
@@ -148,6 +154,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       }
       stopRequestedRef.current = false;
       telemetryRef.current = null;
+      segmentsRef.current = [];
       setSelectedFile(null);
       setPreviewFile(null);
       setPreviewUrl(null);
@@ -171,7 +178,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     (
       providerName: "whisper" | "mistral" | "demeter_sante",
       nextSegments: TranscriptionSegment[],
-      metadata: AudioMetadata
+      metadata: AudioMetadata | null
     ) => {
       setSessionTranscriptMemory(
         "cloud",
@@ -187,6 +194,34 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       );
     },
     [selectedFile, setSessionTranscriptMemory]
+  );
+
+  const updateSegmentText = useCallback(
+    (segmentIndex: number, nextText: string) => {
+      const normalizedText = nextText.trim();
+      const currentSegments = segmentsRef.current;
+      const targetSegment = currentSegments.find((segment) => segment.index === segmentIndex);
+      if (!targetSegment) {
+        logger.warn("[cloud] segment edit ignored, segment not found", { segmentIndex });
+        return;
+      }
+      if (targetSegment.text === normalizedText) {
+        return;
+      }
+
+      const nextSegments = currentSegments.map((segment) =>
+        segment.index === segmentIndex ? { ...segment, text: normalizedText } : segment
+      );
+      segmentsRef.current = nextSegments;
+      setSegments(nextSegments);
+      publishCloudTranscriptMemory(activeTranscriptProviderRef.current, nextSegments, audioMetadata);
+      logger.info("[cloud] segment text updated", {
+        provider: activeTranscriptProviderRef.current,
+        segmentIndex,
+        textLength: normalizedText.length,
+      });
+    },
+    [audioMetadata, publishCloudTranscriptMemory]
   );
 
   const abortCloudRunAndWait = useCallback(async () => {
@@ -236,6 +271,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
   const handleFileSelected = useCallback(async (file: File) => {
     logger.info("[cloud] file selected", { name: file.name, size: file.size, type: file.type });
     setSelectedFile(file);
+    segmentsRef.current = [];
     setSegments([]);
     telemetryRef.current = null;
     setTelemetrySummary(null);
@@ -837,8 +873,10 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     }
     const runId = runIdRef.current + 1;
     runIdRef.current = runId;
+    activeTranscriptProviderRef.current = provider;
     settings.clearSpeakerAssignments("cloud");
     clearSessionTranscriptMemory("cloud");
+    segmentsRef.current = [];
     setSegments([]);
     setProgress(0);
     setStatus("preprocessing");
@@ -1128,6 +1166,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     startTranscription,
     stopTranscription,
     resetTranscriptionSession,
+    updateSegmentText,
   };
 }
 

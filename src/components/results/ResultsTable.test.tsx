@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { ResultsTable } from "./ResultsTable";
 import { useAsrStore } from "@/store/asr-store";
 
@@ -43,6 +44,21 @@ describe("ResultsTable", () => {
       },
     } as any);
   });
+
+  function EditableHarness() {
+    const [segments, setSegments] = useState(sample as any);
+    return (
+      <ResultsTable
+        segments={segments}
+        mode="cloud"
+        onSegmentTextChange={(segmentIndex, text) => {
+          setSegments((current) =>
+            current.map((segment: any) => (segment.index === segmentIndex ? { ...segment, text: text.trim() } : segment))
+          );
+        }}
+      />
+    );
+  }
 
   it("renders segments and confidences and filters via search", () => {
     render(<ResultsTable segments={sample as any} />);
@@ -114,5 +130,27 @@ describe("ResultsTable", () => {
   it("falls back to raw speaker when assignment is missing", () => {
     render(<ResultsTable segments={sampleWithSpeaker as any} mode="mic" />);
     expect(screen.getByText("SPEAKER_00")).toBeInTheDocument();
+  });
+
+  it("hides segment editing controls when editing is disabled", () => {
+    render(<ResultsTable segments={sample as any} onSegmentTextChange={vi.fn()} segmentEditingDisabled />);
+    expect(screen.queryByRole("button", { name: /modifier le segment 1/i })).toBeNull();
+    expect(screen.queryByText(/modifier sa transcription localement/i)).toBeNull();
+  });
+
+  it("opens a segment editor and applies the edited text", async () => {
+    render(<EditableHarness />);
+
+    fireEvent.click(screen.getByRole("button", { name: /modifier le segment 1/i }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/texte du segment/i), {
+      target: { value: "Bonjour modifié" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /enregistrer/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Bonjour modifié")).toBeInTheDocument();
+    });
   });
 });

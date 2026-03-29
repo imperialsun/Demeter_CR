@@ -175,6 +175,35 @@ describe("useCloudTranscription", () => {
     expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.segments).toHaveLength(api.segments.length);
   });
 
+  it("updates cloud session memory when a segment text is edited", async () => {
+    useAsrStore.setState({ hfApiToken: "hf_token" } as never);
+
+    let api!: ReturnType<typeof useCloudTranscription>;
+    render(<HookHarness provider="whisper" onReady={(value) => (api = value)} />);
+    const file = new File(["a"], "audio.wav", { type: "audio/wav" });
+
+    await act(async () => {
+      await api.handleFileSelected(file);
+    });
+    await act(async () => {
+      await api.startTranscription();
+    });
+
+    await waitFor(() => {
+      expect(api.status).toBe("done");
+      expect(api.segments[0]?.text).toBe("Bonjour");
+    });
+
+    await act(async () => {
+      api.updateSegmentText(0, "Bonjour modifié");
+    });
+
+    await waitFor(() => {
+      expect(api.segments[0]?.text).toBe("Bonjour modifié");
+      expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.segments[0]?.text).toBe("Bonjour modifié");
+    });
+  });
+
   it("clears the shared cloud transcript memory on session reset", async () => {
     useAsrStore.setState({ hfApiToken: "hf_token" } as never);
 

@@ -86,6 +86,7 @@ function CloudUploadPage() {
     startTranscription,
     stopTranscription,
     resetTranscriptionSession,
+    updateSegmentText,
   } = useCloudTranscription(provider);
 
   useEffect(() => {
@@ -350,6 +351,8 @@ function CloudUploadPage() {
                 enableWordTimestamps={cloudEnableWordTimestamps}
                 showSegmentConfidence={cloudShowSegmentConfidence}
                 mode="cloud"
+                onSegmentTextChange={updateSegmentText}
+                segmentEditingDisabled={isTranscribing || isResettingSession}
               />
             ) : (
               <Card>

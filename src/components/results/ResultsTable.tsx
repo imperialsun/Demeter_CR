@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -14,6 +14,7 @@ import type { TranscriptionSegment } from "@/lib/export";
 import logger from "@/lib/logger";
 import { estimateTokenCount } from "@/lib/tokens";
 import { resolveSegmentSpeakerLabel } from "@/lib/speakerAssignments";
+import { SegmentEditorDialog } from "@/components/results/SegmentEditorDialog";
 
 interface ResultsTableProps {
   segments: TranscriptionSegment[];
@@ -21,6 +22,8 @@ interface ResultsTableProps {
   showSegmentConfidence?: boolean;
   showSpeaker?: boolean;
   mode?: "upload" | "mic" | "cloud";
+  onSegmentTextChange?: (segmentIndex: number, text: string) => void;
+  segmentEditingDisabled?: boolean;
 }
 
 export function ResultsTable({
@@ -29,8 +32,11 @@ export function ResultsTable({
   showSegmentConfidence,
   showSpeaker,
   mode = "upload",
+  onSegmentTextChange,
+  segmentEditingDisabled = false,
 }: ResultsTableProps) {
   const [query, setQuery] = useState("");
+  const [editingSegment, setEditingSegment] = useState<{ index: number; text: string } | null>(null);
   const storeEnableWordTimestamps = useAsrStore((s) => s.enableWordTimestamps);
   const storeShowSegmentConfidence = useAsrStore((s) => s.showSegmentConfidence);
   const speakerAssignments = useAsrStore((s) => s.speakerAssignments[mode]);
@@ -43,6 +49,7 @@ export function ResultsTable({
     [segments]
   );
   const resolvedShowSpeaker = typeof showSpeaker === "boolean" ? showSpeaker : hasSpeaker;
+  const canEditSegments = Boolean(onSegmentTextChange) && !segmentEditingDisabled;
   const emptyRowColSpan = (resolvedShowSegmentConfidence ? 6 : 5) + (resolvedShowSpeaker ? 1 : 0);
   const filtered = useMemo(() => {
     if (!query) return segments;
@@ -53,6 +60,18 @@ export function ResultsTable({
     () => segments.reduce((acc, segment) => acc + estimateTokenCount(segment.text), 0),
     [segments]
   );
+
+  useEffect(() => {
+    if (!editingSegment) return;
+    if (!canEditSegments) {
+      setEditingSegment(null);
+      return;
+    }
+    const stillVisible = segments.some((segment) => segment.index === editingSegment.index);
+    if (!stillVisible) {
+      setEditingSegment(null);
+    }
+  }, [canEditSegments, editingSegment, segments]);
 
   useEffect(() => {
     logger.info("[results] table mounted", {
@@ -76,12 +95,26 @@ export function ResultsTable({
     });
   }, [filtered.length, mode, query, segments.length]);
 
+  const handleSaveSegmentText = useCallback(
+    (text: string) => {
+      if (!editingSegment || !onSegmentTextChange) return;
+      onSegmentTextChange(editingSegment.index, text);
+      setEditingSegment(null);
+    },
+    [editingSegment, onSegmentTextChange]
+  );
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
         <span>{segments.length} segments</span>
         <span>Tokens (est.) : {totalTokenCount}</span>
       </div>
+      {canEditSegments ? (
+        <p className="text-xs text-muted-foreground">
+          Cliquez sur le texte d’un segment pour modifier sa transcription localement.
+        </p>
+      ) : null}
       <Input
         placeholder="Rechercher un mot clé…"
         value={query}
@@ -133,18 +166,47 @@ export function ResultsTable({
                 <TableCell className="text-sm font-mono">
                   {estimateTokenCount(segment.text)}
                 </TableCell>
-                <TableCell className="max-w-xl whitespace-pre-wrap text-sm">
-                  <div>{segment.text}</div>
-                  {resolvedEnableWordTimestamps && segment.words && segment.words.length ? (
-                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                      {segment.words.map((w, i) => (
-                        <span key={i} className="rounded px-1 py-0.5 bg-muted/10">
-                          <span className="font-medium">{w.word}</span>
-                          <span className="ml-1 text-xs text-muted-foreground">[{formatTimestamp(w.start)} - {formatTimestamp(w.end)}]</span>
-                        </span>
-                      ))}
+                <TableCell className="max-w-xl whitespace-pre-wrap text-sm align-top">
+                  {canEditSegments ? (
+                    <button
+                      type="button"
+                      className="group w-full cursor-pointer rounded-md px-2 py-1 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label={`Modifier le segment ${segment.index + 1}`}
+                      onClick={() => {
+                        setEditingSegment({ index: segment.index, text: segment.text });
+                      }}
+                    >
+                      <div>{segment.text}</div>
+                      {resolvedEnableWordTimestamps && segment.words && segment.words.length ? (
+                        <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                          {segment.words.map((w, i) => (
+                            <span key={i} className="rounded bg-muted/10 px-1 py-0.5">
+                              <span className="font-medium">{w.word}</span>
+                              <span className="ml-1 text-xs text-muted-foreground">
+                                [{formatTimestamp(w.start)} - {formatTimestamp(w.end)}]
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </button>
+                  ) : (
+                    <div className="space-y-2">
+                      <div>{segment.text}</div>
+                      {resolvedEnableWordTimestamps && segment.words && segment.words.length ? (
+                        <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                          {segment.words.map((w, i) => (
+                            <span key={i} className="rounded bg-muted/10 px-1 py-0.5">
+                              <span className="font-medium">{w.word}</span>
+                              <span className="ml-1 text-xs text-muted-foreground">
+                                [{formatTimestamp(w.start)} - {formatTimestamp(w.end)}]
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
-                  ) : null}
+                  )}
                 </TableCell>
               </TableRow>
             ))}
@@ -158,6 +220,16 @@ export function ResultsTable({
           </TableBody>
         </Table>
       </ScrollArea>
+
+      <SegmentEditorDialog
+        open={editingSegment !== null}
+        segmentNumber={(editingSegment?.index ?? 0) + 1}
+        initialText={editingSegment?.text ?? ""}
+        onSave={handleSaveSegmentText}
+        onCancel={() => {
+          setEditingSegment(null);
+        }}
+      />
     </div>
   );
 }

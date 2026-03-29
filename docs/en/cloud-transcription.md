@@ -111,6 +111,9 @@ Assignment:
 
 - the `Assigner speakers` button is shown only when speakers are detected in segments,
 - applied assignments (first/last names) are reflected in the table and `VTT`/`SRT`/`JSON` exports.
+- on `/cloudupload`, clicking a segment's text opens a local text editor,
+- changes are applied to the current session and reflected in exports and reports,
+- editing stays disabled while transcription is active to avoid collisions with new segments.
 
 Known limitation:
 
