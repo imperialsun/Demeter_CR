@@ -41,6 +41,24 @@ function createDataTransfer() {
   } as DataTransfer;
 }
 
+function buildGeneratedResult(format: "CRI" | "CRO" | "CRS", title: string) {
+  return {
+    format,
+    report: {
+      format,
+      title,
+      sections: [{ heading: "Contexte", paragraphs: ["P1"] }],
+    },
+    rawResponse: "{}",
+    modelId: "openai/gpt-oss-20b",
+    generatedAt: new Date().toISOString(),
+    sourceMode: "text",
+    sourceTokenCount: 50,
+    pipelinePasses: 1,
+    strategy: "chatCompletion",
+  } as const;
+}
+
 vi.mock("@/hooks/useLlmReports", () => ({
   useLlmReports: () => hookState,
 }));
@@ -158,32 +176,47 @@ describe("LLMApiPage", () => {
     expect(screen.getByText(/importez un fichier pour lancer la generation/i)).toBeInTheDocument();
   });
 
-  it("enables download buttons when results exist", async () => {
+  it("hides DOCX downloads until a report is generated", () => {
+    renderPage();
+
+    expect(screen.queryByRole("region", { name: /téléchargements docx/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /telecharger cri/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /telecharger cro/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /telecharger crs/i })).not.toBeInTheDocument();
+  });
+
+  it("shows only generated DOCX downloads below the format selector", async () => {
     hookState.results = {
-      cri: {
-        format: "CRI",
-        report: {
-          format: "CRI",
-          title: "Titre CRI",
-          sections: [{ heading: "Contexte", paragraphs: ["P1"] }],
-        },
-        rawResponse: "{}",
-        modelId: "openai/gpt-oss-20b",
-        generatedAt: new Date().toISOString(),
-        sourceMode: "text",
-        sourceTokenCount: 50,
-        pipelinePasses: 1,
-        strategy: "chatCompletion",
-      },
+      cri: buildGeneratedResult("CRI", "Titre CRI"),
     } as any;
 
     renderPage();
 
+    const docxDownloads = screen.getByRole("region", { name: /téléchargements docx/i });
+    const editor = screen.getByTestId("report-editor-cri");
+    expect(docxDownloads.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
     const downloadCri = screen.getByRole("button", { name: /telecharger cri/i });
     expect(downloadCri).not.toBeDisabled();
+    expect(screen.queryByRole("button", { name: /telecharger cro/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /telecharger crs/i })).not.toBeInTheDocument();
 
     await userEvent.click(downloadCri);
     expect(downloadDocx).toHaveBeenCalledWith("cri");
+  });
+
+  it("shows all DOCX downloads when every format has been generated", () => {
+    hookState.results = {
+      cri: buildGeneratedResult("CRI", "Titre CRI"),
+      cro: buildGeneratedResult("CRO", "Titre CRO"),
+      crs: buildGeneratedResult("CRS", "Titre CRS"),
+    } as any;
+
+    renderPage();
+
+    expect(screen.getByRole("button", { name: /telecharger cri/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /telecharger cro/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /telecharger crs/i })).toBeInTheDocument();
   });
 
   it("updates the draft after editing a generated report and resets to the cloud version", async () => {

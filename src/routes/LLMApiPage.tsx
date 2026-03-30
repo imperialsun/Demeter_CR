@@ -245,6 +245,16 @@ function LLMApiPage() {
     sourceFitsModelContext &&
     pipelineConfigValid;
 
+  const docxDownloads = useMemo(
+    () =>
+      [
+        results.cri ? { key: "cri" as const, label: "CRI" } : null,
+        results.cro ? { key: "cro" as const, label: "CRO" } : null,
+        results.crs ? { key: "crs" as const, label: "CRS" } : null,
+      ].filter((item): item is { key: ReportResultKey; label: string } => Boolean(item)),
+    [results],
+  );
+
   const percent = Math.round(Math.max(0, Math.min(1, progress)) * 100);
 
   const runGeneration = async () => {
@@ -863,6 +873,39 @@ function LLMApiPage() {
                   <TabsTrigger value="crs">CRS</TabsTrigger>
                 </TabsList>
 
+                {docxDownloads.length > 0 ? (
+                  <section
+                    aria-labelledby="llm-docx-downloads-title"
+                    className="mt-4 rounded-2xl border border-border/70 bg-muted/30 p-4 shadow-sm"
+                    role="region"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold tracking-tight text-foreground" id="llm-docx-downloads-title">
+                          Téléchargements DOCX
+                        </h3>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Chaque bouton apparaît dès que son compte rendu correspondant est généré.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                      {docxDownloads.map((item) => (
+                        <Button
+                          className="w-full sm:flex-1"
+                          disabled={isBusy}
+                          key={item.key}
+                          onClick={() => runDownload(item.key)}
+                          size="lg"
+                          variant="default"
+                        >
+                          Telecharger {item.label} (.docx)
+                        </Button>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+
                 <TabsContent value="cri" className="mt-4">
                   <ReportFormatEditor format="cri" description={FORMAT_PREVIEW_META[0]!.description} />
                 </TabsContent>
@@ -873,18 +916,6 @@ function LLMApiPage() {
                   <ReportFormatEditor format="crs" description={FORMAT_PREVIEW_META[2]!.description} />
                 </TabsContent>
               </Tabs>
-
-              <div className="flex flex-wrap gap-2 border-t pt-4">
-                <Button variant="outline" onClick={() => runDownload("cri")} disabled={!results.cri || isBusy}>
-                  Telecharger CRI (.docx)
-                </Button>
-                <Button variant="outline" onClick={() => runDownload("cro")} disabled={!results.cro || isBusy}>
-                  Telecharger CRO (.docx)
-                </Button>
-                <Button variant="outline" onClick={() => runDownload("crs")} disabled={!results.crs || isBusy}>
-                  Telecharger CRS (.docx)
-                </Button>
-              </div>
             </CardContent>
           </Card>
         </div>
