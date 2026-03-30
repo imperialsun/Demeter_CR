@@ -91,6 +91,56 @@ describe('AudioPlayer', () => {
     expect(audio.currentTime).toBeGreaterThanOrEqual(9.99);
   });
 
+  it('keeps the first chunk bounded and shows global time', () => {
+    const file = createTestFile();
+    const pauseSpy = vi.spyOn(HTMLMediaElement.prototype, "pause");
+    renderWithStore(<AudioPlayer file={file} metadata={null} rangeStart={0} rangeEnd={9} timeDisplayMode="absolute" />);
+
+    const audio = document.querySelector('audio') as HTMLAudioElement;
+    Object.defineProperty(audio, 'duration', { value: 100, configurable: true });
+    Object.defineProperty(audio, 'currentTime', { value: 0, writable: true, configurable: true });
+
+    fireEvent(audio, new Event('loadedmetadata'));
+    expect(audio.currentTime).toBe(0);
+    expect(screen.getByText("00:00 / 00:09")).toBeInTheDocument();
+
+    audio.currentTime = 0;
+    fireEvent.click(screen.getByRole('button', { name: /Lecture/i }));
+    expect(audio.currentTime).toBe(0);
+
+    audio.currentTime = 8.5;
+    fireEvent.click(screen.getByRole('button', { name: /Avance de 5s/i }));
+    expect(audio.currentTime).toBe(9);
+
+    audio.currentTime = 9.2;
+    fireEvent(audio, new Event('timeupdate'));
+    expect(pauseSpy).toHaveBeenCalled();
+    expect(audio.currentTime).toBe(9);
+  });
+
+  it('shows global time for a later chunk while staying bounded', () => {
+    const file = createTestFile();
+    const pauseSpy = vi.spyOn(HTMLMediaElement.prototype, "pause");
+    renderWithStore(<AudioPlayer file={file} metadata={null} rangeStart={10} rangeEnd={20} timeDisplayMode="absolute" />);
+
+    const audio = document.querySelector('audio') as HTMLAudioElement;
+    Object.defineProperty(audio, 'duration', { value: 100, configurable: true });
+    Object.defineProperty(audio, 'currentTime', { value: 0, writable: true, configurable: true });
+
+    fireEvent(audio, new Event('loadedmetadata'));
+    expect(audio.currentTime).toBe(10);
+    expect(screen.getByText("00:10 / 00:20")).toBeInTheDocument();
+
+    audio.currentTime = 19.5;
+    fireEvent.click(screen.getByRole('button', { name: /Avance de 5s/i }));
+    expect(audio.currentTime).toBe(20);
+
+    audio.currentTime = 20.2;
+    fireEvent(audio, new Event('timeupdate'));
+    expect(pauseSpy).toHaveBeenCalled();
+    expect(audio.currentTime).toBe(20);
+  });
+
   it('prev/next segment navigates between segments using store', () => {
     const file = createTestFile();
     const segments = [

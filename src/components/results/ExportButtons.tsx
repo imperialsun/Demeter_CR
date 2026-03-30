@@ -42,7 +42,10 @@ export function ExportButtons({
   const [isSpeakerDialogOpen, setSpeakerDialogOpen] = useState(false);
   const speakerAssignments = useAsrStore((s) => s.speakerAssignments[mode]);
   const setSpeakerAssignments = useAsrStore((s) => s.setSpeakerAssignments);
-  const speakerEntries = useMemo(() => collectSpeakerAssignmentEntries(segments, mode), [mode, segments]);
+  const speakerEntries = useMemo(
+    () => (mode === "cloud" ? [] : collectSpeakerAssignmentEntries(segments, mode)),
+    [mode, segments]
+  );
   const segmentsForExport = useMemo(
     () => applySpeakerAssignments(segments, speakerAssignments, mode),
     [mode, segments, speakerAssignments]
@@ -156,7 +159,7 @@ export function ExportButtons({
         ) : null}
       </div>
 
-      {isSpeakerDialogOpen ? (
+      {mode !== "cloud" && isSpeakerDialogOpen ? (
         <SpeakerAssignmentDialog
           mode={mode}
           entries={speakerEntries}

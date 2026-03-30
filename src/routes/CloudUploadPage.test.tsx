@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { renderWithStore } from "@/test/utils";
 import { useAsrStore } from "@/store/asr-store";
@@ -138,17 +138,42 @@ describe("CloudUploadPage", () => {
     expect(screen.queryByRole("switch", { name: "Diarization" })).toBeNull();
   });
 
-  it("shows speaker column and assign speakers action when segments include speaker labels", () => {
+  it("renders one card per chunk with a local player and speaker controls", () => {
     const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(
       createHookValue({
+        previewFile: new File(["audio"], "session.wav", { type: "audio/wav" }),
+        previewUrl: "blob:mock-session",
+        audioMetadata: {
+          name: "session.wav",
+          durationSec: 24,
+          sampleRate: 16000,
+        } as any,
         segments: [
           {
             index: 0,
             start: 0,
-            end: 1,
+            end: 5,
             text: "Bonjour",
             speaker: "SPEAKER_00",
             chunkId: "mistral-1",
+            strategy: "chunks",
+          },
+          {
+            index: 1,
+            start: 5,
+            end: 9,
+            text: "Suite",
+            speaker: "SPEAKER_01",
+            chunkId: "mistral-1",
+            strategy: "chunks",
+          },
+          {
+            index: 2,
+            start: 9,
+            end: 14,
+            text: "Segment suivant",
+            speaker: "SPEAKER_00",
+            chunkId: "mistral-2",
             strategy: "chunks",
           },
         ],
@@ -157,12 +182,22 @@ describe("CloudUploadPage", () => {
 
     renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
 
-    expect(screen.getByRole("columnheader", { name: /speaker/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Assigner speakers/i })).toBeInTheDocument();
+    const firstChunkCard = screen.getByTestId("cloud-chunk-card-mistral-1");
+    const secondChunkCard = screen.getByTestId("cloud-chunk-card-mistral-2");
+
+    expect(within(firstChunkCard).getByText("Morceau 1")).toBeInTheDocument();
+    expect(within(secondChunkCard).getByText("Morceau 2")).toBeInTheDocument();
+    expect(within(firstChunkCard).getByText("00:00 - 00:09")).toBeInTheDocument();
+    expect(within(secondChunkCard).getByText("00:09 - 00:14")).toBeInTheDocument();
+    expect(within(firstChunkCard).getByRole("button", { name: /Lecture/i })).toBeInTheDocument();
+    expect(within(secondChunkCard).getByRole("button", { name: /Lecture/i })).toBeInTheDocument();
+    expect(within(firstChunkCard).getByRole("button", { name: /Assigner les speakers du morceau/i })).toBeInTheDocument();
+    expect(within(secondChunkCard).getByRole("button", { name: /Assigner les speakers du morceau/i })).toBeInTheDocument();
+    expect(within(firstChunkCard).getByRole("columnheader", { name: /speaker/i })).toBeInTheDocument();
     hookSpy.mockRestore();
   });
 
-  it("opens the cloud speaker dialog grouped by chunk", () => {
+  it("does not expose global speaker assignment in cloud mode", () => {
     const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(
       createHookValue({
         segments: [
@@ -189,11 +224,82 @@ describe("CloudUploadPage", () => {
     );
 
     renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
-    fireEvent.click(screen.getByRole("button", { name: /Assigner speakers/i }));
 
-    expect(screen.getByText("Assigner les speakers par chunk")).toBeInTheDocument();
-    expect(screen.getByText("Chunk 1")).toBeInTheDocument();
-    expect(screen.getByText("Chunk 2")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Assigner speakers$/i })).toBeNull();
+    const firstChunkCard = screen.getByTestId("cloud-chunk-card-mistral-1");
+    expect(within(firstChunkCard).getByRole("button", { name: /Assigner les speakers du morceau/i })).toBeInTheDocument();
+    hookSpy.mockRestore();
+  });
+
+  it("updates only the local chunk speaker assignments from a chunk card", () => {
+    const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(
+      createHookValue({
+        previewFile: new File(["audio"], "session.wav", { type: "audio/wav" }),
+        previewUrl: "blob:mock-session",
+        audioMetadata: {
+          name: "session.wav",
+          durationSec: 24,
+          sampleRate: 16000,
+        } as any,
+        segments: [
+          {
+            index: 0,
+            start: 0,
+            end: 4,
+            text: "Bonjour",
+            speaker: "SPEAKER_00",
+            chunkId: "mistral-1",
+            strategy: "chunks",
+          },
+          {
+            index: 1,
+            start: 4,
+            end: 8,
+            text: "Suite",
+            speaker: "SPEAKER_00",
+            chunkId: "mistral-2",
+            strategy: "chunks",
+          },
+        ],
+      })
+    );
+
+    useAsrStore.setState({
+      speakerAssignments: {
+        upload: {},
+        mic: {},
+        cloud: {
+          "mistral-2::SPEAKER_00": {
+            firstName: "Jean",
+            lastName: "Dupont",
+          },
+        },
+      },
+    } as any);
+
+    renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
+
+    const firstChunkCard = screen.getByTestId("cloud-chunk-card-mistral-1");
+    fireEvent.click(within(firstChunkCard).getByRole("button", { name: /Assigner les speakers du morceau/i }));
+
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Nom Morceau 1 SPEAKER_00"), {
+      target: { value: "Martin" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Prénom Morceau 1 SPEAKER_00"), {
+      target: { value: "Alice" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Appliquer" }));
+
+    expect(useAsrStore.getState().speakerAssignments.cloud["mistral-1::SPEAKER_00"]).toEqual({
+      firstName: "Alice",
+      lastName: "Martin",
+    });
+    expect(useAsrStore.getState().speakerAssignments.cloud["mistral-2::SPEAKER_00"]).toEqual({
+      firstName: "Jean",
+      lastName: "Dupont",
+    });
+
     hookSpy.mockRestore();
   });
 
@@ -272,7 +378,8 @@ describe("CloudUploadPage", () => {
 
     renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
 
-    fireEvent.click(screen.getByRole("button", { name: /modifier le segment 1/i }));
+    const chunkCard = screen.getByTestId("cloud-chunk-card-cloud-1");
+    fireEvent.click(within(chunkCard).getByRole("button", { name: /modifier le segment 1/i }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/texte du segment/i), {

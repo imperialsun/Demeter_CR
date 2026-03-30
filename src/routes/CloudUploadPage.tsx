@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AudioUploader } from "@/components/audio/AudioUploader";
-import { AudioPlayer } from "@/components/audio/AudioPlayer";
-import { ResultsTable } from "@/components/results/ResultsTable";
 import { ExportButtons } from "@/components/results/ExportButtons";
+import { CloudChunkCard } from "@/components/results/CloudChunkCard";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,6 +18,7 @@ import logger from "@/lib/logger";
 import { SESSION_ONLY_SECRET_NOTICE } from "@/lib/secret-storage-copy";
 import { Loader2, PauseCircle, Play, Cloud } from "lucide-react";
 import { isBackendMode } from "@/lib/runtime-config";
+import { groupCloudTranscriptionSegments } from "@/lib/cloud/transcriptionChunks";
 
 const CLOUD_HF_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans cle API Hugging Face.";
 const CLOUD_MISTRAL_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans cle API Mistral.";
@@ -116,6 +116,7 @@ function CloudUploadPage() {
   const isMistralTokenMissing = isMistral && mistralApiKey.trim().length === 0;
   const canStartTranscription = hasAllowedProvider && isCurrentProviderAllowed && !isWhisperTokenMissing && !isMistralTokenMissing;
   const percent = Math.round(progress * 100);
+  const chunkGroups = useMemo(() => groupCloudTranscriptionSegments(segments), [segments]);
   return (
     <div className="space-y-8">
       <header className="space-y-2">
@@ -332,8 +333,6 @@ function CloudUploadPage() {
         </div>
 
         <div className="space-y-4">
-          <AudioPlayer file={previewFile} metadata={audioMetadata} previewUrl={previewUrl} segments={segments} />
-
           <ExportButtons
             segments={segments}
             telemetry={telemetrySummary ?? undefined}
@@ -345,19 +344,26 @@ function CloudUploadPage() {
           />
 
           {cloudShowSegments ? (
-            segments.length ? (
-              <ResultsTable
-                segments={segments}
-                enableWordTimestamps={cloudEnableWordTimestamps}
-                showSegmentConfidence={cloudShowSegmentConfidence}
-                mode="cloud"
-                onSegmentTextChange={updateSegmentText}
-                segmentEditingDisabled={isTranscribing || isResettingSession}
-              />
+            chunkGroups.length ? (
+              <div className="space-y-4">
+                {chunkGroups.map((chunk) => (
+                  <CloudChunkCard
+                    key={chunk.chunkId}
+                    chunk={chunk}
+                    file={previewFile}
+                    previewUrl={previewUrl}
+                    metadata={audioMetadata}
+                    enableWordTimestamps={cloudEnableWordTimestamps}
+                    showSegmentConfidence={cloudShowSegmentConfidence}
+                    onSegmentTextChange={updateSegmentText}
+                    segmentEditingDisabled={isResettingSession || isTranscribing}
+                  />
+                ))}
+              </div>
             ) : (
               <Card>
                 <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                  Les segments apparaîtront ici dès que la transcription aura démarré.
+                  Les morceaux apparaîtront ici dès que la transcription aura démarré.
                 </CardContent>
               </Card>
             )

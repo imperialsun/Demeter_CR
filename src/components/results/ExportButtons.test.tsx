@@ -159,6 +159,24 @@ describe("ExportButtons", () => {
     expect(screen.queryByRole("button", { name: /Assigner speakers/i })).toBeNull();
   });
 
+  it("hides the assign speakers button in cloud mode", () => {
+    const segments: any[] = [
+      {
+        index: 0,
+        start: 0,
+        end: 1,
+        text: "a",
+        speaker: "SPEAKER_00",
+        chunkId: "chunk-1",
+        strategy: "chunks",
+      },
+    ];
+
+    render(<ExportButtons segments={segments} mode="cloud" />);
+
+    expect(screen.queryByRole("button", { name: /Assigner speakers/i })).toBeNull();
+  });
+
   it("applies speaker assignments before exporting json", () => {
     const segments: any[] = [
       {
@@ -181,14 +199,20 @@ describe("ExportButtons", () => {
       },
     ];
 
-    render(<ExportButtons segments={segments} mode="cloud" />);
+    useAsrStore.setState({
+      speakerAssignments: {
+        upload: {},
+        mic: {},
+        cloud: {
+          "chunk-1::SPEAKER_00": {
+            firstName: "Alice",
+            lastName: "Dupont",
+          },
+        },
+      },
+    } as any);
 
-    fireEvent.click(screen.getByRole("button", { name: /Assigner speakers/i }));
-    expect(screen.getByText("Chunk 1")).toBeInTheDocument();
-    expect(screen.getByText("Chunk 2")).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Nom Chunk 1 SPEAKER_00"), { target: { value: "Dupont" } });
-    fireEvent.change(screen.getByLabelText("Prénom Chunk 1 SPEAKER_00"), { target: { value: "Alice" } });
-    fireEvent.click(screen.getByRole("button", { name: "Appliquer" }));
+    render(<ExportButtons segments={segments} mode="cloud" />);
 
     fireEvent.click(screen.getByText("JSON"));
 
