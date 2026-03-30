@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,7 +29,7 @@ interface CloudChunkCardProps {
   onSegmentTextChange?: (segmentIndex: number, text: string) => void;
 }
 
-export function CloudChunkCard({
+export const CloudChunkCard = memo(function CloudChunkCard({
   chunk,
   file,
   previewUrl,
@@ -152,4 +152,4 @@ export function CloudChunkCard({
       ) : null}
     </Card>
   );
-}
+});

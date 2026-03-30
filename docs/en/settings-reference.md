@@ -95,9 +95,9 @@ Explicit note: `speakerAssignments` is not part of `PersistedSettings`.
 
 ### Cloud preprocessing
 
-- `cloudPreprocessingMode`.
+- `cloudPreprocessingMode`: `quick` = low-RAM staged segment processing with a lightweight chain, `full` = full local preprocessing of each staged segment before upload.
 - denoise/filter/lufs/limiter/vad settings equivalent to local mode.
-- `cloudAutoTunePreprocess`.
+- `cloudAutoTunePreprocess`: the first staged segment is used once for calibration and the resulting tune/noise profile is reused for the remaining staged segments.
 
 ### Cloud display/export
 
@@ -150,5 +150,6 @@ Those values are preserved through the encrypted secure vault.
 - Prefer `webgpu` for latency.
 - Use `progressive` mode for long media.
 - Lower `chunkDurationSec` under memory pressure.
+- For `/cloudupload`, prefer `cloudPreprocessingMode=quick` on large files or RAM-constrained machines; lowering `denoiseCalibrationSeconds` further reduces the calibration slice used on the first staged segment.
 - Enable `forceSingleThread` on unstable WASM MT platforms.
 - Tune `cloud*ChunkDurationSec` based on provider quotas/timeouts.

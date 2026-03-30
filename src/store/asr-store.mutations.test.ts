@@ -112,7 +112,7 @@ describe("asr-store mutation guards", () => {
     expect(useAsrStore.getState().sessionTranscriptMemories.mic).toBeNull();
     expect(useAsrStore.getState().sessionTranscriptMemories.upload?.transcriptText).toBe("Bonjour");
     expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.segmentCount).toBe(1);
-    expect((useAsrStore.getState().sessionTranscriptMemories.upload as any)?.segments).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(useAsrStore.getState().sessionTranscriptMemories.upload ?? {}, "segments")).toBe(false);
 
     state.clearSessionTranscriptMemory("upload");
     expect(useAsrStore.getState().sessionTranscriptMemories.upload).toBeNull();

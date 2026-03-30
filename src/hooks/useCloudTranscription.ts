@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAsrStore } from "@/store/asr-store";
 import { TelemetryCollector, type TelemetrySummary } from "@/lib/telemetry";
-import { encodeWavBuffer, probeAudioMetadata, type AudioMetadata } from "@/lib/audio";
+import { probeAudioMetadata, type AudioMetadata } from "@/lib/audio";
 import { buildFixedSegments } from "@/lib/chunking";
-import { preprocessCloudAudio, type CloudPreprocessSettings } from "@/lib/cloud/preprocessCloudAudio";
+import { type CloudAutoTuneResult, type CloudPreprocessSettings } from "@/lib/cloud/preprocessCloudAudio";
 import logger from "@/lib/logger";
 import { toast } from "@/components/ui/use-toast";
 import type { TranscriptionSegment } from "@/lib/export";
 import { summarizeSegments } from "@/lib/cloud/segmentSummary";
-import { extractSegmentBlob } from "@/lib/cloud/segmentExtraction";
+import { stageCloudSegments, type CloudStagedSegment } from "@/lib/cloud/cloudStaging";
+import { splitCloudSegmentWindow } from "@/lib/cloud/segmentWindows";
+import { deleteSegment, deleteSessionSegments, getSegment } from "@/lib/segment-cache";
 import { getWhisperClient } from "@/lib/cloud/whisperClient";
 import { buildWhisperParameters } from "@/lib/cloud/whisperParams";
 import { parseWhisperOutput } from "@/lib/cloud/whisperSegments";
@@ -25,9 +27,10 @@ import {
 } from "@/lib/backend-api";
 import { isBackendAuthenticated } from "@/lib/backend-session";
 import { resolveChunkingConfig } from "@/hooks/useCloudTranscription.steps";
-import { createSessionTranscriptMemoryEntry } from "@/lib/sessionTranscriptMemory";
+import { createSessionTranscriptMemoryEntry, getSessionTranscriptText } from "@/lib/sessionTranscriptMemory";
 import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
 import { releaseFfmpeg } from "@/lib/ffmpeg-loader";
+import { buildCloudTranscriptionChunkGroup, type CloudTranscriptionChunkGroup } from "@/lib/cloud/transcriptionChunks";
 
 type CloudStatus = "idle" | "preprocessing" | "uploading" | "transcribing" | "stopping" | "done" | "error";
 
@@ -53,24 +56,12 @@ type MistralChunkingConfig = {
   durationWasCapped: boolean;
 };
 
-function makeSafeFilename(value: string) {
-  const ascii = value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
-  const cleaned = ascii.replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "");
-  return cleaned.length ? cleaned : "audio";
-}
-
-const EMPTY_PCM = new Float32Array(0);
-
-function releasePcmBuffer(container: { pcm: Float32Array } | null | undefined) {
-  if (!container) return;
-  container.pcm = EMPTY_PCM;
-}
-
 export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter_sante") {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [audioMetadata, setAudioMetadata] = useState<AudioMetadata | null>(null);
   const [segments, setSegments] = useState<TranscriptionSegment[]>([]);
+  const [chunkGroups, setChunkGroups] = useState<CloudTranscriptionChunkGroup[]>([]);
   const [telemetrySummary, setTelemetrySummary] = useState<TelemetrySummary | null>(null);
   const [status, setStatus] = useState<CloudStatus>("idle");
   const [statusDetail, setStatusDetail] = useState<string | null>(null);
@@ -81,9 +72,13 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
   const [stopRequested, setStopRequested] = useState(false);
 
   const runIdRef = useRef(0);
+  const cloudSessionIdRef = useRef<string | null>(null);
   const isTranscribingRef = useRef(false);
   const stopRequestedRef = useRef(false);
   const segmentsRef = useRef<TranscriptionSegment[]>([]);
+  const chunkGroupsRef = useRef<CloudTranscriptionChunkGroup[]>([]);
+  const cloudTranscriptTextRef = useRef("");
+  const cloudTranscriptSegmentCountRef = useRef(0);
   const activeTranscriptProviderRef = useRef(provider);
   const telemetryRef = useRef<TelemetryCollector | null>(null);
 
@@ -121,6 +116,15 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     cloudTopP,
     cloudDoSample,
   ]);
+
+  const resetCloudTranscriptBuffers = useCallback(() => {
+    segmentsRef.current = [];
+    chunkGroupsRef.current = [];
+    cloudTranscriptTextRef.current = "";
+    cloudTranscriptSegmentCountRef.current = 0;
+    setSegments([]);
+    setChunkGroups([]);
+  }, []);
 
   useEffect(() => {
     stopRequestedRef.current = stopRequested;
@@ -161,11 +165,11 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       }
       stopRequestedRef.current = false;
       telemetryRef.current = null;
-      segmentsRef.current = [];
+      resetCloudTranscriptBuffers();
+      cloudSessionIdRef.current = null;
       setSelectedFile(null);
       setPreviewUrl(null);
       setAudioMetadata(null);
-      setSegments([]);
       clearSessionTranscriptMemory("cloud");
       setTelemetrySummary(null);
       setPreparedUpload(null);
@@ -177,21 +181,56 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       setIsTranscribing(false);
       setStopRequested(false);
     },
-    [clearSessionTranscriptMemory, previewUrl, registerTelemetry, setGlobalTelemetrySummary]
+    [clearSessionTranscriptMemory, previewUrl, registerTelemetry, resetCloudTranscriptBuffers, setGlobalTelemetrySummary]
+  );
+
+  const persistCloudTune = useCallback(
+    (
+      settings: ReturnType<typeof useAsrStore.getState>,
+      preprocessSettings: CloudPreprocessSettings,
+      tune: CloudAutoTuneResult
+    ) => {
+      settings.setCloudDenoiseParams({
+        denoiseNoiseFloorDb: tune.noiseFloorDb,
+        denoiseReductionDb: tune.reductionDb,
+        denoiseSmoothing: tune.smoothing,
+        denoiseCalibrationSeconds: settings.cloudDenoiseCalibrationSeconds,
+      });
+      settings.setCloudPreprocessParams({
+        preprocessTargetLufs: tune.targetLufs,
+        preprocessHighpassHz: tune.highpassHz,
+        preprocessLowpassHz: tune.lowpassHz,
+        preprocessLimiterThresholdDb: tune.limiterThresholdDb,
+        preprocessLimiterSoftness: tune.limiterSoftness,
+        preprocessVadThresholdDb: tune.vadThresholdDb,
+        preprocessOverlapBlockSec: tune.overlapBlockSec,
+        preprocessOverlapSec: tune.overlapSec,
+      });
+      preprocessSettings.denoiseNoiseFloorDb = tune.noiseFloorDb;
+      preprocessSettings.denoiseReductionDb = tune.reductionDb;
+      preprocessSettings.denoiseSmoothing = tune.smoothing;
+      preprocessSettings.preprocessTargetLufs = tune.targetLufs;
+      preprocessSettings.preprocessHighpassHz = tune.highpassHz;
+      preprocessSettings.preprocessLowpassHz = tune.lowpassHz;
+      preprocessSettings.preprocessLimiterThresholdDb = tune.limiterThresholdDb;
+      preprocessSettings.preprocessLimiterSoftness = tune.limiterSoftness;
+      preprocessSettings.preprocessVadThresholdDb = tune.vadThresholdDb;
+      preprocessSettings.preprocessOverlapBlockSec = tune.overlapBlockSec;
+      preprocessSettings.preprocessOverlapSec = tune.overlapSec;
+    },
+    []
   );
 
   const publishCloudTranscriptMemory = useCallback(
-    (
-      providerName: "whisper" | "mistral" | "demeter_sante",
-      nextSegments: TranscriptionSegment[],
-      metadata: AudioMetadata | null
-    ) => {
+    (providerName: "whisper" | "mistral" | "demeter_sante", metadata: AudioMetadata | null) => {
       setSessionTranscriptMemory(
         "cloud",
         createSessionTranscriptMemoryEntry({
           mode: "cloud",
           provider: providerName,
-          segments: nextSegments,
+          segments: [],
+          transcriptText: cloudTranscriptTextRef.current,
+          segmentCount: cloudTranscriptSegmentCountRef.current,
           audioSource: selectedFile
             ? { id: `${providerName}:${selectedFile.name}:${selectedFile.size}`, label: selectedFile.name, type: "file" }
             : null,
@@ -200,6 +239,35 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       );
     },
     [selectedFile, setSessionTranscriptMemory]
+  );
+
+  const appendCloudSegments = useCallback(
+    (nextSegments: TranscriptionSegment[], providerName: "whisper" | "mistral" | "demeter_sante", metadata: AudioMetadata | null) => {
+      if (!nextSegments.length) {
+        return;
+      }
+
+      const currentSegments = segmentsRef.current;
+      currentSegments.push(...nextSegments);
+      segmentsRef.current = currentSegments;
+      cloudTranscriptSegmentCountRef.current = currentSegments.length;
+
+      const appendedText = getSessionTranscriptText(nextSegments);
+      if (appendedText) {
+        cloudTranscriptTextRef.current = cloudTranscriptTextRef.current
+          ? `${cloudTranscriptTextRef.current}\n${appendedText}`
+          : appendedText;
+      }
+
+      const nextChunkGroup = buildCloudTranscriptionChunkGroup(nextSegments, chunkGroupsRef.current.length);
+      const nextChunkGroups = [...chunkGroupsRef.current, nextChunkGroup];
+      chunkGroupsRef.current = nextChunkGroups;
+
+      setSegments(currentSegments.slice());
+      setChunkGroups(nextChunkGroups);
+      publishCloudTranscriptMemory(providerName, metadata);
+    },
+    [publishCloudTranscriptMemory]
   );
 
   const updateSegmentText = useCallback(
@@ -220,7 +288,26 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       );
       segmentsRef.current = nextSegments;
       setSegments(nextSegments);
-      publishCloudTranscriptMemory(activeTranscriptProviderRef.current, nextSegments, audioMetadata);
+
+      const nextTranscriptText = getSessionTranscriptText(nextSegments);
+      cloudTranscriptTextRef.current = nextTranscriptText;
+      cloudTranscriptSegmentCountRef.current = nextSegments.length;
+
+      const nextChunkGroups = chunkGroupsRef.current.map((group) => {
+        if (!group.segments.some((segment) => segment.index === segmentIndex)) {
+          return group;
+        }
+        const updatedSegments = group.segments.map((segment) =>
+          segment.index === segmentIndex ? { ...segment, text: normalizedText } : segment
+        );
+        return {
+          ...group,
+          segments: updatedSegments,
+        };
+      });
+      chunkGroupsRef.current = nextChunkGroups;
+      setChunkGroups(nextChunkGroups);
+      publishCloudTranscriptMemory(activeTranscriptProviderRef.current, audioMetadata);
       logger.info("[cloud] segment text updated", {
         provider: activeTranscriptProviderRef.current,
         segmentIndex,
@@ -268,6 +355,11 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     setIsResettingSession(true);
     try {
       await abortCloudRunAndWait();
+      const sessionId = cloudSessionIdRef.current;
+      if (sessionId) {
+        await deleteSessionSegments(sessionId);
+        cloudSessionIdRef.current = null;
+      }
     } finally {
       clearCloudSessionState();
       setIsResettingSession(false);
@@ -277,8 +369,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
   const handleFileSelected = useCallback(async (file: File) => {
     logger.info("[cloud] file selected", { name: file.name, size: file.size, type: file.type });
     setSelectedFile(file);
-    segmentsRef.current = [];
-    setSegments([]);
+    resetCloudTranscriptBuffers();
     telemetryRef.current = null;
     setTelemetrySummary(null);
     setPreparedUpload(null);
@@ -305,7 +396,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       setStatus("error");
       setStatusDetail("Impossible de lire les métadonnées audio");
     }
-  }, [previewUrl, registerTelemetry, setGlobalTelemetrySummary]);
+  }, [previewUrl, registerTelemetry, resetCloudTranscriptBuffers, setGlobalTelemetrySummary]);
 
   const stopTranscription = useCallback(async () => {
     if (!isTranscribing) return;
@@ -366,161 +457,152 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     });
 
     const client = await getWhisperClient(token, telemetry);
+    const shouldAbort = () => stopRequestedRef.current || runIdRef.current !== runId;
+    const sessionId = cloudSessionIdRef.current ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    cloudSessionIdRef.current = sessionId;
+
     let allSegments: TranscriptionSegment[] = [];
     let nextIndex = 0;
+    let stagedSegments: CloudStagedSegment[];
 
-    for (let segmentIndex = 0; segmentIndex < totalSegments; segmentIndex += 1) {
-      const segment = plan[segmentIndex];
-      if (!segment) continue;
-
-      if (stopRequestedRef.current || runIdRef.current !== runId) {
-        logger.info("[cloud][whisper] run aborted before segment", { runId, segmentIndex });
+    telemetry.startTimer("cloud_preprocess");
+    try {
+      const stageResult = await stageCloudSegments({
+        sessionId,
+        sourceFile,
+        provider: "whisper",
+        segments: plan.map((segment) => ({ startSec: segment.start, endSec: segment.end })),
+        preprocessSettings,
+        telemetry,
+        startIndex: 0,
+        shouldAbort,
+        onProgress: (completed, total) => {
+          setStatus("preprocessing");
+          setStatusDetail(`Préparation locale · ${completed}/${total}`);
+          setProgress(Math.max(0, Math.min(0.5, total > 0 ? (completed / total) * 0.5 : 0)));
+        },
+      });
+      telemetry.stopTimer("cloud_preprocess");
+      if (stageResult.aborted || shouldAbort()) {
+        logger.info("[cloud][whisper] run aborted during staging", { runId, staged: stageResult.stagedSegments.length });
         return;
       }
+      stagedSegments = stageResult.stagedSegments;
 
-      const labelSuffix = ` · ${segmentIndex + 1}/${totalSegments}`;
-      setStatus("preprocessing");
-      setStatusDetail(`Prétraitement local${labelSuffix}`);
-      setProgress(Math.max(0, Math.min(1, segmentIndex / totalSegments)));
+      if (stageResult.tune) {
+        persistCloudTune(settings, preprocessSettings, stageResult.tune);
+      }
 
-      let segmentFile: File | null = sourceFile;
-      if (totalSegments > 1) {
-        const extracted = await extractSegmentBlob(
-          sourceFile,
-          { index: segmentIndex, startSec: segment.start, endSec: segment.end },
-          telemetry
-        );
-        segmentFile = new File([extracted.blob], extracted.name, {
-          type: extracted.mimeType,
+      setStatus("uploading");
+      setStatusDetail(`Envoi des segments préparés · 0/${stagedSegments.length}`);
+      setProgress(0.5);
+
+      for (let stagedPosition = 0; stagedPosition < stagedSegments.length; stagedPosition += 1) {
+        const staged = stagedSegments[stagedPosition];
+        if (!staged) continue;
+
+        if (shouldAbort()) {
+          logger.info("[cloud][whisper] run aborted before upload", { runId, stagedPosition });
+          return;
+        }
+
+        const cached = await getSegment(sessionId, staged.index);
+        if (!cached) {
+          logger.warn("[cloud][whisper] staged segment missing from cache", { sessionId, index: staged.index });
+          continue;
+        }
+        const uploadFile = new File([cached.blob], cached.name ?? staged.fileName, {
+          type: cached.blob.type || staged.mimeType,
           lastModified: Date.now(),
         });
+
+        setPreparedUpload({
+          provider: "whisper",
+          fileName: uploadFile.name,
+          mimeType: uploadFile.type,
+          sizeBytes: uploadFile.size,
+          chunkIndex: stagedPosition + 1,
+          totalChunks: stagedSegments.length,
+        });
+
+        setStatus("transcribing");
+        setStatusDetail(`Transcription Whisper · ${stagedPosition + 1}/${stagedSegments.length}`);
+        setProgress(Math.max(0, Math.min(1, 0.5 + (stagedPosition / Math.max(1, stagedSegments.length)) * 0.5)));
+        telemetry.startTimer("cloud_transcribe");
+        telemetry.logEvent("CLOUD_WHISPER_CHUNK_START", {
+          segmentIndex: staged.index,
+          totalSegments: stagedSegments.length,
+          startSec: staged.startSec,
+          endSec: staged.endSec,
+        });
+
+        const parameters = buildWhisperParameters({
+          maxTokens: resolvedSettings.maxTokens,
+          temperature: resolvedSettings.temperature,
+          topP: resolvedSettings.topP,
+          doSample: resolvedSettings.doSample,
+          returnTimestamps: settings.cloudEnableWordTimestamps,
+        });
+
+        const output: unknown = await client.automaticSpeechRecognition({
+          inputs: uploadFile,
+          model: "openai/whisper-large-v3-turbo",
+          provider: "hf-inference",
+          parameters,
+        });
+
+        telemetry.stopTimer("cloud_transcribe");
+
+        if (shouldAbort()) {
+          logger.info("[cloud][whisper] run aborted after inference", { runId, stagedPosition });
+          return;
+        }
+
+        const chunkId = `whisper-${stagedPosition + 1}`;
+        const parsedSegments = parseWhisperOutput(output, {
+          offsetSec: staged.startSec,
+          startIndex: nextIndex,
+          chunkId,
+          fallbackDurationSec: Math.max(0, staged.endSec - staged.startSec),
+        });
+        nextIndex += parsedSegments.length;
+        appendCloudSegments(parsedSegments, "whisper", metadata);
+        allSegments = segmentsRef.current;
+
+        await deleteSegment(sessionId, staged.index);
+
+        const summary = summarizeSegments(parsedSegments);
+        logger.debug("[cloud][whisper] segments ready", {
+          ...summary,
+          segmentIndex: staged.index,
+          totalSegments: stagedSegments.length,
+        });
+        telemetry.logEvent("CLOUD_WHISPER_CHUNK_DONE", {
+          segmentIndex: staged.index,
+          totalSegments: stagedSegments.length,
+          count: summary.count,
+          totalDurationSec: summary.totalDurationSec,
+          textChars: summary.textChars,
+          tokenCount: summary.tokenCount,
+        });
+
+        setProgress(Math.max(0, Math.min(1, 0.5 + ((stagedPosition + 1) / Math.max(1, stagedSegments.length)) * 0.5)));
       }
 
-      telemetry.startTimer("cloud_preprocess");
-      let preprocessResult: Awaited<ReturnType<typeof preprocessCloudAudio>> | null = await preprocessCloudAudio(
-        segmentFile,
-        preprocessSettings,
-        telemetry
-      );
+      await deleteSessionSegments(sessionId);
+      cloudSessionIdRef.current = null;
+
+      const summary = summarizeSegments(allSegments);
+      logger.info("[cloud][whisper] all segments ready", summary);
+      telemetry.logEvent("CLOUD_WHISPER_DONE", { segments: allSegments.length });
+      setProgress(1);
+      setStatus("done");
+      setStatusDetail("Transcription terminée");
+    } catch (error) {
       telemetry.stopTimer("cloud_preprocess");
-
-      if (!preprocessResult) {
-        throw new Error("Prétraitement cloud vide");
-      }
-
-      if (settings.cloudAutoTunePreprocess && preprocessResult.tune && segmentIndex === 0) {
-        settings.setCloudDenoiseParams({
-          denoiseNoiseFloorDb: preprocessResult.tune.noiseFloorDb,
-          denoiseReductionDb: preprocessResult.tune.reductionDb,
-          denoiseSmoothing: preprocessResult.tune.smoothing,
-          denoiseCalibrationSeconds: settings.cloudDenoiseCalibrationSeconds,
-        });
-        settings.setCloudPreprocessParams({
-          preprocessTargetLufs: preprocessResult.tune.targetLufs,
-          preprocessHighpassHz: preprocessResult.tune.highpassHz,
-          preprocessLowpassHz: preprocessResult.tune.lowpassHz,
-          preprocessLimiterThresholdDb: preprocessResult.tune.limiterThresholdDb,
-          preprocessLimiterSoftness: preprocessResult.tune.limiterSoftness,
-          preprocessVadThresholdDb: preprocessResult.tune.vadThresholdDb,
-          preprocessOverlapBlockSec: preprocessResult.tune.overlapBlockSec,
-          preprocessOverlapSec: preprocessResult.tune.overlapSec,
-        });
-      }
-
-      if (stopRequestedRef.current || runIdRef.current !== runId) {
-        logger.info("[cloud][whisper] run aborted after preprocess", { runId, segmentIndex });
-        return;
-      }
-
-      const processedAudio = preprocessResult.processed;
-      const wavBuffer = encodeWavBuffer(processedAudio.pcm, processedAudio.sampleRate);
-      releasePcmBuffer(processedAudio);
-      const baseName = (segmentFile ?? sourceFile).name.replace(/\.[^/.]+$/, "");
-      const safeBaseName = makeSafeFilename(baseName || "audio");
-      const processedFile = new File([wavBuffer], `${safeBaseName}-whisper.wav`, {
-        type: "audio/wav",
-        lastModified: Date.now(),
-      });
-      setPreparedUpload({
-        provider: "whisper",
-        fileName: processedFile.name,
-        mimeType: processedFile.type,
-        sizeBytes: processedFile.size,
-        chunkIndex: segmentIndex + 1,
-        totalChunks: totalSegments,
-      });
-
-      setStatus("transcribing");
-      setStatusDetail(`Transcription Whisper${labelSuffix}`);
-      setProgress(Math.max(0, Math.min(1, (segmentIndex + 0.4) / totalSegments)));
-      telemetry.startTimer("cloud_transcribe");
-      telemetry.logEvent("CLOUD_WHISPER_CHUNK_START", {
-        segmentIndex,
-        totalSegments,
-        startSec: segment.start,
-        endSec: segment.end,
-      });
-
-      const parameters = buildWhisperParameters({
-        maxTokens: resolvedSettings.maxTokens,
-        temperature: resolvedSettings.temperature,
-        topP: resolvedSettings.topP,
-        doSample: resolvedSettings.doSample,
-        returnTimestamps: settings.cloudEnableWordTimestamps,
-      });
-
-      let output: unknown = await client.automaticSpeechRecognition({
-        inputs: processedFile,
-        model: "openai/whisper-large-v3-turbo",
-        provider: "hf-inference",
-        parameters,
-      });
-
-      telemetry.stopTimer("cloud_transcribe");
-
-      if (stopRequestedRef.current || runIdRef.current !== runId) {
-        logger.info("[cloud][whisper] run aborted after inference", { runId, segmentIndex });
-        return;
-      }
-
-      const chunkId = `whisper-${segmentIndex + 1}`;
-      const parsedSegments = parseWhisperOutput(output, {
-        offsetSec: segment.start,
-        startIndex: nextIndex,
-        chunkId,
-        fallbackDurationSec: Math.max(0, segment.end - segment.start),
-      });
-      output = null;
-      releasePcmBuffer(processedAudio);
-      segmentFile = null;
-      preprocessResult = null;
-      nextIndex += parsedSegments.length;
-      allSegments = allSegments.concat(parsedSegments);
-      segmentsRef.current = allSegments;
-      setSegments(allSegments);
-      publishCloudTranscriptMemory("whisper", allSegments, metadata);
-
-      const summary = summarizeSegments(parsedSegments);
-      logger.debug("[cloud][whisper] segments ready", { ...summary, segmentIndex, totalSegments });
-      telemetry.logEvent("CLOUD_WHISPER_CHUNK_DONE", {
-        segmentIndex,
-        totalSegments,
-        count: summary.count,
-        totalDurationSec: summary.totalDurationSec,
-        textChars: summary.textChars,
-        tokenCount: summary.tokenCount,
-      });
-
-      setProgress(Math.max(0, Math.min(1, (segmentIndex + 1) / totalSegments)));
+      throw error;
     }
-
-    const summary = summarizeSegments(allSegments);
-    logger.info("[cloud][whisper] all segments ready", summary);
-    telemetry.logEvent("CLOUD_WHISPER_DONE", { segments: allSegments.length });
-    setProgress(1);
-    setStatus("done");
-    setStatusDetail("Transcription terminée");
-  }, [hfApiToken, publishCloudTranscriptMemory, resolvedSettings, selectedFile]);
+  }, [appendCloudSegments, hfApiToken, persistCloudTune, resolvedSettings, selectedFile]);
 
   const runMistralTranscription = useCallback(async (args: {
     runId: number;
@@ -584,301 +666,262 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
 
     let allSegments: TranscriptionSegment[] = [];
     let nextIndex = 0;
+    let sentChunkCount = 0;
     let mistralDiarizationEffective = diarizationEnabled;
     let mistralDiarizationFallbackChunks = 0;
-    let segmentAttemptIndex = 0;
-    let sentChunkCount = 0;
-    let autoTuneApplied = false;
+    const shouldAbort = () => stopRequestedRef.current || runIdRef.current !== runId;
+    const sessionId = cloudSessionIdRef.current ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    cloudSessionIdRef.current = sessionId;
+    let stagedSegments: CloudStagedSegment[];
+    let nextStagedIndex: number;
 
-    while (segmentQueue.length > 0) {
-      const segment = segmentQueue.shift();
-      if (!segment) continue;
-      segmentAttemptIndex += 1;
-      const estimatedTotalBeforeRun = Math.max(1, sentChunkCount + segmentQueue.length + 1);
-
-      if (stopRequestedRef.current || runIdRef.current !== runId) {
-        logger.info(`[cloud][${providerLogKey}] run aborted before segment`, { runId, segmentAttemptIndex });
-        return;
-      }
-
-      const labelSuffix = ` · ${Math.min(sentChunkCount + 1, estimatedTotalBeforeRun)}/${estimatedTotalBeforeRun}`;
-      setStatus("preprocessing");
-      setStatusDetail(`Prétraitement local${labelSuffix}`);
-      setProgress(Math.max(0, Math.min(1, sentChunkCount / estimatedTotalBeforeRun)));
-
-      let segmentFile: File | null = sourceFile;
-      const isWholeFileSegment = segment.start <= 0 && segment.end >= sourceDurationSec;
-      if (!isWholeFileSegment) {
-        const extracted = await extractSegmentBlob(
-          sourceFile,
-          { index: segmentAttemptIndex - 1, startSec: segment.start, endSec: segment.end },
-          telemetry
-        );
-        segmentFile = new File([extracted.blob], extracted.name, {
-          type: extracted.mimeType,
-          lastModified: Date.now(),
-        });
-      }
-
-      telemetry.startTimer("cloud_preprocess");
-      let preprocessResult: Awaited<ReturnType<typeof preprocessCloudAudio>> | null = await preprocessCloudAudio(
-        segmentFile,
-        preprocessSettings,
-        telemetry
-      );
-      telemetry.stopTimer("cloud_preprocess");
-
-      if (!preprocessResult) {
-        throw new Error("Prétraitement cloud vide");
-      }
-
-      if (settings.cloudAutoTunePreprocess && preprocessResult.tune && !autoTuneApplied) {
-        settings.setCloudDenoiseParams({
-          denoiseNoiseFloorDb: preprocessResult.tune.noiseFloorDb,
-          denoiseReductionDb: preprocessResult.tune.reductionDb,
-          denoiseSmoothing: preprocessResult.tune.smoothing,
-          denoiseCalibrationSeconds: settings.cloudDenoiseCalibrationSeconds,
-        });
-        settings.setCloudPreprocessParams({
-          preprocessTargetLufs: preprocessResult.tune.targetLufs,
-          preprocessHighpassHz: preprocessResult.tune.highpassHz,
-          preprocessLowpassHz: preprocessResult.tune.lowpassHz,
-          preprocessLimiterThresholdDb: preprocessResult.tune.limiterThresholdDb,
-          preprocessLimiterSoftness: preprocessResult.tune.limiterSoftness,
-          preprocessVadThresholdDb: preprocessResult.tune.vadThresholdDb,
-          preprocessOverlapBlockSec: preprocessResult.tune.overlapBlockSec,
-          preprocessOverlapSec: preprocessResult.tune.overlapSec,
-        });
-        autoTuneApplied = true;
-      }
-
-      if (stopRequestedRef.current || runIdRef.current !== runId) {
-        logger.info(`[cloud][${providerLogKey}] run aborted after preprocess`, { runId, segmentAttemptIndex });
-        return;
-      }
-
-      const processedAudio = preprocessResult.processed;
-      const wavBuffer = encodeWavBuffer(processedAudio.pcm, processedAudio.sampleRate);
-      releasePcmBuffer(processedAudio);
-      const baseName = (segmentFile ?? sourceFile).name.replace(/\.[^/.]+$/, "");
-      const safeBaseName = makeSafeFilename(baseName || "audio");
-      const processedFile = new File([wavBuffer], `${safeBaseName}-${providerLogKey}.wav`, {
-        type: "audio/wav",
-        lastModified: Date.now(),
-      });
-      const chunkDurationSec = Math.max(0, segment.end - segment.start);
-      setPreparedUpload({
+    telemetry.startTimer("cloud_preprocess");
+    try {
+      const stageResult = await stageCloudSegments({
+        sessionId,
+        sourceFile,
         provider: isDemeter ? "demeter_sante" : "mistral",
-        fileName: processedFile.name,
-        mimeType: processedFile.type,
-        sizeBytes: processedFile.size,
-        chunkIndex: sentChunkCount + 1,
-        totalChunks: estimatedTotalBeforeRun,
+        segments: segmentQueue.map((segment) => ({ startSec: segment.start, endSec: segment.end })),
+        preprocessSettings,
+        telemetry,
+        maxUploadBytes: MISTRAL_MAX_UPLOAD_BYTES,
+        startIndex: 0,
+        shouldAbort,
+        onProgress: (completed, total) => {
+          setStatus("preprocessing");
+          setStatusDetail(`Préparation locale · ${completed}/${total}`);
+          setProgress(Math.max(0, Math.min(0.5, total > 0 ? (completed / total) * 0.5 : 0)));
+        },
       });
-
-      if (processedFile.size > MISTRAL_MAX_UPLOAD_BYTES) {
-        const splitSegments = splitSegmentInHalf(segment);
-        if (!splitSegments) {
-          const message = `Chunk ${providerLabel} trop volumineux (${processedFile.size} bytes) et impossible de découper davantage.`;
-          telemetry.recordAlert("CLOUD_MISTRAL_FILE_TOO_LARGE", {
-            provider,
-            model,
-            chunkDurationSec,
-            sizeBytes: processedFile.size,
-            maxChunkBytes: MISTRAL_MAX_UPLOAD_BYTES,
-          });
-          throw new Error(message);
-        }
-
-        segmentQueue.unshift(splitSegments[1]);
-        segmentQueue.unshift(splitSegments[0]);
-
-        logger.warn(`[cloud][${providerLogKey}] chunk exceeds size limit, splitting progressively`, {
-          model,
-          provider,
-          segmentAttemptIndex,
-          startSec: segment.start,
-          endSec: segment.end,
-          chunkDurationSec,
-          sizeBytes: processedFile.size,
-          maxChunkBytes: MISTRAL_MAX_UPLOAD_BYTES,
-          pendingSegments: segmentQueue.length,
+      telemetry.stopTimer("cloud_preprocess");
+      if (stageResult.aborted || shouldAbort()) {
+        logger.info(`[cloud][${providerLogKey}] run aborted during staging`, {
+          runId,
+          staged: stageResult.stagedSegments.length,
         });
-        telemetry.logEvent("LOG_WARN", {
-          context: "cloud_mistral_chunk_split_size",
-          provider,
-          model,
-          segmentAttemptIndex,
-          startSec: segment.start,
-          endSec: segment.end,
-          chunkDurationSec,
-          sizeBytes: processedFile.size,
-          maxChunkBytes: MISTRAL_MAX_UPLOAD_BYTES,
-          pendingSegments: segmentQueue.length,
-        });
-        continue;
+        return;
       }
 
-      setStatus("transcribing");
-      setStatusDetail(`Transcription ${providerLabel}${labelSuffix}`);
-      setProgress(Math.max(0, Math.min(1, (sentChunkCount + 0.4) / estimatedTotalBeforeRun)));
-      telemetry.startTimer("cloud_transcribe");
-      logger.debug(`[cloud][${providerLogKey}] chunk start`, {
-        segmentAttemptIndex,
-        sentChunkCount,
-        estimatedTotalBeforeRun,
-        provider,
-        model,
-        sizeBytes: processedFile.size,
-        chunkDurationSec,
-      });
+      stagedSegments = stageResult.stagedSegments;
+      nextStagedIndex = stageResult.nextIndex;
 
-      const onDiarizationResolved = ({
-        requestedDiarize,
-        effectiveDiarize,
-        fallbackApplied,
-      }: {
-        requestedDiarize: boolean;
-        effectiveDiarize: boolean;
-        fallbackApplied: boolean;
-      }) => {
-        if (fallbackApplied) {
-          mistralDiarizationFallbackChunks += 1;
+      if (stageResult.tune) {
+        persistCloudTune(settings, preprocessSettings, stageResult.tune);
+      }
+
+      setStatus("uploading");
+      setStatusDetail(`Envoi des segments préparés · 0/${stagedSegments.length}`);
+      setProgress(0.5);
+
+      for (let stagedPosition = 0; stagedPosition < stagedSegments.length; stagedPosition += 1) {
+        const staged = stagedSegments[stagedPosition];
+        if (!staged) continue;
+
+        if (shouldAbort()) {
+          logger.info(`[cloud][${providerLogKey}] run aborted before upload`, { runId, stagedPosition });
+          return;
         }
-        if (!effectiveDiarize) {
-          mistralDiarizationEffective = false;
-        }
-        const currentHeader = useAsrStore.getState().runExportHeaders.cloud;
-        if (!currentHeader || currentHeader.mode !== "cloud") return;
-        settings.setRunExportHeader("cloud", {
-          ...currentHeader,
-          settings: {
-            ...currentHeader.settings,
-            cloud: {
-              ...currentHeader.settings.cloud,
-              mistralDiarizationRequested: requestedDiarize,
-              mistralDiarizationEffective: mistralDiarizationEffective,
-              mistralDiarizationFallbackChunks,
-            },
-          },
-        });
-      };
 
-      let output: unknown;
-      try {
-        output = isDemeter
-          ? await transcribeWithDemeterSante(
-              {
-                file: processedFile,
-                diarize: diarizationEnabled,
-                onDiarizationResolved,
-              },
-              telemetry
-            )
-          : await transcribeWithMistral(
-              {
-                apiUrl,
-                apiKey,
-                model,
-                file: processedFile,
-                diarize: diarizationEnabled,
-                onDiarizationResolved,
-              },
-              telemetry
-            );
-      } catch (error) {
-        telemetry.stopTimer("cloud_transcribe");
-
-        const splitSegments = splitSegmentInHalf(segment);
-        if (splitSegments && shouldRetryMistralChunkBySplitting(error)) {
-          segmentQueue.unshift(splitSegments[1]);
-          segmentQueue.unshift(splitSegments[0]);
-
-          logger.warn(`[cloud][${providerLogKey}] chunk timed out upstream, splitting and retrying`, {
-            provider,
-            model,
-            segmentAttemptIndex,
-            startSec: segment.start,
-            endSec: segment.end,
-            chunkDurationSec,
-            sizeBytes: processedFile.size,
-            pendingSegments: segmentQueue.length,
-            message: describeRetryableCloudError(error),
-          });
-          telemetry.logEvent("LOG_WARN", {
-            context: "cloud_mistral_chunk_split_timeout",
-            provider,
-            model,
-            segmentAttemptIndex,
-            startSec: segment.start,
-            endSec: segment.end,
-            chunkDurationSec,
-            sizeBytes: processedFile.size,
-            pendingSegments: segmentQueue.length,
-            message: describeRetryableCloudError(error),
+        const cached = await getSegment(sessionId, staged.index);
+        if (!cached) {
+          logger.warn(`[cloud][${providerLogKey}] staged segment missing from cache`, {
+            sessionId,
+            index: staged.index,
           });
           continue;
         }
+        const uploadFile = new File([cached.blob], cached.name ?? staged.fileName, {
+          type: cached.blob.type || staged.mimeType,
+          lastModified: Date.now(),
+        });
+        const chunkDurationSec = Math.max(0, staged.endSec - staged.startSec);
 
-        throw error;
+        setPreparedUpload({
+          provider: isDemeter ? "demeter_sante" : "mistral",
+          fileName: uploadFile.name,
+          mimeType: uploadFile.type,
+          sizeBytes: uploadFile.size,
+          chunkIndex: sentChunkCount + 1,
+          totalChunks: stagedSegments.length,
+        });
+
+        setStatus("transcribing");
+        setStatusDetail(`Transcription ${providerLabel} · ${sentChunkCount + 1}/${stagedSegments.length}`);
+        setProgress(Math.max(0, Math.min(1, 0.5 + (sentChunkCount / Math.max(1, stagedSegments.length)) * 0.5)));
+        telemetry.startTimer("cloud_transcribe");
+        logger.debug(`[cloud][${providerLogKey}] chunk start`, {
+          segmentIndex: staged.index,
+          sentChunkCount,
+          totalSegments: stagedSegments.length,
+          provider,
+          model,
+          sizeBytes: uploadFile.size,
+          chunkDurationSec,
+        });
+
+        const onDiarizationResolved = ({
+          requestedDiarize,
+          effectiveDiarize,
+          fallbackApplied,
+        }: {
+          requestedDiarize: boolean;
+          effectiveDiarize: boolean;
+          fallbackApplied: boolean;
+        }) => {
+          if (fallbackApplied) {
+            mistralDiarizationFallbackChunks += 1;
+          }
+          if (!effectiveDiarize) {
+            mistralDiarizationEffective = false;
+          }
+          const currentHeader = useAsrStore.getState().runExportHeaders.cloud;
+          if (!currentHeader || currentHeader.mode !== "cloud") return;
+          settings.setRunExportHeader("cloud", {
+            ...currentHeader,
+            settings: {
+              ...currentHeader.settings,
+              cloud: {
+                ...currentHeader.settings.cloud,
+                mistralDiarizationRequested: requestedDiarize,
+                mistralDiarizationEffective: mistralDiarizationEffective,
+                mistralDiarizationFallbackChunks,
+              },
+            },
+          });
+        };
+
+        let output: unknown;
+        try {
+          output = isDemeter
+            ? await transcribeWithDemeterSante(
+                {
+                  file: uploadFile,
+                  diarize: diarizationEnabled,
+                  onDiarizationResolved,
+                },
+                telemetry
+              )
+            : await transcribeWithMistral(
+                {
+                  apiUrl,
+                  apiKey,
+                  model,
+                  file: uploadFile,
+                  diarize: diarizationEnabled,
+                  onDiarizationResolved,
+                },
+                telemetry
+              );
+        } catch (error) {
+          telemetry.stopTimer("cloud_transcribe");
+
+          const splitSegments = splitCloudSegmentWindow(staged);
+          if (splitSegments && shouldRetryMistralChunkBySplitting(error)) {
+            logger.warn(`[cloud][${providerLogKey}] chunk timed out upstream, splitting and restaging`, {
+              provider,
+              model,
+              segmentIndex: staged.index,
+              startSec: staged.startSec,
+              endSec: staged.endSec,
+              chunkDurationSec,
+              sizeBytes: uploadFile.size,
+              pendingSegments: stagedSegments.length,
+              message: describeRetryableCloudError(error),
+            });
+            telemetry.logEvent("LOG_WARN", {
+              context: "cloud_mistral_chunk_split_timeout",
+              provider,
+              model,
+              segmentIndex: staged.index,
+              startSec: staged.startSec,
+              endSec: staged.endSec,
+              chunkDurationSec,
+              sizeBytes: uploadFile.size,
+              pendingSegments: stagedSegments.length,
+              message: describeRetryableCloudError(error),
+            });
+            await deleteSegment(sessionId, staged.index);
+            const restageResult = await stageCloudSegments({
+              sessionId,
+              sourceFile,
+              provider: isDemeter ? "demeter_sante" : "mistral",
+              segments: splitSegments,
+              preprocessSettings,
+              telemetry,
+              maxUploadBytes: MISTRAL_MAX_UPLOAD_BYTES,
+              startIndex: nextStagedIndex,
+              shouldAbort,
+            });
+            nextStagedIndex = restageResult.nextIndex;
+            if (restageResult.aborted || shouldAbort()) {
+              logger.info(`[cloud][${providerLogKey}] run aborted during split restaging`, { runId });
+              return;
+            }
+            stagedSegments.splice(stagedPosition + 1, 0, ...restageResult.stagedSegments);
+            continue;
+          }
+
+          throw error;
+        }
+
+        telemetry.stopTimer("cloud_transcribe");
+
+        if (shouldAbort()) {
+          logger.info(`[cloud][${providerLogKey}] run aborted after inference`, { runId, stagedPosition });
+          return;
+        }
+
+        const chunkNumber = sentChunkCount + 1;
+        const chunkId = `${providerLogKey}-${chunkNumber}`;
+        const parsedSegments = parseMistralOutput(output, {
+          offsetSec: staged.startSec,
+          startIndex: nextIndex,
+          chunkId,
+          fallbackDurationSec: chunkDurationSec,
+          includeWordTimestamps: settings.cloudEnableWordTimestamps,
+        });
+        nextIndex += parsedSegments.length;
+        appendCloudSegments(parsedSegments, provider, metadata);
+        allSegments = segmentsRef.current;
+        sentChunkCount = chunkNumber;
+
+        await deleteSegment(sessionId, staged.index);
+
+        const summary = summarizeSegments(parsedSegments);
+        logger.debug(`[cloud][${providerLogKey}] segments ready`, {
+          ...summary,
+          provider,
+          segmentIndex: sentChunkCount - 1,
+          totalSegments: stagedSegments.length,
+        });
+        telemetry.logEvent("CLOUD_SEGMENTS_READY", {
+          provider,
+          segmentIndex: sentChunkCount - 1,
+          totalSegments: stagedSegments.length,
+          count: summary.count,
+          totalDurationSec: summary.totalDurationSec,
+          textChars: summary.textChars,
+          tokenCount: summary.tokenCount,
+        });
+
+        setProgress(Math.max(0, Math.min(1, 0.5 + (sentChunkCount / Math.max(1, stagedSegments.length)) * 0.5)));
       }
 
-      telemetry.stopTimer("cloud_transcribe");
+      await deleteSessionSegments(sessionId);
+      cloudSessionIdRef.current = null;
 
-      if (stopRequestedRef.current || runIdRef.current !== runId) {
-        logger.info(`[cloud][${providerLogKey}] run aborted after inference`, { runId, segmentAttemptIndex });
-        return;
-      }
-
-      const chunkNumber = sentChunkCount + 1;
-      const chunkId = `${providerLogKey}-${chunkNumber}`;
-      const parsedSegments = parseMistralOutput(output, {
-        offsetSec: segment.start,
-        startIndex: nextIndex,
-        chunkId,
-        fallbackDurationSec: chunkDurationSec,
-        includeWordTimestamps: settings.cloudEnableWordTimestamps,
-      });
-      output = null;
-      releasePcmBuffer(processedAudio);
-      segmentFile = null;
-      preprocessResult = null;
-      nextIndex += parsedSegments.length;
-      allSegments = allSegments.concat(parsedSegments);
-      segmentsRef.current = allSegments;
-      setSegments(allSegments);
-      publishCloudTranscriptMemory(provider, allSegments, metadata);
-      sentChunkCount = chunkNumber;
-
-      const summary = summarizeSegments(parsedSegments);
-      const estimatedTotalAfterSend = Math.max(sentChunkCount, sentChunkCount + segmentQueue.length);
-      logger.debug(`[cloud][${providerLogKey}] segments ready`, {
-        ...summary,
-        provider,
-        segmentAttemptIndex,
-        segmentIndex: sentChunkCount - 1,
-        totalSegments: estimatedTotalAfterSend,
-      });
-      telemetry.logEvent("CLOUD_SEGMENTS_READY", {
-        provider,
-        segmentIndex: sentChunkCount - 1,
-        totalSegments: estimatedTotalAfterSend,
-        count: summary.count,
-        totalDurationSec: summary.totalDurationSec,
-        textChars: summary.textChars,
-        tokenCount: summary.tokenCount,
-      });
-
-      setProgress(Math.max(0, Math.min(1, sentChunkCount / Math.max(1, sentChunkCount + segmentQueue.length))));
+      const summary = summarizeSegments(allSegments);
+      logger.info(`[cloud][${providerLogKey}] all segments ready`, { ...summary, provider });
+      telemetry.logEvent("CLOUD_TRANSCRIBE_DONE", { provider, segments: allSegments.length });
+      setProgress(1);
+      setStatus("done");
+      setStatusDetail("Transcription terminée");
+    } catch (error) {
+      telemetry.stopTimer("cloud_preprocess");
+      throw error;
     }
-
-    const summary = summarizeSegments(allSegments);
-    logger.info(`[cloud][${providerLogKey}] all segments ready`, { ...summary, provider });
-    telemetry.logEvent("CLOUD_TRANSCRIBE_DONE", { provider, segments: allSegments.length });
-    setProgress(1);
-    setStatus("done");
-    setStatusDetail("Transcription terminée");
   }, [
+    appendCloudSegments,
     provider,
     mistralApiKey,
     cloudMistralDiarizationEnabled,
@@ -886,7 +929,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     cloudMistralApiUrl,
     cloudMistralModel,
     cloudDemeterModel,
-    publishCloudTranscriptMemory,
+    persistCloudTune,
     selectedFile,
   ]);
 
@@ -911,11 +954,10 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     activeTranscriptProviderRef.current = provider;
     settings.clearSpeakerAssignments("cloud");
     clearSessionTranscriptMemory("cloud");
-    segmentsRef.current = [];
-    setSegments([]);
+    resetCloudTranscriptBuffers();
     setProgress(0);
     setStatus("preprocessing");
-    setStatusDetail("Prétraitement local");
+    setStatusDetail("Préparation des segments");
     setIsTranscribing(true);
     setStopRequested(false);
 
@@ -1179,6 +1221,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     runWhisperTranscription,
     resolvedSettings,
     clearSessionTranscriptMemory,
+    resetCloudTranscriptBuffers,
     setGlobalTelemetrySummary,
     selectedFile,
     status,
@@ -1189,6 +1232,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     previewUrl,
     audioMetadata,
     segments,
+    chunkGroups,
     telemetrySummary,
     status,
     statusDetail,
@@ -1243,19 +1287,6 @@ function buildInitialMistralSegmentQueue(
     start: segment.start,
     end: segment.end,
   }));
-}
-
-function splitSegmentInHalf(segment: CloudSegmentWindow): [CloudSegmentWindow, CloudSegmentWindow] | null {
-  const chunkDurationSec = Math.max(0, segment.end - segment.start);
-  if (!(chunkDurationSec > 1)) {
-    return null;
-  }
-
-  const splitAt = segment.start + chunkDurationSec / 2;
-  return [
-    { start: segment.start, end: splitAt },
-    { start: splitAt, end: segment.end },
-  ];
 }
 
 function shouldRetryMistralChunkBySplitting(error: unknown): boolean {

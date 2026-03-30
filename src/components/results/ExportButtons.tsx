@@ -10,7 +10,7 @@ import {
   type ExportHeader,
 } from "@/lib/export";
 import type { TelemetrySummary } from "@/lib/telemetry";
-import { useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { useAsrStore } from "@/store/asr-store";
 import {
   applySpeakerAssignments,
@@ -30,7 +30,7 @@ interface ExportButtonsProps {
   mode?: "upload" | "mic" | "cloud";
 }
 
-export function ExportButtons({
+export const ExportButtons = memo(function ExportButtons({
   segments,
   telemetry,
   showVtt,
@@ -173,7 +173,7 @@ export function ExportButtons({
       ) : null}
     </>
   );
-}
+});
 
 function buildFilename(suffix: string) {
   const now = new Date().toISOString().replace(/[:T]/g, "-").split(".")[0];

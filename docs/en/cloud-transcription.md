@@ -4,7 +4,8 @@
 
 Route: `/cloudupload`
 
-The module applies local preprocessing then delegates transcription to a remote provider.
+The module stages every segment locally before contacting a remote provider.
+`quick` keeps a low-RAM path with lightweight per-segment processing, while `full` applies the complete local preprocessing chain to every staged segment.
 
 Supported providers:
 
@@ -16,9 +17,9 @@ Supported providers:
 
 1. File selection + metadata.
 2. Effective settings resolution from persisted cloud settings.
-3. Local preprocessing (`preprocessCloudAudio`).
-4. WAV encoding.
-5. Provider submit.
+3. Segment preparation and staging (`preprocessCloudAudio`).
+4. All segments are prepared and cached before the first provider call.
+5. Provider submit from the staged cache.
 6. Output parsing into normalized segments.
 7. Result export.
 
@@ -26,15 +27,18 @@ Supported providers:
 
 ```mermaid
 flowchart TD
-    A[File selected] --> B[Local preprocess and WAV encode]
-    B --> C{Provider}
-    C -->|Whisper| D[HF inference chunk plan + calls]
-    C -->|Mistral| E[Mistral /v1/audio/transcriptions]
-    C -->|Demeter Sante| F[Backend /providers/demeter-sante/audio/transcriptions]
-    D --> G[normalize segments]
-    E --> G
-    F --> G
-    G --> H[UI results + exports + telemetry]
+    A[File selected] --> B{Preprocessing mode}
+    B -->|Quick| C[Light segment processing<br/>staged in cache]
+    B -->|Full| D[Full preprocess + WAV encode<br/>staged in cache]
+    C --> E{Provider}
+    D --> E
+    E -->|Whisper| F[HF inference chunk plan + calls]
+    E -->|Mistral| G[Mistral /v1/audio/transcriptions]
+    E -->|Demeter Sante| H[Backend /providers/demeter-sante/audio/transcriptions]
+    F --> I[normalize segments]
+    G --> I
+    H --> I
+    I --> J[UI results + exports + telemetry]
 ```
 
 ## Provider differences
@@ -118,6 +122,11 @@ Assignment:
 Known limitation:
 
 - if Mistral returns `422` and auto-falls back without diarization, segments can be produced without speaker data.
+
+## Memory guidance
+
+- For large files or RAM-constrained machines, prefer `cloudPreprocessingMode=quick`.
+- If `cloudAutoTunePreprocess` is enabled, the first staged segment is used once for calibration, then the tune/noise profile is reused for the rest of the staged queue.
 
 ## Related implementation files
 

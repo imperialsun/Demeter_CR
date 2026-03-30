@@ -1,19 +1,10 @@
+import { FFFSType } from "@ffmpeg/ffmpeg";
 import logger from "@/lib/logger";
 import type { TelemetryCollector } from "@/lib/telemetry";
 import { decodeFileFully, probeAudioMetadata, type DecodedAudio } from "@/lib/audio";
 import { getFfmpeg } from "@/lib/ffmpeg-loader";
 
 const TARGET_SAMPLE_RATE = 16000;
-
-function isDecodeFailure(error: unknown) {
-  const message = (error as Error)?.message ?? "";
-  const name = (error as Error)?.name ?? "";
-  return (
-    name === "EncodingError" ||
-    /Unable to decode audio data/i.test(message) ||
-    /décodage audio/i.test(message)
-  );
-}
 
 function resolveExtension(file: File) {
   const name = file.name ?? "";
@@ -41,26 +32,32 @@ function decodePcm16le(bytes: Uint8Array): Float32Array {
   return pcm;
 }
 
-async function readFileBytes(file: File): Promise<Uint8Array> {
-  const candidate = file as File & { arrayBuffer?: () => Promise<ArrayBuffer> };
-  if (typeof candidate.arrayBuffer === "function") {
-    return new Uint8Array(await candidate.arrayBuffer());
+function normalizeFfmpegOutput(data: unknown): Uint8Array {
+  if (data instanceof Uint8Array) {
+    return data;
   }
-  // Some test/runtime environments expose Blob but not File.arrayBuffer.
-  const blob = file as Blob;
-  const buffer = await new Response(blob).arrayBuffer();
-  return new Uint8Array(buffer);
+  if (typeof data === "string") {
+    return new TextEncoder().encode(data);
+  }
+  if (typeof data === "object" && data !== null && data instanceof ArrayBuffer) {
+    return new Uint8Array(data);
+  }
+  throw new Error("ffmpeg output is not binary data");
 }
 
-async function decodeWithFfmpeg(file: File, telemetry?: TelemetryCollector): Promise<DecodedAudio> {
+async function decodeWithMountedFfmpeg(file: File, telemetry?: TelemetryCollector): Promise<DecodedAudio> {
   telemetry?.startTimer("cloud_decode_ffmpeg");
   telemetry?.logEvent("START_DECODE", { strategy: "ffmpeg", fileName: file.name });
   const ffmpeg = await getFfmpeg();
   const sessionId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
   const inputName = `cloud-input-${sessionId}.${resolveExtension(file)}`;
   const outputName = `cloud-output-${sessionId}.pcm`;
-  const ffAny = ffmpeg as unknown as Record<string, unknown>;
-  const hasLegacyFs = typeof ffAny["FS"] === "function" && typeof ffAny["run"] === "function";
+  const inputDir = `/cloud-input-${sessionId}`;
+  const outputDir = `/cloud-output-${sessionId}`;
+  const inputPath = `${inputDir}/${inputName}`;
+  const outputPath = `${outputDir}/${outputName}`;
+  const workerFsType =
+    ((FFFSType as unknown as { WORKERFS?: string } | undefined)?.WORKERFS ?? "WORKERFS") as unknown as FFFSType;
 
   logger.debug("[cloud][decode-ffmpeg] start", {
     inputName,
@@ -68,118 +65,112 @@ async function decodeWithFfmpeg(file: File, telemetry?: TelemetryCollector): Pro
     sizeBytes: file.size,
   });
 
-  let bytes: Uint8Array;
+  let mounted = false;
+
   try {
-    const inputBytes = await readFileBytes(file);
-    if (hasLegacyFs) {
-      const ff = ffmpeg as unknown as {
-        FS: (op: string, ...args: unknown[]) => unknown;
-        run: (...args: string[]) => Promise<void>;
-      };
-      ff.FS("writeFile", inputName, inputBytes);
-      await ff.run(
-        "-y",
-        "-i",
-        inputName,
-        "-vn",
-        "-ac",
-        "1",
-        "-ar",
-        String(TARGET_SAMPLE_RATE),
-        "-f",
-        "s16le",
-        outputName
-      );
-      const data = ff.FS("readFile", outputName) as Uint8Array;
-      bytes = data;
-      try {
-        ff.FS("unlink", inputName);
-      } catch (err) {
-        void err;
-      }
-      try {
-        ff.FS("unlink", outputName);
-      } catch (err) {
-        void err;
-      }
-    } else {
-      await ffmpeg.writeFile(inputName, inputBytes);
-      const exitCode = await ffmpeg.exec([
-        "-y",
-        "-i",
-        inputName,
-        "-vn",
-        "-ac",
-        "1",
-        "-ar",
-        String(TARGET_SAMPLE_RATE),
-        "-f",
-        "s16le",
-        outputName,
-      ]);
-      if (typeof exitCode === "number" && exitCode !== 0) {
-        throw new Error(`ffmpeg failed with code ${exitCode}`);
-      }
-      const data = await ffmpeg.readFile(outputName);
-      if (!(data instanceof Uint8Array)) {
-        throw new Error("ffmpeg output is not binary data");
-      }
-      bytes = data;
-      try {
-        await ffmpeg.deleteFile(inputName);
-      } catch (err) {
-        void err;
-      }
-      try {
-        await ffmpeg.deleteFile(outputName);
-      } catch (err) {
-        void err;
-      }
+    try {
+      await ffmpeg.createDir(inputDir);
+    } catch (err) {
+      logger.warn("[cloud][decode-ffmpeg] input dir exists", err);
     }
+    try {
+      await ffmpeg.createDir(outputDir);
+    } catch (err) {
+      logger.warn("[cloud][decode-ffmpeg] output dir exists", err);
+    }
+
+    if (typeof ffmpeg.mount !== "function" || typeof ffmpeg.unmount !== "function" || typeof ffmpeg.deleteDir !== "function") {
+      throw new Error("ffmpeg WorkerFS is unavailable");
+    }
+
+    await ffmpeg.mount(workerFsType, { files: [file] }, inputDir);
+    mounted = true;
+
+    const exitCode = await ffmpeg.exec([
+      "-y",
+      "-i",
+      inputPath,
+      "-vn",
+      "-ac",
+      "1",
+      "-ar",
+      String(TARGET_SAMPLE_RATE),
+      "-f",
+      "s16le",
+      outputPath,
+    ]);
+    if (typeof exitCode === "number" && exitCode !== 0) {
+      throw new Error(`ffmpeg failed with code ${exitCode}`);
+    }
+
+    const data = await ffmpeg.readFile(outputPath);
+    const bytes = normalizeFfmpegOutput(data);
+    const pcm = decodePcm16le(bytes);
+    const durationSec = pcm.length / TARGET_SAMPLE_RATE;
+    const metadata = await probeAudioMetadata(file);
+
+    telemetry?.logEvent("END_DECODE", {
+      strategy: "ffmpeg",
+      durationSec,
+      sampleRate: TARGET_SAMPLE_RATE,
+    });
+    logger.debug("[cloud][decode-ffmpeg] done", {
+      samples: pcm.length,
+      durationSec,
+    });
+
+    bytes.fill(0);
+    return {
+      metadata: { ...metadata, sampleRate: TARGET_SAMPLE_RATE, durationSec },
+      pcm,
+      sampleRate: TARGET_SAMPLE_RATE,
+    };
   } catch (err) {
     telemetry?.logEvent("ERROR", { context: "cloud_decode_ffmpeg", message: (err as Error)?.message });
     logger.error("[cloud][decode-ffmpeg] failed", err);
     throw err;
+  } finally {
+    telemetry?.stopTimer("cloud_decode_ffmpeg");
+    if (mounted) {
+      try {
+        await ffmpeg.unmount(inputDir);
+      } catch (err) {
+        logger.warn("[cloud][decode-ffmpeg] unmount failed", err);
+      }
+    }
+    try {
+      await ffmpeg.deleteDir(inputDir);
+    } catch (err) {
+      logger.warn("[cloud][decode-ffmpeg] delete input dir failed", err);
+    }
+    try {
+      await ffmpeg.deleteFile(outputPath);
+    } catch (err) {
+      logger.warn("[cloud][decode-ffmpeg] delete output failed", err);
+    }
+    try {
+      await ffmpeg.deleteDir(outputDir);
+    } catch (err) {
+      logger.warn("[cloud][decode-ffmpeg] delete output dir failed", err);
+    }
   }
-
-  const pcm = decodePcm16le(bytes);
-  bytes = new Uint8Array(0);
-  const durationSec = pcm.length / TARGET_SAMPLE_RATE;
-  const metadata = await probeAudioMetadata(file);
-  telemetry?.stopTimer("cloud_decode_ffmpeg");
-  telemetry?.logEvent("END_DECODE", {
-    strategy: "ffmpeg",
-    durationSec,
-    sampleRate: TARGET_SAMPLE_RATE,
-  });
-  logger.debug("[cloud][decode-ffmpeg] done", {
-    samples: pcm.length,
-    durationSec,
-  });
-  return {
-    metadata: { ...metadata, sampleRate: TARGET_SAMPLE_RATE, durationSec },
-    pcm,
-    sampleRate: TARGET_SAMPLE_RATE,
-  };
 }
 
-export async function decodeCloudAudio(
-  file: File,
-  telemetry?: TelemetryCollector
-): Promise<DecodedAudio> {
+export async function decodeCloudAudio(file: File, telemetry?: TelemetryCollector): Promise<DecodedAudio> {
   try {
-    return await decodeFileFully(file, telemetry, TARGET_SAMPLE_RATE);
+    return await decodeWithMountedFfmpeg(file, telemetry);
   } catch (err) {
-    if (!isDecodeFailure(err)) {
+    if ((err as DOMException)?.name === "AbortError") {
       throw err;
     }
     const message = (err as Error)?.message ?? "Erreur de décodage";
     telemetry?.recordAlert("CLOUD_DECODE_FALLBACK", {
+      strategy: "ffmpeg",
       reason: message,
       fileName: file.name,
       sizeBytes: file.size,
     });
-    logger.warn("[cloud][decode] full decode failed, using ffmpeg fallback", { message });
-    return await decodeWithFfmpeg(file, telemetry);
+    logger.warn("[cloud][decode] ffmpeg decode failed, using AudioContext fallback", { message });
+    return await decodeFileFully(file, telemetry, TARGET_SAMPLE_RATE);
   }
 }

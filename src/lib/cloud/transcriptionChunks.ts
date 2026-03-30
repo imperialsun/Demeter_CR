@@ -12,6 +12,38 @@ export interface CloudTranscriptionChunkGroup {
   speakerIds: string[];
 }
 
+export function buildCloudTranscriptionChunkGroup(
+  segments: readonly TranscriptionSegment[],
+  chunkIndex: number,
+  chunkId?: string
+): CloudTranscriptionChunkGroup {
+  const normalizedChunkId = normalizeChunkId(chunkId) ?? normalizeChunkId(segments[0]?.chunkId) ?? `__chunk-${chunkIndex}`;
+  let start = Number.POSITIVE_INFINITY;
+  let end = 0;
+  const speakerIds: string[] = [];
+
+  for (const segment of segments) {
+    start = Math.min(start, segment.start);
+    end = Math.max(end, segment.end);
+    const speakerId = normalizeSpeakerId(segment.speaker);
+    if (speakerId && !speakerIds.includes(speakerId)) {
+      speakerIds.push(speakerId);
+    }
+  }
+
+  return {
+    chunkId: normalizedChunkId,
+    chunkIndex,
+    label: `Morceau ${chunkIndex + 1}`,
+    start: Number.isFinite(start) ? start : 0,
+    end,
+    duration: Math.max(0, end - (Number.isFinite(start) ? start : 0)),
+    segmentCount: segments.length,
+    segments: segments as TranscriptionSegment[],
+    speakerIds,
+  };
+}
+
 export function groupCloudTranscriptionSegments(
   segments: readonly TranscriptionSegment[]
 ): CloudTranscriptionChunkGroup[] {
@@ -56,17 +88,7 @@ export function groupCloudTranscriptionSegments(
 
   return [...groups.values()]
     .sort((left, right) => left.start - right.start || left.firstSeenIndex - right.firstSeenIndex)
-    .map((group, chunkIndex) => ({
-      chunkId: group.chunkId,
-      chunkIndex,
-      label: `Morceau ${chunkIndex + 1}`,
-      start: group.start,
-      end: group.end,
-      duration: Math.max(0, group.end - group.start),
-      segmentCount: group.segments.length,
-      segments: group.segments,
-      speakerIds: group.speakerIds,
-    }));
+    .map((group, chunkIndex) => buildCloudTranscriptionChunkGroup(group.segments, chunkIndex, group.chunkId));
 }
 
 export function formatCloudChunkTimeRange(start: number, end: number): string {

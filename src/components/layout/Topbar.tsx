@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { useAsrStore, MODEL_PRESETS, serializePersistedSettings, type CloudTranscriptionStatus } from "@/store/asr-store";
+import { useAsrStore, MODEL_PRESETS, serializePersistedSettings } from "@/store/asr-store";
 import { cn } from "@/lib/utils";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "@/components/ui/use-toast";
@@ -23,6 +23,7 @@ import { useModelCompatibilityTest, type ModelTestStatus } from "@/hooks/useMode
 import { getEnvMode } from "@/lib/env";
 import { findSuggestedReportModel, formatTokenCount } from "@/lib/llm/modelCatalog";
 import { LLM_API_STATUS_META } from "@/lib/llm/llmStatusMeta";
+import { getCloudStatusMeta } from "@/lib/cloudStatusMeta";
 import { resolveActiveLlmPipelineConfig } from "@/lib/llm/providerSettings";
 import { getLocalLlmModelProfile } from "@/lib/llm/localModelCatalog";
 import { downloadBlob } from "@/lib/export";
@@ -49,16 +50,6 @@ const STATUS_LABELS: Record<string, string> = {
   transcribing: "Transcription en cours",
   stopping: "Arrêt en cours…",
   error: "Erreur",
-};
-
-const CLOUD_STATUS_META: Record<CloudTranscriptionStatus, { label: string; variant: "default" | "secondary" | "destructive" | "success" | "warning" }> = {
-  idle: { label: "En attente", variant: "secondary" },
-  preprocessing: { label: "Prétraitement", variant: "warning" },
-  uploading: { label: "Envoi cloud", variant: "warning" },
-  transcribing: { label: "Transcription", variant: "default" },
-  stopping: { label: "Arrêt", variant: "secondary" },
-  done: { label: "Terminé", variant: "success" },
-  error: { label: "Erreur", variant: "destructive" },
 };
 
 const MODEL_TEST_STATUS_META: Record<ModelTestStatus, { label: string; variant: "default" | "secondary" | "destructive" | "success" | "warning" }> = {
@@ -266,7 +257,7 @@ export function Topbar() {
     },
     llmApiProvider
   );
-  const cloudStatusMeta = CLOUD_STATUS_META[cloudStatus];
+  const cloudStatusMeta = getCloudStatusMeta(cloudStatus);
   const llmStatusMeta = LLM_API_STATUS_META[llmApiStatus];
   const llmLocalStatusMeta = LLM_API_STATUS_META[llmLocalStatus];
   const llmModelId = activeLlmPipelineConfig.modelId.trim();

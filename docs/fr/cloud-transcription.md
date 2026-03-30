@@ -4,7 +4,8 @@
 
 Route: `/cloudupload`
 
-Le module applique un pretraitement local puis delegue la transcription a un provider distant.
+Le module prepare tous les segments localement avant de contacter un provider distant.
+Le mode `quick` garde un chemin basse RAM avec un traitement leger par segment, tandis que le mode `full` applique la chaine complete de pretraitement a chaque segment prepare.
 
 Providers supportes:
 
@@ -16,9 +17,9 @@ Providers supportes:
 
 1. Selection fichier + metadata.
 2. Resolution des settings cloud persistants.
-3. Pretraitement local (`preprocessCloudAudio`).
-4. Encodage WAV.
-5. Appel provider.
+3. Preparation et staging des segments (`preprocessCloudAudio`).
+4. Tous les segments sont prepares et mis en cache avant le premier appel provider.
+5. Appels provider depuis le cache stage.
 6. Parsing sortie en segments normalises.
 7. Export des resultats.
 
@@ -26,15 +27,18 @@ Providers supportes:
 
 ```mermaid
 flowchart TD
-    A[File selected] --> B[Local preprocess and WAV encode]
-    B --> C{Provider}
-    C -->|Whisper| D[HF inference chunk plan + calls]
-    C -->|Mistral| E[Mistral /v1/audio/transcriptions]
-    C -->|Demeter Sante| F[Backend /providers/demeter-sante/audio/transcriptions]
-    D --> G[normalize segments]
-    E --> G
-    F --> G
-    G --> H[UI results + exports + telemetry]
+    A[File selected] --> B{Preprocessing mode}
+    B -->|Quick| C[Traitement leger du segment<br/>stage en cache]
+    B -->|Full| D[Pretraitement complet + encodage WAV<br/>stage en cache]
+    C --> E{Provider}
+    D --> E
+    E -->|Whisper| F[HF inference chunk plan + calls]
+    E -->|Mistral| G[Mistral /v1/audio/transcriptions]
+    E -->|Demeter Sante| H[Backend /providers/demeter-sante/audio/transcriptions]
+    F --> I[normalize segments]
+    G --> I
+    H --> I
+    I --> J[UI results + exports + telemetry]
 ```
 
 ## Differences provider
@@ -118,6 +122,11 @@ Assignation:
 Limitation connue:
 
 - si Mistral retourne `422` et fallback automatique sans diarization, des segments peuvent etre produits sans speaker.
+
+## Conseil memoire
+
+- Sur gros fichiers ou machines peu dotees en RAM, preferer `cloudPreprocessingMode=quick`.
+- Si `cloudAutoTunePreprocess` est active, le premier segment stage sert une seule fois a la calibration, puis le tune/profil de bruit est reutilise pour le reste de la file stagee.
 
 ## Fichiers techniques lies
 

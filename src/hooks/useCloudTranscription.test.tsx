@@ -4,27 +4,66 @@ import { useEffect } from "react";
 
 import { useAsrStore } from "@/store/asr-store";
 import { useCloudTranscription } from "@/hooks/useCloudTranscription";
+import type { StageCloudSegmentsOptions } from "@/lib/cloud/cloudStaging";
 
 const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
   probeAudioMetadata: vi.fn(async () => ({ durationSec: 10, sampleRate: 16000 })),
-  encodeWavBuffer: vi.fn(() => new ArrayBuffer(8)),
   buildFixedSegments: vi.fn(() => [{ start: 0, end: 10 }]),
-  preprocessCloudAudio: vi.fn(async () => ({
-    processed: { pcm: new Float32Array([0.1, 0.2]), sampleRate: 16000 },
-    tune: null,
-  })),
+  stagedSegments: new Map<number, {
+    key: string;
+    sessionId: string;
+    index: number;
+    startSec: number;
+    endSec: number;
+    blob: Blob;
+    name: string;
+  }>(),
+  stageCloudSegments: vi.fn(async ({ segments, startIndex = 0, sessionId }: StageCloudSegmentsOptions) => {
+    let nextIndex = startIndex;
+    const stagedSegments = segments.map((segment) => {
+      const index = nextIndex++;
+      const record = {
+        key: `${sessionId}:${index}`,
+        sessionId,
+        index,
+        startSec: segment.startSec,
+        endSec: segment.endSec,
+        fileName: `segment_${index}-cloud.wav`,
+        mimeType: "audio/wav",
+        sizeBytes: 1024,
+      };
+      mocks.stagedSegments.set(index, {
+        key: record.key,
+        sessionId,
+        index,
+        startSec: segment.startSec,
+        endSec: segment.endSec,
+        blob: new Blob([`segment-${index}`], { type: "audio/wav" }),
+        name: record.fileName,
+      });
+      return record;
+    });
+    return { stagedSegments, nextIndex, aborted: false, tune: null };
+  }),
   summarizeSegments: vi.fn((segments: Array<unknown>) => ({
     count: segments.length,
     totalDurationSec: 10,
     textChars: 7,
     tokenCount: 2,
   })),
-  extractSegmentBlob: vi.fn(async () => ({
-    blob: new Blob(["a"], { type: "audio/wav" }),
-    mimeType: "audio/wav",
-    name: "segment.wav",
-  })),
+  getSegment: vi.fn(async (sessionId: string, index: number) => {
+    void sessionId;
+    return mocks.stagedSegments.get(index) ?? null;
+  }),
+  deleteSegment: vi.fn(async (sessionId: string, index: number) => {
+    void sessionId;
+    mocks.stagedSegments.delete(index);
+  }),
+  deleteSessionSegments: vi.fn(async (sessionId: string) => {
+    void sessionId;
+    mocks.stagedSegments.clear();
+  }),
   getWhisperClient: vi.fn(async () => ({
     automaticSpeechRecognition: vi.fn(async () => ({ text: "ok" })),
   })),
@@ -62,7 +101,6 @@ vi.mock("@/components/ui/use-toast", () => ({
 
 vi.mock("@/lib/audio", () => ({
   probeAudioMetadata: mocks.probeAudioMetadata,
-  encodeWavBuffer: mocks.encodeWavBuffer,
 }));
 
 vi.mock("@/lib/chunking", async () => {
@@ -73,16 +111,18 @@ vi.mock("@/lib/chunking", async () => {
   };
 });
 
-vi.mock("@/lib/cloud/preprocessCloudAudio", () => ({
-  preprocessCloudAudio: mocks.preprocessCloudAudio,
+vi.mock("@/lib/cloud/cloudStaging", () => ({
+  stageCloudSegments: mocks.stageCloudSegments,
 }));
 
 vi.mock("@/lib/cloud/segmentSummary", () => ({
   summarizeSegments: mocks.summarizeSegments,
 }));
 
-vi.mock("@/lib/cloud/segmentExtraction", () => ({
-  extractSegmentBlob: mocks.extractSegmentBlob,
+vi.mock("@/lib/segment-cache", () => ({
+  getSegment: mocks.getSegment,
+  deleteSegment: mocks.deleteSegment,
+  deleteSessionSegments: mocks.deleteSessionSegments,
 }));
 
 vi.mock("@/lib/cloud/whisperClient", () => ({
@@ -144,6 +184,7 @@ describe("useCloudTranscription", () => {
       cloudDemeterModel: "voxtral-demeter-latest",
       cloudDemeterDiarizationEnabled: false,
     } as never);
+    mocks.stagedSegments.clear();
     vi.clearAllMocks();
   });
 
@@ -179,7 +220,7 @@ describe("useCloudTranscription", () => {
     expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.provider).toBe("whisper");
     expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.segmentCount).toBe(api.segments.length);
     expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.transcriptText).toContain("Bonjour");
-    expect((useAsrStore.getState().sessionTranscriptMemories.cloud as any)?.segments).toBeUndefined();
+    expect(Object.prototype.hasOwnProperty.call(useAsrStore.getState().sessionTranscriptMemories.cloud ?? {}, "segments")).toBe(false);
     expect(useAsrStore.getState().telemetryCollector).toBeNull();
     expect(mocks.releaseFfmpeg).toHaveBeenCalledTimes(1);
   });
@@ -393,6 +434,7 @@ describe("useCloudTranscription", () => {
       expect(api.status).toBe("done");
     });
     expect(mocks.transcribeWithDemeterSante).toHaveBeenCalledTimes(3);
-    expect(mocks.extractSegmentBlob).toHaveBeenCalled();
+    expect(mocks.stageCloudSegments).toHaveBeenCalledTimes(2);
+    expect(mocks.deleteSegment).toHaveBeenCalled();
   });
 });

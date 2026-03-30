@@ -1,6 +1,8 @@
 import * as React from "react";
+import { useLocation } from "react-router-dom";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
+import { getCloudProgressTitleLabel } from "@/lib/cloudStatusMeta";
 import logger from "@/lib/logger";
 import { cn } from "@/lib/utils";
 import { useAsrStore } from "@/store/asr-store";
@@ -11,9 +13,13 @@ interface AppShellProps {
 }
 
 export function AppShell({ children, className }: AppShellProps) {
+  const location = useLocation();
   const isTranscribing = useAsrStore((state) => state.isTranscribing);
   const progress = useAsrStore((state) => state.progress);
+  const cloudStatus = useAsrStore((state) => state.cloudStatus);
   const resetSession = useAsrStore((state) => state.resetSession);
+  const normalizedPathname = location.pathname.replace(/\/+$/, "") || "/";
+  const isCloudUploadRoute = normalizedPathname === "/cloudupload";
 
   React.useEffect(() => {
     logger.info("[app-shell] mounted");
@@ -25,13 +31,21 @@ export function AppShell({ children, className }: AppShellProps) {
   React.useEffect(() => {
     if (typeof document === "undefined") return;
     const baseTitle = "Demeter Speech";
-    if (isTranscribing) {
+    if (isCloudUploadRoute) {
+      const cloudTitleLabel = getCloudProgressTitleLabel(cloudStatus);
+      if (cloudTitleLabel) {
+        const pct = Math.round(Math.min(1, Math.max(0, progress)) * 100);
+        document.title = `${baseTitle} - ${cloudTitleLabel} (${pct}%)`;
+      } else {
+        document.title = baseTitle;
+      }
+    } else if (isTranscribing) {
       const pct = Math.round(Math.min(1, Math.max(0, progress)) * 100);
       document.title = `${baseTitle} (${pct}%)`;
     } else {
       document.title = baseTitle;
     }
-  }, [isTranscribing, progress]);
+  }, [cloudStatus, isCloudUploadRoute, isTranscribing, progress]);
 
   React.useEffect(() => {
     logger.info("[app-shell] resetting session state on shell mount");

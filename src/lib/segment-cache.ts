@@ -11,6 +11,7 @@ export interface CachedSegment {
   startSec: number;
   endSec: number;
   blob: Blob;
+  name?: string;
 }
 
 function openDb(): Promise<IDBDatabase> {

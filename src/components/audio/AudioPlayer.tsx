@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -18,7 +18,7 @@ interface AudioPlayerProps {
   variant?: "card" | "inline";
 }
 
-export function AudioPlayer({
+export const AudioPlayer = memo(function AudioPlayer({
   file,
   metadata,
   previewUrl,
@@ -300,7 +300,7 @@ export function AudioPlayer({
       <CardContent className="space-y-3">{body}</CardContent>
     </Card>
   );
-}
+});
 
 function formatDuration(seconds?: number) {
   if (!seconds && seconds !== 0) return "—";

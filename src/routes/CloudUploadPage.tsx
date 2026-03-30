@@ -18,7 +18,6 @@ import logger from "@/lib/logger";
 import { SESSION_ONLY_SECRET_NOTICE } from "@/lib/secret-storage-copy";
 import { Loader2, PauseCircle, Play, Cloud } from "lucide-react";
 import { isBackendMode } from "@/lib/runtime-config";
-import { groupCloudTranscriptionSegments } from "@/lib/cloud/transcriptionChunks";
 
 const CLOUD_HF_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans cle API Hugging Face.";
 const CLOUD_MISTRAL_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans cle API Mistral.";
@@ -73,6 +72,7 @@ function CloudUploadPage() {
     previewUrl,
     audioMetadata,
     segments,
+    chunkGroups,
     telemetrySummary,
     status,
     statusDetail,
@@ -96,7 +96,7 @@ function CloudUploadPage() {
   const statusMeta = useMemo(() => {
     switch (status) {
       case "preprocessing":
-        return { label: "Prétraitement", tone: "secondary" as const };
+        return { label: "Préparation", tone: "secondary" as const };
       case "uploading":
         return { label: "Envoi cloud", tone: "secondary" as const };
       case "transcribing":
@@ -115,16 +115,15 @@ function CloudUploadPage() {
   const isMistralTokenMissing = isMistral && mistralApiKey.trim().length === 0;
   const canStartTranscription = hasAllowedProvider && isCurrentProviderAllowed && !isWhisperTokenMissing && !isMistralTokenMissing;
   const percent = Math.round(progress * 100);
-  const chunkGroups = useMemo(() => groupCloudTranscriptionSegments(segments), [segments]);
   return (
     <div className="space-y-8">
       <header className="space-y-2">
         <h2 className="text-2xl font-semibold">Transcription cloud</h2>
         <p className="text-muted-foreground">
-          Importez un fichier audio, prétraitez-le localement puis lancez la transcription via le service cloud.
+          Importez un fichier audio, choisissez un mode basse RAM ou un traitement complet, puis lancez la transcription via le service cloud.
         </p>
         <p className="text-sm font-medium text-amber-600">
-          L'audio est prétraité localement avant d'être envoyé au cloud pour la transcription.
+          Les deux modes préparent tous les segments avant le premier appel au provider. Rapide applique un traitement léger, Complet applique la chaîne complète.
         </p>
       </header>
 
@@ -327,7 +326,7 @@ function CloudUploadPage() {
             onFileSelected={handleFileSelected}
             metadata={audioMetadata}
             disabled={isTranscribing}
-            description="Glissez-déposez un fichier audio. Il est prétraité localement puis envoyé au cloud."
+            description="Glissez-déposez un fichier audio. Rapide réduit la RAM en envoyant le segment quasi brut ; Complet prétraite localement avant l'envoi."
           />
         </div>
 

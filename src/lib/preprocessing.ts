@@ -15,7 +15,6 @@ const DEFAULT_VAD_THRESHOLD_DB = -40;
 const DEFAULT_VAD_MIN_SILENCE_MS = 250;
 const DEFAULT_OVERLAP_BLOCK_SEC = 1.2;
 const DEFAULT_OVERLAP_SEC = 0.25;
-
 export interface SpectralGateParams {
   noiseFloorDb: number;
   reductionDb: number;
@@ -289,37 +288,37 @@ export async function preprocessDecodedAudio(
 
   const lufsEnabled = params.preprocessEnableLufs ?? true;
   const targetLufs = params.preprocessTargetLufs ?? DEFAULT_LUFS_TARGET;
-  let normalized: Float32Array;
-  if (lufsEnabled) {
-    const lufsResult = normalizeToLufs(filtered, decoded.sampleRate, targetLufs);
-    normalized = lufsResult.pcm;
-    logger.debug("[preprocess] loudness normalize", {
-      measuredLufs: Number(lufsResult.measuredLufs.toFixed(2)),
-      targetLufs,
-      gain: Number(lufsResult.gain.toFixed(3)),
-      gatedFrames: lufsResult.gatedFrames,
-      totalFrames: lufsResult.totalFrames,
-    });
-    telemetry?.logEvent("PREPROCESS_LUFS", {
-      measuredLufs: lufsResult.measuredLufs,
-      targetLufs,
-      gain: lufsResult.gain,
-      gatedFrames: lufsResult.gatedFrames,
-      totalFrames: lufsResult.totalFrames,
-    });
-  } else {
-    const peakBeforeNorm = getPeak(filtered);
-    normalized = safeNormalize(filtered, DEFAULT_TARGET_PEAK);
-    logger.debug("[preprocess] normalize", {
-      peakIn: Number(peakBeforeNorm.toFixed(4)),
-      targetPeak: DEFAULT_TARGET_PEAK,
-    });
-    telemetry?.logEvent("PREPROCESS_NORMALIZE", {
-      peakIn: peakBeforeNorm,
-      targetPeak: DEFAULT_TARGET_PEAK,
-    });
-  }
-
+  const normalized = lufsEnabled
+    ? (() => {
+        const lufsResult = normalizeToLufs(filtered, decoded.sampleRate, targetLufs);
+        logger.debug("[preprocess] loudness normalize", {
+          measuredLufs: Number(lufsResult.measuredLufs.toFixed(2)),
+          targetLufs,
+          gain: Number(lufsResult.gain.toFixed(3)),
+          gatedFrames: lufsResult.gatedFrames,
+          totalFrames: lufsResult.totalFrames,
+        });
+        telemetry?.logEvent("PREPROCESS_LUFS", {
+          measuredLufs: lufsResult.measuredLufs,
+          targetLufs,
+          gain: lufsResult.gain,
+          gatedFrames: lufsResult.gatedFrames,
+          totalFrames: lufsResult.totalFrames,
+        });
+        return lufsResult.pcm;
+      })()
+    : (() => {
+        const peakBeforeNorm = getPeak(filtered);
+        logger.debug("[preprocess] normalize", {
+          peakIn: Number(peakBeforeNorm.toFixed(4)),
+          targetPeak: DEFAULT_TARGET_PEAK,
+        });
+        telemetry?.logEvent("PREPROCESS_NORMALIZE", {
+          peakIn: peakBeforeNorm,
+          targetPeak: DEFAULT_TARGET_PEAK,
+        });
+        return safeNormalize(filtered, DEFAULT_TARGET_PEAK);
+      })();
   const calibrationSeconds = params.calibrationSeconds ?? 1;
   const vadEnabled = params.preprocessVadEnabled ?? true;
   const vadThresholdDb = params.preprocessVadThresholdDb ?? DEFAULT_VAD_THRESHOLD_DB;
@@ -366,7 +365,6 @@ export async function preprocessDecodedAudio(
     reductionDb: params.reductionDb,
     smoothing: params.smoothing,
   });
-
   const overlapEnabled = params.preprocessOverlapAdd ?? true;
   const overlapBlockSec = params.preprocessOverlapBlockSec ?? DEFAULT_OVERLAP_BLOCK_SEC;
   const overlapSec = params.preprocessOverlapSec ?? DEFAULT_OVERLAP_SEC;
@@ -387,7 +385,6 @@ export async function preprocessDecodedAudio(
     peakIn: Number(peakAfterGate.toFixed(4)),
     targetPeak: DEFAULT_TARGET_PEAK,
   });
-
   const limiterEnabled = params.preprocessLimiterEnabled ?? true;
   const limiterThresholdDb = params.preprocessLimiterThresholdDb ?? DEFAULT_LIMITER_THRESHOLD_DB;
   const limiterSoftness = params.preprocessLimiterSoftness ?? DEFAULT_LIMITER_SOFTNESS;
@@ -448,40 +445,78 @@ export async function preprocessPcmChunk(
 
   const lufsEnabled = params.preprocessEnableLufs ?? true;
   const targetLufs = params.preprocessTargetLufs ?? DEFAULT_LUFS_TARGET;
-  let normalized: Float32Array;
-  if (lufsEnabled) {
-    const lufsResult = normalizeToLufs(filtered, sampleRate, targetLufs);
-    normalized = lufsResult.pcm;
-    logger.debug("[preprocess] loudness normalize (chunk)", {
-      measuredLufs: Number(lufsResult.measuredLufs.toFixed(2)),
-      targetLufs,
-      gain: Number(lufsResult.gain.toFixed(3)),
-      gatedFrames: lufsResult.gatedFrames,
-      totalFrames: lufsResult.totalFrames,
-    });
-    telemetry?.logEvent("PREPROCESS_LUFS", {
-      measuredLufs: lufsResult.measuredLufs,
-      targetLufs,
-      gain: lufsResult.gain,
-      gatedFrames: lufsResult.gatedFrames,
-      totalFrames: lufsResult.totalFrames,
-    });
-  } else {
-    const peakBeforeNorm = getPeak(filtered);
-    normalized = safeNormalize(filtered, DEFAULT_TARGET_PEAK);
-    logger.debug("[preprocess] normalize (chunk)", {
-      peakIn: Number(peakBeforeNorm.toFixed(4)),
-      targetPeak: DEFAULT_TARGET_PEAK,
-    });
-    telemetry?.logEvent("PREPROCESS_NORMALIZE", {
-      peakIn: peakBeforeNorm,
-      targetPeak: DEFAULT_TARGET_PEAK,
-    });
-  }
-
+  const normalized = lufsEnabled
+    ? (() => {
+        const lufsResult = normalizeToLufs(filtered, sampleRate, targetLufs);
+        logger.debug("[preprocess] loudness normalize (chunk)", {
+          measuredLufs: Number(lufsResult.measuredLufs.toFixed(2)),
+          targetLufs,
+          gain: Number(lufsResult.gain.toFixed(3)),
+          gatedFrames: lufsResult.gatedFrames,
+          totalFrames: lufsResult.totalFrames,
+        });
+        telemetry?.logEvent("PREPROCESS_LUFS", {
+          measuredLufs: lufsResult.measuredLufs,
+          targetLufs,
+          gain: lufsResult.gain,
+          gatedFrames: lufsResult.gatedFrames,
+          totalFrames: lufsResult.totalFrames,
+        });
+        return lufsResult.pcm;
+      })()
+    : (() => {
+        const peakBeforeNorm = getPeak(filtered);
+        logger.debug("[preprocess] normalize (chunk)", {
+          peakIn: Number(peakBeforeNorm.toFixed(4)),
+          targetPeak: DEFAULT_TARGET_PEAK,
+        });
+        telemetry?.logEvent("PREPROCESS_NORMALIZE", {
+          peakIn: peakBeforeNorm,
+          targetPeak: DEFAULT_TARGET_PEAK,
+        });
+        return safeNormalize(filtered, DEFAULT_TARGET_PEAK);
+      })();
   if (mode === "quick") {
-    const peakAfterNorm = getPeak(normalized);
-    const peakNormalized = safeNormalize(normalized, DEFAULT_TARGET_PEAK);
+    const quickNoiseProfile =
+      params.noiseProfile && params.noiseProfile.length === DEFAULT_FFT_SIZE / 2 + 1
+        ? params.noiseProfile
+        : null;
+    const quickGateResult = quickNoiseProfile
+      ? await (async () => {
+          const tGate = performance.now();
+          const gated = await applySpectralGate(normalized, sampleRate, {
+            noiseProfile: quickNoiseProfile,
+            noiseFloorDb: params.noiseFloorDb,
+            reductionDb: params.reductionDb,
+            smoothing: params.smoothing,
+          });
+          return { gated, gateMs: performance.now() - tGate };
+        })()
+      : { gated: normalized, gateMs: 0 };
+    const { gated, gateMs } = quickGateResult;
+    if (quickNoiseProfile) {
+      logger.debug("[preprocess] quick spectral gate done", {
+        durationMs: Math.round(gateMs),
+        noiseFloorDb: params.noiseFloorDb,
+        reductionDb: params.reductionDb,
+        smoothing: params.smoothing,
+      });
+      telemetry?.logEvent("PREPROCESS_GATE", {
+        durationMs: gateMs,
+        noiseFloorDb: params.noiseFloorDb,
+        reductionDb: params.reductionDb,
+        smoothing: params.smoothing,
+        mode: "quick",
+      });
+    } else {
+      logger.debug("[preprocess] quick mode skipped spectral gate", {
+        sampleRate,
+        hasNoiseProfile: false,
+      });
+    }
+
+    const peakAfterNorm = getPeak(gated);
+    const peakNormalized = safeNormalize(gated, DEFAULT_TARGET_PEAK);
     logger.debug("[preprocess] finalize normalize (chunk)", {
       peakIn: Number(peakAfterNorm.toFixed(4)),
       targetPeak: DEFAULT_TARGET_PEAK,
@@ -564,7 +599,6 @@ export async function preprocessPcmChunk(
     reductionDb: params.reductionDb,
     smoothing: params.smoothing,
   });
-
   const overlapEnabled = params.preprocessOverlapAdd ?? true;
   const overlapBlockSec = params.preprocessOverlapBlockSec ?? DEFAULT_OVERLAP_BLOCK_SEC;
   const overlapSec = params.preprocessOverlapSec ?? DEFAULT_OVERLAP_SEC;
@@ -583,7 +617,6 @@ export async function preprocessPcmChunk(
     peakIn: Number(peakAfterGate.toFixed(4)),
     targetPeak: DEFAULT_TARGET_PEAK,
   });
-
   const limiterEnabled = params.preprocessLimiterEnabled ?? true;
   const limiterThresholdDb = params.preprocessLimiterThresholdDb ?? DEFAULT_LIMITER_THRESHOLD_DB;
   const limiterSoftness = params.preprocessLimiterSoftness ?? DEFAULT_LIMITER_SOFTNESS;

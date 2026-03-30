@@ -117,17 +117,22 @@ export function createSessionTranscriptMemoryEntry(args: {
   mode: SessionTranscriptMode;
   provider: SessionTranscriptProvider;
   segments: TranscriptionSegment[];
+  transcriptText?: string;
+  segmentCount?: number;
   audioSource?: SessionSource | null;
   audioMetadata?: AudioMetadata | null;
   updatedAt?: string;
 }): SessionTranscriptMemoryEntry {
   const audioSource = args.audioSource ?? null;
+  const transcriptText = typeof args.transcriptText === "string" ? args.transcriptText : getSessionTranscriptText(args.segments);
+  const segmentCount =
+    typeof args.segmentCount === "number" && Number.isFinite(args.segmentCount) ? args.segmentCount : args.segments.length;
   return {
     mode: args.mode,
     provider: args.provider,
     label: buildSessionTranscriptMemoryLabel(args.provider, audioSource),
-    transcriptText: getSessionTranscriptText(args.segments),
-    segmentCount: args.segments.length,
+    transcriptText,
+    segmentCount,
     audioSource,
     audioMetadata: args.audioMetadata ?? null,
     updatedAt: args.updatedAt ?? new Date().toISOString(),

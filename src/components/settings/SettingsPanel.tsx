@@ -1794,7 +1794,7 @@ export function SettingsPanel({
           <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
             <div>
               <p className="text-sm font-medium">Mode de pré-traitement</p>
-              <p className="text-xs text-muted-foreground">Sélectionnez "Rapide" pour un prétraitement léger chunk par chunk, ou "Complet" pour effectuer un décodage et un prétraitement complet avant la transcription (par défaut : Complet).</p>
+              <p className="text-xs text-muted-foreground">Sélectionnez "Rapide" pour une préparation légère de chaque segment avec un pic RAM réduit, ou "Complet" pour la chaîne complète. Dans les deux cas, tous les segments sont préparés avant le premier envoi (par défaut : Complet).</p>
             </div>
             <Select value={preprocessingMode} onValueChange={(v) => setPreprocessingMode(v as "quick" | "full") }>
               <SelectTrigger className="w-44">
@@ -2384,7 +2384,7 @@ export function SettingsPanel({
           <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
             <div>
               <p className="text-sm font-medium">Mode de pré-traitement</p>
-              <p className="text-xs text-muted-foreground">Sélectionnez "Rapide" pour un prétraitement léger chunk par chunk, ou "Complet" pour effectuer un prétraitement complet avant la transcription.</p>
+              <p className="text-xs text-muted-foreground">Sélectionnez "Rapide" pour un prétraitement léger chunk par chunk et moins de RAM, ou "Complet" pour effectuer un prétraitement complet avant la transcription.</p>
             </div>
             <Select value={micPreprocessingMode} onValueChange={(v) => setMicPreprocessingMode(v as "quick" | "full") }>
               <SelectTrigger className="w-44">
@@ -2942,7 +2942,7 @@ export function SettingsPanel({
                 <div className="flex items-center justify-between rounded-md border bg-muted/40 px-3 py-2">
                   <div>
                     <p className="text-sm font-medium">Mode de pré-traitement</p>
-                    <p className="text-xs text-muted-foreground">"Rapide" conserve l'audio brut, "Complet" applique les filtres.</p>
+                    <p className="text-xs text-muted-foreground">"Rapide" conserve un chemin basse RAM en envoyant le segment quasi brut, "Complet" applique les filtres avant l'envoi.</p>
                   </div>
                   <Select value={cloudPreprocessingMode} onValueChange={(v) => setCloudPreprocessingMode(v as "quick" | "full") }>
                     <SelectTrigger className="w-44">

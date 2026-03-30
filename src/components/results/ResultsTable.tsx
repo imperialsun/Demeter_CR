@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -26,7 +26,7 @@ interface ResultsTableProps {
   segmentEditingDisabled?: boolean;
 }
 
-export function ResultsTable({
+export const ResultsTable = memo(function ResultsTable({
   segments,
   enableWordTimestamps,
   showSegmentConfidence,
@@ -232,7 +232,7 @@ export function ResultsTable({
       />
     </div>
   );
-}
+});
 
 function formatTimestamp(seconds: number) {
   const hrs = Math.floor(seconds / 3600);
