@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseReportJson } from "@/lib/llm/reportSchema";
+import { areReportJsonsEqual, cloneReportJson, parseReportJson } from "@/lib/llm/reportSchema";
 
 describe("reportSchema", () => {
   it("parses fenced JSON output", () => {
@@ -17,6 +17,26 @@ describe("reportSchema", () => {
     expect(report.title).toBe("Titre");
     expect(report.sections).toHaveLength(1);
     expect(report.caveats).toEqual(["Incertitude"]);
+  });
+
+  it("clones reports deeply and compares them structurally", () => {
+    const report = {
+      format: "CRO" as const,
+      title: "Titre",
+      subtitle: "Sous titre",
+      sections: [{ heading: "Contexte", paragraphs: ["Paragraphe 1"] }],
+      key_points: ["Point 1"],
+      action_items: ["Action 1"],
+      caveats: ["Vigilance 1"],
+    };
+
+    const clone = cloneReportJson(report);
+    expect(clone).not.toBe(report);
+    expect(areReportJsonsEqual(clone, report)).toBe(true);
+
+    clone.sections[0]!.paragraphs[0] = "Paragraphe modifie";
+    expect(report.sections[0]?.paragraphs[0]).toBe("Paragraphe 1");
+    expect(areReportJsonsEqual(clone, report)).toBe(false);
   });
 
   it("throws on invalid structure", () => {

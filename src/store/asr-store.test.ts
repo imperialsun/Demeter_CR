@@ -229,6 +229,22 @@ describe("llm provider config hydration", () => {
     expect(persisted.llmApiHfMaxTokens).toBe(7777);
   });
 
+  it("does not persist llm api report drafts", () => {
+    window.localStorage.setItem(storageKey, JSON.stringify(DEFAULT_SETTINGS));
+    useAsrStore.getState().hydrateFromStorage();
+
+    const before = window.localStorage.getItem(storageKey);
+    useAsrStore.getState().setLlmApiReportDraft("cri", {
+      format: "CRI",
+      title: "Titre modifie",
+      sections: [{ heading: "Contexte", paragraphs: ["Paragraphe"] }],
+    });
+
+    const after = window.localStorage.getItem(storageKey);
+    expect(after).toBe(before);
+    expect(JSON.parse(after ?? "{}").llmApiReportDrafts).toBeUndefined();
+  });
+
   it("hydrates llm local profile settings", () => {
     const payload = {
       ...DEFAULT_SETTINGS,

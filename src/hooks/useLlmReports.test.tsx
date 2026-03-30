@@ -54,6 +54,7 @@ describe("useLlmReports telemetry", () => {
       llmApiStatusDetail: undefined,
       llmApiProgress: 0,
       llmApiResults: {},
+      llmApiReportDrafts: {},
       mistralApiKey: "",
       cloudMistralApiUrl: "https://api.mistral.ai",
       telemetryCollector: null,
@@ -145,6 +146,61 @@ describe("useLlmReports telemetry", () => {
     const docxEvents = summary?.events.filter((event) => event.type === "LLM_DOCX_DOWNLOAD") ?? [];
     expect(docxEvents.some((event) => event.data?.status === "start")).toBe(true);
     expect(docxEvents.some((event) => event.data?.status === "done")).toBe(true);
+  });
+
+  it("uses the edited report draft when building a docx", async () => {
+    const generatedResult = {
+      format: "CRI",
+      report: {
+        format: "CRI",
+        title: "Titre initial",
+        sections: [
+          { heading: "Section A", paragraphs: ["Paragraphe A"] },
+          { heading: "Section B", paragraphs: ["Paragraphe B"] },
+        ],
+      },
+      rawResponse: JSON.stringify({ format: "CRI", title: "Titre initial", sections: [] }),
+      modelId: "openai/gpt-oss-20b",
+      generatedAt: new Date().toISOString(),
+      sourceMode: "text",
+      sourceTokenCount: 16,
+      pipelinePasses: 1,
+      strategy: "chatCompletion",
+    } as const;
+
+    useAsrStore.setState({
+      llmApiResults: { cri: generatedResult } as any,
+      llmApiReportDrafts: {
+        cri: {
+          format: "CRI",
+          title: "Titre modifie",
+          sections: [
+            { heading: "Section B", paragraphs: ["Paragraphe B"] },
+            { heading: "Section A", paragraphs: ["Paragraphe A"] },
+          ],
+        },
+      } as any,
+    } as any);
+
+    const { result } = renderHook(() => useLlmReports());
+
+    await act(async () => {
+      await result.current.downloadDocx("cri");
+    });
+
+    expect(mocks.buildReportDocxMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Titre modifie",
+        sections: [
+          { heading: "Section B", paragraphs: ["Paragraphe B"] },
+          { heading: "Section A", paragraphs: ["Paragraphe A"] },
+        ],
+      }),
+      expect.objectContaining({
+        format: "CRI",
+        modelId: "openai/gpt-oss-20b",
+      })
+    );
   });
 
   it("emits LLM_DOCX_DOWNLOAD error event when formatting fails", async () => {

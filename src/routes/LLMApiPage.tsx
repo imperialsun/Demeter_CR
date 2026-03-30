@@ -1,4 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ButtonHTMLAttributes,
+  type ChangeEvent,
+  type DragEvent as ReactDragEvent,
+  type HTMLAttributes,
+} from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,12 +16,14 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { useAsrStore, type LlmApiProvider } from "@/store/asr-store";
 import { useLlmReports } from "@/hooks/useLlmReports";
+import { moveArrayItem } from "@/lib/arrayMove";
 import { buildReportFormatDescription } from "@/lib/llm/reportPrompts";
 import { LLM_API_STATUS_META } from "@/lib/llm/llmStatusMeta";
-import type { ReportResultKey } from "@/lib/llm/reportSchema";
+import { areReportJsonsEqual, cloneReportJson, type ReportJson, type ReportResultKey } from "@/lib/llm/reportSchema";
 import {
   formatTokenCount,
   resolveModelTokenBudget,
@@ -31,6 +42,7 @@ import { SESSION_ONLY_SECRET_NOTICE } from "@/lib/secret-storage-copy";
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { canAccessFeature, canUseLlmProvider } from "@/lib/backend-permissions";
 import { isBackendMode } from "@/lib/runtime-config";
+import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
 
 const FORMAT_PREVIEW_META = [
   { format: "CRI" as const, description: buildReportFormatDescription("CRI") },
@@ -825,8 +837,11 @@ function LLMApiPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Apercu des formats</CardTitle>
-              <CardDescription>Chaque format est presente dans son bloc pour une lecture plus claire.</CardDescription>
+              <CardTitle>Edition des formats</CardTitle>
+              <CardDescription>
+                Chaque format peut etre relu et modifie apres generation. L'export DOCX suit la version editee de
+                cette session.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-2 md:grid-cols-3">
@@ -848,13 +863,13 @@ function LLMApiPage() {
                 </TabsList>
 
                 <TabsContent value="cri" className="mt-4">
-                  <FormatPreview format="cri" />
+                  <ReportFormatEditor format="cri" description={FORMAT_PREVIEW_META[0]!.description} />
                 </TabsContent>
                 <TabsContent value="cro" className="mt-4">
-                  <FormatPreview format="cro" />
+                  <ReportFormatEditor format="cro" description={FORMAT_PREVIEW_META[1]!.description} />
                 </TabsContent>
                 <TabsContent value="crs" className="mt-4">
-                  <FormatPreview format="crs" />
+                  <ReportFormatEditor format="crs" description={FORMAT_PREVIEW_META[2]!.description} />
                 </TabsContent>
               </Tabs>
 
@@ -877,93 +892,608 @@ function LLMApiPage() {
   );
 }
 
-function FormatPreview({ format }: { format: ReportResultKey }) {
+function ReportFormatEditor({ format, description }: { format: ReportResultKey; description: string }) {
   const result = useAsrStore((state) => state.llmApiResults[format]);
+  const draft = useAsrStore((state) => state.llmApiReportDrafts[format]);
+  const llmApiStatus = useAsrStore((state) => state.llmApiStatus);
+  const setLlmApiReportDraft = useAsrStore((state) => state.setLlmApiReportDraft);
+  const resetLlmApiReportDraft = useAsrStore((state) => state.resetLlmApiReportDraft);
+  const isBusy = llmApiStatus === "preparing" || llmApiStatus === "generating" || llmApiStatus === "formatting";
+  const baseReport = result?.report;
+  const currentReport = draft ?? baseReport;
+  const isDirty = Boolean(draft && (!baseReport || !areReportJsonsEqual(draft, baseReport)));
 
-  if (!result) {
+  const commitReport = (nextReport: ReportJson) => {
+    if (!baseReport) {
+      setLlmApiReportDraft(format, nextReport);
+      return;
+    }
+    if (areReportJsonsEqual(nextReport, baseReport)) {
+      resetLlmApiReportDraft(format);
+      return;
+    }
+    setLlmApiReportDraft(format, nextReport);
+  };
+
+  const updateReport = (mutator: (nextReport: ReportJson) => void) => {
+    if (!currentReport) return;
+    const nextReport = cloneReportJson(currentReport);
+    mutator(nextReport);
+    commitReport(nextReport);
+  };
+
+  const handleTitleChange = (value: string) => {
+    updateReport((nextReport) => {
+      nextReport.title = value;
+    });
+  };
+
+  const handleSubtitleChange = (value: string) => {
+    updateReport((nextReport) => {
+      if (value.trim().length > 0) {
+        nextReport.subtitle = value;
+      } else {
+        delete nextReport.subtitle;
+      }
+    });
+  };
+
+  const moveSection = (fromIndex: number, toIndex: number) => {
+    updateReport((nextReport) => {
+      nextReport.sections = moveArrayItem(nextReport.sections, fromIndex, toIndex);
+    });
+  };
+
+  const addSection = () => {
+    updateReport((nextReport) => {
+      nextReport.sections.push({
+        heading: "Nouvelle section",
+        paragraphs: [""],
+      });
+    });
+  };
+
+  const removeSection = (sectionIndex: number) => {
+    updateReport((nextReport) => {
+      nextReport.sections.splice(sectionIndex, 1);
+    });
+  };
+
+  const updateSectionHeading = (sectionIndex: number, value: string) => {
+    updateReport((nextReport) => {
+      const section = nextReport.sections[sectionIndex];
+      if (!section) return;
+      section.heading = value;
+    });
+  };
+
+  const addSectionParagraph = (sectionIndex: number) => {
+    updateReport((nextReport) => {
+      const section = nextReport.sections[sectionIndex];
+      if (!section) return;
+      section.paragraphs.push("");
+    });
+  };
+
+  const updateSectionParagraph = (sectionIndex: number, paragraphIndex: number, value: string) => {
+    updateReport((nextReport) => {
+      const section = nextReport.sections[sectionIndex];
+      if (!section) return;
+      section.paragraphs[paragraphIndex] = value;
+    });
+  };
+
+  const moveSectionParagraph = (sectionIndex: number, fromIndex: number, toIndex: number) => {
+    updateReport((nextReport) => {
+      const section = nextReport.sections[sectionIndex];
+      if (!section) return;
+      section.paragraphs = moveArrayItem(section.paragraphs, fromIndex, toIndex);
+    });
+  };
+
+  const removeSectionParagraph = (sectionIndex: number, paragraphIndex: number) => {
+    updateReport((nextReport) => {
+      const section = nextReport.sections[sectionIndex];
+      if (!section) return;
+      section.paragraphs.splice(paragraphIndex, 1);
+    });
+  };
+
+  const moveListField = (field: "key_points" | "action_items" | "caveats", fromIndex: number, toIndex: number) => {
+    updateReport((nextReport) => {
+      const currentValues = nextReport[field] ?? [];
+      nextReport[field] = moveArrayItem(currentValues, fromIndex, toIndex);
+    });
+  };
+
+  const addListFieldValue = (field: "key_points" | "action_items" | "caveats") => {
+    updateReport((nextReport) => {
+      const currentValues = [...(nextReport[field] ?? [])];
+      currentValues.push("");
+      nextReport[field] = currentValues;
+    });
+  };
+
+  const updateListFieldValue = (
+    field: "key_points" | "action_items" | "caveats",
+    itemIndex: number,
+    value: string
+  ) => {
+    updateReport((nextReport) => {
+      const currentValues = [...(nextReport[field] ?? [])];
+      currentValues[itemIndex] = value;
+      nextReport[field] = currentValues;
+    });
+  };
+
+  const removeListFieldValue = (field: "key_points" | "action_items" | "caveats", itemIndex: number) => {
+    updateReport((nextReport) => {
+      const currentValues = [...(nextReport[field] ?? [])];
+      currentValues.splice(itemIndex, 1);
+      if (currentValues.length > 0) {
+        nextReport[field] = currentValues;
+      } else {
+        delete nextReport[field];
+      }
+    });
+  };
+
+  if (!currentReport) {
     return (
-      <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">
+      <div
+        data-testid={`report-editor-${format}`}
+        className="rounded-md border border-dashed bg-muted/20 p-4 text-sm text-muted-foreground"
+      >
         Aucun resultat {format.toUpperCase()} pour le moment.
       </div>
     );
   }
 
-  const report = result.report;
-
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge variant="secondary">{report.format}</Badge>
-        <Badge variant="outline">{result.modelId}</Badge>
-        <Badge variant="outline">{result.strategy}</Badge>
-        <Badge variant="outline">passes {result.pipelinePasses}</Badge>
-      </div>
-
-      <div className="space-y-1">
-        <h3 className="text-lg font-semibold">{report.title}</h3>
-        {report.subtitle ? (
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{report.subtitle}</p>
-        ) : null}
-      </div>
-
-      {report.sections.map((section) => (
-        <div key={`${format}-${section.heading}`} className="rounded-md border bg-background p-4">
-          <h4 className="mb-2 text-sm font-semibold">{section.heading}</h4>
-          <div className="space-y-2">
-            {section.paragraphs.map((paragraph, index) => (
-              <TextBlocks key={`${section.heading}-${index}`} text={paragraph} />
-            ))}
+    <div data-testid={`report-editor-${format}`} className="space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="secondary">{format.toUpperCase()}</Badge>
+            {result ? (
+              <>
+                <Badge variant="outline">{result.modelId}</Badge>
+                <Badge variant="outline">{result.strategy}</Badge>
+                <Badge variant="outline">passes {result.pipelinePasses}</Badge>
+              </>
+            ) : null}
+            <Badge variant={isDirty ? "warning" : "outline"}>{isDirty ? "Modifie" : "Version cloud"}</Badge>
           </div>
+          <p className="max-w-3xl text-xs leading-relaxed text-muted-foreground">{description}</p>
         </div>
-      ))}
 
-      <OptionalList title="Points cles" values={report.key_points} />
-      <OptionalList title="Actions" values={report.action_items} />
-      <OptionalList title="Points de vigilance" values={report.caveats} />
+        <Button variant="outline" size="sm" onClick={() => resetLlmApiReportDraft(format)} disabled={!draft || isBusy}>
+          Reinitialiser ce format
+        </Button>
+      </div>
+
+      <div className="space-y-4 rounded-md border bg-background p-4">
+        <div className="space-y-2">
+          <Label htmlFor={`${format}-report-title`}>Titre</Label>
+          <Input
+            id={`${format}-report-title`}
+            value={currentReport.title}
+            onChange={(event) => handleTitleChange(event.target.value)}
+            disabled={isBusy}
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor={`${format}-report-subtitle`}>Sous-titre</Label>
+          <Textarea
+            id={`${format}-report-subtitle`}
+            value={currentReport.subtitle ?? ""}
+            onChange={(event) => handleSubtitleChange(event.target.value)}
+            disabled={isBusy}
+            rows={3}
+          />
+        </div>
+
+        <ReportSectionsEditor
+          format={format}
+          sections={currentReport.sections}
+          disabled={isBusy}
+          onAddSection={addSection}
+          onRemoveSection={removeSection}
+          onMoveSection={moveSection}
+          onChangeSectionHeading={updateSectionHeading}
+          onAddParagraph={addSectionParagraph}
+          onRemoveParagraph={removeSectionParagraph}
+          onMoveParagraph={moveSectionParagraph}
+          onChangeParagraph={updateSectionParagraph}
+        />
+
+        <ReorderableTextListEditor
+          fieldKey={`${format}-key-points`}
+          title="Points cles"
+          description="Ajustez les points essentiels du compte rendu."
+          values={currentReport.key_points}
+          disabled={isBusy}
+          emptyMessage="Aucun point clé pour le moment."
+          addLabel="Ajouter un point clé"
+          itemLabel="Point clé"
+          onAdd={() => addListFieldValue("key_points")}
+          onChange={(index, value) => updateListFieldValue("key_points", index, value)}
+          onRemove={(index) => removeListFieldValue("key_points", index)}
+          onMove={(fromIndex, toIndex) => moveListField("key_points", fromIndex, toIndex)}
+        />
+
+        <ReorderableTextListEditor
+          fieldKey={`${format}-action-items`}
+          title="Actions"
+          description="Listez les actions à mener ou à suivre."
+          values={currentReport.action_items}
+          disabled={isBusy}
+          emptyMessage="Aucune action pour le moment."
+          addLabel="Ajouter une action"
+          itemLabel="Action"
+          onAdd={() => addListFieldValue("action_items")}
+          onChange={(index, value) => updateListFieldValue("action_items", index, value)}
+          onRemove={(index) => removeListFieldValue("action_items", index)}
+          onMove={(fromIndex, toIndex) => moveListField("action_items", fromIndex, toIndex)}
+        />
+
+        <ReorderableTextListEditor
+          fieldKey={`${format}-caveats`}
+          title="Points de vigilance"
+          description="Conservez ici les alertes, risques ou points de contrôle."
+          values={currentReport.caveats}
+          disabled={isBusy}
+          emptyMessage="Aucun point de vigilance pour le moment."
+          addLabel="Ajouter un point de vigilance"
+          itemLabel="Point de vigilance"
+          onAdd={() => addListFieldValue("caveats")}
+          onChange={(index, value) => updateListFieldValue("caveats", index, value)}
+          onRemove={(index) => removeListFieldValue("caveats", index)}
+          onMove={(fromIndex, toIndex) => moveListField("caveats", fromIndex, toIndex)}
+        />
+      </div>
     </div>
   );
 }
 
-function OptionalList({ title, values }: { title: string; values?: string[] }) {
-  if (!values?.length) return null;
+function ReportSectionsEditor({
+  format,
+  sections,
+  disabled,
+  onAddSection,
+  onRemoveSection,
+  onMoveSection,
+  onChangeSectionHeading,
+  onAddParagraph,
+  onRemoveParagraph,
+  onMoveParagraph,
+  onChangeParagraph,
+}: {
+  format: ReportResultKey;
+  sections: ReportJson["sections"];
+  disabled: boolean;
+  onAddSection: () => void;
+  onRemoveSection: (sectionIndex: number) => void;
+  onMoveSection: (fromIndex: number, toIndex: number) => void;
+  onChangeSectionHeading: (sectionIndex: number, value: string) => void;
+  onAddParagraph: (sectionIndex: number) => void;
+  onRemoveParagraph: (sectionIndex: number, paragraphIndex: number) => void;
+  onMoveParagraph: (sectionIndex: number, fromIndex: number, toIndex: number) => void;
+  onChangeParagraph: (sectionIndex: number, paragraphIndex: number, value: string) => void;
+}) {
+  const reorder = useReorderableList(onMoveSection, disabled);
 
   return (
-    <div className="rounded-md border bg-muted/20 p-4">
-      <p className="mb-2 text-sm font-semibold">{title}</p>
-      <ul className="space-y-2 text-sm text-muted-foreground">
-        {values.map((value, index) => (
-          <li key={`${title}-${index}`} className="rounded-md border border-border/60 bg-background px-3 py-2">
-            <span className="whitespace-pre-wrap leading-relaxed">{value}</span>
-          </li>
-        ))}
-      </ul>
+    <div className="space-y-3 rounded-md border bg-muted/20 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-foreground">Sections</p>
+          <p className="text-xs text-muted-foreground">
+            Glissez les sections vers le haut ou le bas, ou utilisez les boutons de secours.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={onAddSection} disabled={disabled}>
+          Ajouter une section
+        </Button>
+      </div>
+
+      {sections.length > 0 ? (
+        <div className="space-y-3">
+          {sections.map((section, sectionIndex) => {
+            const isDragging = reorder.draggingIndex === sectionIndex;
+            return (
+              <div
+                key={`${format}-section-${sectionIndex}`}
+                data-testid={`${format}-section-card-${sectionIndex}`}
+                className={`space-y-4 rounded-md border border-border/70 bg-background p-4 ${
+                  isDragging ? "opacity-70 ring-1 ring-primary/30" : ""
+                }`}
+                {...reorder.getDropTargetProps(sectionIndex)}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold tracking-wide text-foreground">Section {sectionIndex + 1}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Déplacez cette section ou utilisez les boutons Monter / Descendre.
+                    </p>
+                  </div>
+                  <ReorderControls
+                    itemLabel="Section"
+                    index={sectionIndex}
+                    count={sections.length}
+                    disabled={disabled}
+                    onMoveUp={() => reorder.moveUp(sectionIndex)}
+                    onMoveDown={() => reorder.moveDown(sectionIndex, sections.length)}
+                    onRemove={() => onRemoveSection(sectionIndex)}
+                    removeLabel="Supprimer"
+                    dragHandleProps={reorder.getDragHandleProps(sectionIndex)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor={`${format}-section-${sectionIndex}-heading`}>Titre de section</Label>
+                  <Input
+                    id={`${format}-section-${sectionIndex}-heading`}
+                    value={section.heading}
+                    onChange={(event) => onChangeSectionHeading(sectionIndex, event.target.value)}
+                    disabled={disabled}
+                  />
+                </div>
+
+                <ReorderableTextListEditor
+                  fieldKey={`${format}-section-${sectionIndex}-paragraphs`}
+                  title="Paragraphes"
+                  description="Réorganisez les paragraphes de cette section."
+                  values={section.paragraphs}
+                  disabled={disabled}
+                  emptyMessage="Aucun paragraphe pour cette section."
+                  addLabel="Ajouter un paragraphe"
+                  itemLabel="Paragraphe"
+                  onAdd={() => onAddParagraph(sectionIndex)}
+                  onChange={(paragraphIndex, value) => onChangeParagraph(sectionIndex, paragraphIndex, value)}
+                  onRemove={(paragraphIndex) => onRemoveParagraph(sectionIndex, paragraphIndex)}
+                  onMove={(fromIndex, toIndex) => onMoveParagraph(sectionIndex, fromIndex, toIndex)}
+                />
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="rounded-md border border-dashed bg-background/80 p-3 text-xs text-muted-foreground">
+          Aucune section pour le moment.
+        </div>
+      )}
     </div>
   );
 }
 
-function TextBlocks({ text }: { text: string }) {
-  const blocks = splitIntoBlocks(text);
-  if (!blocks.length) return null;
+function ReorderableTextListEditor({
+  fieldKey,
+  title,
+  description,
+  values,
+  disabled,
+  emptyMessage,
+  addLabel,
+  itemLabel,
+  onAdd,
+  onChange,
+  onRemove,
+  onMove,
+}: {
+  fieldKey: string;
+  title: string;
+  description: string;
+  values?: string[];
+  disabled: boolean;
+  emptyMessage: string;
+  addLabel: string;
+  itemLabel: string;
+  onAdd: () => void;
+  onChange: (index: number, value: string) => void;
+  onRemove: (index: number) => void;
+  onMove: (fromIndex: number, toIndex: number) => void;
+}) {
+  const reorder = useReorderableList(onMove, disabled);
 
   return (
-    <div className="space-y-2">
-      {blocks.map((block, index) => (
-        <p
-          key={`${index}-${block.slice(0, 16)}`}
-          className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground/90"
-        >
-          {block}
-        </p>
-      ))}
+    <div className="space-y-3 rounded-md border bg-background p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-foreground">{title}</p>
+          <p className="text-xs text-muted-foreground">{description}</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={onAdd} disabled={disabled}>
+          {addLabel}
+        </Button>
+      </div>
+
+      {values?.length ? (
+        <div className="space-y-3">
+          {values.map((value, index) => {
+            const isDragging = reorder.draggingIndex === index;
+            return (
+              <div
+                key={`${fieldKey}-${index}`}
+                data-testid={`${fieldKey}-item-${index}`}
+                className={`space-y-2 rounded-md border bg-muted/20 p-3 ${
+                  isDragging ? "opacity-70 ring-1 ring-primary/30" : ""
+                }`}
+                {...reorder.getDropTargetProps(index)}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="cursor-grab touch-none"
+                      aria-label={`Déplacer ${itemLabel} ${index + 1}`}
+                      title={`Déplacer ${itemLabel} ${index + 1}`}
+                      {...reorder.getDragHandleProps(index)}
+                    >
+                      <GripVertical className="h-4 w-4" />
+                    </Button>
+                    <Label htmlFor={`${fieldKey}-${index}`}>{itemLabel} {index + 1}</Label>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => reorder.moveUp(index)}
+                      disabled={disabled || index === 0}
+                    >
+                      <ChevronUp className="mr-1 h-4 w-4" />
+                      Monter
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => reorder.moveDown(index, values.length)}
+                      disabled={disabled || index === values.length - 1}
+                    >
+                      <ChevronDown className="mr-1 h-4 w-4" />
+                      Descendre
+                    </Button>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => onRemove(index)} disabled={disabled}>
+                      Supprimer
+                    </Button>
+                  </div>
+                </div>
+                <Textarea
+                  id={`${fieldKey}-${index}`}
+                  value={value}
+                  onChange={(event) => onChange(index, event.target.value)}
+                  disabled={disabled}
+                  rows={2}
+                />
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="rounded-md border border-dashed bg-muted/10 p-3 text-xs text-muted-foreground">
+          {emptyMessage}
+        </div>
+      )}
     </div>
   );
 }
 
-function splitIntoBlocks(text: string): string[] {
-  return text
-    .split(/\n{2,}/)
-    .map((block) => block.trim())
-    .filter((block) => block.length > 0);
+function ReorderControls({
+  itemLabel,
+  index,
+  count,
+  disabled,
+  onMoveUp,
+  onMoveDown,
+  onRemove,
+  removeLabel,
+  dragHandleProps,
+}: {
+  itemLabel: string;
+  index: number;
+  count: number;
+  disabled: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onRemove: () => void;
+  removeLabel: string;
+  dragHandleProps: ButtonHTMLAttributes<HTMLButtonElement>;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="cursor-grab touch-none"
+        aria-label={`Déplacer ${itemLabel} ${index + 1}`}
+        title={`Déplacer ${itemLabel} ${index + 1}`}
+        {...dragHandleProps}
+      >
+        <GripVertical className="h-4 w-4" />
+      </Button>
+      <Button type="button" variant="outline" size="sm" onClick={onMoveUp} disabled={disabled || index === 0}>
+        <ChevronUp className="mr-1 h-4 w-4" />
+        Monter
+      </Button>
+      <Button type="button" variant="outline" size="sm" onClick={onMoveDown} disabled={disabled || index === count - 1}>
+        <ChevronDown className="mr-1 h-4 w-4" />
+        Descendre
+      </Button>
+      <Button type="button" variant="ghost" size="sm" onClick={onRemove} disabled={disabled}>
+        {removeLabel}
+      </Button>
+    </div>
+  );
+}
+
+function useReorderableList(onMove: (fromIndex: number, toIndex: number) => void, disabled: boolean) {
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
+
+  const clearDragState = () => {
+    setDraggingIndex(null);
+  };
+
+  const moveItem = (fromIndex: number, toIndex: number) => {
+    if (disabled || fromIndex === toIndex) {
+      clearDragState();
+      return;
+    }
+    onMove(fromIndex, toIndex);
+    clearDragState();
+  };
+
+  const getDragHandleProps = (index: number): ButtonHTMLAttributes<HTMLButtonElement> => ({
+    draggable: !disabled,
+    onDragStart: (event: ReactDragEvent<HTMLButtonElement>) => {
+      if (disabled) return;
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", String(index));
+      setDraggingIndex(index);
+    },
+    onDragEnd: () => clearDragState(),
+  });
+
+  const getDropTargetProps = (index: number): HTMLAttributes<HTMLDivElement> => ({
+    onDragOver: (event: ReactDragEvent<HTMLDivElement>) => {
+      if (disabled) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "move";
+    },
+    onDrop: (event: ReactDragEvent<HTMLDivElement>) => {
+      if (disabled) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const rawIndex = event.dataTransfer.getData("text/plain");
+      const parsedIndex = Number.parseInt(rawIndex, 10);
+      const fromIndex = Number.isNaN(parsedIndex) ? draggingIndex : parsedIndex;
+      if (fromIndex === null) {
+        clearDragState();
+        return;
+      }
+      moveItem(fromIndex, index);
+    },
+  });
+
+  return {
+    draggingIndex,
+    getDragHandleProps,
+    getDropTargetProps,
+    moveUp: (index: number) => moveItem(index, index - 1),
+    moveDown: (index: number, count: number) => {
+      if (index >= count - 1) {
+        clearDragState();
+        return;
+      }
+      moveItem(index, index + 1);
+    },
+  };
 }
 
 export default LLMApiPage;

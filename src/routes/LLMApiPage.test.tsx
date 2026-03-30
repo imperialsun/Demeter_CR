@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ThemeProvider } from "@/components/theme-provider";
 import { formatTokenCount } from "@/lib/llm/modelCatalog";
@@ -28,6 +28,18 @@ const hookState = {
   generateAll,
   downloadDocx,
 };
+
+function createDataTransfer() {
+  const store: Record<string, string> = {};
+  return {
+    effectAllowed: "all",
+    dropEffect: "move",
+    setData: (type: string, value: string) => {
+      store[type] = value;
+    },
+    getData: (type: string) => store[type] ?? "",
+  } as DataTransfer;
+}
 
 vi.mock("@/hooks/useLlmReports", () => ({
   useLlmReports: () => hookState,
@@ -70,6 +82,8 @@ describe("LLMApiPage", () => {
     hookState.results = {};
 
     useAsrStore.setState({
+      llmApiStatus: "idle",
+      llmApiProgress: 0,
       llmApiProvider: "huggingface",
       hfApiToken: "hf_test",
       llmApiHfModelId: "openai/gpt-oss-20b",
@@ -80,6 +94,7 @@ describe("LLMApiPage", () => {
       llmApiMistralMaxTokens: 8192,
       llmApiStatusDetail: undefined,
       llmApiResults: {},
+      llmApiReportDrafts: {},
       mistralApiKey: "",
       cloudMistralApiUrl: "https://api.mistral.ai",
       sessionTranscriptMemories: {
@@ -169,6 +184,148 @@ describe("LLMApiPage", () => {
 
     await userEvent.click(downloadCri);
     expect(downloadDocx).toHaveBeenCalledWith("cri");
+  });
+
+  it("updates the draft after editing a generated report and resets to the cloud version", async () => {
+    const generatedResult = {
+      format: "CRI",
+      report: {
+        format: "CRI",
+        title: "Titre initial",
+        subtitle: "Sous titre initial",
+        sections: [{ heading: "Contexte", paragraphs: ["Paragraphe initial"] }],
+        key_points: ["Point initial"],
+        action_items: ["Action initial"],
+        caveats: ["Vigilance initial"],
+      },
+      rawResponse: "{}",
+      modelId: "openai/gpt-oss-20b",
+      generatedAt: new Date().toISOString(),
+      sourceMode: "text",
+      sourceTokenCount: 50,
+      pipelinePasses: 1,
+      strategy: "chatCompletion",
+    } as const;
+
+    hookState.results = { cri: generatedResult } as any;
+    useAsrStore.setState({
+      llmApiStatus: "done",
+      llmApiResults: { cri: generatedResult },
+      llmApiReportDrafts: {},
+    } as any);
+
+    renderPage();
+
+    const editor = screen.getByTestId("report-editor-cri");
+    const titleInput = within(editor).getByLabelText("Titre");
+
+    await userEvent.clear(titleInput);
+    await userEvent.type(titleInput, "Titre modifie");
+
+    await waitFor(() => {
+      expect(within(editor).getByDisplayValue("Titre modifie")).toBeInTheDocument();
+    });
+    expect(screen.getAllByText("Modifie").length).toBeGreaterThan(0);
+
+    await userEvent.click(within(editor).getByRole("button", { name: /reinitialiser ce format/i }));
+
+    await waitFor(() => {
+      expect(within(editor).getByDisplayValue("Titre initial")).toBeInTheDocument();
+    });
+    expect(useAsrStore.getState().llmApiReportDrafts.cri).toBeUndefined();
+  });
+
+  it("reorders sections with drag and drop", async () => {
+    const generatedResult = {
+      format: "CRI",
+      report: {
+        format: "CRI",
+        title: "Titre",
+        sections: [
+          { heading: "Premier bloc", paragraphs: ["P1"] },
+          { heading: "Deuxieme bloc", paragraphs: ["P2"] },
+        ],
+      },
+      rawResponse: "{}",
+      modelId: "openai/gpt-oss-20b",
+      generatedAt: new Date().toISOString(),
+      sourceMode: "text",
+      sourceTokenCount: 50,
+      pipelinePasses: 1,
+      strategy: "chatCompletion",
+    } as const;
+
+    hookState.results = { cri: generatedResult } as any;
+    useAsrStore.setState({
+      llmApiStatus: "done",
+      llmApiResults: { cri: generatedResult },
+      llmApiReportDrafts: {},
+    } as any);
+
+    renderPage();
+
+    const editor = screen.getByTestId("report-editor-cri");
+    const sectionCards = [screen.getByTestId("cri-section-card-0"), screen.getByTestId("cri-section-card-1")];
+    const dragHandle = within(sectionCards[1]!).getByLabelText("Déplacer Section 2");
+    const dataTransfer = createDataTransfer();
+
+    fireEvent.dragStart(dragHandle, { dataTransfer });
+    fireEvent.dragOver(sectionCards[0]!, { dataTransfer });
+    fireEvent.drop(sectionCards[0]!, { dataTransfer });
+
+    await waitFor(() => {
+      const orderedHeadings = within(editor).getAllByLabelText("Titre de section") as HTMLInputElement[];
+      expect(orderedHeadings[0]?.value).toBe("Deuxieme bloc");
+      expect(orderedHeadings[1]?.value).toBe("Premier bloc");
+    });
+  });
+
+  it("reorders paragraphs and list items with fallback buttons", async () => {
+    const generatedResult = {
+      format: "CRI",
+      report: {
+        format: "CRI",
+        title: "Titre",
+        sections: [{ heading: "Premier bloc", paragraphs: ["Paragraphe 1", "Paragraphe 2"] }],
+        key_points: ["Point 1", "Point 2"],
+      },
+      rawResponse: "{}",
+      modelId: "openai/gpt-oss-20b",
+      generatedAt: new Date().toISOString(),
+      sourceMode: "text",
+      sourceTokenCount: 50,
+      pipelinePasses: 1,
+      strategy: "chatCompletion",
+    } as const;
+
+    hookState.results = { cri: generatedResult } as any;
+    useAsrStore.setState({
+      llmApiStatus: "done",
+      llmApiResults: { cri: generatedResult },
+      llmApiReportDrafts: {},
+    } as any);
+
+    renderPage();
+
+    const paragraphCard = screen.getByTestId("cri-section-0-paragraphs-item-0");
+    const paragraphMoveDown = within(paragraphCard).getByRole("button", { name: /descendre/i });
+    await userEvent.click(paragraphMoveDown);
+
+    await waitFor(() => {
+      const paragraphInputs = within(screen.getByTestId("report-editor-cri")).getAllByLabelText(/Paragraphe \d+/);
+      expect((paragraphInputs[0] as HTMLTextAreaElement)?.value).toBe("Paragraphe 2");
+      expect((paragraphInputs[1] as HTMLTextAreaElement)?.value).toBe("Paragraphe 1");
+    });
+
+    const keyPointCard = screen.getByTestId("cri-key-points-item-0");
+    const keyPointMoveDown = within(keyPointCard).getByRole("button", { name: /descendre/i });
+    await userEvent.click(keyPointMoveDown);
+
+    await waitFor(() => {
+      const keyPointInputs = within(screen.getByTestId("report-editor-cri")).getAllByLabelText(/Point clé \d+/);
+      expect((keyPointInputs[0] as HTMLTextAreaElement)?.value).toBe("Point 2");
+      expect((keyPointInputs[1] as HTMLTextAreaElement)?.value).toBe("Point 1");
+    });
   });
 
   it("shows inline alert when llm token is missing", () => {
@@ -524,7 +681,7 @@ describe("LLMApiPage", () => {
     );
   });
 
-  it("renders preview content with subtitle, optional lists and paragraph blocks", async () => {
+  it("renders editable content with subtitle, optional lists and paragraph blocks", async () => {
     useAsrStore.setState({
       llmApiResults: {
         cro: {
@@ -533,7 +690,7 @@ describe("LLMApiPage", () => {
             format: "CRO",
             title: "Compte rendu CRO",
             subtitle: "Sous titre",
-            sections: [{ heading: "Synthese", paragraphs: ["Bloc A\n\nBloc B"] }],
+            sections: [{ heading: "Synthese", paragraphs: ["Bloc A", "Bloc B"] }],
             key_points: ["Point 1", "Point 2"],
             action_items: ["Action A"],
             caveats: ["Risque X"],
@@ -552,13 +709,17 @@ describe("LLMApiPage", () => {
     renderPage();
 
     await userEvent.click(screen.getByRole("tab", { name: "CRO" }));
-    expect(screen.getByText("Compte rendu CRO")).toBeInTheDocument();
-    expect(screen.getByText("Sous titre")).toBeInTheDocument();
-    expect(screen.getByText("Points cles")).toBeInTheDocument();
-    expect(screen.getByText("Action A")).toBeInTheDocument();
-    expect(screen.getByText("Risque X")).toBeInTheDocument();
-    expect(screen.getByText("Bloc A")).toBeInTheDocument();
-    expect(screen.getByText("Bloc B")).toBeInTheDocument();
+    const editor = screen.getByTestId("report-editor-cro");
+    expect(within(editor).getByDisplayValue("Compte rendu CRO")).toBeInTheDocument();
+    expect(within(editor).getByDisplayValue("Sous titre")).toBeInTheDocument();
+    expect(within(editor).getByText("Points cles")).toBeInTheDocument();
+    expect(within(editor).getByDisplayValue("Point 1")).toBeInTheDocument();
+    expect(within(editor).getByDisplayValue("Point 2")).toBeInTheDocument();
+    expect(within(editor).getByDisplayValue("Action A")).toBeInTheDocument();
+    expect(within(editor).getByDisplayValue("Risque X")).toBeInTheDocument();
+    expect(within(editor).getByDisplayValue("Bloc A")).toBeInTheDocument();
+    expect(within(editor).getByDisplayValue("Bloc B")).toBeInTheDocument();
+    expect(screen.queryByText(/apercu live/i)).toBeNull();
   });
 
   it("handles download failure with toast and telemetry event", async () => {

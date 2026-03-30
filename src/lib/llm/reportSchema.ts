@@ -38,6 +38,54 @@ export function parseReportJson(rawOutput: string, expectedFormat: ReportFormat)
   return normalizeReport(parsed, expectedFormat);
 }
 
+export function cloneReportJson(report: ReportJson): ReportJson {
+  const clone: ReportJson = {
+    format: report.format,
+    title: report.title,
+    sections: report.sections.map((section) => ({
+      heading: section.heading,
+      paragraphs: [...section.paragraphs],
+    })),
+  };
+
+  if (report.subtitle !== undefined) {
+    clone.subtitle = report.subtitle;
+  }
+  if (report.key_points !== undefined) {
+    clone.key_points = [...report.key_points];
+  }
+  if (report.action_items !== undefined) {
+    clone.action_items = [...report.action_items];
+  }
+  if (report.caveats !== undefined) {
+    clone.caveats = [...report.caveats];
+  }
+
+  return clone;
+}
+
+export function areReportJsonsEqual(left: ReportJson | null | undefined, right: ReportJson | null | undefined): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  if (left.format !== right.format) return false;
+  if (left.title !== right.title) return false;
+  if ((left.subtitle ?? undefined) !== (right.subtitle ?? undefined)) return false;
+  if (!areStringArraysEqual(left.key_points, right.key_points)) return false;
+  if (!areStringArraysEqual(left.action_items, right.action_items)) return false;
+  if (!areStringArraysEqual(left.caveats, right.caveats)) return false;
+  if (left.sections.length !== right.sections.length) return false;
+
+  for (let index = 0; index < left.sections.length; index += 1) {
+    const leftSection = left.sections[index];
+    const rightSection = right.sections[index];
+    if (!leftSection || !rightSection) return false;
+    if (leftSection.heading !== rightSection.heading) return false;
+    if (!areStringArraysEqual(leftSection.paragraphs, rightSection.paragraphs)) return false;
+  }
+
+  return true;
+}
+
 function parseJsonCandidate(rawOutput: string): unknown {
   const trimmed = rawOutput.trim();
   if (!trimmed) {
@@ -228,4 +276,18 @@ function normalizeStringArray(value: unknown): string[] {
   return value
     .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
     .filter((entry) => entry.length > 0);
+}
+
+function areStringArraysEqual(left: string[] | undefined, right: string[] | undefined): boolean {
+  const leftValues = left ?? [];
+  const rightValues = right ?? [];
+  if (leftValues.length !== rightValues.length) return false;
+
+  for (let index = 0; index < leftValues.length; index += 1) {
+    if (leftValues[index] !== rightValues[index]) {
+      return false;
+    }
+  }
+
+  return true;
 }

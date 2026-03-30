@@ -10,6 +10,8 @@ Generation de trois formats de compte rendu:
 - `CRO` (structure),
 - `CRS` (synthese).
 
+Une fois la reponse cloud retournee, chaque compte rendu est editable dans `/llmapi` pour la session en cours. Un rafraichissement remet la version originale du cloud.
+
 Providers:
 
 - Hugging Face,
@@ -75,6 +77,7 @@ Chaque format est parse en JSON structure (`reportSchema`) puis stocke dans `llm
 - un document par format,
 - nommage: `rapport-<format>-YYYY-MM-DD-HHmm.docx`,
 - metadata incluse: modele, date, mode source, tokens source.
+- l'export utilise toujours la version editee courante du compte rendu.
 
 ## Etats runtime
 

@@ -10,6 +10,8 @@ Generation of three report formats:
 - `CRO` (structured rewrite),
 - `CRS` (short synthesis).
 
+Once the cloud response comes back, each report can be edited in `/llmapi` for the current session. A refresh restores the original cloud version.
+
 Providers:
 
 - Hugging Face,
@@ -75,6 +77,7 @@ Each format is parsed into structured JSON (`reportSchema`) and stored in `llmAp
 - one document per format,
 - filename pattern: `rapport-<format>-YYYY-MM-DD-HHmm.docx`,
 - embedded metadata: model, timestamp, source mode, source tokens.
+- export always uses the current edited version of the report.
 
 ## Runtime states
 
