@@ -27,6 +27,7 @@ interface CloudChunkCardProps {
   enableWordTimestamps?: boolean;
   segmentEditingDisabled?: boolean;
   onSegmentTextChange?: (segmentIndex: number, text: string) => void;
+  onSegmentSpeakerChange?: (segmentIndex: number, speakerId: string) => void;
 }
 
 export const CloudChunkCard = memo(function CloudChunkCard({
@@ -38,6 +39,7 @@ export const CloudChunkCard = memo(function CloudChunkCard({
   enableWordTimestamps,
   segmentEditingDisabled = false,
   onSegmentTextChange,
+  onSegmentSpeakerChange,
 }: CloudChunkCardProps) {
   const [speakerDialogOpen, setSpeakerDialogOpen] = useState(false);
   const speakerAssignments = useAsrStore((state) => state.speakerAssignments.cloud);
@@ -52,16 +54,29 @@ export const CloudChunkCard = memo(function CloudChunkCard({
     [chunk.label, chunk.segments]
   );
 
+  const speakerOptions = useMemo(
+    () =>
+      chunk.speakerIds.map((speakerId) => {
+        const resolvedLabel =
+          resolveSegmentSpeakerLabel({ chunkId: chunk.chunkId, speaker: speakerId }, speakerAssignments, "cloud") ?? speakerId;
+        return {
+          value: speakerId,
+          label: resolvedLabel === speakerId ? speakerId : `${resolvedLabel} · ${speakerId}`,
+        };
+      }),
+    [chunk.chunkId, chunk.speakerIds, speakerAssignments]
+  );
+
   const resolvedSpeakers = useMemo(() => {
     const labels = new Set<string>();
-    for (const segment of chunk.segments) {
-      const label = resolveSegmentSpeakerLabel(segment, speakerAssignments, "cloud") ?? segment.speaker?.trim();
+    for (const speakerId of chunk.speakerIds) {
+      const label = resolveSegmentSpeakerLabel({ chunkId: chunk.chunkId, speaker: speakerId }, speakerAssignments, "cloud");
       if (label) {
         labels.add(label);
       }
     }
     return [...labels];
-  }, [chunk.segments, speakerAssignments]);
+  }, [chunk.chunkId, chunk.speakerIds, speakerAssignments]);
 
   const handleApplySpeakerAssignments = (nextAssignments: SpeakerAssignmentMap) => {
     const mergedAssignments = { ...speakerAssignments };
@@ -86,7 +101,7 @@ export const CloudChunkCard = memo(function CloudChunkCard({
               <Badge variant="secondary">{chunk.label}</Badge>
               <Badge variant="outline">{formatCloudChunkTimeRange(chunk.start, chunk.end)}</Badge>
               <Badge variant="outline">{chunk.segmentCount} segments</Badge>
-              <Badge variant="outline">{resolvedSpeakers.length} speakers</Badge>
+              <Badge variant="outline">{chunk.speakerIds.length} speakers</Badge>
             </div>
             <CardTitle className="text-base">Résultat du morceau</CardTitle>
             <CardDescription>ID technique: {chunk.chunkId}</CardDescription>
@@ -136,7 +151,9 @@ export const CloudChunkCard = memo(function CloudChunkCard({
           enableWordTimestamps={enableWordTimestamps}
           showSegmentConfidence={showSegmentConfidence}
           mode="cloud"
+          speakerOptions={speakerOptions}
           onSegmentTextChange={onSegmentTextChange}
+          onSegmentSpeakerChange={onSegmentSpeakerChange}
           segmentEditingDisabled={segmentEditingDisabled}
         />
       </CardContent>

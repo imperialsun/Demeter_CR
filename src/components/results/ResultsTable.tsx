@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -21,8 +22,10 @@ interface ResultsTableProps {
   enableWordTimestamps?: boolean;
   showSegmentConfidence?: boolean;
   showSpeaker?: boolean;
+  speakerOptions?: Array<{ value: string; label: string }>;
   mode?: "upload" | "mic" | "cloud";
   onSegmentTextChange?: (segmentIndex: number, text: string) => void;
+  onSegmentSpeakerChange?: (segmentIndex: number, speakerId: string) => void;
   segmentEditingDisabled?: boolean;
 }
 
@@ -31,8 +34,10 @@ export const ResultsTable = memo(function ResultsTable({
   enableWordTimestamps,
   showSegmentConfidence,
   showSpeaker,
+  speakerOptions,
   mode = "upload",
   onSegmentTextChange,
+  onSegmentSpeakerChange,
   segmentEditingDisabled = false,
 }: ResultsTableProps) {
   const [query, setQuery] = useState("");
@@ -40,6 +45,7 @@ export const ResultsTable = memo(function ResultsTable({
   const storeEnableWordTimestamps = useAsrStore((s) => s.enableWordTimestamps);
   const storeShowSegmentConfidence = useAsrStore((s) => s.showSegmentConfidence);
   const speakerAssignments = useAsrStore((s) => s.speakerAssignments[mode]);
+  const resolvedSpeakerOptions = speakerOptions ?? [];
   const resolvedEnableWordTimestamps =
     typeof enableWordTimestamps === "boolean" ? enableWordTimestamps : storeEnableWordTimestamps;
   const resolvedShowSegmentConfidence =
@@ -48,8 +54,11 @@ export const ResultsTable = memo(function ResultsTable({
     () => segments.some((segment) => typeof segment.speaker === "string" && segment.speaker.trim().length > 0),
     [segments]
   );
-  const resolvedShowSpeaker = typeof showSpeaker === "boolean" ? showSpeaker : hasSpeaker;
+  const resolvedShowSpeaker =
+    typeof showSpeaker === "boolean" ? showSpeaker : hasSpeaker || resolvedSpeakerOptions.length > 0;
   const canEditSegments = Boolean(onSegmentTextChange) && !segmentEditingDisabled;
+  const canSelectSpeaker = mode === "cloud" && Boolean(onSegmentSpeakerChange) && resolvedSpeakerOptions.length > 0;
+  const canEditSpeaker = canSelectSpeaker && !segmentEditingDisabled && resolvedSpeakerOptions.length > 1;
   const emptyRowColSpan = (resolvedShowSegmentConfidence ? 6 : 5) + (resolvedShowSpeaker ? 1 : 0);
   const filtered = useMemo(() => {
     if (!query) return segments;
@@ -133,7 +142,7 @@ export const ResultsTable = memo(function ResultsTable({
               <TableHead className="w-12">#</TableHead>
               <TableHead>Début</TableHead>
               <TableHead>Fin</TableHead>
-              {resolvedShowSpeaker ? <TableHead className="w-28">Speaker</TableHead> : null}
+              {resolvedShowSpeaker ? <TableHead className="w-56">Speaker</TableHead> : null}
               {resolvedShowSegmentConfidence ? <TableHead className="w-24">Conf.</TableHead> : null}
               <TableHead className="w-28">Tokens (est.)</TableHead>
               <TableHead>Texte</TableHead>
@@ -146,8 +155,33 @@ export const ResultsTable = memo(function ResultsTable({
                 <TableCell>{formatTimestamp(segment.start)}</TableCell>
                 <TableCell>{formatTimestamp(segment.end)}</TableCell>
                 {resolvedShowSpeaker ? (
-                  <TableCell>
-                    {resolveSegmentSpeakerLabel(segment, speakerAssignments, mode) || "—"}
+                  <TableCell className="align-top">
+                    {canSelectSpeaker && normalizeSpeakerId(segment.speaker) ? (
+                      <Select
+                        value={normalizeSpeakerId(segment.speaker) ?? undefined}
+                        onValueChange={(value) => {
+                          if (!canEditSpeaker || !onSegmentSpeakerChange) return;
+                          onSegmentSpeakerChange(segment.index, value);
+                        }}
+                      >
+                        <SelectTrigger
+                          aria-label={`Speaker du segment ${segment.index + 1}`}
+                          className="h-8 w-full text-xs"
+                          disabled={!canEditSpeaker}
+                        >
+                          <SelectValue placeholder="Speaker" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {resolvedSpeakerOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <div className="text-sm">{resolveSegmentSpeakerLabel(segment, speakerAssignments, mode) || "—"}</div>
+                    )}
                   </TableCell>
                 ) : null}
                 {resolvedShowSegmentConfidence ? (
@@ -242,4 +276,9 @@ function formatTimestamp(seconds: number) {
   return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs
     .toString()
     .padStart(2, "0")}.${millis.toString().padStart(3, "0")}`;
+}
+
+function normalizeSpeakerId(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
 }

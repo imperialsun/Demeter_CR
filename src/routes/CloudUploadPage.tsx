@@ -86,6 +86,7 @@ function CloudUploadPage() {
     stopTranscription,
     resetTranscriptionSession,
     updateSegmentText,
+    updateSegmentSpeaker,
   } = useCloudTranscription(provider);
 
   useEffect(() => {
@@ -354,6 +355,7 @@ function CloudUploadPage() {
                     enableWordTimestamps={cloudEnableWordTimestamps}
                     showSegmentConfidence={cloudShowSegmentConfidence}
                     onSegmentTextChange={updateSegmentText}
+                    onSegmentSpeakerChange={updateSegmentSpeaker}
                     segmentEditingDisabled={isResettingSession || isTranscribing}
                   />
                 ))}

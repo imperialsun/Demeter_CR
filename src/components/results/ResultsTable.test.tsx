@@ -127,6 +127,93 @@ describe("ResultsTable", () => {
     expect(screen.queryByText("SPEAKER_00")).toBeNull();
   });
 
+  it("lets cloud users reassign a segment speaker with resolved option labels", async () => {
+    useAsrStore.setState({
+      speakerAssignments: {
+        upload: {},
+        mic: {},
+        cloud: {
+          "chunk-4::SPEAKER_00": {
+            firstName: "Alice",
+            lastName: "Dupont",
+          },
+          "chunk-4::SPEAKER_01": {
+            firstName: "Bob",
+            lastName: "Martin",
+          },
+        },
+      },
+    } as any);
+
+    function SpeakerHarness() {
+      const [segments, setSegments] = useState([
+        {
+          index: 0,
+          start: 0,
+          end: 2,
+          text: "Bonjour",
+          speaker: "SPEAKER_00",
+          chunkId: "chunk-4",
+          strategy: "chunks" as const,
+        },
+        {
+          index: 1,
+          start: 2,
+          end: 4,
+          text: "Salut",
+          speaker: "SPEAKER_00",
+          chunkId: "chunk-4",
+          strategy: "chunks" as const,
+        },
+        {
+          index: 2,
+          start: 4,
+          end: 6,
+          text: "Réponse",
+          speaker: "SPEAKER_01",
+          chunkId: "chunk-4",
+          strategy: "chunks" as const,
+        },
+      ]);
+
+      return (
+        <ResultsTable
+          segments={segments as any}
+          mode="cloud"
+          speakerOptions={[
+            { value: "SPEAKER_00", label: "Dupont Alice · SPEAKER_00" },
+            { value: "SPEAKER_01", label: "Martin Bob · SPEAKER_01" },
+          ]}
+          onSegmentSpeakerChange={(segmentIndex, speakerId) => {
+            setSegments((current) =>
+              current.map((segment) => (segment.index === segmentIndex ? { ...segment, speaker: speakerId } : segment))
+            );
+          }}
+        />
+      );
+    }
+
+    render(<SpeakerHarness />);
+
+    const firstSpeakerSelect = screen.getByRole("combobox", { name: /speaker du segment 1/i });
+    const secondSpeakerSelect = screen.getByRole("combobox", { name: /speaker du segment 2/i });
+
+    expect(firstSpeakerSelect).toHaveTextContent("Dupont Alice · SPEAKER_00");
+    expect(secondSpeakerSelect).toHaveTextContent("Dupont Alice · SPEAKER_00");
+
+    fireEvent.click(firstSpeakerSelect);
+    fireEvent.click(screen.getByRole("option", { name: "Martin Bob · SPEAKER_01" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("combobox", { name: /speaker du segment 1/i })).toHaveTextContent(
+        "Martin Bob · SPEAKER_01"
+      );
+      expect(screen.getByRole("combobox", { name: /speaker du segment 2/i })).toHaveTextContent(
+        "Dupont Alice · SPEAKER_00"
+      );
+    });
+  });
+
   it("falls back to raw speaker when assignment is missing", () => {
     render(<ResultsTable segments={sampleWithSpeaker as any} mode="mic" />);
     expect(screen.getByText("SPEAKER_00")).toBeInTheDocument();

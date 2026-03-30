@@ -254,6 +254,33 @@ describe("useCloudTranscription", () => {
     });
   });
 
+  it("rebuilds cloud chunk speaker ids when a segment speaker changes", async () => {
+    let api!: ReturnType<typeof useCloudTranscription>;
+    render(<HookHarness provider="demeter_sante" onReady={(value) => (api = value)} />);
+    const file = new File(["a"], "audio.wav", { type: "audio/wav" });
+
+    await act(async () => {
+      await api.handleFileSelected(file);
+    });
+    await act(async () => {
+      await api.startTranscription();
+    });
+
+    await waitFor(() => {
+      expect(api.status).toBe("done");
+      expect(api.chunkGroups[0]?.speakerIds).toEqual(["SPEAKER_00"]);
+    });
+
+    await act(async () => {
+      api.updateSegmentSpeaker(0, "SPEAKER_01");
+    });
+
+    await waitFor(() => {
+      expect(api.segments[0]?.speaker).toBe("SPEAKER_01");
+      expect(api.chunkGroups[0]?.speakerIds).toEqual(["SPEAKER_01"]);
+    });
+  });
+
   it("clears the shared cloud transcript memory on session reset", async () => {
     useAsrStore.setState({ hfApiToken: "hf_token" } as never);
 

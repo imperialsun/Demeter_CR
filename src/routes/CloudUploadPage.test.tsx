@@ -54,6 +54,7 @@ function createHookValue(overrides: Partial<ReturnType<typeof cloudHook.useCloud
     stopTranscription: vi.fn(),
     resetTranscriptionSession: vi.fn(),
     updateSegmentText: vi.fn(),
+    updateSegmentSpeaker: vi.fn(),
     ...overrides,
   } satisfies ReturnType<typeof cloudHook.useCloudTranscription>;
 }
@@ -63,6 +64,7 @@ describe("CloudUploadPage", () => {
     vi.restoreAllMocks();
     backendPermissionMocks.canUseCloudProvider.mockReset();
     backendPermissionMocks.canUseCloudProvider.mockReturnValue(true);
+    useAsrStore.getState().resetApp();
   });
 
   it("shows cloud export defaults (VTT/SRT/JSON enabled, Telemetry disabled)", () => {
@@ -303,6 +305,96 @@ describe("CloudUploadPage", () => {
     expect(useAsrStore.getState().speakerAssignments.cloud["mistral-2::SPEAKER_00"]).toEqual({
       firstName: "Jean",
       lastName: "Dupont",
+    });
+
+    hookSpy.mockRestore();
+  });
+
+  it("lets cloud users reassign a segment speaker from the chunk table", async () => {
+    const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockImplementation(() => {
+      const [segments, setSegments] = useState([
+        {
+          index: 0,
+          start: 0,
+          end: 4,
+          text: "Bonjour",
+          speaker: "SPEAKER_00",
+          chunkId: "cloud-1",
+          strategy: "chunks" as const,
+        },
+        {
+          index: 1,
+          start: 4,
+          end: 8,
+          text: "Suite",
+          speaker: "SPEAKER_00",
+          chunkId: "cloud-1",
+          strategy: "chunks" as const,
+        },
+        {
+          index: 2,
+          start: 8,
+          end: 12,
+          text: "Réponse",
+          speaker: "SPEAKER_01",
+          chunkId: "cloud-1",
+          strategy: "chunks" as const,
+        },
+      ]);
+
+      return createHookValue({
+        selectedFile: new File(["audio"], "session.wav", { type: "audio/wav" }),
+        previewUrl: "blob:mock-session",
+        audioMetadata: {
+          name: "session.wav",
+          durationSec: 24,
+          sampleRate: 16000,
+        } satisfies AudioMetadata,
+        segments,
+        updateSegmentSpeaker: (segmentIndex: number, speakerId: string) => {
+          setSegments((current) =>
+            current.map((segment) => (segment.index === segmentIndex ? { ...segment, speaker: speakerId.trim() } : segment))
+          );
+        },
+      });
+    });
+
+    useAsrStore.setState({
+      speakerAssignments: {
+        upload: {},
+        mic: {},
+        cloud: {
+          "cloud-1::SPEAKER_00": {
+            firstName: "Alice",
+            lastName: "Dupont",
+          },
+          "cloud-1::SPEAKER_01": {
+            firstName: "Bob",
+            lastName: "Martin",
+          },
+        },
+      },
+    });
+
+    renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
+
+    const chunkCard = screen.getByTestId("cloud-chunk-card-cloud-1");
+    const firstSpeakerSelect = within(chunkCard).getByRole("combobox", { name: /speaker du segment 1/i });
+    const secondSpeakerSelect = within(chunkCard).getByRole("combobox", { name: /speaker du segment 2/i });
+
+    expect(firstSpeakerSelect).toHaveTextContent("Dupont Alice · SPEAKER_00");
+    expect(secondSpeakerSelect).toHaveTextContent("Dupont Alice · SPEAKER_00");
+
+    fireEvent.click(firstSpeakerSelect);
+    fireEvent.click(screen.getByRole("option", { name: "Martin Bob · SPEAKER_01" }));
+
+    await waitFor(() => {
+      expect(within(chunkCard).getByRole("combobox", { name: /speaker du segment 1/i })).toHaveTextContent(
+        "Martin Bob · SPEAKER_01"
+      );
+      expect(within(chunkCard).getByRole("combobox", { name: /speaker du segment 2/i })).toHaveTextContent(
+        "Dupont Alice · SPEAKER_00"
+      );
     });
 
     hookSpy.mockRestore();

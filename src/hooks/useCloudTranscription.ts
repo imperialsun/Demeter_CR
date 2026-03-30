@@ -248,9 +248,9 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       }
 
       const currentSegments = segmentsRef.current;
-      currentSegments.push(...nextSegments);
-      segmentsRef.current = currentSegments;
-      cloudTranscriptSegmentCountRef.current = currentSegments.length;
+      const nextAllSegments = [...currentSegments, ...nextSegments];
+      segmentsRef.current = nextAllSegments;
+      cloudTranscriptSegmentCountRef.current = nextAllSegments.length;
 
       const appendedText = getSessionTranscriptText(nextSegments);
       if (appendedText) {
@@ -263,58 +263,104 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       const nextChunkGroups = [...chunkGroupsRef.current, nextChunkGroup];
       chunkGroupsRef.current = nextChunkGroups;
 
-      setSegments(currentSegments.slice());
+      setSegments(nextAllSegments);
       setChunkGroups(nextChunkGroups);
       publishCloudTranscriptMemory(providerName, metadata);
     },
     [publishCloudTranscriptMemory]
   );
 
-  const updateSegmentText = useCallback(
-    (segmentIndex: number, nextText: string) => {
-      const normalizedText = nextText.trim();
+  const applyCloudSegmentUpdate = useCallback(
+    (
+      segmentIndex: number,
+      updater: (segment: TranscriptionSegment) => TranscriptionSegment,
+      options?: { refreshTranscriptMemory?: boolean }
+    ) => {
       const currentSegments = segmentsRef.current;
       const targetSegment = currentSegments.find((segment) => segment.index === segmentIndex);
       if (!targetSegment) {
         logger.warn("[cloud] segment edit ignored, segment not found", { segmentIndex });
-        return;
-      }
-      if (targetSegment.text === normalizedText) {
-        return;
+        return false;
       }
 
-      const nextSegments = currentSegments.map((segment) =>
-        segment.index === segmentIndex ? { ...segment, text: normalizedText } : segment
-      );
+      const nextTargetSegment = updater(targetSegment);
+      if (nextTargetSegment === targetSegment) {
+        return false;
+      }
+
+      const nextSegments = currentSegments.map((segment) => (segment.index === segmentIndex ? nextTargetSegment : segment));
       segmentsRef.current = nextSegments;
       setSegments(nextSegments);
-
-      const nextTranscriptText = getSessionTranscriptText(nextSegments);
-      cloudTranscriptTextRef.current = nextTranscriptText;
-      cloudTranscriptSegmentCountRef.current = nextSegments.length;
 
       const nextChunkGroups = chunkGroupsRef.current.map((group) => {
         if (!group.segments.some((segment) => segment.index === segmentIndex)) {
           return group;
         }
         const updatedSegments = group.segments.map((segment) =>
-          segment.index === segmentIndex ? { ...segment, text: normalizedText } : segment
+          segment.index === segmentIndex ? nextTargetSegment : segment
         );
-        return {
-          ...group,
-          segments: updatedSegments,
-        };
+        return buildCloudTranscriptionChunkGroup(updatedSegments, group.chunkIndex, group.chunkId);
       });
       chunkGroupsRef.current = nextChunkGroups;
       setChunkGroups(nextChunkGroups);
-      publishCloudTranscriptMemory(activeTranscriptProviderRef.current, audioMetadata);
+
+      if (options?.refreshTranscriptMemory) {
+        cloudTranscriptTextRef.current = getSessionTranscriptText(nextSegments);
+        cloudTranscriptSegmentCountRef.current = nextSegments.length;
+        publishCloudTranscriptMemory(activeTranscriptProviderRef.current, audioMetadata);
+      }
+
+      return true;
+    },
+    [audioMetadata, publishCloudTranscriptMemory]
+  );
+
+  const updateSegmentText = useCallback(
+    (segmentIndex: number, nextText: string) => {
+      const normalizedText = nextText.trim();
+      const updated = applyCloudSegmentUpdate(
+        segmentIndex,
+        (segment) => (segment.text === normalizedText ? segment : { ...segment, text: normalizedText }),
+        { refreshTranscriptMemory: true }
+      );
+      if (!updated) {
+        return;
+      }
+
       logger.info("[cloud] segment text updated", {
         provider: activeTranscriptProviderRef.current,
         segmentIndex,
         textLength: normalizedText.length,
       });
     },
-    [audioMetadata, publishCloudTranscriptMemory]
+    [applyCloudSegmentUpdate]
+  );
+
+  const updateSegmentSpeaker = useCallback(
+    (segmentIndex: number, nextSpeaker: string) => {
+      const normalizedSpeaker = nextSpeaker.trim();
+      const updated = applyCloudSegmentUpdate(segmentIndex, (segment) => {
+        const currentSpeaker = segment.speaker?.trim() ?? "";
+        if (currentSpeaker === normalizedSpeaker) {
+          return segment;
+        }
+        return {
+          ...segment,
+          speaker: normalizedSpeaker || undefined,
+        };
+      });
+
+      if (!updated) {
+        return;
+      }
+
+      logger.info("[cloud] segment speaker updated", {
+        provider: activeTranscriptProviderRef.current,
+        segmentIndex,
+        speakerId: normalizedSpeaker || null,
+      });
+    },
+    [applyCloudSegmentUpdate]
   );
 
   const abortCloudRunAndWait = useCallback(async () => {
@@ -1247,6 +1293,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     stopTranscription,
     resetTranscriptionSession,
     updateSegmentText,
+    updateSegmentSpeaker,
   };
 }
 
