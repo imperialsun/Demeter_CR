@@ -27,6 +27,7 @@ import { isBackendAuthenticated } from "@/lib/backend-session";
 import { resolveChunkingConfig } from "@/hooks/useCloudTranscription.steps";
 import { createSessionTranscriptMemoryEntry } from "@/lib/sessionTranscriptMemory";
 import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
+import { releaseFfmpeg } from "@/lib/ffmpeg-loader";
 
 type CloudStatus = "idle" | "preprocessing" | "uploading" | "transcribing" | "stopping" | "done" | "error";
 
@@ -58,9 +59,15 @@ function makeSafeFilename(value: string) {
   return cleaned.length ? cleaned : "audio";
 }
 
+const EMPTY_PCM = new Float32Array(0);
+
+function releasePcmBuffer(container: { pcm: Float32Array } | null | undefined) {
+  if (!container) return;
+  container.pcm = EMPTY_PCM;
+}
+
 export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter_sante") {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewFile, setPreviewFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [audioMetadata, setAudioMetadata] = useState<AudioMetadata | null>(null);
   const [segments, setSegments] = useState<TranscriptionSegment[]>([]);
@@ -156,7 +163,6 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       telemetryRef.current = null;
       segmentsRef.current = [];
       setSelectedFile(null);
-      setPreviewFile(null);
       setPreviewUrl(null);
       setAudioMetadata(null);
       setSegments([]);
@@ -291,7 +297,6 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     }
     const url = URL.createObjectURL(file);
     setPreviewUrl(url);
-    setPreviewFile(file);
     try {
       const metadata = await probeAudioMetadata(file);
       setAudioMetadata(metadata);
@@ -361,7 +366,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     });
 
     const client = await getWhisperClient(token, telemetry);
-    const allSegments: TranscriptionSegment[] = [];
+    let allSegments: TranscriptionSegment[] = [];
     let nextIndex = 0;
 
     for (let segmentIndex = 0; segmentIndex < totalSegments; segmentIndex += 1) {
@@ -378,7 +383,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       setStatusDetail(`Prétraitement local${labelSuffix}`);
       setProgress(Math.max(0, Math.min(1, segmentIndex / totalSegments)));
 
-      let segmentFile = sourceFile;
+      let segmentFile: File | null = sourceFile;
       if (totalSegments > 1) {
         const extracted = await extractSegmentBlob(
           sourceFile,
@@ -392,8 +397,16 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       }
 
       telemetry.startTimer("cloud_preprocess");
-      const preprocessResult = await preprocessCloudAudio(segmentFile, preprocessSettings, telemetry);
+      let preprocessResult: Awaited<ReturnType<typeof preprocessCloudAudio>> | null = await preprocessCloudAudio(
+        segmentFile,
+        preprocessSettings,
+        telemetry
+      );
       telemetry.stopTimer("cloud_preprocess");
+
+      if (!preprocessResult) {
+        throw new Error("Prétraitement cloud vide");
+      }
 
       if (settings.cloudAutoTunePreprocess && preprocessResult.tune && segmentIndex === 0) {
         settings.setCloudDenoiseParams({
@@ -419,8 +432,10 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         return;
       }
 
-      const wavBuffer = encodeWavBuffer(preprocessResult.processed.pcm, preprocessResult.processed.sampleRate);
-      const baseName = segmentFile.name.replace(/\.[^/.]+$/, "");
+      const processedAudio = preprocessResult.processed;
+      const wavBuffer = encodeWavBuffer(processedAudio.pcm, processedAudio.sampleRate);
+      releasePcmBuffer(processedAudio);
+      const baseName = (segmentFile ?? sourceFile).name.replace(/\.[^/.]+$/, "");
       const safeBaseName = makeSafeFilename(baseName || "audio");
       const processedFile = new File([wavBuffer], `${safeBaseName}-whisper.wav`, {
         type: "audio/wav",
@@ -454,7 +469,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         returnTimestamps: settings.cloudEnableWordTimestamps,
       });
 
-      const output = await client.automaticSpeechRecognition({
+      let output: unknown = await client.automaticSpeechRecognition({
         inputs: processedFile,
         model: "openai/whisper-large-v3-turbo",
         provider: "hf-inference",
@@ -475,9 +490,14 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         chunkId,
         fallbackDurationSec: Math.max(0, segment.end - segment.start),
       });
+      output = null;
+      releasePcmBuffer(processedAudio);
+      segmentFile = null;
+      preprocessResult = null;
       nextIndex += parsedSegments.length;
-      allSegments.push(...parsedSegments);
-      setSegments([...allSegments]);
+      allSegments = allSegments.concat(parsedSegments);
+      segmentsRef.current = allSegments;
+      setSegments(allSegments);
       publishCloudTranscriptMemory("whisper", allSegments, metadata);
 
       const summary = summarizeSegments(parsedSegments);
@@ -562,7 +582,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       durationWasCapped: mistralChunking.durationWasCapped,
     });
 
-    const allSegments: TranscriptionSegment[] = [];
+    let allSegments: TranscriptionSegment[] = [];
     let nextIndex = 0;
     let mistralDiarizationEffective = diarizationEnabled;
     let mistralDiarizationFallbackChunks = 0;
@@ -586,7 +606,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       setStatusDetail(`Prétraitement local${labelSuffix}`);
       setProgress(Math.max(0, Math.min(1, sentChunkCount / estimatedTotalBeforeRun)));
 
-      let segmentFile = sourceFile;
+      let segmentFile: File | null = sourceFile;
       const isWholeFileSegment = segment.start <= 0 && segment.end >= sourceDurationSec;
       if (!isWholeFileSegment) {
         const extracted = await extractSegmentBlob(
@@ -601,8 +621,16 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       }
 
       telemetry.startTimer("cloud_preprocess");
-      const preprocessResult = await preprocessCloudAudio(segmentFile, preprocessSettings, telemetry);
+      let preprocessResult: Awaited<ReturnType<typeof preprocessCloudAudio>> | null = await preprocessCloudAudio(
+        segmentFile,
+        preprocessSettings,
+        telemetry
+      );
       telemetry.stopTimer("cloud_preprocess");
+
+      if (!preprocessResult) {
+        throw new Error("Prétraitement cloud vide");
+      }
 
       if (settings.cloudAutoTunePreprocess && preprocessResult.tune && !autoTuneApplied) {
         settings.setCloudDenoiseParams({
@@ -629,8 +657,10 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         return;
       }
 
-      const wavBuffer = encodeWavBuffer(preprocessResult.processed.pcm, preprocessResult.processed.sampleRate);
-      const baseName = segmentFile.name.replace(/\.[^/.]+$/, "");
+      const processedAudio = preprocessResult.processed;
+      const wavBuffer = encodeWavBuffer(processedAudio.pcm, processedAudio.sampleRate);
+      releasePcmBuffer(processedAudio);
+      const baseName = (segmentFile ?? sourceFile).name.replace(/\.[^/.]+$/, "");
       const safeBaseName = makeSafeFilename(baseName || "audio");
       const processedFile = new File([wavBuffer], `${safeBaseName}-${providerLogKey}.wav`, {
         type: "audio/wav",
@@ -734,7 +764,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         });
       };
 
-      let output: Awaited<ReturnType<typeof transcribeWithDemeterSante>> | Awaited<ReturnType<typeof transcribeWithMistral>>;
+      let output: unknown;
       try {
         output = isDemeter
           ? await transcribeWithDemeterSante(
@@ -809,9 +839,14 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         fallbackDurationSec: chunkDurationSec,
         includeWordTimestamps: settings.cloudEnableWordTimestamps,
       });
+      output = null;
+      releasePcmBuffer(processedAudio);
+      segmentFile = null;
+      preprocessResult = null;
       nextIndex += parsedSegments.length;
-      allSegments.push(...parsedSegments);
-      setSegments([...allSegments]);
+      allSegments = allSegments.concat(parsedSegments);
+      segmentsRef.current = allSegments;
+      setSegments(allSegments);
       publishCloudTranscriptMemory(provider, allSegments, metadata);
       sentChunkCount = chunkNumber;
 
@@ -1124,6 +1159,8 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       setTelemetrySummary(summary ?? null);
       setGlobalTelemetrySummary(summary ?? null);
       registerTelemetry(null);
+      telemetryRef.current = null;
+      await releaseFfmpeg();
       if (stopRequestedRef.current && status !== "error") {
         setStatus("idle");
         setStatusDetail("Arrêté");
@@ -1149,7 +1186,6 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
 
   return {
     selectedFile,
-    previewFile,
     previewUrl,
     audioMetadata,
     segments,

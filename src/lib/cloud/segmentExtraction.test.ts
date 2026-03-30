@@ -32,11 +32,23 @@ describe("extractSegmentBlob", () => {
   });
 
   it("extracts a segment with copy mode", async () => {
+    mocks.ffmpeg.unmount.mockImplementation(async () => {});
+    mocks.ffmpeg.deleteDir.mockImplementation(async () => {});
+    mocks.ffmpeg.deleteFile.mockImplementation(async () => {});
     const file = new File([""], "test.mp3", { type: "audio/mpeg" });
     const result = await extractSegmentBlob(file, { index: 0, startSec: 0, endSec: 10 });
     expect(result.blob.size).toBeGreaterThan(0);
     expect(result.mimeType).toBe("audio/mpeg");
     expect(mocks.ffmpeg.exec).toHaveBeenCalled();
+    expect(mocks.ffmpeg.unmount).toHaveBeenCalledTimes(1);
+    expect(mocks.ffmpeg.deleteDir).toHaveBeenCalledTimes(2);
+    expect(mocks.ffmpeg.readFile).toHaveBeenCalledTimes(1);
+    expect(mocks.ffmpeg.unmount.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.ffmpeg.readFile.mock.invocationCallOrder[0]
+    );
+    expect(mocks.ffmpeg.readFile.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.ffmpeg.deleteDir.mock.invocationCallOrder[1]
+    );
   });
 
   it("falls back to opus when copy fails", async () => {

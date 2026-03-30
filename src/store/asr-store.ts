@@ -19,6 +19,8 @@ import type { ChunkDefinition } from "@/lib/chunking";
 import type { ExportHeader, TranscriptionSegment } from "@/lib/export";
 import {
   createEmptySessionTranscriptMemories,
+  getSessionTranscriptSegmentCount,
+  getSessionTranscriptText,
   type SessionSource,
   type SessionTranscriptMemoryEntry,
   type SessionTranscriptMode,
@@ -1861,10 +1863,14 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         ...state.sessionTranscriptMemories,
         [mode]: entry
           ? {
-              ...entry,
-              segments: [...entry.segments],
+              mode: entry.mode,
+              provider: entry.provider,
+              label: entry.label,
+              transcriptText: getSessionTranscriptText(entry),
+              segmentCount: getSessionTranscriptSegmentCount(entry),
               audioSource: entry.audioSource ?? null,
               audioMetadata: entry.audioMetadata ?? null,
+              updatedAt: entry.updatedAt,
             }
           : null,
       },

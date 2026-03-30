@@ -83,6 +83,7 @@ describe("preprocessCloudAudio", () => {
     expect(mocks.mockPreprocess).not.toHaveBeenCalled();
     expect(result.applied).toBe(false);
     expect(result.processed.pcm.length).toBe(4);
+    expect(result).not.toHaveProperty("decoded");
   });
 
   it("applies preprocessing in full mode and computes autotune", async () => {
@@ -116,5 +117,6 @@ describe("preprocessCloudAudio", () => {
     expect(result.applied).toBe(true);
     expect(result.processed.pcm.length).toBe(2);
     expect(result.tune?.noiseFloorDb).toBe(-30);
+    expect(result).not.toHaveProperty("decoded");
   });
 });

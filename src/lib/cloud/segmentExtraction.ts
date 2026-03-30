@@ -98,6 +98,12 @@ export async function extractSegmentBlob(
   const outputName = `segment_${segment.index}.${outputExt}`;
   const outputPath = `${outputDir}/${outputName}`;
   const duration = Math.max(0, segment.endSec - segment.startSec);
+  let finalPath = outputPath;
+  let finalMime = outputMimeType;
+  let finalName = outputName;
+  let inputWorkspaceCleaned = false;
+  let outputWorkspaceCleaned = false;
+  let inputMounted = false;
 
   telemetry?.logEvent("START_DECODE", { strategy: "cloud_segment", segmentIndex: segment.index });
   logger.debug("[cloud][segment] extract start", {
@@ -118,10 +124,43 @@ export async function extractSegmentBlob(
     logger.warn("[cloud][segment] output dir exists", err);
   }
 
+  const cleanupInputWorkspace = async () => {
+    if (inputWorkspaceCleaned) return;
+    inputWorkspaceCleaned = true;
+    if (inputMounted) {
+      try {
+        await ffmpeg.unmount(inputDir);
+      } catch (err) {
+        logger.warn("[cloud][segment] unmount failed", err);
+      }
+    }
+    try {
+      await ffmpeg.deleteDir(inputDir);
+    } catch (err) {
+      logger.warn("[cloud][segment] delete input dir failed", err);
+    }
+  };
+
+  const cleanupOutputWorkspace = async (targetPath: string) => {
+    if (outputWorkspaceCleaned) return;
+    outputWorkspaceCleaned = true;
+    try {
+      await ffmpeg.deleteFile(targetPath);
+    } catch (err) {
+      logger.warn("[cloud][segment] delete output failed", err);
+    }
+    try {
+      await ffmpeg.deleteDir(outputDir);
+    } catch (err) {
+      logger.warn("[cloud][segment] delete output dir failed", err);
+    }
+  };
+
   const workerFsType =
     ((FFFSType as unknown as { WORKERFS?: string } | undefined)?.WORKERFS ??
       "WORKERFS") as unknown as FFFSType;
   await ffmpeg.mount(workerFsType, { files: [file] }, inputDir);
+  inputMounted = true;
 
   let blob: Blob;
   try {
@@ -139,9 +178,6 @@ export async function extractSegmentBlob(
 
     logger.debug("[cloud][segment] exec", { mode: "copy", segmentIndex: segment.index });
     let exitCode = await ffmpeg.exec(argsCopy, undefined, { signal: undefined });
-    let finalMime = outputMimeType;
-    let finalPath = outputPath;
-    let finalName = outputName;
 
     if (exitCode !== 0) {
       logger.warn("[cloud][segment] copy failed, fallback to opus", { segmentIndex: segment.index, exitCode });
@@ -177,15 +213,11 @@ export async function extractSegmentBlob(
       finalName = fallbackName;
     }
 
+    await cleanupInputWorkspace();
     const data = await ffmpeg.readFile(finalPath);
-    const bytes = typeof data === "string" ? new TextEncoder().encode(data) : new Uint8Array(data);
-    blob = new Blob([bytes], { type: finalMime });
-
-    try {
-      await ffmpeg.deleteFile(finalPath);
-    } catch (err) {
-      logger.warn("[cloud][segment] delete output failed", err);
-    }
+    await cleanupOutputWorkspace(finalPath);
+    const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
+    blob = new Blob([bytes as BlobPart], { type: finalMime });
 
     telemetry?.logEvent("END_DECODE", { strategy: "cloud_segment", segmentIndex: segment.index });
     logger.debug("[cloud][segment] extract done", {
@@ -195,20 +227,7 @@ export async function extractSegmentBlob(
     });
     return { blob, mimeType: finalMime, name: finalName };
   } finally {
-    try {
-      await ffmpeg.unmount(inputDir);
-    } catch (err) {
-      logger.warn("[cloud][segment] unmount failed", err);
-    }
-    try {
-      await ffmpeg.deleteDir(inputDir);
-    } catch (err) {
-      logger.warn("[cloud][segment] delete input dir failed", err);
-    }
-    try {
-      await ffmpeg.deleteDir(outputDir);
-    } catch (err) {
-      logger.warn("[cloud][segment] delete output dir failed", err);
-    }
+    await cleanupInputWorkspace();
+    await cleanupOutputWorkspace(finalPath);
   }
 }

@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { TranscriptionSegment } from "@/lib/export";
 import { exportLogEntries, setLogLevelProvider } from "@/lib/logger";
 import { DEFAULT_SETTINGS } from "@/lib/storage";
 import {
@@ -12,13 +11,6 @@ import {
 
 const STORAGE_KEY = "demeter-asr-settings";
 let originalLocalStorage: Storage | undefined;
-
-const createTestSegment = (text: string): TranscriptionSegment => ({
-  index: 0,
-  start: 0,
-  end: 1,
-  text,
-});
 
 const resetStore = () => {
   window.localStorage.clear();
@@ -98,7 +90,8 @@ describe("asr-store mutation guards", () => {
       mode: "upload",
       provider: "upload",
       label: "Locale · demo.wav",
-      segments: [createTestSegment("Bonjour")],
+      transcriptText: "Bonjour",
+      segmentCount: 1,
       audioSource: { id: "upload-1", label: "demo.wav", type: "file" },
       audioMetadata: { durationSec: 10, sampleRate: 16000, channels: 1 },
       updatedAt: "2026-03-12T10:00:00.000Z",
@@ -107,7 +100,8 @@ describe("asr-store mutation guards", () => {
       mode: "cloud",
       provider: "mistral",
       label: "Cloud Mistral · demo.wav",
-      segments: [createTestSegment("Salut")],
+      transcriptText: "Salut",
+      segmentCount: 1,
       audioSource: { id: "cloud-1", label: "demo.wav", type: "file" },
       audioMetadata: { durationSec: 12, sampleRate: 16000, channels: 1 },
       updatedAt: "2026-03-12T10:05:00.000Z",
@@ -116,6 +110,9 @@ describe("asr-store mutation guards", () => {
     expect(useAsrStore.getState().sessionTranscriptMemories.upload?.label).toContain("Locale");
     expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.label).toContain("Cloud Mistral");
     expect(useAsrStore.getState().sessionTranscriptMemories.mic).toBeNull();
+    expect(useAsrStore.getState().sessionTranscriptMemories.upload?.transcriptText).toBe("Bonjour");
+    expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.segmentCount).toBe(1);
+    expect((useAsrStore.getState().sessionTranscriptMemories.upload as any)?.segments).toBeUndefined();
 
     state.clearSessionTranscriptMemory("upload");
     expect(useAsrStore.getState().sessionTranscriptMemories.upload).toBeNull();

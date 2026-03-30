@@ -57,7 +57,7 @@ export async function decodeFileFully(
   const arrayBuffer = await file.arrayBuffer();
   const ctx = new AudioContext();
   logger.info("[decode-full] audio context created", { sampleRate: ctx.sampleRate });
-  const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+  const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
   if (!audioBuffer) {
     throw new Error("Échec du décodage audio.");
   }
@@ -373,7 +373,7 @@ export async function decodeCompressedBlobToPcm(
   const arrayBuffer = await blob.arrayBuffer();
   const ctx = new AudioContext();
   logger.info("[decode-blob] audio context created", { sampleRate: ctx.sampleRate });
-  const audioBuffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+  const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
   if (!audioBuffer) {
     throw new Error("Échec du décodage du segment.");
   }
@@ -564,7 +564,7 @@ class DecodeContext {
     });
     const arrayBuffer = await containerBlob.arrayBuffer();
     const ctx = await this.ensureContext();
-    const buffer = await ctx.decodeAudioData(arrayBuffer.slice(0));
+    const buffer = await ctx.decodeAudioData(arrayBuffer);
     const mono = mixToMono(buffer);
     logger.info(`${this.logPrefix} decoded buffer`, {
       durationSec: buffer.duration,

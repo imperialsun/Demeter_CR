@@ -70,7 +70,6 @@ function CloudUploadPage() {
   const cloudShowSegmentConfidence = useAsrStore((state) => state.cloudShowSegmentConfidence);
   const {
     selectedFile,
-    previewFile,
     previewUrl,
     audioMetadata,
     segments,
@@ -350,7 +349,7 @@ function CloudUploadPage() {
                   <CloudChunkCard
                     key={chunk.chunkId}
                     chunk={chunk}
-                    file={previewFile}
+                    file={selectedFile}
                     previewUrl={previewUrl}
                     metadata={audioMetadata}
                     enableWordTimestamps={cloudEnableWordTimestamps}

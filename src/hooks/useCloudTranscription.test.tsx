@@ -53,6 +53,7 @@ const mocks = vi.hoisted(() => ({
     },
   ]),
   trackBackendActivityEvent: vi.fn(),
+  releaseFfmpeg: vi.fn(async () => {}),
 }));
 
 vi.mock("@/components/ui/use-toast", () => ({
@@ -111,6 +112,10 @@ vi.mock("@/lib/cloud/demeterClient", () => ({
 
 vi.mock("@/lib/backend-activity-sync", () => ({
   trackBackendActivityEvent: mocks.trackBackendActivityEvent,
+}));
+
+vi.mock("@/lib/ffmpeg-loader", () => ({
+  releaseFfmpeg: mocks.releaseFfmpeg,
 }));
 
 function HookHarness({
@@ -172,7 +177,11 @@ describe("useCloudTranscription", () => {
       expect(api.segments.length).toBeGreaterThan(0);
     });
     expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.provider).toBe("whisper");
-    expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.segments).toHaveLength(api.segments.length);
+    expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.segmentCount).toBe(api.segments.length);
+    expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.transcriptText).toContain("Bonjour");
+    expect((useAsrStore.getState().sessionTranscriptMemories.cloud as any)?.segments).toBeUndefined();
+    expect(useAsrStore.getState().telemetryCollector).toBeNull();
+    expect(mocks.releaseFfmpeg).toHaveBeenCalledTimes(1);
   });
 
   it("updates cloud session memory when a segment text is edited", async () => {
@@ -200,7 +209,7 @@ describe("useCloudTranscription", () => {
 
     await waitFor(() => {
       expect(api.segments[0]?.text).toBe("Bonjour modifié");
-      expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.segments[0]?.text).toBe("Bonjour modifié");
+      expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.transcriptText).toContain("Bonjour modifié");
     });
   });
 

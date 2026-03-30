@@ -554,7 +554,7 @@ function resolveSourceText(
   }
 
   const entry = sessionTranscriptMemories[input.transcriptMode];
-  const fromSegments = entry ? getSessionTranscriptText(entry.segments) : "";
+  const fromSegments = entry ? getSessionTranscriptText(entry) : "";
 
   if (!fromSegments) {
     throw new Error("Aucune transcription disponible dans la session.");

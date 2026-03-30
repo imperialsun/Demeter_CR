@@ -32,6 +32,7 @@ import { resolveActiveLlmPipelineConfig } from "@/lib/llm/providerSettings";
 import { emitLlmEvent } from "@/lib/llm/telemetrySession";
 import {
   getSessionTranscriptText,
+  getSessionTranscriptSegmentCount,
   hasSessionTranscriptContent,
   type SessionTranscriptMode,
 } from "@/lib/sessionTranscriptMemory";
@@ -139,12 +140,12 @@ function LLMApiPage() {
     return memoryEntries
       .map(([mode, entry]) => {
         if (!hasSessionTranscriptContent(entry)) return null;
-        const text = getSessionTranscriptText(entry.segments);
+        const text = getSessionTranscriptText(entry);
         return {
           mode,
           label: entry.label,
           text,
-          segmentCount: entry.segments.length,
+          segmentCount: getSessionTranscriptSegmentCount(entry),
           charCount: text.length,
           tokenCount: estimateTokenCount(text),
           updatedAt: entry.updatedAt,

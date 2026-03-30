@@ -3,6 +3,7 @@ import logger from "@/lib/logger";
 import { useAsrStore } from "@/store/asr-store";
 
 let ffmpegPromise: Promise<FFmpeg> | null = null;
+let ffmpegInstance: FFmpeg | null = null;
 const FFMPEG_ASSETS_BASE = "/ffmpeg";
 
 function resolveFfmpegAssetUrls() {
@@ -27,6 +28,7 @@ export async function getFfmpeg() {
       telemetry?.logEvent("FFMPEG_LOAD_START", { ...urls });
       try {
         await ffmpeg.load(urls);
+        ffmpegInstance = ffmpeg;
         logger.info("[ffmpeg] load done");
         telemetry?.logEvent("FFMPEG_LOAD_DONE");
         return ffmpeg;
@@ -44,4 +46,28 @@ export async function getFfmpeg() {
 
 export function resetFfmpeg() {
   ffmpegPromise = null;
+  ffmpegInstance = null;
+}
+
+export async function releaseFfmpeg() {
+  const promise = ffmpegPromise;
+  const instance = ffmpegInstance;
+  if (!promise && !instance) {
+    return;
+  }
+
+  try {
+    const ffmpeg = instance ?? (promise ? await promise : null);
+    if (!ffmpeg) {
+      return;
+    }
+    try {
+      await Promise.resolve(ffmpeg.terminate());
+      logger.info("[ffmpeg] terminated");
+    } catch (err) {
+      logger.warn("[ffmpeg] terminate failed", err);
+    }
+  } finally {
+    resetFfmpeg();
+  }
 }

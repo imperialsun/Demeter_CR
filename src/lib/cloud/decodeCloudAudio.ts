@@ -91,8 +91,7 @@ async function decodeWithFfmpeg(file: File, telemetry?: TelemetryCollector): Pro
         outputName
       );
       const data = ff.FS("readFile", outputName) as Uint8Array;
-      bytes = new Uint8Array(data.byteLength);
-      bytes.set(data);
+      bytes = data;
       try {
         ff.FS("unlink", inputName);
       } catch (err) {
@@ -125,8 +124,7 @@ async function decodeWithFfmpeg(file: File, telemetry?: TelemetryCollector): Pro
       if (!(data instanceof Uint8Array)) {
         throw new Error("ffmpeg output is not binary data");
       }
-      bytes = new Uint8Array(data.byteLength);
-      bytes.set(data);
+      bytes = data;
       try {
         await ffmpeg.deleteFile(inputName);
       } catch (err) {
@@ -145,6 +143,7 @@ async function decodeWithFfmpeg(file: File, telemetry?: TelemetryCollector): Pro
   }
 
   const pcm = decodePcm16le(bytes);
+  bytes = new Uint8Array(0);
   const durationSec = pcm.length / TARGET_SAMPLE_RATE;
   const metadata = await probeAudioMetadata(file);
   telemetry?.stopTimer("cloud_decode_ffmpeg");

@@ -191,6 +191,7 @@ describe("audio decode", () => {
       [1, 0.5, 0, -0.5, -1, 0],
       [0, 0.5, 1, 0.5, 0, -0.5],
     ], 8000);
+    const sliceSpy = vi.spyOn(ArrayBuffer.prototype, "slice");
     registerRestore(mockAudioContext(fakeBuffer));
     delete (globalThis as any).OfflineAudioContext;
 
@@ -208,6 +209,7 @@ describe("audio decode", () => {
     expect(decoded.metadata.sampleRate).toBe(16000);
     expect(telemetry.startTimer).toHaveBeenCalledWith("decode_audio_total");
     expect(telemetry.stopTimer).toHaveBeenCalledWith("decode_audio_total");
+    expect(sliceSpy).not.toHaveBeenCalled();
   });
 
   it("decodeFileFully throws when decodeAudioData returns null", async () => {
@@ -232,6 +234,7 @@ describe("audio decode", () => {
 
   it("decodeCompressedBlobToPcm decodes and resamples", async () => {
     const fakeBuffer = makeAudioBuffer(1, 5, [[0.1, 0.2, 0.3, 0.2, 0.1]], 1000);
+    const sliceSpy = vi.spyOn(ArrayBuffer.prototype, "slice");
     registerRestore(mockAudioContext(fakeBuffer));
     delete (globalThis as any).OfflineAudioContext;
     const telemetry = { startTimer: vi.fn(), stopTimer: vi.fn(), logEvent: vi.fn(), snapshotMemory: vi.fn() };
@@ -240,6 +243,7 @@ describe("audio decode", () => {
     const result = await decodeCompressedBlobToPcm(blob, telemetry as never, 2000);
     expect(result.sampleRate).toBe(2000);
     expect(result.pcm.length).toBeGreaterThan(0);
+    expect(sliceSpy).not.toHaveBeenCalled();
   });
 
   it("decodeCompressedBlobToPcm throws when decodeAudioData returns null", async () => {

@@ -21,7 +21,6 @@ vi.mock("@/hooks/useBackendPermissions", () => ({
 function createHookValue(overrides: Partial<ReturnType<typeof cloudHook.useCloudTranscription>> = {}) {
   return {
     selectedFile: null,
-    previewFile: null,
     previewUrl: null,
     audioMetadata: null,
     segments: [],
@@ -141,7 +140,7 @@ describe("CloudUploadPage", () => {
   it("renders one card per chunk with a local player and speaker controls", () => {
     const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(
       createHookValue({
-        previewFile: new File(["audio"], "session.wav", { type: "audio/wav" }),
+        selectedFile: new File(["audio"], "session.wav", { type: "audio/wav" }),
         previewUrl: "blob:mock-session",
         audioMetadata: {
           name: "session.wav",
@@ -234,7 +233,7 @@ describe("CloudUploadPage", () => {
   it("updates only the local chunk speaker assignments from a chunk card", () => {
     const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(
       createHookValue({
-        previewFile: new File(["audio"], "session.wav", { type: "audio/wav" }),
+        selectedFile: new File(["audio"], "session.wav", { type: "audio/wav" }),
         previewUrl: "blob:mock-session",
         audioMetadata: {
           name: "session.wav",

@@ -48,7 +48,6 @@ export type CloudAutoTuneResult = {
 };
 
 export type CloudPreprocessResult = {
-  decoded: DecodedAudio;
   processed: DecodedAudio;
   noiseProfile?: Float32Array;
   applied: boolean;
@@ -131,7 +130,6 @@ export async function preprocessCloudAudio(
     telemetry?.logEvent("PREPROCESS_DONE", { context: "cloud", applied: false });
     logger.debug("[cloud][preprocess] quick mode, no processing applied");
     return {
-      decoded,
       processed: decoded,
       noiseProfile: profileResult.profile,
       applied: false,
@@ -171,8 +169,9 @@ export async function preprocessCloudAudio(
     sampleRate: processed.sampleRate,
   });
 
+  decoded.pcm = new Float32Array(0);
+
   return {
-    decoded,
     processed: { metadata: decoded.metadata, pcm: processed.pcm, sampleRate: processed.sampleRate },
     noiseProfile: profileResult.profile,
     applied: true,
