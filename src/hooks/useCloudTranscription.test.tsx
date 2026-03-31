@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { useAsrStore } from "@/store/asr-store";
 import { useCloudTranscription } from "@/hooks/useCloudTranscription";
 import type { StageCloudSegmentsOptions } from "@/lib/cloud/cloudStaging";
+import { BackendHttpError } from "@/lib/backend-api";
 
 const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
@@ -18,6 +19,9 @@ const mocks = vi.hoisted(() => ({
     endSec: number;
     blob: Blob;
     name: string;
+    rawBlob: Blob;
+    rawName: string;
+    rawMimeType: string;
   }>(),
   stageCloudSegments: vi.fn(async ({ segments, startIndex = 0, sessionId }: StageCloudSegmentsOptions) => {
     let nextIndex = startIndex;
@@ -41,6 +45,9 @@ const mocks = vi.hoisted(() => ({
         endSec: segment.endSec,
         blob: new Blob([`segment-${index}`], { type: "audio/wav" }),
         name: record.fileName,
+        rawBlob: new Blob([`raw-segment-${index}`], { type: "audio/webm" }),
+        rawName: `segment_${index}.webm`,
+        rawMimeType: "audio/webm",
       });
       return record;
     });
@@ -91,6 +98,7 @@ const mocks = vi.hoisted(() => ({
       speaker: "SPEAKER_00",
     },
   ]),
+  sendFrontendAudioErrorReport: vi.fn(async () => true),
   trackBackendActivityEvent: vi.fn(),
   releaseFfmpeg: vi.fn(async () => {}),
 }));
@@ -149,6 +157,16 @@ vi.mock("@/lib/cloud/mistralSegments", () => ({
 vi.mock("@/lib/cloud/demeterClient", () => ({
   transcribeWithDemeterSante: mocks.transcribeWithDemeterSante,
 }));
+
+vi.mock("@/lib/cloud/audioErrorReport", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/cloud/audioErrorReport")>(
+    "@/lib/cloud/audioErrorReport"
+  );
+  return {
+    ...actual,
+    sendFrontendAudioErrorReport: mocks.sendFrontendAudioErrorReport,
+  };
+});
 
 vi.mock("@/lib/backend-activity-sync", () => ({
   trackBackendActivityEvent: mocks.trackBackendActivityEvent,
@@ -437,6 +455,173 @@ describe("useCloudTranscription", () => {
       }),
       expect.anything()
     );
+  });
+
+  it("routes long demeter audio directly to the backend without local staging", async () => {
+    mocks.probeAudioMetadata.mockResolvedValueOnce({ durationSec: 7201, sampleRate: 16000 });
+
+    let api!: ReturnType<typeof useCloudTranscription>;
+    render(<HookHarness provider="demeter_sante" onReady={(value) => (api = value)} />);
+    const file = new File(["a"], "long-audio.wav", { type: "audio/wav" });
+
+    await act(async () => {
+      await api.handleFileSelected(file);
+    });
+    await act(async () => {
+      await api.startTranscription();
+    });
+
+    await waitFor(() => {
+      expect(api.status).toBe("done");
+    });
+
+    expect(mocks.stageCloudSegments).not.toHaveBeenCalled();
+    expect(mocks.transcribeWithDemeterSante).toHaveBeenCalledTimes(1);
+    expect(mocks.transcribeWithDemeterSante).toHaveBeenCalledWith(
+      expect.objectContaining({
+        backendDirect: true,
+        durationSec: 7201,
+        diarize: false,
+        model: "voxtral-demeter-latest",
+      }),
+      expect.anything()
+    );
+    expect(api.preparedUpload).toEqual(
+      expect.objectContaining({
+        provider: "demeter_sante",
+        fileName: "long-audio.wav",
+        chunkIndex: 1,
+        totalChunks: 1,
+      })
+    );
+  });
+
+  it("keeps backend direct chunk groups distinct so the UI stays chunk-aware", async () => {
+    mocks.probeAudioMetadata.mockResolvedValueOnce({ durationSec: 7201, sampleRate: 16000 });
+    mocks.parseMistralOutput.mockReturnValueOnce([
+      {
+        index: 0,
+        start: 0,
+        end: 5,
+        text: "Chunk 1",
+        chunkId: "demeter-backend-001",
+        strategy: "chunks",
+        speaker: "SPEAKER_00",
+      },
+      {
+        index: 1,
+        start: 5,
+        end: 10,
+        text: "Chunk 2",
+        chunkId: "demeter-backend-002",
+        strategy: "chunks",
+        speaker: "SPEAKER_01",
+      },
+    ]);
+
+    let api!: ReturnType<typeof useCloudTranscription>;
+    render(<HookHarness provider="demeter_sante" onReady={(value) => (api = value)} />);
+    const file = new File(["a"], "long-audio.wav", { type: "audio/wav" });
+
+    await act(async () => {
+      await api.handleFileSelected(file);
+    });
+    await act(async () => {
+      await api.startTranscription();
+    });
+
+    await waitFor(() => {
+      expect(api.status).toBe("done");
+      expect(api.chunkGroups).toHaveLength(2);
+    });
+    expect(api.chunkGroups[0]?.chunkId).toBe("demeter-backend-001");
+    expect(api.chunkGroups[1]?.chunkId).toBe("demeter-backend-002");
+    expect(api.chunkGroups[0]?.segments).toHaveLength(1);
+    expect(api.chunkGroups[1]?.segments).toHaveLength(1);
+  });
+
+  it("blocks an empty source file, logs it, and reports the error without retry", async () => {
+    let api!: ReturnType<typeof useCloudTranscription>;
+    render(<HookHarness provider="demeter_sante" onReady={(value) => (api = value)} />);
+    const file = new File([], "empty.wav", { type: "audio/wav" });
+
+    await act(async () => {
+      await api.handleFileSelected(file);
+    });
+    await act(async () => {
+      await api.startTranscription();
+    });
+
+    await waitFor(() => {
+      expect(api.status).toBe("error");
+      expect(api.statusDetail).toBe("Fichier audio vide");
+    });
+    expect(mocks.transcribeWithDemeterSante).not.toHaveBeenCalled();
+    expect(mocks.sendFrontendAudioErrorReport).toHaveBeenCalledTimes(1);
+    const reportInput = mocks.sendFrontendAudioErrorReport.mock.calls[0]?.[0] as {
+      backendError: { code: string; status: number };
+      retry: { attempted: boolean; succeeded: boolean; usedRawFile: boolean };
+    };
+    expect(reportInput.backendError.code).toBe("empty_audio_file");
+    expect(reportInput.backendError.status).toBe(400);
+    expect(reportInput.retry).toEqual({
+      attempted: false,
+      succeeded: false,
+      usedRawFile: false,
+    });
+  });
+
+  it("retries a backend audio validation failure with the raw chunk and reports recovery", async () => {
+    useAsrStore.setState({
+      cloudDemeterDiarizationEnabled: false,
+    } as never);
+
+    mocks.transcribeWithDemeterSante
+      .mockRejectedValueOnce(
+        new BackendHttpError({
+          status: 400,
+          code: "empty_audio_file",
+          message: "Fichier audio vide.",
+          path: "/providers/demeter-sante/audio/transcriptions",
+          method: "POST",
+          traceId: "trace-audio-1",
+        })
+      )
+      .mockResolvedValueOnce({ text: "ok" });
+
+    let api!: ReturnType<typeof useCloudTranscription>;
+    render(<HookHarness provider="demeter_sante" onReady={(value) => (api = value)} />);
+    const file = new File(["a"], "audio.wav", { type: "audio/wav" });
+
+    await act(async () => {
+      await api.handleFileSelected(file);
+    });
+    await act(async () => {
+      await api.startTranscription();
+    });
+
+    await waitFor(() => {
+      expect(api.status).toBe("done");
+    });
+    expect(mocks.transcribeWithDemeterSante).toHaveBeenCalledTimes(2);
+    const firstCallFile = mocks.transcribeWithDemeterSante.mock.calls[0]?.[0] as { file: File };
+    const secondCallFile = mocks.transcribeWithDemeterSante.mock.calls[1]?.[0] as { file: File };
+    expect(firstCallFile.file.name).toContain("cloud");
+    expect(secondCallFile.file.name).toContain("segment_0.webm");
+    expect(mocks.sendFrontendAudioErrorReport).toHaveBeenCalledTimes(1);
+    const reportInput = mocks.sendFrontendAudioErrorReport.mock.calls[0]?.[0] as {
+      backendError: { code: string; traceId?: string };
+      retry: { attempted: boolean; succeeded: boolean; usedRawFile: boolean };
+      rawFile?: { name: string; sizeBytes: number; mimeType: string; source: string } | null;
+    };
+    expect(reportInput.backendError.code).toBe("empty_audio_file");
+    expect(reportInput.backendError.traceId).toBe("trace-audio-1");
+    expect(reportInput.retry).toEqual({
+      attempted: true,
+      succeeded: true,
+      usedRawFile: true,
+    });
+    expect(reportInput.rawFile?.source).toBe("raw");
   });
 
   it("splits demeter chunks and retries after an upstream timeout", async () => {

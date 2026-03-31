@@ -17,6 +17,8 @@ type RawSegment = {
   words?: unknown;
   speaker?: unknown;
   speaker_id?: unknown;
+  chunkId?: unknown;
+  chunk_id?: unknown;
 };
 
 type RawWord = {
@@ -80,13 +82,14 @@ export function parseMistralOutput(
     const confidence = asFiniteNumber(item?.confidence) ?? undefined;
     const speaker = mapSpeaker(item);
     const words = options.includeWordTimestamps ? mapWords(item?.words, options.offsetSec) : undefined;
+    const chunkId = asText(item?.chunkId ?? item?.chunk_id) || options.chunkId;
     segments.push({
       index,
       start: Math.max(0, options.offsetSec + rawStart),
       end: Math.max(0, options.offsetSec + Math.max(rawEnd, rawStart)),
       text,
       speaker,
-      chunkId: options.chunkId,
+      chunkId,
       strategy: "chunks",
       confidence,
       confidenceSource: typeof confidence === "number" ? "model" : undefined,

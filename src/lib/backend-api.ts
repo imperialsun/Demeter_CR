@@ -47,14 +47,32 @@ export class BackendHttpError extends Error {
   readonly code: string;
   readonly path: string;
   readonly method: string;
+  readonly traceId?: string;
+  readonly fileName?: string;
+  readonly fileSizeBytes?: number;
+  readonly mimeType?: string;
 
-  constructor(params: { status: number; code: string; message: string; path: string; method: string }) {
+  constructor(params: {
+    status: number;
+    code: string;
+    message: string;
+    path: string;
+    method: string;
+    traceId?: string;
+    fileName?: string;
+    fileSizeBytes?: number;
+    mimeType?: string;
+  }) {
     super(params.message);
     this.name = "BackendHttpError";
     this.status = params.status;
     this.code = params.code;
     this.path = params.path;
     this.method = params.method;
+    this.traceId = params.traceId;
+    this.fileName = params.fileName;
+    this.fileSizeBytes = params.fileSizeBytes;
+    this.mimeType = params.mimeType;
   }
 }
 
@@ -82,6 +100,14 @@ export function formatBackendErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
   }
 
+  if (error.code === "empty_audio_file") {
+    return "Fichier audio vide.";
+  }
+
+  if (error.code === "invalid_audio_file" || error.code === "invalid_request_file") {
+    return "Fichier audio invalide.";
+  }
+
   if (error.status === 403 || error.code === "forbidden") {
     return BACKEND_FORBIDDEN_MESSAGE;
   }
@@ -99,6 +125,31 @@ export function handleBackendUnauthorized(error: unknown): boolean {
   }
   invalidateBackendSession({ redirectToLogin: true });
   return true;
+}
+
+const AUDIO_VALIDATION_ERROR_CODES = new Set(["empty_audio_file", "invalid_audio_file", "invalid_request_file", "3310"]);
+
+function isAudioValidationMessage(message: string): boolean {
+  return /audio input could not be decoded|fichier audio vide|fichier audio invalide/i.test(message);
+}
+
+export function isBackendAudioValidationError(error: unknown): boolean {
+  if (!isBackendHttpError(error)) {
+    return false;
+  }
+  if (error.status !== 400) {
+    return false;
+  }
+  return AUDIO_VALIDATION_ERROR_CODES.has(error.code) || isAudioValidationMessage(error.message);
+}
+
+export function shouldRetryRawAudioUpload(error: unknown): boolean {
+  if (isBackendAudioValidationError(error)) {
+    return true;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  return isAudioValidationMessage(message) || /invalid_request_file/i.test(message);
 }
 
 function isAbortError(error: unknown): error is Error {
@@ -287,6 +338,10 @@ type BackendErrorResponseBody = {
   message?: unknown;
   code?: unknown;
   path?: unknown;
+  traceId?: unknown;
+  fileName?: unknown;
+  fileSizeBytes?: unknown;
+  mimeType?: unknown;
 };
 
 function normalizeErrorCode(status: number, rawCode: unknown, rawError: unknown): string {
@@ -341,12 +396,22 @@ export async function parseBackendHttpError(response: Response, path: string, me
     const parsed = JSON.parse(text) as BackendErrorResponseBody;
     const message = normalizeErrorMessage(status, parsed.message, parsed.error);
     const code = normalizeErrorCode(status, parsed.code, parsed.error);
+    const fileSizeBytes =
+      typeof parsed.fileSizeBytes === "number" && Number.isFinite(parsed.fileSizeBytes)
+        ? parsed.fileSizeBytes
+        : typeof parsed.fileSizeBytes === "string" && parsed.fileSizeBytes.trim().length > 0
+          ? Number(parsed.fileSizeBytes)
+          : undefined;
     const typedError = new BackendHttpError({
       status,
       code,
       message,
       path: typeof parsed.path === "string" && parsed.path.trim().length > 0 ? parsed.path : path,
       method: method.toUpperCase(),
+      traceId: typeof parsed.traceId === "string" && parsed.traceId.trim().length > 0 ? parsed.traceId.trim() : undefined,
+      fileName: typeof parsed.fileName === "string" && parsed.fileName.trim().length > 0 ? parsed.fileName.trim() : undefined,
+      fileSizeBytes: Number.isFinite(fileSizeBytes) ? fileSizeBytes : undefined,
+      mimeType: typeof parsed.mimeType === "string" && parsed.mimeType.trim().length > 0 ? parsed.mimeType.trim() : undefined,
     });
 
     logger.warn("[backend-api] backend error response", {

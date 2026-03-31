@@ -193,4 +193,36 @@ describe("demeterClient", () => {
     expect(backendAuthMocks.backendRefresh).toHaveBeenCalledTimes(1);
     expect(backendApiMocks.handleBackendUnauthorized).not.toHaveBeenCalled();
   });
+
+  it("uses the backend direct route and extended timeout for long audio", async () => {
+    const telemetry = new TelemetryCollector("demeter-backend-direct");
+    const file = new File(["audio"], "audio.wav", { type: "audio/wav" });
+
+    backendApiMocks.backendFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ text: "bonjour" }), { status: 200, headers: { "Content-Type": "application/json" } })
+    );
+
+    const result = await transcribeWithDemeterSante(
+      {
+        file,
+        backendDirect: true,
+        durationSec: 7201,
+        model: "voxtral-mini-latest",
+      },
+      telemetry
+    );
+
+    expect(result.text).toBe("bonjour");
+    const [path, init] = backendApiMocks.backendFetch.mock.calls[0] ?? [];
+    expect(path).toBe("/providers/demeter-sante/audio/transcriptions/backend");
+    expect(init).toEqual(
+      expect.objectContaining({
+        method: "POST",
+        timeoutMs: 25 * 60 * 1000,
+        headers: expect.objectContaining({
+          "X-Cloud-Audio-Duration-Sec": "7201",
+        }),
+      })
+    );
+  });
 });

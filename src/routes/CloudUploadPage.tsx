@@ -124,7 +124,7 @@ function CloudUploadPage() {
           Importez un fichier audio, choisissez un mode basse RAM ou un traitement complet, puis lancez la transcription via le service cloud.
         </p>
         <p className="text-sm font-medium text-amber-600">
-          Les deux modes préparent tous les segments avant le premier appel au provider. Rapide applique un traitement léger, Complet applique la chaîne complète.
+          Les fichiers courts préparent les segments localement avant l'envoi. Au-delà de 2 heures, le backend prend directement le relais sans prétraitement local.
         </p>
       </header>
 
@@ -327,7 +327,7 @@ function CloudUploadPage() {
             onFileSelected={handleFileSelected}
             metadata={audioMetadata}
             disabled={isTranscribing}
-            description="Glissez-déposez un fichier audio. Rapide réduit la RAM en envoyant le segment quasi brut ; Complet prétraite localement avant l'envoi."
+            description="Glissez-déposez un fichier audio. Rapide réduit la RAM en envoyant le segment quasi brut ; Complet prétraite localement avant l'envoi. Au-delà de 2 heures, l'envoi passe directement par le backend."
           />
         </div>
 

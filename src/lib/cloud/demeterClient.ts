@@ -11,8 +11,10 @@ import {
 import { backendRefresh } from "@/lib/backend-auth";
 
 const DEMETER_TRANSCRIPTIONS_PATH = "/providers/demeter-sante/audio/transcriptions";
+const DEMETER_TRANSCRIPTIONS_BACKEND_PATH = "/providers/demeter-sante/audio/transcriptions/backend";
 const DEMETER_MODELS_PATH = "/providers/demeter-sante/models";
 const DEMETER_TRANSCRIPTION_REQUEST_TIMEOUT_MS = 300_000;
+const DEMETER_BACKEND_DIRECT_REQUEST_TIMEOUT_MS = 25 * 60 * 1000;
 const DEMETER_PROBE_REQUEST_TIMEOUT_MS = 10_000;
 const DEMETER_UPLOAD_NETWORK_DIAGNOSTIC_MESSAGE =
   "Le backend Demeter Santé répond, mais l'envoi du fichier échoue avant réponse. Vérifiez le proxy, la taille du fichier et la stabilité réseau puis réessayez.";
@@ -31,6 +33,9 @@ export type DemeterTranscriptionResponse = {
 type DemeterTranscriptionRequest = {
   file: File;
   diarize?: boolean;
+  model?: string;
+  durationSec?: number;
+  backendDirect?: boolean;
   signal?: AbortSignal;
   onDiarizationResolved?: (info: {
     requestedDiarize: boolean;
@@ -139,22 +144,33 @@ export async function transcribeWithDemeterSante(
   telemetry?: TelemetryCollector
 ): Promise<DemeterTranscriptionResponse> {
   const diarize = request.diarize ?? true;
+  const backendDirect = request.backendDirect ?? false;
+  const endpointPath = backendDirect ? DEMETER_TRANSCRIPTIONS_BACKEND_PATH : DEMETER_TRANSCRIPTIONS_PATH;
+  const timeoutMs = backendDirect ? DEMETER_BACKEND_DIRECT_REQUEST_TIMEOUT_MS : DEMETER_TRANSCRIPTION_REQUEST_TIMEOUT_MS;
   const formData = new FormData();
   formData.set("diarize", diarize ? "true" : "false");
   if (diarize) {
     formData.append("timestamp_granularities", "segment");
   }
+  if (typeof request.model === "string" && request.model.trim().length > 0) {
+    formData.set("model", request.model.trim());
+  }
   formData.set("file", request.file, request.file.name);
 
   const { backendBaseUrl } = getRuntimeConfig();
-  const endpoint = `${backendBaseUrl.replace(/\/+$/, "")}${DEMETER_TRANSCRIPTIONS_PATH}`;
+  const endpoint = `${backendBaseUrl.replace(/\/+$/, "")}${endpointPath}`;
+  const audioDurationSec = typeof request.durationSec === "number" && Number.isFinite(request.durationSec)
+    ? Math.max(0, request.durationSec)
+    : undefined;
   const telemetryContext = {
     provider: "demeter_sante",
     diarize,
+    routeMode: backendDirect ? "backend_direct" : "relay",
     fileName: request.file.name,
     sizeBytes: request.file.size,
+    audioDurationSec,
     backendBaseUrl,
-    endpointPath: DEMETER_TRANSCRIPTIONS_PATH,
+    endpointPath,
     endpoint,
   };
 
@@ -165,7 +181,9 @@ export async function transcribeWithDemeterSante(
 
   let response: Response;
   try {
-    response = await sendDemeterTranscriptionRequest(formData, request.signal);
+    const headers: HeadersInit | undefined =
+      audioDurationSec !== undefined ? { "X-Cloud-Audio-Duration-Sec": String(audioDurationSec) } : undefined;
+    response = await sendDemeterTranscriptionRequest(formData, request.signal, endpointPath, timeoutMs, headers);
   } catch (error) {
     if (request.signal?.aborted) {
       throw error;
@@ -210,7 +228,7 @@ export async function transcribeWithDemeterSante(
   }
 
   if (!response.ok) {
-    const error = await parseBackendHttpError(response, DEMETER_TRANSCRIPTIONS_PATH, "POST");
+    const error = await parseBackendHttpError(response, endpointPath, "POST");
     const message = formatBackendErrorMessage(error);
     logger.error("[cloud][demeter] request failed", { status: response.status, message, endpoint });
     telemetry?.logEvent("CLOUD_UPLOAD_FAILED", {
@@ -268,14 +286,18 @@ export async function transcribeWithDemeterSante(
 
 async function sendDemeterTranscriptionRequest(
   formData: FormData,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  path = DEMETER_TRANSCRIPTIONS_PATH,
+  timeoutMs = DEMETER_TRANSCRIPTION_REQUEST_TIMEOUT_MS,
+  headers?: HeadersInit
 ): Promise<Response> {
   const send = () =>
-    backendFetch(DEMETER_TRANSCRIPTIONS_PATH, {
+    backendFetch(path, {
       method: "POST",
       body: formData,
       signal,
-      timeoutMs: DEMETER_TRANSCRIPTION_REQUEST_TIMEOUT_MS,
+      timeoutMs,
+      headers,
     });
 
   let response = await send();
@@ -283,7 +305,7 @@ async function sendDemeterTranscriptionRequest(
     return response;
   }
 
-  const unauthorizedError = await parseBackendHttpError(response, DEMETER_TRANSCRIPTIONS_PATH, "POST");
+  const unauthorizedError = await parseBackendHttpError(response, path, "POST");
   if (!isBackendUnauthorizedError(unauthorizedError)) {
     return response;
   }
@@ -306,7 +328,7 @@ async function sendDemeterTranscriptionRequest(
 
   response = await send();
   if (!response.ok && response.status === 401) {
-    const retryError = await parseBackendHttpError(response, DEMETER_TRANSCRIPTIONS_PATH, "POST");
+    const retryError = await parseBackendHttpError(response, path, "POST");
     handleBackendUnauthorized(retryError);
   }
   return response;

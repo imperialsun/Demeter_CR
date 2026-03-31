@@ -11,6 +11,7 @@ beforeEach(async () => {
 describe("segment-cache", () => {
   it("stores and retrieves a segment", async () => {
     const blob = new Blob([new Uint8Array([1, 2, 3])], { type: "audio/webm;codecs=opus" });
+    const rawBlob = new Blob([new Uint8Array([9, 9, 9])], { type: "audio/wav" });
     await putSegment({
       key: "session-1:0",
       sessionId: "session-1",
@@ -18,12 +19,18 @@ describe("segment-cache", () => {
       startSec: 0,
       endSec: 10,
       blob,
+      rawBlob,
+      rawName: "segment_0.wav",
+      rawMimeType: "audio/wav",
     });
 
     const stored = await getSegment("session-1", 0);
     expect(stored).not.toBeNull();
     expect(stored?.sessionId).toBe("session-1");
     expect(stored?.index).toBe(0);
+    expect(stored?.rawBlob).toBeInstanceOf(Blob);
+    expect(stored?.rawName).toBe("segment_0.wav");
+    expect(stored?.rawMimeType).toBe("audio/wav");
   });
 
   it("deletes a segment by key", async () => {

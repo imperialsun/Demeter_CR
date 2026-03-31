@@ -6,7 +6,9 @@ import {
   BackendHttpError,
   backendFetch,
   formatBackendErrorMessage,
+  isBackendAudioValidationError,
   parseBackendHttpError,
+  shouldRetryRawAudioUpload,
 } from "@/lib/backend-api";
 
 describe("backend-api", () => {
@@ -35,6 +37,36 @@ describe("backend-api", () => {
     expect(error.message).toBe("Forbidden by policy");
     expect(error.path).toBe("/api/v1/settings");
     expect(error.method).toBe("GET");
+  });
+
+  it("parses backend audio validation payload and exposes trace metadata", async () => {
+    const response = new Response(
+      JSON.stringify({
+        error: "fichier audio vide",
+        message: "Fichier audio vide",
+        code: "empty_audio_file",
+        path: "/providers/demeter-sante/audio/transcriptions",
+        traceId: "trace-123",
+        fileName: "segment_0.wav",
+        fileSizeBytes: 0,
+        mimeType: "audio/wav",
+      }),
+      {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+
+    const error = await parseBackendHttpError(response, "/providers/demeter-sante/audio/transcriptions", "POST");
+
+    expect(error).toBeInstanceOf(BackendHttpError);
+    expect(error.status).toBe(400);
+    expect(error.code).toBe("empty_audio_file");
+    expect(error.message).toBe("Fichier audio vide");
+    expect(error.traceId).toBe("trace-123");
+    expect(error.fileName).toBe("segment_0.wav");
+    expect(error.fileSizeBytes).toBe(0);
+    expect(error.mimeType).toBe("audio/wav");
   });
 
   it("returns standard user messages for 401/403", () => {
@@ -116,5 +148,21 @@ describe("backend-api", () => {
     await expect(backendFetch("/providers/demeter-sante/audio/transcriptions", { method: "POST" })).rejects.toThrow(
       BACKEND_NETWORK_ERROR_MESSAGE
     );
+  });
+
+  it("recognizes audio validation errors as retryable raw uploads", () => {
+    const backendError = new BackendHttpError({
+      status: 400,
+      code: "invalid_audio_file",
+      message: "Fichier audio invalide.",
+      path: "/providers/demeter-sante/audio/transcriptions",
+      method: "POST",
+      traceId: "trace-1",
+    });
+
+    expect(isBackendAudioValidationError(backendError)).toBe(true);
+    expect(shouldRetryRawAudioUpload(backendError)).toBe(true);
+    expect(shouldRetryRawAudioUpload(new Error("Mistral API (400): Audio input could not be decoded."))).toBe(true);
+    expect(shouldRetryRawAudioUpload(new Error("Mistral API (422): validation failed"))).toBe(false);
   });
 });

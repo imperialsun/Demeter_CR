@@ -10,7 +10,7 @@ import type { TranscriptionSegment } from "@/lib/export";
 import { summarizeSegments } from "@/lib/cloud/segmentSummary";
 import { stageCloudSegments, type CloudStagedSegment } from "@/lib/cloud/cloudStaging";
 import { splitCloudSegmentWindow } from "@/lib/cloud/segmentWindows";
-import { deleteSegment, deleteSessionSegments, getSegment } from "@/lib/segment-cache";
+import { deleteSegment, deleteSessionSegments, getSegment, type CachedSegment } from "@/lib/segment-cache";
 import { getWhisperClient } from "@/lib/cloud/whisperClient";
 import { buildWhisperParameters } from "@/lib/cloud/whisperParams";
 import { parseWhisperOutput } from "@/lib/cloud/whisperSegments";
@@ -19,6 +19,11 @@ import { resolveMistralSegmentDurationSec } from "@/lib/cloud/mistralParams";
 import { parseMistralOutput } from "@/lib/cloud/mistralSegments";
 import { transcribeWithDemeterSante } from "@/lib/cloud/demeterClient";
 import { backendRefresh } from "@/lib/backend-auth";
+import {
+  sendFrontendAudioErrorReport,
+  shouldRetryRawAudioUpload,
+  type AudioErrorReportFile,
+} from "@/lib/cloud/audioErrorReport";
 import {
   formatBackendErrorMessage,
   handleBackendUnauthorized,
@@ -30,7 +35,11 @@ import { resolveChunkingConfig } from "@/hooks/useCloudTranscription.steps";
 import { createSessionTranscriptMemoryEntry, getSessionTranscriptText } from "@/lib/sessionTranscriptMemory";
 import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
 import { releaseFfmpeg } from "@/lib/ffmpeg-loader";
-import { buildCloudTranscriptionChunkGroup, type CloudTranscriptionChunkGroup } from "@/lib/cloud/transcriptionChunks";
+import {
+  buildCloudTranscriptionChunkGroup,
+  groupCloudTranscriptionSegments,
+  type CloudTranscriptionChunkGroup,
+} from "@/lib/cloud/transcriptionChunks";
 
 type CloudStatus = "idle" | "preprocessing" | "uploading" | "transcribing" | "stopping" | "done" | "error";
 
@@ -55,6 +64,34 @@ type MistralChunkingConfig = {
   modelMaxDurationSec: number;
   durationWasCapped: boolean;
 };
+
+const CLOUD_LONG_AUDIO_BACKEND_THRESHOLD_SEC = 2 * 60 * 60;
+
+function buildAudioReportFile(file: File, source: string): AudioErrorReportFile {
+  return {
+    name: file.name,
+    sizeBytes: file.size,
+    mimeType: file.type || "application/octet-stream",
+    source,
+  };
+}
+
+function buildUploadFileFromCache(cached: CachedSegment, staged: CloudStagedSegment, useRawFile: boolean): File | null {
+  if (useRawFile) {
+    if (!cached.rawBlob || cached.rawBlob.size <= 0) {
+      return null;
+    }
+    return new File([cached.rawBlob], cached.rawName ?? staged.fileName, {
+      type: cached.rawMimeType || cached.rawBlob.type || staged.mimeType,
+      lastModified: Date.now(),
+    });
+  }
+
+  return new File([cached.blob], cached.name ?? staged.fileName, {
+    type: cached.blob.type || staged.mimeType,
+    lastModified: Date.now(),
+  });
+}
 
 export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter_sante") {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -259,8 +296,13 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
           : appendedText;
       }
 
-      const nextChunkGroup = buildCloudTranscriptionChunkGroup(nextSegments, chunkGroupsRef.current.length);
-      const nextChunkGroups = [...chunkGroupsRef.current, nextChunkGroup];
+      const groupedNextSegments = groupCloudTranscriptionSegments(nextSegments);
+      const nextChunkGroups = [
+        ...chunkGroupsRef.current,
+        ...groupedNextSegments.map((group, offset) =>
+          buildCloudTranscriptionChunkGroup(group.segments, chunkGroupsRef.current.length + offset, group.chunkId)
+        ),
+      ];
       chunkGroupsRef.current = nextChunkGroups;
 
       setSegments(nextAllSegments);
@@ -650,6 +692,177 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     }
   }, [appendCloudSegments, hfApiToken, persistCloudTune, resolvedSettings, selectedFile]);
 
+  const runDemeterBackendDirectTranscription = useCallback(async (args: {
+    runId: number;
+    settings: ReturnType<typeof useAsrStore.getState>;
+    metadata: AudioMetadata;
+    telemetry: TelemetryCollector;
+  }) => {
+    const { runId, settings, metadata, telemetry } = args;
+    const sourceFile = selectedFile;
+    if (!sourceFile) {
+      throw new Error("Fichier audio manquant");
+    }
+
+    const demeterModel = cloudDemeterModel.trim() || "voxtral-mini-latest";
+    const diarizationEnabled = cloudDemeterDiarizationEnabled;
+    const sourceDurationSec = Number.isFinite(metadata.durationSec) ? Math.max(0, metadata.durationSec) : 0;
+    const shouldAbort = () => stopRequestedRef.current || runIdRef.current !== runId;
+    let backendDiarizationEffective = diarizationEnabled;
+    let backendDiarizationFallbackChunks = 0;
+
+    logger.info("[cloud][demeter] long audio routed to backend", {
+      runId,
+      fileName: sourceFile.name,
+      mimeType: sourceFile.type || "application/octet-stream",
+      sizeBytes: sourceFile.size,
+      durationSec: sourceDurationSec,
+      thresholdSec: CLOUD_LONG_AUDIO_BACKEND_THRESHOLD_SEC,
+    });
+    telemetry.logEvent("LOG_INFO", {
+      context: "cloud_demeter_long_audio_backend_direct",
+      provider: "demeter_sante",
+      runId,
+      fileName: sourceFile.name,
+      mimeType: sourceFile.type || "application/octet-stream",
+      sizeBytes: sourceFile.size,
+      durationSec: sourceDurationSec,
+      thresholdSec: CLOUD_LONG_AUDIO_BACKEND_THRESHOLD_SEC,
+    });
+
+    setStatus("uploading");
+    setStatusDetail("Audio long, traitement backend");
+    setProgress(0.5);
+    setPreparedUpload({
+      provider: "demeter_sante",
+      fileName: sourceFile.name,
+      mimeType: sourceFile.type || "application/octet-stream",
+      sizeBytes: sourceFile.size,
+      chunkIndex: 1,
+      totalChunks: 1,
+    });
+
+    const onDiarizationResolved = ({
+      requestedDiarize,
+      effectiveDiarize,
+      fallbackApplied,
+    }: {
+      requestedDiarize: boolean;
+      effectiveDiarize: boolean;
+      fallbackApplied: boolean;
+    }) => {
+      if (fallbackApplied) {
+        backendDiarizationFallbackChunks += 1;
+      }
+      if (!effectiveDiarize) {
+        backendDiarizationEffective = false;
+      }
+      const currentHeader = useAsrStore.getState().runExportHeaders.cloud;
+      if (!currentHeader || currentHeader.mode !== "cloud") return;
+      settings.setRunExportHeader("cloud", {
+        ...currentHeader,
+        settings: {
+          ...currentHeader.settings,
+          cloud: {
+            ...currentHeader.settings.cloud,
+            mistralDiarizationRequested: requestedDiarize,
+            mistralDiarizationEffective: backendDiarizationEffective,
+            mistralDiarizationFallbackChunks: backendDiarizationFallbackChunks,
+          },
+        },
+      });
+    };
+
+    telemetry.startTimer("cloud_transcribe");
+    try {
+      const output = await transcribeWithDemeterSante(
+        {
+          file: sourceFile,
+          diarize: diarizationEnabled,
+          model: demeterModel,
+          durationSec: sourceDurationSec,
+          backendDirect: true,
+          onDiarizationResolved,
+        },
+        telemetry
+      );
+
+      telemetry.stopTimer("cloud_transcribe");
+
+      if (shouldAbort()) {
+        logger.info("[cloud][demeter] run aborted after backend direct inference", { runId });
+        return;
+      }
+
+      const parsedSegments = parseMistralOutput(output, {
+        offsetSec: 0,
+        startIndex: 0,
+        chunkId: "demeter-backend-direct",
+        fallbackDurationSec: sourceDurationSec,
+        includeWordTimestamps: settings.cloudEnableWordTimestamps,
+      });
+      const parsedChunkGroups = groupCloudTranscriptionSegments(parsedSegments);
+      for (const group of parsedChunkGroups) {
+        const summary = summarizeSegments(group.segments);
+        telemetry.logEvent("CLOUD_SEGMENTS_READY", {
+          provider: "demeter_sante",
+          routeMode: "backend_direct",
+          segmentIndex: group.chunkIndex,
+          totalSegments: parsedChunkGroups.length,
+          count: summary.count,
+          totalDurationSec: summary.totalDurationSec,
+          textChars: summary.textChars,
+          tokenCount: summary.tokenCount,
+        });
+      }
+      appendCloudSegments(parsedSegments, "demeter_sante", metadata);
+
+      const summary = summarizeSegments(parsedSegments);
+      logger.debug("[cloud][demeter] backend direct segments ready", {
+        ...summary,
+        provider: "demeter_sante",
+        routeMode: "backend_direct",
+      });
+
+      setProgress(1);
+      setStatus("done");
+      setStatusDetail("Transcription terminée");
+      logger.info("[cloud][demeter] backend direct transcription done", {
+        ...summary,
+        provider: "demeter_sante",
+        routeMode: "backend_direct",
+      });
+    } catch (error) {
+      telemetry.stopTimer("cloud_transcribe");
+      if (
+        stopRequestedRef.current ||
+        runIdRef.current !== runId ||
+        (error instanceof Error && error.name === "AbortError")
+      ) {
+        throw error;
+      }
+      const reportTraceId =
+        error && typeof error === "object" && "traceId" in error && typeof (error as { traceId?: unknown }).traceId === "string"
+          ? ((error as { traceId?: string }).traceId ?? "").trim()
+          : undefined;
+      await sendFrontendAudioErrorReport({
+        provider: "demeter_sante",
+        backendError: error,
+        originalFile: buildAudioReportFile(sourceFile, "source"),
+        processedFile: buildAudioReportFile(sourceFile, "backend_direct"),
+        rawFile: null,
+        retry: {
+          attempted: false,
+          succeeded: false,
+          usedRawFile: false,
+        },
+        telemetry,
+        traceId: reportTraceId,
+      });
+      throw error;
+    }
+  }, [appendCloudSegments, cloudDemeterDiarizationEnabled, cloudDemeterModel, selectedFile]);
+
   const runMistralTranscription = useCallback(async (args: {
     runId: number;
     settings: ReturnType<typeof useAsrStore.getState>;
@@ -776,11 +989,12 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
           });
           continue;
         }
-        const uploadFile = new File([cached.blob], cached.name ?? staged.fileName, {
-          type: cached.blob.type || staged.mimeType,
-          lastModified: Date.now(),
-        });
-        const chunkDurationSec = Math.max(0, staged.endSec - staged.startSec);
+	        const uploadFile = new File([cached.blob], cached.name ?? staged.fileName, {
+	          type: cached.blob.type || staged.mimeType,
+	          lastModified: Date.now(),
+	        });
+	        const rawUploadFile = buildUploadFileFromCache(cached, staged, true);
+	        const chunkDurationSec = Math.max(0, staged.endSec - staged.startSec);
 
         setPreparedUpload({
           provider: isDemeter ? "demeter_sante" : "mistral",
@@ -837,12 +1051,14 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         };
 
         let output: unknown;
-        try {
+	        try {
           output = isDemeter
             ? await transcribeWithDemeterSante(
                 {
                   file: uploadFile,
                   diarize: diarizationEnabled,
+                  model,
+                  durationSec: chunkDurationSec,
                   onDiarizationResolved,
                 },
                 telemetry
@@ -856,59 +1072,187 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
                   diarize: diarizationEnabled,
                   onDiarizationResolved,
                 },
-                telemetry
-              );
-        } catch (error) {
-          telemetry.stopTimer("cloud_transcribe");
+	                telemetry
+	              );
+	        } catch (error) {
+	          const splitSegments = splitCloudSegmentWindow(staged);
+	          const rawRetryRequested = shouldRetryRawAudioUpload(error);
+	          const reportTraceId =
+	            error && typeof error === "object" && "traceId" in error && typeof (error as { traceId?: unknown }).traceId === "string"
+	              ? ((error as { traceId?: string }).traceId ?? "").trim()
+	              : undefined;
+	          const retrySummary = {
+	            provider,
+	            model,
+	            segmentIndex: staged.index,
+	            startSec: staged.startSec,
+	            endSec: staged.endSec,
+	            chunkDurationSec,
+	            processedSizeBytes: uploadFile.size,
+	            rawSizeBytes: rawUploadFile?.size ?? 0,
+	            message: describeRetryableCloudError(error),
+	          };
+	          let rawRetryRecovered = false;
 
-          const splitSegments = splitCloudSegmentWindow(staged);
-          if (splitSegments && shouldRetryMistralChunkBySplitting(error)) {
-            logger.warn(`[cloud][${providerLogKey}] chunk timed out upstream, splitting and restaging`, {
-              provider,
-              model,
-              segmentIndex: staged.index,
-              startSec: staged.startSec,
-              endSec: staged.endSec,
-              chunkDurationSec,
-              sizeBytes: uploadFile.size,
-              pendingSegments: stagedSegments.length,
-              message: describeRetryableCloudError(error),
-            });
-            telemetry.logEvent("LOG_WARN", {
-              context: "cloud_mistral_chunk_split_timeout",
-              provider,
-              model,
-              segmentIndex: staged.index,
-              startSec: staged.startSec,
-              endSec: staged.endSec,
-              chunkDurationSec,
-              sizeBytes: uploadFile.size,
-              pendingSegments: stagedSegments.length,
-              message: describeRetryableCloudError(error),
-            });
-            await deleteSegment(sessionId, staged.index);
-            const restageResult = await stageCloudSegments({
-              sessionId,
-              sourceFile,
-              provider: isDemeter ? "demeter_sante" : "mistral",
-              segments: splitSegments,
-              preprocessSettings,
-              telemetry,
-              maxUploadBytes: MISTRAL_MAX_UPLOAD_BYTES,
-              startIndex: nextStagedIndex,
-              shouldAbort,
-            });
-            nextStagedIndex = restageResult.nextIndex;
-            if (restageResult.aborted || shouldAbort()) {
-              logger.info(`[cloud][${providerLogKey}] run aborted during split restaging`, { runId });
-              return;
-            }
-            stagedSegments.splice(stagedPosition + 1, 0, ...restageResult.stagedSegments);
-            continue;
-          }
+	          if (rawRetryRequested) {
+	            const retryFile = rawUploadFile;
+	            if (retryFile) {
+	              logger.warn(`[cloud][${providerLogKey}] audio upload rejected, retrying with raw chunk`, retrySummary);
+	              telemetry.logEvent("LOG_WARN", {
+	                context: "cloud_audio_raw_retry",
+	                ...retrySummary,
+	                retryAttempted: true,
+	              });
+	              setPreparedUpload({
+	                provider: isDemeter ? "demeter_sante" : "mistral",
+	                fileName: retryFile.name,
+	                mimeType: retryFile.type,
+	                sizeBytes: retryFile.size,
+	                chunkIndex: sentChunkCount + 1,
+	                totalChunks: stagedSegments.length,
+	              });
 
-          throw error;
-        }
+	              let rawRetrySucceeded = false;
+	              let rawRetryError: unknown = error;
+	              try {
+                output = isDemeter
+                  ? await transcribeWithDemeterSante(
+                      {
+                        file: retryFile,
+                        diarize: diarizationEnabled,
+                        model,
+                        durationSec: chunkDurationSec,
+                        onDiarizationResolved,
+                      },
+                      telemetry
+                    )
+	                  : await transcribeWithMistral(
+	                      {
+	                        apiUrl,
+	                        apiKey,
+	                        model,
+	                        file: retryFile,
+	                        diarize: diarizationEnabled,
+	                        onDiarizationResolved,
+	                      },
+	                      telemetry
+	                    );
+	                rawRetrySucceeded = true;
+	              } catch (retryError) {
+	                rawRetryError = retryError;
+	              }
+
+	              await sendFrontendAudioErrorReport({
+	                provider,
+	                backendError: error,
+	                originalFile: buildAudioReportFile(sourceFile, "source"),
+	                processedFile: buildAudioReportFile(uploadFile, "processed"),
+	                rawFile: buildAudioReportFile(retryFile, "raw"),
+	                retry: {
+	                  attempted: true,
+	                  succeeded: rawRetrySucceeded,
+	                  usedRawFile: true,
+	                },
+	                telemetry,
+	                traceId: reportTraceId,
+	              });
+
+	              if (rawRetrySucceeded) {
+	                logger.info(`[cloud][${providerLogKey}] raw chunk retry succeeded`, {
+	                  provider,
+	                  model,
+	                  segmentIndex: staged.index,
+	                  chunkDurationSec,
+	                  processedSizeBytes: uploadFile.size,
+	                  rawSizeBytes: retryFile.size,
+	                });
+	                rawRetryRecovered = true;
+	              } else {
+	                telemetry.stopTimer("cloud_transcribe");
+	                throw rawRetryError;
+	              }
+	            } else {
+	              logger.warn(`[cloud][${providerLogKey}] audio retry requested but raw chunk is unavailable`, {
+	                provider,
+	                model,
+	                segmentIndex: staged.index,
+	                chunkDurationSec,
+	                processedSizeBytes: uploadFile.size,
+	                message: describeRetryableCloudError(error),
+	              });
+	              telemetry.logEvent("LOG_WARN", {
+	                context: "cloud_audio_raw_retry_unavailable",
+	                ...retrySummary,
+	                retryAttempted: false,
+	              });
+	              await sendFrontendAudioErrorReport({
+	                provider,
+	                backendError: error,
+	                originalFile: buildAudioReportFile(sourceFile, "source"),
+	                processedFile: buildAudioReportFile(uploadFile, "processed"),
+	                rawFile: null,
+	                retry: {
+	                  attempted: false,
+	                  succeeded: false,
+	                  usedRawFile: false,
+	                },
+	                telemetry,
+	                traceId: reportTraceId,
+	              });
+	            }
+	          }
+
+	          if (!rawRetryRecovered) {
+	            if (splitSegments && shouldRetryMistralChunkBySplitting(error)) {
+	              logger.warn(`[cloud][${providerLogKey}] chunk timed out upstream, splitting and restaging`, {
+	                provider,
+	                model,
+	                segmentIndex: staged.index,
+	                startSec: staged.startSec,
+	                endSec: staged.endSec,
+	                chunkDurationSec,
+	                sizeBytes: uploadFile.size,
+	                pendingSegments: stagedSegments.length,
+	                message: describeRetryableCloudError(error),
+	              });
+	              telemetry.logEvent("LOG_WARN", {
+	                context: "cloud_mistral_chunk_split_timeout",
+	                provider,
+	                model,
+	                segmentIndex: staged.index,
+	                startSec: staged.startSec,
+	                endSec: staged.endSec,
+	                chunkDurationSec,
+	                sizeBytes: uploadFile.size,
+	                pendingSegments: stagedSegments.length,
+	                message: describeRetryableCloudError(error),
+	              });
+	              telemetry.stopTimer("cloud_transcribe");
+	              await deleteSegment(sessionId, staged.index);
+	              const restageResult = await stageCloudSegments({
+	                sessionId,
+	                sourceFile,
+	                provider: isDemeter ? "demeter_sante" : "mistral",
+	                segments: splitSegments,
+	                preprocessSettings,
+	                telemetry,
+	                maxUploadBytes: MISTRAL_MAX_UPLOAD_BYTES,
+	                startIndex: nextStagedIndex,
+	                shouldAbort,
+	              });
+	              nextStagedIndex = restageResult.nextIndex;
+	              if (restageResult.aborted || shouldAbort()) {
+	                logger.info(`[cloud][${providerLogKey}] run aborted during split restaging`, { runId });
+	                return;
+	              }
+	              stagedSegments.splice(stagedPosition + 1, 0, ...restageResult.stagedSegments);
+	              continue;
+	            }
+
+	            telemetry.stopTimer("cloud_transcribe");
+	            throw error;
+	          }
+	        }
 
         telemetry.stopTimer("cloud_transcribe");
 
@@ -995,26 +1339,63 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       toast("Une transcription cloud est déjà en cours.");
       return;
     }
-    const runId = runIdRef.current + 1;
-    runIdRef.current = runId;
-    activeTranscriptProviderRef.current = provider;
-    settings.clearSpeakerAssignments("cloud");
-    clearSessionTranscriptMemory("cloud");
-    resetCloudTranscriptBuffers();
-    setProgress(0);
-    setStatus("preprocessing");
-    setStatusDetail("Préparation des segments");
-    setIsTranscribing(true);
-    setStopRequested(false);
-
+    const currentFile = selectedFile;
     const telemetry = new TelemetryCollector();
     telemetryRef.current = telemetry;
     registerTelemetry(telemetry);
     setGlobalTelemetrySummary(null);
     telemetry.startTimer("cloud_total");
+    settings.clearSpeakerAssignments("cloud");
+    clearSessionTranscriptMemory("cloud");
+    resetCloudTranscriptBuffers();
+    setProgress(0);
+    setStopRequested(false);
+
+    if (currentFile.size === 0) {
+      const emptyAudioMessage = "Fichier audio vide";
+      logger.warn("[cloud] empty audio source file", {
+        provider,
+        fileName: currentFile.name,
+        mimeType: currentFile.type || "application/octet-stream",
+        sizeBytes: currentFile.size,
+      });
+      telemetry.recordAlert("CLOUD_AUDIO_FILE_EMPTY", {
+        provider,
+        fileName: currentFile.name,
+        mimeType: currentFile.type || "application/octet-stream",
+        sizeBytes: currentFile.size,
+      });
+      setStatus("error");
+      setStatusDetail(emptyAudioMessage);
+      await sendFrontendAudioErrorReport({
+        provider,
+        backendError: {
+          status: 400,
+          code: "empty_audio_file",
+          message: emptyAudioMessage,
+          path: isDemeter ? "/providers/demeter-sante/audio/transcriptions" : "/v1/audio/transcriptions",
+          method: "POST",
+        },
+        originalFile: buildAudioReportFile(currentFile, "source"),
+        processedFile: buildAudioReportFile(currentFile, "processed"),
+        rawFile: null,
+        retry: {
+          attempted: false,
+          succeeded: false,
+          usedRawFile: false,
+        },
+        telemetry,
+      });
+      return;
+    }
+
+    const runId = runIdRef.current + 1;
+    runIdRef.current = runId;
+    activeTranscriptProviderRef.current = provider;
+    setIsTranscribing(true);
 
     try {
-      const metadata = audioMetadata ?? await probeAudioMetadata(selectedFile);
+      const metadata = audioMetadata ?? await probeAudioMetadata(currentFile);
       if (!audioMetadata) {
         setAudioMetadata(metadata);
       }
@@ -1083,6 +1464,15 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         preprocessOverlapSec: settings.cloudPreprocessOverlapSec,
       };
 
+      const backendDirectRoute =
+        isDemeter && Number.isFinite(metadata.durationSec) && metadata.durationSec > CLOUD_LONG_AUDIO_BACKEND_THRESHOLD_SEC;
+
+      const backendDemeterChunking = resolveEffectiveMistralChunking(
+        settings.cloudDemeterModel,
+        settings.cloudMistralChunkDurationSec,
+        settings.cloudMistralOverlapSec
+      );
+
       const cloudSettingsForExport = isWhisper
         ? {
             provider: "whisper",
@@ -1132,22 +1522,12 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
               mistralDiarizationRequested: settings.cloudDemeterDiarizationEnabled,
               mistralDiarizationEffective: settings.cloudDemeterDiarizationEnabled,
               mistralDiarizationFallbackChunks: 0,
-              chunkingMode: "duration-first-with-fallback-split",
-              chunkDurationSec: resolveEffectiveMistralChunking(
-                settings.cloudDemeterModel,
-                settings.cloudMistralChunkDurationSec,
-                settings.cloudMistralOverlapSec
-              ).effectiveDurationSec,
-              overlapSec: resolveEffectiveMistralChunking(
-                settings.cloudDemeterModel,
-                settings.cloudMistralChunkDurationSec,
-                settings.cloudMistralOverlapSec
-              ).effectiveOverlapSec,
-              modelMaxChunkDurationSec: resolveEffectiveMistralChunking(
-                settings.cloudDemeterModel,
-                settings.cloudMistralChunkDurationSec,
-                settings.cloudMistralOverlapSec
-              ).modelMaxDurationSec,
+              chunkingMode: backendDirectRoute ? "backend_direct" : "duration-first-with-fallback-split",
+              backendDirectAudioThresholdSec: CLOUD_LONG_AUDIO_BACKEND_THRESHOLD_SEC,
+              backendDirectAudioUsed: backendDirectRoute,
+              chunkDurationSec: backendDemeterChunking.effectiveDurationSec,
+              overlapSec: backendDemeterChunking.effectiveOverlapSec,
+              modelMaxChunkDurationSec: backendDemeterChunking.modelMaxDurationSec,
               maxChunkSizeBytes: MISTRAL_MAX_UPLOAD_BYTES,
               includeWordTimestamps: settings.cloudEnableWordTimestamps,
               contextUsed: false,
@@ -1190,7 +1570,36 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         return;
       }
 
+      if (backendDirectRoute) {
+        setStatus("uploading");
+        setStatusDetail("Audio long, traitement backend");
+        setPreparedUpload({
+          provider: "demeter_sante",
+          fileName: currentFile.name,
+          mimeType: currentFile.type || "application/octet-stream",
+          sizeBytes: currentFile.size,
+          chunkIndex: 1,
+          totalChunks: 1,
+        });
+        await runDemeterBackendDirectTranscription({
+          runId,
+          settings,
+          metadata,
+          telemetry,
+        });
+        trackBackendActivityEvent({
+          eventKind: "transcription",
+          sourceMode: resolveCloudActivitySourceMode(provider),
+          provider,
+          status: "success",
+          meta: { source: "cloud", runId, routeMode: "backend_direct" },
+        });
+        return;
+      }
+
       if (isMistral || isDemeter) {
+        setStatus("preprocessing");
+        setStatusDetail("Préparation des segments");
         await runMistralTranscription({
           runId,
           settings,
@@ -1263,6 +1672,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     isResettingSession,
     provider,
     registerTelemetry,
+    runDemeterBackendDirectTranscription,
     runMistralTranscription,
     runWhisperTranscription,
     resolvedSettings,

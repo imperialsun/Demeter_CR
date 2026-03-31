@@ -52,4 +52,30 @@ describe("parseMistralOutput", () => {
     expect(segments[0].end).toBe(12);
     expect(segments[0].words).toBeUndefined();
   });
+
+  it("preserves chunk ids from raw mistral segments when available", () => {
+    const output = {
+      segments: [
+        {
+          text: "segment backend",
+          start: 1,
+          end: 2,
+          chunk_id: "demeter-backend-001",
+        },
+      ],
+    };
+
+    const segments = parseMistralOutput(output, {
+      offsetSec: 10,
+      startIndex: 0,
+      chunkId: "fallback-chunk",
+      fallbackDurationSec: 5,
+      includeWordTimestamps: false,
+    });
+
+    expect(segments).toHaveLength(1);
+    expect(segments[0].chunkId).toBe("demeter-backend-001");
+    expect(segments[0].start).toBe(11);
+    expect(segments[0].end).toBe(12);
+  });
 });
