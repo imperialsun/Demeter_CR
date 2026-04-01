@@ -86,7 +86,6 @@ function CloudUploadPage() {
     selectedFile,
     previewUrl,
     audioMetadata,
-    segments,
     chunkSummaries,
     telemetrySummary,
     status,
@@ -100,6 +99,8 @@ function CloudUploadPage() {
     startTranscription,
     stopTranscription,
     resetTranscriptionSession,
+    loadChunkSegments,
+    loadAllSegmentsForExport,
     updateSegmentText,
     updateSegmentSpeaker,
   } = useCloudTranscription(provider);
@@ -119,16 +120,14 @@ function CloudUploadPage() {
     telemetry?.logEvent?.("CLOUD_UPLOAD_PAGE_VIEW", { route: "/cloudupload", mode: "cloud" });
   }, [telemetry]);
 
+  const totalSegmentCount = useMemo(
+    () => chunkSummaries.reduce((count, chunk) => count + chunk.segmentCount, 0),
+    [chunkSummaries]
+  );
   const activeChunk = useMemo(
     () => chunkSummaries.find((chunk) => chunk.chunkId === activeChunkId) ?? null,
     [activeChunkId, chunkSummaries]
   );
-  const activeChunkSegments = useMemo(() => {
-    if (!activeChunk) {
-      return [];
-    }
-    return segments.filter((segment) => segment.chunkId === activeChunk.chunkId);
-  }, [activeChunk, segments]);
   const activeChunkAutoPlayRequestId =
     activeChunk && autoPlayRequest?.chunkId === activeChunk.chunkId ? autoPlayRequest.requestId : null;
 
@@ -139,7 +138,7 @@ function CloudUploadPage() {
     measureElement: measureChunkElement,
   } = useVirtualizedList({
     items: chunkSummaries,
-    estimateSize: (index) => (chunkSummaries[index]?.chunkId === activeChunkId ? 760 : 196),
+    estimateSize: () => 196,
     getItemKey: (chunk) => chunk.chunkId,
     overscan: 2,
     fallbackHeight: 640,
@@ -164,6 +163,13 @@ function CloudUploadPage() {
   const handleAutoPlayRequestConsumed = useCallback(() => {
     setAutoPlayRequest(null);
   }, []);
+
+  useEffect(() => {
+    if (!cloudShowSegments) {
+      setActiveChunkId(null);
+      setAutoPlayRequest(null);
+    }
+  }, [cloudShowSegments]);
 
   useEffect(() => {
     if (!chunkSummaries.length) {
@@ -194,18 +200,18 @@ function CloudUploadPage() {
         route: "/cloudupload",
         provider,
         chunkCount: chunkSummaries.length,
-        segmentCount: segments.length,
+        segmentCount: totalSegmentCount,
         memorySnapshot,
       });
       telemetry?.snapshotMemory?.("CLOUD_RESULTS_RENDERED");
       telemetry?.logEvent?.("RAM_USAGE", {
         context: "cloud_results_rendered",
         chunkCount: chunkSummaries.length,
-        segmentCount: segments.length,
+        segmentCount: totalSegmentCount,
         memorySnapshot,
       });
     }
-  }, [chunkSummaries.length, provider, segments.length, telemetry]);
+  }, [chunkSummaries.length, provider, telemetry, totalSegmentCount]);
 
   useEffect(() => {
     if (!activeChunk) {
@@ -227,6 +233,7 @@ function CloudUploadPage() {
       }
       return;
     }
+
     if (lastOpenedChunkIdRef.current === activeChunk.chunkId) {
       return;
     }
@@ -234,10 +241,10 @@ function CloudUploadPage() {
     if (lastOpenedChunkIdRef.current) {
       const memorySnapshot = readBrowserMemorySnapshot();
       logger.info("[cloud][ui] chunk detail closed", {
-          route: "/cloudupload",
-          chunkId: lastOpenedChunkIdRef.current,
-          memorySnapshot,
-        });
+        route: "/cloudupload",
+        chunkId: lastOpenedChunkIdRef.current,
+        memorySnapshot,
+      });
       telemetry?.snapshotMemory?.(`CLOUD_CHUNK_CLOSE_${lastOpenedChunkIdRef.current}`);
       telemetry?.logEvent?.("RAM_USAGE", {
         context: "cloud_chunk_close",
@@ -245,14 +252,15 @@ function CloudUploadPage() {
         chunkCount: chunkSummaries.length,
         memorySnapshot,
       });
-      }
+    }
+
     lastOpenedChunkIdRef.current = activeChunk.chunkId;
     const memorySnapshot = readBrowserMemorySnapshot();
     logger.info("[cloud][ui] chunk detail opened", {
       route: "/cloudupload",
       chunkId: activeChunk.chunkId,
       chunkCount: chunkSummaries.length,
-      segmentCount: activeChunkSegments.length,
+      segmentCount: activeChunk.segmentCount,
       wordTimestampsEnabled: cloudEnableWordTimestamps,
       showSegmentConfidence: cloudShowSegmentConfidence,
       memorySnapshot,
@@ -262,12 +270,11 @@ function CloudUploadPage() {
       context: "cloud_chunk_open",
       chunkId: activeChunk.chunkId,
       chunkCount: chunkSummaries.length,
-      segmentCount: activeChunkSegments.length,
+      segmentCount: activeChunk.segmentCount,
       memorySnapshot,
     });
   }, [
     activeChunk,
-    activeChunkSegments.length,
     chunkSummaries.length,
     cloudEnableWordTimestamps,
     cloudShowSegmentConfidence,
@@ -304,8 +311,10 @@ function CloudUploadPage() {
   }, [status]);
   const isWhisperTokenMissing = isWhisper && hfApiToken.trim().length === 0;
   const isMistralTokenMissing = isMistral && mistralApiKey.trim().length === 0;
-  const canStartTranscription = hasAllowedProvider && isCurrentProviderAllowed && !isWhisperTokenMissing && !isMistralTokenMissing;
+  const canStartTranscription =
+    hasAllowedProvider && isCurrentProviderAllowed && !isWhisperTokenMissing && !isMistralTokenMissing;
   const percent = Math.round(progress * 100);
+
   return (
     <div className="space-y-8">
       <header className="space-y-2">
@@ -523,68 +532,42 @@ function CloudUploadPage() {
 
         <div className="space-y-4">
           <ExportButtons
-            segments={segments}
+            segmentCount={totalSegmentCount}
+            loadSegments={loadAllSegmentsForExport}
             telemetry={telemetrySummary ?? undefined}
             showVtt={cloudShowExportVtt}
             showSrt={cloudShowExportSrt}
             showJson={cloudShowExportJson}
             showTelemetry={cloudShowExportTelemetry}
-            showDocx={status === "done" && segments.length > 0}
+            showDocx={status === "done" && totalSegmentCount > 0}
             mode="cloud"
           />
 
-      {cloudShowSegments ? (
+          {cloudShowSegments ? (
             chunkSummaries.length ? (
-              <div className="space-y-4">
-                {!activeChunk ? (
-                  <Card>
-                    <CardContent className="py-6 text-sm text-muted-foreground">
-                      Sélectionnez une partie pour ouvrir le lecteur partagé, les détails de transcription et
-                      l&apos;édition des speakers sans déplacer la carte dans la liste.
-                    </CardContent>
-                  </Card>
-                ) : null}
-
-                <div ref={chunkListRef} className="h-[min(72vh,48rem)] overflow-auto rounded-lg border bg-background/50">
-                  <div className="relative min-w-full" style={{ height: chunkVirtualTotalSize }}>
-                    {chunkVirtualItems.map((virtualRow) => {
-                      const chunk = chunkSummaries[virtualRow.index];
-                      if (!chunk) {
-                        return null;
-                      }
-                      const isActive = activeChunkId === chunk.chunkId;
-                      return (
-                        <div
-                          key={chunk.chunkId}
-                          ref={measureChunkElement}
-                          data-index={virtualRow.index}
+              <div
+                ref={chunkListRef}
+                className="h-[min(72vh,48rem)] overflow-auto"
+              >
+                <div className="relative min-w-full" style={{ height: chunkVirtualTotalSize }}>
+                  {chunkVirtualItems.map((virtualRow) => {
+                    const chunk = chunkSummaries[virtualRow.index];
+                    if (!chunk) {
+                      return null;
+                    }
+                    const isActive = activeChunkId === chunk.chunkId;
+                    return (
+                      <div
+                        key={chunk.chunkId}
+                        ref={measureChunkElement}
+                        data-index={virtualRow.index}
                         className="absolute left-0 top-0 w-full px-4 py-4"
-                          style={{ transform: `translateY(${virtualRow.start}px)` }}
-                        >
-                          <CloudChunkCard chunk={chunk} isActive={isActive} onOpen={handleOpenChunk} onPlay={handlePlayChunk}>
-                            {isActive && activeChunk ? (
-                              <CloudChunkDetailsPanel
-                                key={activeChunk.chunkId}
-                                chunk={activeChunk}
-                                segments={activeChunkSegments}
-                                file={selectedFile}
-                                previewUrl={previewUrl}
-                                metadata={audioMetadata}
-                                enableWordTimestamps={cloudEnableWordTimestamps}
-                                showSegmentConfidence={cloudShowSegmentConfidence}
-                                segmentEditingDisabled={isResettingSession || isTranscribing}
-                                autoPlayRequestId={activeChunkAutoPlayRequestId}
-                                onAutoPlayRequestConsumed={handleAutoPlayRequestConsumed}
-                                onSegmentTextChange={updateSegmentText}
-                                onSegmentSpeakerChange={updateSegmentSpeaker}
-                                onClose={handleCloseChunk}
-                              />
-                            ) : null}
-                          </CloudChunkCard>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        style={{ transform: `translateY(${virtualRow.start}px)` }}
+                      >
+                        <CloudChunkCard chunk={chunk} isActive={isActive} onOpen={handleOpenChunk} onPlay={handlePlayChunk} />
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ) : (
@@ -596,9 +579,31 @@ function CloudUploadPage() {
               </Card>
             )
           ) : null}
-
         </div>
       </div>
+
+      {activeChunk ? (
+        <CloudChunkDetailsPanel
+          key={activeChunk.chunkId}
+          chunk={activeChunk}
+          loadChunkSegments={loadChunkSegments}
+          file={selectedFile}
+          previewUrl={previewUrl}
+          metadata={audioMetadata}
+          enableWordTimestamps={cloudEnableWordTimestamps}
+          showSegmentConfidence={cloudShowSegmentConfidence}
+          segmentEditingDisabled={isResettingSession || isTranscribing}
+          autoPlayRequestId={activeChunkAutoPlayRequestId}
+          onAutoPlayRequestConsumed={handleAutoPlayRequestConsumed}
+          onSegmentTextChange={(segmentIndex, text) => {
+            void updateSegmentText(activeChunk.chunkId, segmentIndex, text);
+          }}
+          onSegmentSpeakerChange={(segmentIndex, speakerId) => {
+            void updateSegmentSpeaker(activeChunk.chunkId, segmentIndex, speakerId);
+          }}
+          onClose={handleCloseChunk}
+        />
+      ) : null}
     </div>
   );
 }

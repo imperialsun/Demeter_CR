@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import '@testing-library/jest-dom';
+import { afterEach } from "vitest";
 
 // Global mocks and helpers for Vitest + Testing Library
 
@@ -42,3 +43,9 @@ if (typeof window !== 'undefined') {
     };
   }
 }
+
+afterEach(() => {
+  if (typeof window !== "undefined" && typeof window.sessionStorage?.clear === "function") {
+    window.sessionStorage.clear();
+  }
+});

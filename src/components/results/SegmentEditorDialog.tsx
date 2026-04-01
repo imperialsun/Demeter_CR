@@ -62,14 +62,14 @@ export function SegmentEditorDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" onClick={onCancel}>
+    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4" onClick={onCancel}>
       <div className="absolute inset-0 bg-black/55" aria-hidden="true" />
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
-        className="relative z-[61] w-full max-w-2xl rounded-lg border bg-card p-6 shadow-2xl"
+        className="relative z-[91] w-full max-w-2xl rounded-lg border bg-card p-6 shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <h3 id={titleId} className="text-lg font-semibold">

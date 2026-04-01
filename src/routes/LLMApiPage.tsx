@@ -36,7 +36,12 @@ import {
   hasSessionTranscriptContent,
   type SessionTranscriptMode,
 } from "@/lib/sessionTranscriptMemory";
-import { parseTranscriptFile, type ParsedTranscriptFile } from "@/lib/transcript/parseTranscriptFile";
+import {
+  parseTranscriptFile,
+  type ParsedTranscriptFile,
+  TRANSCRIPT_IMPORT_ACCEPT,
+  TRANSCRIPT_IMPORT_LABEL,
+} from "@/lib/transcript/parseTranscriptFile";
 import { estimateTokenCount } from "@/lib/tokens";
 import logger from "@/lib/logger";
 import { SESSION_ONLY_SECRET_NOTICE } from "@/lib/secret-storage-copy";
@@ -56,8 +61,6 @@ const LLM_MISTRAL_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sa
 const LLM_PROVIDER_FORBIDDEN_MESSAGE = "Accès refusé par vos permissions backend.";
 const LLM_PIPELINE_CONFIG_REQUIRED_MESSAGE =
   "Configuration pipeline incomplete: renseignez le Model ID dans Parametres > LLM Cloud.";
-const LLM_IMPORT_ACCEPT = ".txt,.srt,.vtt,.json,application/json,text/plain,text/vtt";
-
 type ImportedFileMeta = {
   name: string;
   format: ParsedTranscriptFile["format"];
@@ -155,6 +158,8 @@ function LLMApiPage() {
       .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
   }, [sessionTranscriptMemories]);
 
+  const effectiveTranscriptMode = selectedTranscriptMode ?? availableTranscripts[0]?.mode ?? null;
+
   useEffect(() => {
     if (availableTranscripts.length === 0) {
       if (selectedTranscriptMode !== null) {
@@ -178,8 +183,8 @@ function LLMApiPage() {
   }, [availableTranscripts, selectedTranscriptMode]);
 
   const activeTranscript = useMemo(
-    () => availableTranscripts.find((entry) => entry.mode === selectedTranscriptMode) ?? null,
-    [availableTranscripts, selectedTranscriptMode]
+    () => availableTranscripts.find((entry) => entry.mode === effectiveTranscriptMode) ?? null,
+    [availableTranscripts, effectiveTranscriptMode]
   );
 
   const transcriptionText = activeTranscript?.text ?? "";
@@ -308,12 +313,12 @@ function LLMApiPage() {
     }
 
     if (source === "transcription") {
-      if (!selectedTranscriptMode) {
+      if (!effectiveTranscriptMode) {
         setLlmApiStatus("error", "Aucune transcription disponible dans la session.");
         toast("Aucune transcription disponible dans la session.");
         return;
       }
-      await generateAll({ source: "transcription", transcriptMode: selectedTranscriptMode });
+      await generateAll({ source: "transcription", transcriptMode: effectiveTranscriptMode });
       return;
     }
 
@@ -682,7 +687,7 @@ function LLMApiPage() {
                     <div className="space-y-2">
                       <Label htmlFor="llm-session-transcript">Transcription à utiliser</Label>
                       <Select
-                        value={selectedTranscriptMode ?? availableTranscripts[0]?.mode}
+                        value={effectiveTranscriptMode ?? availableTranscripts[0]?.mode ?? ""}
                         onValueChange={handleTranscriptModeChange}
                       >
                         <SelectTrigger id="llm-session-transcript">
@@ -719,7 +724,7 @@ function LLMApiPage() {
                           <span className="font-medium text-foreground">{formatTokenCount(activeTranscript.tokenCount)}</span>{" "}
                           tokens.
                         </p>
-                        <p>Disponible tant que l'application n'est pas rechargée.</p>
+                        <p>Disponible pendant la session navigateur, même après changement de page ou rechargement.</p>
                       </>
                     ) : (
                       <p className="text-destructive">Aucune transcription active dans la session.</p>
@@ -731,7 +736,7 @@ function LLMApiPage() {
                   <div className="rounded-md border bg-muted/20 p-3">
                     <p className="text-sm font-medium text-foreground">Import de transcription</p>
                     <p className="text-xs text-muted-foreground">
-                      Importez un fichier texte pour alimenter la generation des comptes rendus.
+                      Importez un fichier texte ou DOCX pour alimenter la generation des comptes rendus.
                     </p>
                     <div className="mt-3 flex flex-wrap items-start gap-2 sm:flex-nowrap">
                       <Button type="button" onClick={triggerSourceFilePicker} disabled={isImporting || isBusy}>
@@ -748,13 +753,13 @@ function LLMApiPage() {
                       ref={sourceFileInputRef}
                       id="llm-source-file"
                       type="file"
-                      accept={LLM_IMPORT_ACCEPT}
+                      accept={TRANSCRIPT_IMPORT_ACCEPT}
                       onChange={handleSourceFileImport}
                       disabled={isImporting || isBusy}
                       className="sr-only"
                     />
                     <p className="mt-2 text-xs text-muted-foreground">
-                      Formats acceptes: .txt, .srt, .vtt, .json. Taille max: 50 Mo.
+                      Formats acceptes: {TRANSCRIPT_IMPORT_LABEL}. Taille max: 50 Mo.
                     </p>
                   </div>
                   {!manualText.trim() ? (

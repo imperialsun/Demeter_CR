@@ -53,7 +53,7 @@ describe("ExportButtons", () => {
     } as any);
   });
 
-  it("renders buttons based on store flags and triggers download", () => {
+  it("renders buttons based on store flags and triggers download", async () => {
     const downloadSpy = vi.spyOn(exportLib, "downloadBlob");
     const segments: any[] = [{ index: 0, start: 0, end: 1, text: "a", chunkId: "chunk-1", strategy: "chunks" }];
     const telemetry = { sessionId: "s1" } as any;
@@ -76,12 +76,17 @@ describe("ExportButtons", () => {
     fireEvent.click(json);
     fireEvent.click(tele);
 
-    expect(downloadSpy).toHaveBeenCalled();
-    expect((exportLib.serializeVtt as any)).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(downloadSpy).toHaveBeenCalled();
+      expect((exportLib.serializeVtt as any)).toHaveBeenCalled();
+      expect((exportLib.serializeSrt as any)).toHaveBeenCalled();
+      expect((exportLib.serializeSegmentsJson as any)).toHaveBeenCalled();
+      expect((exportLib.serializeTelemetry as any)).toHaveBeenCalledWith(telemetry, expect.any(Object));
+    });
+
     const vttCalls = (exportLib.serializeVtt as any).mock.calls;
     const lastVttPayload = vttCalls[vttCalls.length - 1][0];
     expect(lastVttPayload[0]).toMatchObject({ text: "a" });
-    expect((exportLib.serializeTelemetry as any)).toHaveBeenCalledWith(telemetry, expect.any(Object));
   });
 
   it("renders the docx export only when enabled and downloads the transcript docx", async () => {
@@ -164,7 +169,7 @@ describe("ExportButtons", () => {
     expect(screen.getByText("SRT")).toBeTruthy();
   });
 
-  it("uses run snapshot header so exports reflect effective run settings", () => {
+  it("serializes the upload header when exporting JSON", async () => {
     const segments: any[] = [{ index: 0, start: 0, end: 1, text: "a", chunkId: "chunk-1", strategy: "chunks" }];
     useAsrStore.setState({
       activePreset: "quality",
@@ -190,7 +195,9 @@ describe("ExportButtons", () => {
     render(<ExportButtons segments={segments} mode="upload" />);
     fireEvent.click(screen.getByText("JSON"));
 
-    expect((exportLib.serializeSegmentsJson as any)).toHaveBeenCalled();
+    await waitFor(() => {
+      expect((exportLib.serializeSegmentsJson as any)).toHaveBeenCalled();
+    });
     const jsonCalls = (exportLib.serializeSegmentsJson as any).mock.calls;
     const header = jsonCalls[jsonCalls.length - 1][1];
     expect(header.mode).toBe("upload");
@@ -243,7 +250,7 @@ describe("ExportButtons", () => {
     expect(screen.queryByRole("button", { name: /Assigner speakers/i })).toBeNull();
   });
 
-  it("applies speaker assignments before exporting json", () => {
+  it("applies speaker assignments before exporting json in cloud mode", async () => {
     const segments: any[] = [
       {
         index: 0,
@@ -278,9 +285,14 @@ describe("ExportButtons", () => {
       },
     } as any);
 
-    render(<ExportButtons segments={segments} mode="cloud" />);
+    const loadSegments = vi.fn(async () => segments);
+    render(<ExportButtons segmentCount={segments.length} loadSegments={loadSegments} mode="cloud" />);
 
     fireEvent.click(screen.getByText("JSON"));
+
+    await waitFor(() => {
+      expect(loadSegments).toHaveBeenCalledTimes(1);
+    });
 
     const jsonCalls = (exportLib.serializeSegmentsJson as any).mock.calls;
     const payload = jsonCalls[jsonCalls.length - 1][0];

@@ -16,6 +16,7 @@ import {
   createDefaultLocalModelSettingsByProfile,
   getLocalLlmModelProfile,
 } from "@/lib/llm/localModelCatalog";
+import { SESSION_TRANSCRIPT_MEMORIES_STORAGE_KEY } from "@/lib/sessionTranscriptMemory";
 
 describe("preset model resolution", () => {
   it("returns model id for regular presets", () => {
@@ -72,6 +73,7 @@ describe("llm provider config hydration", () => {
 
   beforeEach(() => {
     originalLocalStorage = window.localStorage;
+    window.sessionStorage.clear();
     const store: Record<string, string> = {};
     const localStorageMock = {
       getItem: (key: string) => (key in store ? store[key]! : null),
@@ -152,6 +154,35 @@ describe("llm provider config hydration", () => {
     for (const key of PERSISTED_SETTINGS_KEYS) {
       expect(serialized[key]).not.toBeUndefined();
     }
+  });
+
+  it("hydrates session transcript memories from sessionStorage", () => {
+    window.sessionStorage.setItem(
+      SESSION_TRANSCRIPT_MEMORIES_STORAGE_KEY,
+      JSON.stringify({
+        upload: {
+          mode: "upload",
+          provider: "upload",
+          label: "Locale · demo.wav",
+          transcriptText: "Bonjour",
+          segmentCount: 1,
+          audioSource: { id: "upload-1", label: "demo.wav", type: "file" },
+          audioMetadata: null,
+          updatedAt: "2026-03-12T10:00:00.000Z",
+        },
+        mic: null,
+        cloud: null,
+      })
+    );
+
+    useAsrStore.getState().hydrateFromStorage();
+
+    const state = useAsrStore.getState();
+    expect(state.sessionTranscriptMemories.upload?.label).toBe("Locale · demo.wav");
+    expect(state.sessionTranscriptMemories.upload?.transcriptText).toBe("Bonjour");
+    expect(state.sessionTranscriptMemories.upload?.segmentCount).toBe(1);
+    expect(state.sessionTranscriptMemories.cloud).toBeNull();
+    expect(state.sessionTranscriptMemories.mic).toBeNull();
   });
 
   it("falls back to frontend defaults for missing backend settings while keeping provided values", () => {
@@ -381,6 +412,7 @@ describe("secure token vault hydration", () => {
 
     await clearSecureTokens();
     window.localStorage.clear();
+    window.sessionStorage.clear();
     useAsrStore.getState().resetApp();
     useAsrStore.setState({ hasHydrated: false } as Partial<AsrConfigStore>);
   });

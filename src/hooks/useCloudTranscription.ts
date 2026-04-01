@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAsrStore } from "@/store/asr-store";
 import { TelemetryCollector, type TelemetrySummary } from "@/lib/telemetry";
 import { probeAudioMetadata, type AudioMetadata } from "@/lib/audio";
@@ -10,7 +10,7 @@ import type { TranscriptionSegment } from "@/lib/export";
 import { summarizeSegments } from "@/lib/cloud/segmentSummary";
 import { stageCloudSegments, type CloudStagedSegment } from "@/lib/cloud/cloudStaging";
 import { splitCloudSegmentWindow } from "@/lib/cloud/segmentWindows";
-import { deleteSegment, deleteSessionSegments, getSegment, type CachedSegment } from "@/lib/segment-cache";
+import { deleteSegment, getSegment, type CachedSegment } from "@/lib/segment-cache";
 import { getWhisperClient } from "@/lib/cloud/whisperClient";
 import { buildWhisperParameters } from "@/lib/cloud/whisperParams";
 import { parseWhisperOutput } from "@/lib/cloud/whisperSegments";
@@ -35,7 +35,14 @@ import { resolveChunkingConfig } from "@/hooks/useCloudTranscription.steps";
 import { createSessionTranscriptMemoryEntry, getSessionTranscriptText } from "@/lib/sessionTranscriptMemory";
 import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
 import { releaseFfmpeg } from "@/lib/ffmpeg-loader";
-import { groupCloudTranscriptionSegments } from "@/lib/cloud/transcriptionChunks";
+import { type CloudTranscriptionChunkGroup } from "@/lib/cloud/transcriptionChunks";
+import {
+  appendCloudTranscriptChunkSegments,
+  deleteCloudTranscriptSession,
+  loadCloudTranscriptChunkSegments,
+  loadCloudTranscriptSegmentsForExport,
+  updateCloudTranscriptSegment,
+} from "@/lib/cloud/cloudTranscriptCache";
 
 type CloudStatus = "idle" | "preprocessing" | "uploading" | "transcribing" | "stopping" | "done" | "error";
 
@@ -93,12 +100,13 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [audioMetadata, setAudioMetadata] = useState<AudioMetadata | null>(null);
-  const [segments, setSegments] = useState<TranscriptionSegment[]>([]);
   const [telemetrySummary, setTelemetrySummary] = useState<TelemetrySummary | null>(null);
   const [status, setStatus] = useState<CloudStatus>("idle");
   const [statusDetail, setStatusDetail] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [preparedUpload, setPreparedUpload] = useState<PreparedUploadInfo | null>(null);
+  const [chunkSummaries, setChunkSummaries] = useState<CloudTranscriptionChunkGroup[]>([]);
+  const [, setCloudSessionId] = useState<string | null>(null);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isResettingSession, setIsResettingSession] = useState(false);
   const [stopRequested, setStopRequested] = useState(false);
@@ -107,14 +115,14 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
   const cloudSessionIdRef = useRef<string | null>(null);
   const isTranscribingRef = useRef(false);
   const stopRequestedRef = useRef(false);
-  const segmentsRef = useRef<TranscriptionSegment[]>([]);
   const cloudTranscriptTextRef = useRef("");
   const cloudTranscriptSegmentCountRef = useRef(0);
+  const chunkSummariesRef = useRef<CloudTranscriptionChunkGroup[]>([]);
+  const runCompletedRef = useRef(false);
   const activeTranscriptProviderRef = useRef(provider);
   const telemetryRef = useRef<TelemetryCollector | null>(null);
   const runAbortControllerRef = useRef<AbortController | null>(null);
   const backendDirectLastSegmentCountRef = useRef(0);
-  const chunkSummaries = useMemo(() => groupCloudTranscriptionSegments(segments), [segments]);
 
   const hfApiToken = useAsrStore((s) => s.hfApiToken);
   const cloudMistralApiUrl = useAsrStore((s) => s.cloudMistralApiUrl);
@@ -154,10 +162,12 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
   ]);
 
   const resetCloudTranscriptBuffers = useCallback(() => {
-    segmentsRef.current = [];
+    chunkSummariesRef.current = [];
+    setChunkSummaries([]);
     cloudTranscriptTextRef.current = "";
     cloudTranscriptSegmentCountRef.current = 0;
-    setSegments([]);
+    cloudSessionIdRef.current = null;
+    setCloudSessionId(null);
   }, []);
 
   useEffect(() => {
@@ -171,10 +181,6 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
   useEffect(() => {
     useAsrStore.getState().setCloudStatus(status, statusDetail ?? undefined);
   }, [status, statusDetail]);
-
-  useEffect(() => {
-    segmentsRef.current = segments;
-  }, [segments]);
 
   useEffect(() => {
     return () => {
@@ -202,7 +208,6 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       backendDirectLastSegmentCountRef.current = 0;
       telemetryRef.current = null;
       resetCloudTranscriptBuffers();
-      cloudSessionIdRef.current = null;
       registerAudioSource(null);
       setRunExportHeader("cloud", null);
       setSelectedFile(null);
@@ -230,15 +235,16 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     ]
   );
 
-  const cleanupTransientSessionCache = useCallback(async () => {
+  const discardCloudTranscriptCache = useCallback(async () => {
     const sessionId = cloudSessionIdRef.current;
     if (!sessionId) {
       return;
     }
 
     cloudSessionIdRef.current = null;
+    setCloudSessionId(null);
     try {
-      await deleteSessionSegments(sessionId);
+      await deleteCloudTranscriptSession(sessionId);
     } catch (error) {
       logger.warn("[cloud] failed to clean transient session cache", {
         sessionId,
@@ -286,10 +292,8 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
 
   const publishCloudTranscriptMemory = useCallback(
     (providerName: "whisper" | "mistral" | "demeter_sante", metadata: AudioMetadata | null) => {
-      const currentSegments = segmentsRef.current;
-      const transcriptText =
-        cloudTranscriptTextRef.current || getSessionTranscriptText(currentSegments);
-      const segmentCount = cloudTranscriptSegmentCountRef.current || currentSegments.length;
+      const transcriptText = cloudTranscriptTextRef.current;
+      const segmentCount = cloudTranscriptSegmentCountRef.current;
       setSessionTranscriptMemory(
         "cloud",
         createSessionTranscriptMemoryEntry({
@@ -308,16 +312,33 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     [selectedFile, setSessionTranscriptMemory]
   );
 
+  const replaceCloudChunkSummaries = useCallback((nextSummaries: CloudTranscriptionChunkGroup[]) => {
+    chunkSummariesRef.current = nextSummaries;
+    setChunkSummaries(nextSummaries);
+  }, []);
+
+  const upsertCloudChunkSummary = useCallback((nextSummary: CloudTranscriptionChunkGroup) => {
+    replaceCloudChunkSummaries(upsertCloudChunkSummaries(chunkSummariesRef.current, nextSummary));
+  }, [replaceCloudChunkSummaries]);
+
   const appendCloudSegments = useCallback(
-    (nextSegments: TranscriptionSegment[], providerName: "whisper" | "mistral" | "demeter_sante", metadata: AudioMetadata | null) => {
+    async (
+      nextSegments: TranscriptionSegment[],
+      providerName: "whisper" | "mistral" | "demeter_sante",
+      metadata: AudioMetadata | null
+    ) => {
       if (!nextSegments.length) {
         return;
       }
 
-      const currentSegments = segmentsRef.current;
-      const nextAllSegments = [...currentSegments, ...nextSegments];
-      segmentsRef.current = nextAllSegments;
-      cloudTranscriptSegmentCountRef.current = nextAllSegments.length;
+      const sessionId = cloudSessionIdRef.current;
+      if (!sessionId) {
+        logger.warn("[cloud] missing transcript session while appending segments", {
+          provider: providerName,
+          segmentCount: nextSegments.length,
+        });
+        return;
+      }
 
       const appendedText = getSessionTranscriptText(nextSegments);
       if (appendedText) {
@@ -326,80 +347,83 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
           : appendedText;
       }
 
-      startTransition(() => {
-        setSegments(nextAllSegments);
-      });
+      cloudTranscriptSegmentCountRef.current += nextSegments.length;
+
+      const groupedSegments = groupCloudSegmentsByChunkId(nextSegments);
+      for (const group of groupedSegments) {
+        const currentSummaries = chunkSummariesRef.current;
+        const existingSummary = currentSummaries.find((chunk) => chunk.chunkId === group.chunkId);
+        const chunkIndex = existingSummary?.chunkIndex ?? currentSummaries.length;
+
+        const updateResult = await appendCloudTranscriptChunkSegments({
+          sessionId,
+          chunkId: group.chunkId,
+          chunkIndex,
+          segments: group.segments,
+        });
+        upsertCloudChunkSummary(updateResult.summary);
+      }
       logger.debug("[cloud] transcript segments appended", {
         provider: providerName,
         appendedCount: nextSegments.length,
-        totalSegments: nextAllSegments.length,
+        totalSegments: cloudTranscriptSegmentCountRef.current,
         transcriptChars: cloudTranscriptTextRef.current.length,
       });
+      publishCloudTranscriptMemory(providerName, metadata);
+    },
+    [publishCloudTranscriptMemory, upsertCloudChunkSummary]
+  );
+
+  const refreshCloudTranscriptMemoryFromCache = useCallback(
+    async (providerName: "whisper" | "mistral" | "demeter_sante", metadata: AudioMetadata | null) => {
+      const sessionId = cloudSessionIdRef.current;
+      if (!sessionId) {
+        return;
+      }
+      const allSegments = await loadCloudTranscriptSegmentsForExport(sessionId);
+      cloudTranscriptTextRef.current = getSessionTranscriptText(allSegments);
+      cloudTranscriptSegmentCountRef.current = allSegments.length;
       publishCloudTranscriptMemory(providerName, metadata);
     },
     [publishCloudTranscriptMemory]
   );
 
-  const applyCloudSegmentUpdate = useCallback(
-    (
-      segmentIndex: number,
-      updater: (segment: TranscriptionSegment) => TranscriptionSegment,
-      options?: { refreshTranscriptMemory?: boolean }
-    ) => {
-      const currentSegments = segmentsRef.current;
-      const targetSegment = currentSegments.find((segment) => segment.index === segmentIndex);
-      if (!targetSegment) {
-        logger.warn("[cloud] segment edit ignored, segment not found", { segmentIndex });
-        return false;
-      }
-
-      const nextTargetSegment = updater(targetSegment);
-      if (nextTargetSegment === targetSegment) {
-        return false;
-      }
-
-      const nextSegments = currentSegments.map((segment) => (segment.index === segmentIndex ? nextTargetSegment : segment));
-      segmentsRef.current = nextSegments;
-      startTransition(() => {
-        setSegments(nextSegments);
-      });
-
-      if (options?.refreshTranscriptMemory) {
-        cloudTranscriptTextRef.current = getSessionTranscriptText(nextSegments);
-        cloudTranscriptSegmentCountRef.current = nextSegments.length;
-        publishCloudTranscriptMemory(activeTranscriptProviderRef.current, audioMetadata);
-      }
-
-      return true;
-    },
-    [audioMetadata, publishCloudTranscriptMemory]
-  );
-
   const updateSegmentText = useCallback(
-    (segmentIndex: number, nextText: string) => {
+    async (chunkId: string, segmentIndex: number, nextText: string) => {
       const normalizedText = nextText.trim();
-      const updated = applyCloudSegmentUpdate(
-        segmentIndex,
-        (segment) => (segment.text === normalizedText ? segment : { ...segment, text: normalizedText }),
-        { refreshTranscriptMemory: true }
-      );
-      if (!updated) {
+      const sessionId = cloudSessionIdRef.current;
+      if (!sessionId) {
+        logger.warn("[cloud] segment text update ignored, missing session", { chunkId, segmentIndex });
         return;
       }
+      const result = await updateCloudTranscriptSegment(sessionId, chunkId, segmentIndex, (segment) =>
+        segment.text === normalizedText ? segment : { ...segment, text: normalizedText }
+      );
+      if (!result) {
+        return;
+      }
+      upsertCloudChunkSummary(result.summary);
+      await refreshCloudTranscriptMemoryFromCache(activeTranscriptProviderRef.current, audioMetadata);
 
       logger.info("[cloud] segment text updated", {
         provider: activeTranscriptProviderRef.current,
+        chunkId,
         segmentIndex,
         textLength: normalizedText.length,
       });
     },
-    [applyCloudSegmentUpdate]
+    [audioMetadata, refreshCloudTranscriptMemoryFromCache, upsertCloudChunkSummary]
   );
 
   const updateSegmentSpeaker = useCallback(
-    (segmentIndex: number, nextSpeaker: string) => {
+    async (chunkId: string, segmentIndex: number, nextSpeaker: string) => {
       const normalizedSpeaker = nextSpeaker.trim();
-      const updated = applyCloudSegmentUpdate(segmentIndex, (segment) => {
+      const sessionId = cloudSessionIdRef.current;
+      if (!sessionId) {
+        logger.warn("[cloud] segment speaker update ignored, missing session", { chunkId, segmentIndex });
+        return;
+      }
+      const result = await updateCloudTranscriptSegment(sessionId, chunkId, segmentIndex, (segment) => {
         const currentSpeaker = segment.speaker?.trim() ?? "";
         if (currentSpeaker === normalizedSpeaker) {
           return segment;
@@ -409,19 +433,50 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
           speaker: normalizedSpeaker || undefined,
         };
       });
-
-      if (!updated) {
+      if (!result) {
         return;
       }
+      upsertCloudChunkSummary(result.summary);
 
       logger.info("[cloud] segment speaker updated", {
         provider: activeTranscriptProviderRef.current,
+        chunkId,
         segmentIndex,
         speakerId: normalizedSpeaker || null,
       });
     },
-    [applyCloudSegmentUpdate]
+    [upsertCloudChunkSummary]
   );
+
+  const loadChunkSegments = useCallback(async (chunkId: string) => {
+    const sessionId = cloudSessionIdRef.current;
+    if (!sessionId) {
+      return [];
+    }
+    return loadCloudTranscriptChunkSegments(sessionId, chunkId);
+  }, []);
+
+  const loadAllSegmentsForExport = useCallback(async () => {
+    const sessionId = cloudSessionIdRef.current;
+    if (!sessionId) {
+      return [];
+    }
+    return loadCloudTranscriptSegmentsForExport(sessionId);
+  }, []);
+
+  function upsertCloudChunkSummaries(
+    current: CloudTranscriptionChunkGroup[],
+    nextSummary: CloudTranscriptionChunkGroup
+  ): CloudTranscriptionChunkGroup[] {
+    const next = [...current];
+    const existingIndex = next.findIndex((chunk) => chunk.chunkId === nextSummary.chunkId);
+    if (existingIndex >= 0) {
+      next[existingIndex] = nextSummary;
+    } else {
+      next.push(nextSummary);
+    }
+    return next.sort((left, right) => left.chunkIndex - right.chunkIndex || left.start - right.start);
+  }
 
   const abortCloudRunAndWait = useCallback(async () => {
     runIdRef.current += 1;
@@ -462,15 +517,16 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     setIsResettingSession(true);
     try {
       await abortCloudRunAndWait();
-      await cleanupTransientSessionCache();
+      await discardCloudTranscriptCache();
     } finally {
       clearCloudSessionState();
       setIsResettingSession(false);
     }
-  }, [abortCloudRunAndWait, clearCloudSessionState, cleanupTransientSessionCache, isResettingSession]);
+  }, [abortCloudRunAndWait, clearCloudSessionState, discardCloudTranscriptCache, isResettingSession]);
 
   const handleFileSelected = useCallback(async (file: File) => {
     logger.info("[cloud] file selected", { provider, name: file.name, size: file.size, type: file.type });
+    await discardCloudTranscriptCache();
     registerAudioSource(
       {
         id: `${provider}:${file.name}:${file.size}`,
@@ -525,6 +581,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       setStatusDetail("Impossible de lire les métadonnées audio");
     }
   }, [
+    discardCloudTranscriptCache,
     previewUrl,
     provider,
     registerAudioSource,
@@ -597,8 +654,9 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     const shouldAbort = () => stopRequestedRef.current || runIdRef.current !== runId;
     const sessionId = cloudSessionIdRef.current ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     cloudSessionIdRef.current = sessionId;
+    setCloudSessionId(sessionId);
 
-    let allSegments: TranscriptionSegment[] = [];
+    const allSegments: TranscriptionSegment[] = [];
     let nextIndex = 0;
     let stagedSegments: CloudStagedSegment[];
 
@@ -703,8 +761,8 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
           fallbackDurationSec: Math.max(0, staged.endSec - staged.startSec),
         });
         nextIndex += parsedSegments.length;
-        appendCloudSegments(parsedSegments, "whisper", metadata);
-        allSegments = segmentsRef.current;
+        await appendCloudSegments(parsedSegments, "whisper", metadata);
+        allSegments.push(...parsedSegments);
 
         await deleteSegment(sessionId, staged.index);
 
@@ -726,15 +784,13 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         setProgress(Math.max(0, Math.min(1, 0.5 + ((stagedPosition + 1) / Math.max(1, stagedSegments.length)) * 0.5)));
       }
 
-      await deleteSessionSegments(sessionId);
-      cloudSessionIdRef.current = null;
-
       const summary = summarizeSegments(allSegments);
       logger.info("[cloud][whisper] all segments ready", summary);
       telemetry.logEvent("CLOUD_WHISPER_DONE", { segments: allSegments.length });
       setProgress(1);
       setStatus("done");
       setStatusDetail("Transcription terminée");
+      runCompletedRef.current = true;
     } catch (error) {
       telemetry.stopTimer("cloud_preprocess");
       throw error;
@@ -759,6 +815,9 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     const shouldAbort = () => stopRequestedRef.current || runIdRef.current !== runId;
     let backendDiarizationEffective = diarizationEnabled;
     let backendDiarizationFallbackChunks = 0;
+    const sessionId = cloudSessionIdRef.current ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    cloudSessionIdRef.current = sessionId;
+    setCloudSessionId(sessionId);
     const backendOperationParseOptions = {
       offsetSec: 0,
       startIndex: 0,
@@ -834,7 +893,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
 
       const nextSegments = parsedSegments.slice(backendDirectLastSegmentCountRef.current);
       backendDirectLastSegmentCountRef.current = parsedSegments.length;
-      appendCloudSegments(nextSegments, "demeter_sante", metadata);
+      void appendCloudSegments(nextSegments, "demeter_sante", metadata);
       logger.debug("[cloud][demeter] backend chunk appended", {
         operationId: snapshot.operationId,
         status: snapshot.status,
@@ -904,10 +963,9 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       if (parsedSegments.length > backendDirectLastSegmentCountRef.current) {
         const nextSegments = parsedSegments.slice(backendDirectLastSegmentCountRef.current);
         backendDirectLastSegmentCountRef.current = parsedSegments.length;
-        appendCloudSegments(nextSegments, "demeter_sante", metadata);
+        await appendCloudSegments(nextSegments, "demeter_sante", metadata);
       }
 
-      const parsedChunkSummaries = groupCloudTranscriptionSegments(parsedSegments);
       const parsedSegmentsByChunkId = new Map<string, TranscriptionSegment[]>();
       for (const segment of parsedSegments) {
         const chunkId = segment.chunkId?.trim() || `__chunk-${segment.index}`;
@@ -918,14 +976,15 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
           parsedSegmentsByChunkId.set(chunkId, [segment]);
         }
       }
-      for (const group of parsedChunkSummaries) {
-        const chunkSegments = parsedSegmentsByChunkId.get(group.chunkId) ?? [];
+      const chunkIds = [...parsedSegmentsByChunkId.keys()];
+      for (const [chunkIndex, chunkId] of chunkIds.entries()) {
+        const chunkSegments = parsedSegmentsByChunkId.get(chunkId) ?? [];
         const summary = summarizeSegments(chunkSegments);
         telemetry.logEvent("CLOUD_SEGMENTS_READY", {
           provider: "demeter_sante",
           routeMode: "backend_direct",
-          segmentIndex: group.chunkIndex,
-          totalSegments: parsedChunkSummaries.length,
+          segmentIndex: chunkIndex,
+          totalSegments: chunkIds.length,
           count: summary.count,
           totalDurationSec: summary.totalDurationSec,
           textChars: summary.textChars,
@@ -948,6 +1007,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         provider: "demeter_sante",
         routeMode: "backend_direct",
       });
+      runCompletedRef.current = true;
     } catch (error) {
       telemetry.stopTimer("cloud_transcribe");
       if (
@@ -1042,7 +1102,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       durationWasCapped: mistralChunking.durationWasCapped,
     });
 
-    let allSegments: TranscriptionSegment[] = [];
+    const allSegments: TranscriptionSegment[] = [];
     let nextIndex = 0;
     let sentChunkCount = 0;
     let mistralDiarizationEffective = diarizationEnabled;
@@ -1050,6 +1110,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     const shouldAbort = () => stopRequestedRef.current || runIdRef.current !== runId;
     const sessionId = cloudSessionIdRef.current ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     cloudSessionIdRef.current = sessionId;
+    setCloudSessionId(sessionId);
     let stagedSegments: CloudStagedSegment[];
     let nextStagedIndex: number;
 
@@ -1390,8 +1451,8 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
           includeWordTimestamps: settings.cloudEnableWordTimestamps,
         });
         nextIndex += parsedSegments.length;
-        appendCloudSegments(parsedSegments, provider, metadata);
-        allSegments = segmentsRef.current;
+        await appendCloudSegments(parsedSegments, provider, metadata);
+        allSegments.push(...parsedSegments);
         sentChunkCount = chunkNumber;
 
         await deleteSegment(sessionId, staged.index);
@@ -1416,15 +1477,13 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         setProgress(Math.max(0, Math.min(1, 0.5 + (sentChunkCount / Math.max(1, stagedSegments.length)) * 0.5)));
       }
 
-      await deleteSessionSegments(sessionId);
-      cloudSessionIdRef.current = null;
-
       const summary = summarizeSegments(allSegments);
       logger.info(`[cloud][${providerLogKey}] all segments ready`, { ...summary, provider });
       telemetry.logEvent("CLOUD_TRANSCRIBE_DONE", { provider, segments: allSegments.length });
       setProgress(1);
       setStatus("done");
       setStatusDetail("Transcription terminée");
+      runCompletedRef.current = true;
     } catch (error) {
       telemetry.stopTimer("cloud_preprocess");
       throw error;
@@ -1464,6 +1523,8 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     registerTelemetry(telemetry);
     setGlobalTelemetrySummary(null);
     telemetry.startTimer("cloud_total");
+    runCompletedRef.current = false;
+    await discardCloudTranscriptCache();
     logger.info("[cloud] transcription run requested", {
       provider,
       fileName: currentFile.name,
@@ -1804,7 +1865,10 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       cloudTranscriptTextRef.current = "";
       cloudTranscriptSegmentCountRef.current = 0;
       await releaseFfmpeg();
-      await cleanupTransientSessionCache();
+      if (!runCompletedRef.current) {
+        await discardCloudTranscriptCache();
+        resetCloudTranscriptBuffers();
+      }
       setPreparedUpload(null);
       setPreviewUrl(null);
       if (stopRequestedRef.current && status !== "error") {
@@ -1826,7 +1890,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     runWhisperTranscription,
     resolvedSettings,
     clearSessionTranscriptMemory,
-    cleanupTransientSessionCache,
+    discardCloudTranscriptCache,
     resetCloudTranscriptBuffers,
     setGlobalTelemetrySummary,
     selectedFile,
@@ -1837,7 +1901,6 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     selectedFile,
     previewUrl,
     audioMetadata,
-    segments,
     chunkSummaries,
     chunkGroups: chunkSummaries,
     telemetrySummary,
@@ -1853,6 +1916,8 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     startTranscription,
     stopTranscription,
     resetTranscriptionSession,
+    loadChunkSegments,
+    loadAllSegmentsForExport,
     updateSegmentText,
     updateSegmentSpeaker,
   };
@@ -1894,6 +1959,28 @@ function buildInitialMistralSegmentQueue(
   }).map((segment) => ({
     start: segment.start,
     end: segment.end,
+  }));
+}
+
+function groupCloudSegmentsByChunkId(segments: readonly TranscriptionSegment[]): Array<{
+  chunkId: string;
+  segments: TranscriptionSegment[];
+}> {
+  const groups = new Map<string, TranscriptionSegment[]>();
+
+  for (const segment of segments) {
+    const chunkId = segment.chunkId?.trim() || `__chunk-${segment.index}`;
+    const bucket = groups.get(chunkId);
+    if (bucket) {
+      bucket.push(segment);
+    } else {
+      groups.set(chunkId, [segment]);
+    }
+  }
+
+  return [...groups.entries()].map(([chunkId, groupedSegments]) => ({
+    chunkId,
+    segments: groupedSegments,
   }));
 }
 

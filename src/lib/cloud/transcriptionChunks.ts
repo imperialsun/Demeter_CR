@@ -9,7 +9,10 @@ export interface CloudTranscriptionChunkGroup {
   duration: number;
   segmentCount: number;
   speakerIds: string[];
+  textSample: string;
 }
+
+const TEXT_SAMPLE_LIMIT = 120;
 
 export function buildCloudTranscriptionChunkGroup(
   segments: readonly TranscriptionSegment[],
@@ -39,6 +42,35 @@ export function buildCloudTranscriptionChunkGroup(
     duration: Math.max(0, end - (Number.isFinite(start) ? start : 0)),
     segmentCount: segments.length,
     speakerIds,
+    textSample: buildCloudChunkTextSample(segments),
+  };
+}
+
+export function mergeCloudTranscriptionChunkGroup(
+  current: CloudTranscriptionChunkGroup | null | undefined,
+  nextSegments: readonly TranscriptionSegment[],
+  chunkIndex?: number,
+  chunkId?: string
+): CloudTranscriptionChunkGroup {
+  const nextGroup = buildCloudTranscriptionChunkGroup(nextSegments, chunkIndex ?? current?.chunkIndex ?? 0, chunkId ?? current?.chunkId);
+  if (!current) {
+    return nextGroup;
+  }
+
+  const start = Math.min(current.start, nextGroup.start);
+  const end = Math.max(current.end, nextGroup.end);
+
+  return {
+    ...current,
+    chunkId: nextGroup.chunkId,
+    chunkIndex: typeof chunkIndex === "number" ? chunkIndex : current.chunkIndex,
+    label: typeof chunkIndex === "number" ? `Partie ${chunkIndex + 1}` : current.label,
+    start,
+    end,
+    duration: Math.max(0, end - start),
+    segmentCount: current.segmentCount + nextGroup.segmentCount,
+    speakerIds: mergeUniqueStrings(current.speakerIds, nextGroup.speakerIds),
+    textSample: mergeCloudChunkTextSample(current.textSample, nextSegments),
   };
 }
 
@@ -89,6 +121,37 @@ export function groupCloudTranscriptionSegments(
     .map((group, chunkIndex) => buildCloudTranscriptionChunkGroup(group.segments, chunkIndex, group.chunkId));
 }
 
+export function buildCloudChunkTextSample(segments: readonly TranscriptionSegment[]): string {
+  const pieces: string[] = [];
+
+  for (const segment of segments) {
+    const text = normalizeText(segment.text);
+    if (!text) continue;
+    pieces.push(text);
+    if (pieces.join(" ").length >= TEXT_SAMPLE_LIMIT) {
+      break;
+    }
+  }
+
+  return normalizeSampleText(pieces.join(" "));
+}
+
+export function mergeCloudChunkTextSample(previousSample: string, nextSegments: readonly TranscriptionSegment[]): string {
+  const nextSample = buildCloudChunkTextSample(nextSegments);
+  if (!previousSample) {
+    return nextSample;
+  }
+  if (!nextSample) {
+    return previousSample;
+  }
+
+  const merged = normalizeSampleText(`${previousSample} ${nextSample}`);
+  if (merged.length <= TEXT_SAMPLE_LIMIT) {
+    return merged;
+  }
+  return `${merged.slice(0, TEXT_SAMPLE_LIMIT - 3).trimEnd()}...`;
+}
+
 export function formatCloudChunkTimeRange(start: number, end: number): string {
   return `${formatCloudChunkTime(start)} - ${formatCloudChunkTime(end)}`;
 }
@@ -101,6 +164,23 @@ function normalizeChunkId(value: string | undefined): string | undefined {
 function normalizeSpeakerId(value: string | undefined): string | undefined {
   const normalized = value?.trim();
   return normalized ? normalized : undefined;
+}
+
+function normalizeText(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function normalizeSampleText(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function mergeUniqueStrings(left: string[], right: string[]): string[] {
+  const merged: string[] = [];
+  for (const value of [...left, ...right]) {
+    if (merged.includes(value)) continue;
+    merged.push(value);
+  }
+  return merged;
 }
 
 function formatCloudChunkTime(seconds: number): string {

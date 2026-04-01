@@ -37,9 +37,15 @@ vi.mock("@/lib/llm/telemetrySession", () => ({
   emitLlmEvent: (...args: unknown[]) => emitLlmEventMock(...args),
 }));
 
-vi.mock("@/lib/transcript/parseTranscriptFile", () => ({
-  parseTranscriptFile: (...args: unknown[]) => parseTranscriptFileMock(...args),
-}));
+vi.mock("@/lib/transcript/parseTranscriptFile", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/transcript/parseTranscriptFile")>(
+    "@/lib/transcript/parseTranscriptFile"
+  );
+  return {
+    ...actual,
+    parseTranscriptFile: (...args: unknown[]) => parseTranscriptFileMock(...args),
+  };
+});
 
 vi.mock("@/components/ui/use-toast", () => ({
   toast: (...args: unknown[]) => toastMock(...args),
@@ -61,6 +67,7 @@ describe("LLMLocalPage", () => {
     emitLlmEventMock.mockReset();
     parseTranscriptFileMock.mockReset();
     toastMock.mockReset();
+    window.sessionStorage.clear();
     backendPermissionMocks.canAccessFeature.mockReset();
     backendPermissionMocks.canAccessFeature.mockReturnValue(true);
     hookState.status = "idle";
@@ -220,6 +227,39 @@ describe("LLMLocalPage", () => {
     expect(screen.getByText(/fichier importe:/i)).toBeInTheDocument();
     expect(screen.getAllByText("source.txt").length).toBeGreaterThan(0);
     expect(screen.getByText(/tokens du fichier importe approx/i)).toBeInTheDocument();
+  });
+
+  it("accepts docx imports in free text mode", async () => {
+    parseTranscriptFileMock.mockResolvedValue({
+      text: "Texte importe depuis docx",
+      format: "docx",
+      extraction: "plain",
+    });
+
+    renderPage();
+
+    const sourceSelect = screen.getByLabelText("Mode d'entree", { selector: "button#llm-local-source" });
+    fireEvent.click(sourceSelect);
+    fireEvent.click(await screen.findByText("Texte libre"));
+
+    const fileInput = screen.getByLabelText("Importer un fichier transcription", {
+      selector: "input#llm-local-source-file",
+    });
+    expect(fileInput.getAttribute("accept")).toContain(".docx");
+
+    const file = new File(["dummy"], "source.docx", {
+      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect(screen.getAllByText("source.docx").length).toBeGreaterThan(0);
+    });
+    expect(parseTranscriptFileMock).toHaveBeenCalled();
+    expect(emitLlmEventMock).toHaveBeenCalledWith(
+      "LLM_LOCAL_IMPORT_SUCCESS",
+      expect.objectContaining({ fileName: "source.docx", format: "docx" })
+    );
   });
 
   it("generates from imported file in texte libre mode", async () => {

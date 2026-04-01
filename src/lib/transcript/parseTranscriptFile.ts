@@ -3,14 +3,25 @@ import { parseVttToSegments } from "@/lib/transcript/parseVtt";
 import logger from "@/lib/logger";
 
 export const DEFAULT_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+export const TRANSCRIPT_IMPORT_ALLOWED_EXTENSIONS = [".txt", ".srt", ".vtt", ".json", ".docx"] as const;
+export const TRANSCRIPT_IMPORT_ACCEPT = [
+  ...TRANSCRIPT_IMPORT_ALLOWED_EXTENSIONS,
+  "application/json",
+  "text/plain",
+  "text/vtt",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+].join(",");
+export const TRANSCRIPT_IMPORT_LABEL = TRANSCRIPT_IMPORT_ALLOWED_EXTENSIONS.join(", ");
 
-const SUPPORTED_EXTENSIONS = new Set([".txt", ".srt", ".vtt", ".json"]);
+const SUPPORTED_EXTENSIONS = new Set(TRANSCRIPT_IMPORT_ALLOWED_EXTENSIONS);
+type TranscriptImportExtension = (typeof TRANSCRIPT_IMPORT_ALLOWED_EXTENSIONS)[number];
 const JSON_TEXT_KEYS = new Set(["text", "transcript", "utterance"]);
 const MAX_FALLBACK_DEPTH = 4;
+const DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
 export type ParsedTranscriptFile = {
   text: string;
-  format: "txt" | "srt" | "vtt" | "json";
+  format: "txt" | "srt" | "vtt" | "json" | "docx";
   extraction: "plain" | "segments" | "results" | "transcript" | "fallback";
   segmentCount?: number;
 };
@@ -32,8 +43,27 @@ export async function parseTranscriptFile(
     }
 
     const extension = getExtension(file.name);
-    if (extension && !SUPPORTED_EXTENSIONS.has(extension)) {
-      throw new Error("Format non supporte. Utilisez .txt, .srt, .vtt ou .json.");
+    if (extension && !isTranscriptImportExtension(extension)) {
+      throw new Error(`Format non supporte. Utilisez ${TRANSCRIPT_IMPORT_LABEL}.`);
+    }
+
+    const format = resolveFormat(extension, file.type);
+    if (format === "docx") {
+      const raw = normalizeText(await extractTextFromDocx(file));
+      if (!raw) {
+        throw new Error("Fichier vide.");
+      }
+      logger.info("[llm-api][import] parse transcript file success", {
+        name: file.name,
+        format,
+        extraction: "plain",
+        textLength: raw.length,
+      });
+      return {
+        text: raw,
+        format,
+        extraction: "plain",
+      };
     }
 
     const raw = normalizeText(await readFileAsText(file));
@@ -41,7 +71,6 @@ export async function parseTranscriptFile(
       throw new Error("Fichier vide.");
     }
 
-    const format = resolveFormat(extension, file.type);
     if (format === "txt") {
       logger.info("[llm-api][import] parse transcript file success", {
         name: file.name,
@@ -136,12 +165,14 @@ function resolveFormat(extension: string, mimeType: string): ParsedTranscriptFil
   if (extension === ".srt") return "srt";
   if (extension === ".vtt") return "vtt";
   if (extension === ".json") return "json";
+  if (extension === ".docx") return "docx";
   if (extension === ".txt") return "txt";
 
   const mime = mimeType.toLowerCase();
   if (mime.includes("json")) return "json";
   if (mime.includes("vtt")) return "vtt";
   if (mime.includes("srt") || mime.includes("subrip")) return "srt";
+  if (mime.includes("wordprocessingml.document") || mime === DOCX_MIME_TYPE) return "docx";
   return "txt";
 }
 
@@ -303,6 +334,10 @@ function getExtension(name: string): string {
   return name.slice(index).toLowerCase();
 }
 
+function isTranscriptImportExtension(value: string): value is TranscriptImportExtension {
+  return SUPPORTED_EXTENSIONS.has(value as TranscriptImportExtension);
+}
+
 function normalizeText(value: string): string {
   return value.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/^\uFEFF/, "").trim();
 }
@@ -322,5 +357,35 @@ async function readFileAsText(file: File): Promise<string> {
     reader.onerror = () => reject(new Error("Impossible de lire le fichier."));
     reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
     reader.readAsText(file);
+  });
+}
+
+async function extractTextFromDocx(file: File): Promise<string> {
+  const candidate = file as File & { arrayBuffer?: () => Promise<ArrayBuffer> };
+  const arrayBuffer = typeof candidate.arrayBuffer === "function" ? await candidate.arrayBuffer() : await readFileAsArrayBuffer(file);
+  const mammothModule = await import("mammoth/mammoth.browser.js");
+  const mammoth = (mammothModule.default ?? mammothModule) as {
+    extractRawText: (input: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string; messages?: unknown[] }>;
+  };
+  const result = await mammoth.extractRawText({ arrayBuffer });
+  return result.value;
+}
+
+async function readFileAsArrayBuffer(file: File): Promise<ArrayBuffer> {
+  if (typeof FileReader === "undefined") {
+    throw new Error("Impossible de lire le fichier.");
+  }
+
+  return new Promise<ArrayBuffer>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Impossible de lire le fichier."));
+    reader.onload = () => {
+      if (reader.result instanceof ArrayBuffer) {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error("Impossible de lire le fichier."));
+    };
+    reader.readAsArrayBuffer(file);
   });
 }

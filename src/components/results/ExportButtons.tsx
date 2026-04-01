@@ -21,7 +21,9 @@ import { SpeakerAssignmentDialog } from "@/components/results/SpeakerAssignmentD
 import logger from "@/lib/logger";
 
 interface ExportButtonsProps {
-  segments: TranscriptionSegment[];
+  segments?: TranscriptionSegment[];
+  segmentCount?: number;
+  loadSegments?: () => Promise<TranscriptionSegment[]>;
   telemetry?: TelemetrySummary;
   showVtt?: boolean;
   showSrt?: boolean;
@@ -32,7 +34,9 @@ interface ExportButtonsProps {
 }
 
 export const ExportButtons = memo(function ExportButtons({
-  segments,
+  segments = [],
+  segmentCount,
+  loadSegments,
   telemetry,
   showVtt,
   showSrt,
@@ -51,44 +55,50 @@ export const ExportButtons = memo(function ExportButtons({
     () => (mode === "cloud" ? [] : collectSpeakerAssignmentEntries(segments, mode)),
     [mode, segments]
   );
+  const resolvedSegmentCount = typeof segmentCount === "number" ? segmentCount : segments.length;
   const sourceLabel = audioSource?.label?.trim() || uploadedFile?.name?.trim() || undefined;
-  const segmentsForExport = useMemo(
-    () => applySpeakerAssignments(segments, speakerAssignments, mode),
-    [mode, segments, speakerAssignments]
-  );
-  const showExportDocx = Boolean(showDocx && segments.length);
-  const exportVtt = useCallback(() => {
-    if (!segments.length) return;
+  const showExportDocx = Boolean(showDocx && resolvedSegmentCount);
+
+  const resolveSegmentsForExport = useCallback(async () => {
+    const rawSegments = mode === "cloud" && loadSegments ? await loadSegments() : segments;
+    return applySpeakerAssignments(rawSegments, speakerAssignments, mode);
+  }, [loadSegments, mode, segments, speakerAssignments]);
+
+  const exportVtt = useCallback(async () => {
+    const segmentsForExport = await resolveSegmentsForExport();
+    if (!segmentsForExport.length) return;
     const header = buildExportHeader(mode);
     logger.info("[export] VTT download requested", {
       mode,
-      segmentCount: segments.length,
+      segmentCount: segmentsForExport.length,
       filename: buildFilename("transcription.vtt"),
     });
     downloadBlob(serializeVtt(segmentsForExport, header), buildFilename("transcription.vtt"), "text/vtt");
-  }, [mode, segments.length, segmentsForExport]);
+  }, [mode, resolveSegmentsForExport]);
 
-  const exportSrt = useCallback(() => {
-    if (!segments.length) return;
+  const exportSrt = useCallback(async () => {
+    const segmentsForExport = await resolveSegmentsForExport();
+    if (!segmentsForExport.length) return;
     const header = buildExportHeader(mode);
     logger.info("[export] SRT download requested", {
       mode,
-      segmentCount: segments.length,
+      segmentCount: segmentsForExport.length,
       filename: buildFilename("transcription.srt"),
     });
     downloadBlob(serializeSrt(segmentsForExport, header), buildFilename("transcription.srt"), "text/plain");
-  }, [mode, segments.length, segmentsForExport]);
+  }, [mode, resolveSegmentsForExport]);
 
-  const exportJson = useCallback(() => {
-    if (!segments.length) return;
+  const exportJson = useCallback(async () => {
+    const segmentsForExport = await resolveSegmentsForExport();
+    if (!segmentsForExport.length) return;
     const header = buildExportHeader(mode);
     logger.info("[export] JSON download requested", {
       mode,
-      segmentCount: segments.length,
+      segmentCount: segmentsForExport.length,
       filename: buildFilename("segments.json"),
     });
     downloadBlob(serializeSegmentsJson(segmentsForExport, header), buildFilename("segments.json"), "application/json");
-  }, [mode, segments.length, segmentsForExport]);
+  }, [mode, resolveSegmentsForExport]);
 
   const exportTelemetry = useCallback(() => {
     if (!telemetry) return;
@@ -110,11 +120,16 @@ export const ExportButtons = memo(function ExportButtons({
   const showExportTelemetry = typeof showTelemetry === "boolean" ? showTelemetry : storeShowTelemetry;
 
   const exportDocx = useCallback(async () => {
-    if (!segmentsForExport.length || isDocxExporting) {
+    if (isDocxExporting) {
       return;
     }
     setDocxExporting(true);
     const generatedAt = new Date().toISOString();
+    const segmentsForExport = await resolveSegmentsForExport();
+    if (!segmentsForExport.length) {
+      setDocxExporting(false);
+      return;
+    }
     logger.info("[export] DOCX download requested", {
       mode,
       segmentCount: segmentsForExport.length,
@@ -147,7 +162,7 @@ export const ExportButtons = memo(function ExportButtons({
     } finally {
       setDocxExporting(false);
     }
-  }, [isDocxExporting, mode, segmentsForExport, sourceLabel]);
+  }, [isDocxExporting, mode, resolveSegmentsForExport, sourceLabel]);
 
   const handleApplySpeakerAssignments = useCallback(
     (nextAssignments: SpeakerAssignmentMap) => {
@@ -197,19 +212,19 @@ export const ExportButtons = memo(function ExportButtons({
         ) : null}
 
         {showExportVtt ? (
-          <Button variant="outline" size="sm" className="gap-2" onClick={exportVtt} disabled={!segments.length}>
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => void exportVtt()} disabled={!resolvedSegmentCount}>
             <Download className="h-4 w-4" /> VTT
           </Button>
         ) : null}
 
         {showExportSrt ? (
-          <Button variant="outline" size="sm" className="gap-2" onClick={exportSrt} disabled={!segments.length}>
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => void exportSrt()} disabled={!resolvedSegmentCount}>
             <Download className="h-4 w-4" /> SRT
           </Button>
         ) : null}
 
         {showExportJson ? (
-          <Button variant="outline" size="sm" className="gap-2" onClick={exportJson} disabled={!segments.length}>
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => void exportJson()} disabled={!resolvedSegmentCount}>
             <Download className="h-4 w-4" /> JSON
           </Button>
         ) : null}

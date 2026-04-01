@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { ThemeProvider } from "@/components/theme-provider";
 import { formatTokenCount } from "@/lib/llm/modelCatalog";
+import { SESSION_TRANSCRIPT_MEMORIES_STORAGE_KEY } from "@/lib/sessionTranscriptMemory";
 import { useAsrStore } from "@/store/asr-store";
 import LLMApiPage from "@/routes/LLMApiPage";
 import { DEMETER_SANTE_MAX_TOKENS } from "@/lib/llm/providerSettings";
@@ -67,9 +68,15 @@ vi.mock("@/components/ui/use-toast", () => ({
   toast: (...args: unknown[]) => toastMock(...args),
 }));
 
-vi.mock("@/lib/transcript/parseTranscriptFile", () => ({
-  parseTranscriptFile: (...args: unknown[]) => parseTranscriptFileMock(...args),
-}));
+vi.mock("@/lib/transcript/parseTranscriptFile", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/transcript/parseTranscriptFile")>(
+    "@/lib/transcript/parseTranscriptFile"
+  );
+  return {
+    ...actual,
+    parseTranscriptFile: (...args: unknown[]) => parseTranscriptFileMock(...args),
+  };
+});
 
 vi.mock("@/lib/llm/telemetrySession", () => ({
   emitLlmEvent: (...args: unknown[]) => emitLlmEventMock(...args),
@@ -91,6 +98,7 @@ describe("LLMApiPage", () => {
     toastMock.mockClear();
     parseTranscriptFileMock.mockReset();
     emitLlmEventMock.mockReset();
+    window.sessionStorage.clear();
     backendPermissionMocks.canUseLlmProvider.mockReset();
     backendPermissionMocks.canUseLlmProvider.mockReturnValue(true);
     backendPermissionMocks.canAccessFeature.mockReset();
@@ -146,6 +154,43 @@ describe("LLMApiPage", () => {
     expect(button).not.toBeDisabled();
 
     await userEvent.click(button);
+    expect(generateAll).toHaveBeenCalledWith({ source: "transcription", transcriptMode: "upload" });
+  });
+
+  it("hydrates the latest transcription from sessionStorage before generating", async () => {
+    useAsrStore.setState({
+      sessionTranscriptMemories: {
+        upload: null,
+        mic: null,
+        cloud: null,
+      },
+    } as any);
+    window.sessionStorage.setItem(
+      SESSION_TRANSCRIPT_MEMORIES_STORAGE_KEY,
+      JSON.stringify({
+        upload: {
+          mode: "upload",
+          provider: "upload",
+          label: "Locale · demo.wav",
+          transcriptText: "Segment 1\nSegment 2",
+          segmentCount: 2,
+          audioSource: { id: "upload-1", label: "demo.wav", type: "file" },
+          audioMetadata: null,
+          updatedAt: "2026-03-12T10:00:00.000Z",
+        },
+        mic: null,
+        cloud: null,
+      })
+    );
+    useAsrStore.getState().hydrateFromStorage();
+
+    renderPage();
+
+    expect(screen.getByText(/source active:/i)).toHaveTextContent("Locale · demo.wav");
+    expect(screen.queryByText(/aucune transcription active dans la session/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /generer les 3 formats/i })).not.toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: /generer les 3 formats/i }));
     expect(generateAll).toHaveBeenCalledWith({ source: "transcription", transcriptMode: "upload" });
   });
 
@@ -551,6 +596,39 @@ describe("LLMApiPage", () => {
       expect.objectContaining({ fileName: "source.txt" })
     );
     expect(useAsrStore.getState().sessionTranscriptMemories.upload?.label).toBe("Locale · demo.wav");
+  });
+
+  it("accepts docx imports in free text mode", async () => {
+    parseTranscriptFileMock.mockResolvedValue({
+      text: "Texte importe depuis docx",
+      format: "docx",
+      extraction: "plain",
+    });
+
+    renderPage();
+
+    const sourceSelect = screen.getByLabelText("Mode d'entree", { selector: "button#llm-source" });
+    fireEvent.click(sourceSelect);
+    fireEvent.click(await screen.findByText("Texte libre"));
+
+    const fileInput = screen.getByLabelText("Importer un fichier transcription", {
+      selector: "input#llm-source-file",
+    });
+    expect(fileInput.getAttribute("accept")).toContain(".docx");
+
+    const file = new File(["dummy"], "source.docx", {
+      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
+    fireEvent.change(fileInput, { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect(screen.getAllByText("source.docx").length).toBeGreaterThan(0);
+    });
+    expect(parseTranscriptFileMock).toHaveBeenCalled();
+    expect(emitLlmEventMock).toHaveBeenCalledWith(
+      "LLM_CLOUD_IMPORT_SUCCESS",
+      expect.objectContaining({ fileName: "source.docx", format: "docx" })
+    );
   });
 
   it("imports srt and json file outputs into free text source", async () => {

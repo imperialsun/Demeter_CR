@@ -19,8 +19,11 @@ import type { ChunkDefinition } from "@/lib/chunking";
 import type { ExportHeader, TranscriptionSegment } from "@/lib/export";
 import {
   createEmptySessionTranscriptMemories,
+  clearSessionTranscriptMemoriesFromSessionStorage,
   getSessionTranscriptSegmentCount,
   getSessionTranscriptText,
+  loadSessionTranscriptMemoriesFromSessionStorage,
+  saveSessionTranscriptMemoriesToSessionStorage,
   type SessionSource,
   type SessionTranscriptMemoryEntry,
   type SessionTranscriptMode,
@@ -1263,6 +1266,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         }));
       }
     };
+    const persistedSessionTranscriptMemories = loadSessionTranscriptMemoriesFromSessionStorage();
     const settings = loadSettings();
     if (!settings) {
       logger.info("[asr-store] hydrate from storage using defaults");
@@ -1276,6 +1280,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         hfApiToken: currentTokens.hfApiToken,
         mistralApiKey: currentTokens.mistralApiKey,
         llmApiReportDrafts: {},
+        sessionTranscriptMemories: persistedSessionTranscriptMemories ?? get().sessionTranscriptMemories,
       }));
       void syncSecureTokensFromVault();
       return;
@@ -1846,6 +1851,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         "showSegmentConfidence",
         fallbackSettings.showSegmentConfidence
       ),
+      sessionTranscriptMemories: persistedSessionTranscriptMemories ?? state.sessionTranscriptMemories,
     };
     });
     logger.info("[asr-store] hydration applied", {
@@ -1858,8 +1864,8 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
   registerAudioSource: (source, metadata) =>
     set(() => ({ audioSource: source, audioMetadata: metadata ?? null })),
   setSessionTranscriptMemory: (mode, entry) =>
-    set((state) => ({
-      sessionTranscriptMemories: {
+    set((state) => {
+      const nextSessionTranscriptMemories = {
         ...state.sessionTranscriptMemories,
         [mode]: entry
           ? {
@@ -1873,19 +1879,31 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
               updatedAt: entry.updatedAt,
             }
           : null,
-      },
-    })),
+      };
+      saveSessionTranscriptMemoriesToSessionStorage(nextSessionTranscriptMemories);
+      return {
+        sessionTranscriptMemories: nextSessionTranscriptMemories,
+      };
+    }),
   clearSessionTranscriptMemory: (mode) =>
-    set((state) => ({
-      sessionTranscriptMemories: {
+    set((state) => {
+      const nextSessionTranscriptMemories = {
         ...state.sessionTranscriptMemories,
         [mode]: null,
-      },
-    })),
+      };
+      saveSessionTranscriptMemoriesToSessionStorage(nextSessionTranscriptMemories);
+      return {
+        sessionTranscriptMemories: nextSessionTranscriptMemories,
+      };
+    }),
   clearAllSessionTranscriptMemories: () =>
-    set(() => ({
-      sessionTranscriptMemories: createEmptySessionTranscriptMemories(),
-    })),
+    set(() => {
+      const nextSessionTranscriptMemories = createEmptySessionTranscriptMemories();
+      clearSessionTranscriptMemoriesFromSessionStorage();
+      return {
+        sessionTranscriptMemories: nextSessionTranscriptMemories,
+      };
+    }),
   setChunkPlan: (plan) => set(() => ({ chunkPlan: plan })),
   setSegments: (segments) => set(() => ({ segments })),
   appendSegments: (segments) =>
@@ -2431,6 +2449,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         logger.warn("resetApp: failed to persist default settings", e);
       }
       void clearSecureTokens();
+      clearSessionTranscriptMemoriesFromSessionStorage();
       const nextState: Partial<AsrConfigStore> = {
         ...initialState,
         hasHydrated: true,

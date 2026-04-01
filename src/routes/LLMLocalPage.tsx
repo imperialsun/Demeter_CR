@@ -21,15 +21,18 @@ import {
   type LlmLocalModelProfile,
 } from "@/lib/llm/localModelCatalog";
 import { emitLlmEvent } from "@/lib/llm/telemetrySession";
-import { parseTranscriptFile, type ParsedTranscriptFile } from "@/lib/transcript/parseTranscriptFile";
+import {
+  parseTranscriptFile,
+  type ParsedTranscriptFile,
+  TRANSCRIPT_IMPORT_ACCEPT,
+  TRANSCRIPT_IMPORT_LABEL,
+} from "@/lib/transcript/parseTranscriptFile";
 import { estimateTokenCount } from "@/lib/tokens";
 import { formatTokenCount, resolveModelTokenBudget } from "@/lib/llm/modelCatalog";
 import type { ReportResultKey } from "@/lib/llm/reportSchema";
 import logger from "@/lib/logger";
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { canAccessFeature } from "@/lib/backend-permissions";
-
-const LLM_IMPORT_ACCEPT = ".txt,.srt,.vtt,.json,application/json,text/plain,text/vtt";
 
 type ImportedFileMeta = {
   name: string;
@@ -491,7 +494,7 @@ function LLMLocalPage() {
                     <div className="rounded-md border bg-muted/20 p-3">
                       <p className="text-sm font-medium text-foreground">Import de transcription</p>
                       <p className="text-xs text-muted-foreground">
-                        Importez un fichier texte pour alimenter la generation des comptes rendus.
+                        Importez un fichier texte ou DOCX pour alimenter la generation des comptes rendus.
                       </p>
                       <div className="mt-3 flex flex-wrap items-start gap-2 sm:flex-nowrap">
                         <Button type="button" onClick={triggerSourceFilePicker} disabled={isImporting || isBusy}>
@@ -508,13 +511,13 @@ function LLMLocalPage() {
                         ref={sourceFileInputRef}
                         id="llm-local-source-file"
                         type="file"
-                        accept={LLM_IMPORT_ACCEPT}
+                        accept={TRANSCRIPT_IMPORT_ACCEPT}
                         onChange={handleSourceFileImport}
                         disabled={isImporting || isBusy}
                         className="sr-only"
                       />
                       <p className="mt-2 text-xs text-muted-foreground">
-                        Formats acceptes: .txt, .srt, .vtt, .json. Taille max: 50 Mo.
+                        Formats acceptes: {TRANSCRIPT_IMPORT_LABEL}. Taille max: 50 Mo.
                       </p>
                     </div>
                     {!manualText.trim() ? (

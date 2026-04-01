@@ -1,3 +1,4 @@
+import logger from "@/lib/logger";
 import type { AudioMetadata } from "@/lib/audio";
 import type { TranscriptionSegment } from "@/lib/export";
 
@@ -20,6 +21,8 @@ export interface SessionTranscriptMemoryEntry {
   audioMetadata: AudioMetadata | null;
   updatedAt: string;
 }
+
+export const SESSION_TRANSCRIPT_MEMORIES_STORAGE_KEY = "demeter-asr-session-transcript-memories";
 
 export function createEmptySessionTranscriptMemories(): Record<SessionTranscriptMode, SessionTranscriptMemoryEntry | null> {
   return {
@@ -137,4 +140,178 @@ export function createSessionTranscriptMemoryEntry(args: {
     audioMetadata: args.audioMetadata ?? null,
     updatedAt: args.updatedAt ?? new Date().toISOString(),
   };
+}
+
+export function loadSessionTranscriptMemoriesFromSessionStorage():
+  | Record<SessionTranscriptMode, SessionTranscriptMemoryEntry | null>
+  | null {
+  const storage = getSessionStorage();
+  if (!storage) {
+    return null;
+  }
+
+  try {
+    const raw = storage.getItem(SESSION_TRANSCRIPT_MEMORIES_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+
+    const next = createEmptySessionTranscriptMemories();
+    let hasAny = false;
+
+    for (const mode of ["upload", "mic", "cloud"] as const) {
+      const entry = normalizePersistedSessionTranscriptMemoryEntry((parsed as Record<string, unknown>)[mode], mode);
+      if (!entry) {
+        continue;
+      }
+      next[mode] = entry;
+      hasAny = true;
+    }
+
+    return hasAny ? next : null;
+  } catch (error) {
+    logger.warn("[session-transcript-memory] impossible de lire le cache de transcription de session", error);
+    return null;
+  }
+}
+
+export function saveSessionTranscriptMemoriesToSessionStorage(
+  memories: Record<SessionTranscriptMode, SessionTranscriptMemoryEntry | null>
+) {
+  const storage = getSessionStorage();
+  if (!storage) {
+    return;
+  }
+
+  try {
+    if (!hasAnySessionTranscriptContent(memories)) {
+      storage.removeItem(SESSION_TRANSCRIPT_MEMORIES_STORAGE_KEY);
+      return;
+    }
+
+    storage.setItem(SESSION_TRANSCRIPT_MEMORIES_STORAGE_KEY, JSON.stringify(memories));
+  } catch (error) {
+    logger.warn("[session-transcript-memory] impossible de persister le cache de transcription de session", error);
+  }
+}
+
+export function clearSessionTranscriptMemoriesFromSessionStorage() {
+  const storage = getSessionStorage();
+  if (!storage) {
+    return;
+  }
+
+  try {
+    storage.removeItem(SESSION_TRANSCRIPT_MEMORIES_STORAGE_KEY);
+  } catch (error) {
+    logger.warn("[session-transcript-memory] impossible de nettoyer le cache de transcription de session", error);
+  }
+}
+
+function hasAnySessionTranscriptContent(
+  memories: Record<SessionTranscriptMode, SessionTranscriptMemoryEntry | null>
+): boolean {
+  return hasSessionTranscriptContent(memories.upload) || hasSessionTranscriptContent(memories.mic) || hasSessionTranscriptContent(memories.cloud);
+}
+
+function normalizePersistedSessionTranscriptMemoryEntry(
+  value: unknown,
+  mode: SessionTranscriptMode
+): SessionTranscriptMemoryEntry | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const provider = isSessionTranscriptProvider(record.provider) ? record.provider : null;
+  if (!provider) {
+    return null;
+  }
+
+  const transcriptText = typeof record.transcriptText === "string" ? record.transcriptText : "";
+  if (transcriptText.trim().length === 0) {
+    return null;
+  }
+
+  const label = typeof record.label === "string" && record.label.trim().length > 0
+    ? record.label.trim()
+    : buildSessionTranscriptMemoryLabel(provider, normalizeSessionSource(record.audioSource));
+  const segmentCount =
+    typeof record.segmentCount === "number" && Number.isFinite(record.segmentCount)
+      ? Math.max(0, Math.floor(record.segmentCount))
+      : transcriptText
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .length;
+  const audioSource = normalizeSessionSource(record.audioSource);
+  const audioMetadata = normalizeAudioMetadata(record.audioMetadata);
+  const updatedAt =
+    typeof record.updatedAt === "string" && record.updatedAt.trim().length > 0 ? record.updatedAt : new Date().toISOString();
+
+  return {
+    mode,
+    provider,
+    label,
+    transcriptText,
+    segmentCount,
+    audioSource,
+    audioMetadata,
+    updatedAt,
+  };
+}
+
+function isSessionTranscriptProvider(value: unknown): value is SessionTranscriptProvider {
+  return (
+    value === "upload" ||
+    value === "mic" ||
+    value === "whisper" ||
+    value === "mistral" ||
+    value === "demeter_sante"
+  );
+}
+
+function normalizeSessionSource(value: unknown): SessionSource | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.id !== "string" ||
+    typeof record.label !== "string" ||
+    (record.type !== "file" && record.type !== "mic")
+  ) {
+    return null;
+  }
+
+  return {
+    id: record.id,
+    label: record.label,
+    type: record.type,
+  };
+}
+
+function normalizeAudioMetadata(value: unknown): AudioMetadata | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as AudioMetadata;
+}
+
+function getSessionStorage(): Storage | null {
+  try {
+    if (typeof window === "undefined" || typeof window.sessionStorage === "undefined") {
+      return null;
+    }
+    return window.sessionStorage;
+  } catch (error) {
+    logger.warn("[session-transcript-memory] sessionStorage indisponible", error);
+    return null;
+  }
 }

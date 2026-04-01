@@ -1,3 +1,4 @@
+import { Document, Packer, Paragraph, TextRun } from "docx";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_MAX_UPLOAD_BYTES, parseTranscriptFile } from "./parseTranscriptFile";
 
@@ -53,6 +54,33 @@ A tous`,
     expect(parsed.extraction).toBe("segments");
     expect(parsed.segmentCount).toBe(2);
     expect(parsed.text).toBe("Salut\nA tous");
+  });
+
+  it("parses docx files", async () => {
+    const doc = new Document({
+      sections: [
+        {
+          children: [
+            new Paragraph({
+              children: [new TextRun("Bonjour")],
+            }),
+            new Paragraph({
+              children: [new TextRun("Monde")],
+            }),
+          ],
+        },
+      ],
+    });
+    const buffer = await Packer.toBuffer(doc);
+    const file = new File([buffer], "source.docx", {
+      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
+
+    const parsed = await parseTranscriptFile(file);
+    expect(parsed.format).toBe("docx");
+    expect(parsed.extraction).toBe("plain");
+    expect(parsed.text).toContain("Bonjour");
+    expect(parsed.text).toContain("Monde");
   });
 
   it("parses json with segments array", async () => {

@@ -1,11 +1,13 @@
 import { act, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect } from "react";
+import { IDBKeyRange, indexedDB as fakeIndexedDB } from "fake-indexeddb";
 
 import { useAsrStore } from "@/store/asr-store";
 import { useCloudTranscription } from "@/hooks/useCloudTranscription";
 import type { StageCloudSegmentsOptions } from "@/lib/cloud/cloudStaging";
 import { BackendHttpError } from "@/lib/backend-api";
+import { clearAllCloudTranscriptCache } from "@/lib/cloud/cloudTranscriptCache";
 
 const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
@@ -191,7 +193,9 @@ function HookHarness({
 }
 
 describe("useCloudTranscription", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB = fakeIndexedDB;
+    (globalThis as unknown as { IDBKeyRange: typeof IDBKeyRange }).IDBKeyRange = IDBKeyRange;
     useAsrStore.getState().resetApp();
     useAsrStore.setState({
       hfApiToken: "",
@@ -202,6 +206,7 @@ describe("useCloudTranscription", () => {
       cloudDemeterModel: "voxtral-demeter-latest",
       cloudDemeterDiarizationEnabled: false,
     } as never);
+    await clearAllCloudTranscriptCache();
     mocks.stagedSegments.clear();
     vi.clearAllMocks();
   });
@@ -247,10 +252,11 @@ describe("useCloudTranscription", () => {
 
     await waitFor(() => {
       expect(api.status).toBe("done");
-      expect(api.segments.length).toBeGreaterThan(0);
     });
+    const exportedSegments = await api.loadAllSegmentsForExport();
+    expect(exportedSegments.length).toBeGreaterThan(0);
     expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.provider).toBe("whisper");
-    expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.segmentCount).toBe(api.segments.length);
+    expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.segmentCount).toBe(exportedSegments.length);
     expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.transcriptText).toContain("Bonjour");
     expect(Object.prototype.hasOwnProperty.call(useAsrStore.getState().sessionTranscriptMemories.cloud ?? {}, "segments")).toBe(false);
     expect(
@@ -278,17 +284,19 @@ describe("useCloudTranscription", () => {
 
     await waitFor(() => {
       expect(api.status).toBe("done");
-      expect(api.segments[0]?.text).toBe("Bonjour");
     });
+    const initialSegments = await api.loadChunkSegments("whisper-1");
+    expect(initialSegments[0]?.text).toBe("Bonjour");
 
     await act(async () => {
-      api.updateSegmentText(0, "Bonjour modifié");
+      await api.updateSegmentText("whisper-1", 0, "Bonjour modifié");
     });
 
     await waitFor(() => {
-      expect(api.segments[0]?.text).toBe("Bonjour modifié");
       expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.transcriptText).toContain("Bonjour modifié");
     });
+    const updatedSegments = await api.loadChunkSegments("whisper-1");
+    expect(updatedSegments[0]?.text).toBe("Bonjour modifié");
   });
 
   it("rebuilds cloud chunk speaker ids when a segment speaker changes", async () => {
@@ -309,13 +317,14 @@ describe("useCloudTranscription", () => {
     });
 
     await act(async () => {
-      api.updateSegmentSpeaker(0, "SPEAKER_01");
+      await api.updateSegmentSpeaker("mistral-1", 0, "SPEAKER_01");
     });
 
     await waitFor(() => {
-      expect(api.segments[0]?.speaker).toBe("SPEAKER_01");
       expect(api.chunkGroups[0]?.speakerIds).toEqual(["SPEAKER_01"]);
     });
+    const updatedSegments = await api.loadChunkSegments("mistral-1");
+    expect(updatedSegments[0]?.speaker).toBe("SPEAKER_01");
   });
 
   it("clears the shared cloud transcript memory on session reset", async () => {
@@ -465,8 +474,9 @@ describe("useCloudTranscription", () => {
 
     await waitFor(() => {
       expect(api.status).toBe("done");
-      expect(api.segments[0]?.speaker).toBe("SPEAKER_00");
     });
+    const exportedSegments = await api.loadAllSegmentsForExport();
+    expect(exportedSegments[0]?.speaker).toBe("SPEAKER_00");
     expect(mocks.transcribeWithDemeterSante).toHaveBeenCalledTimes(1);
     expect(mocks.transcribeWithDemeterSante).toHaveBeenCalledWith(
       expect.objectContaining({

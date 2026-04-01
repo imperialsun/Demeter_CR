@@ -8,12 +8,14 @@ import {
   resolveLighterPresetForMemoryFallback,
   useAsrStore,
 } from "./asr-store";
+import { SESSION_TRANSCRIPT_MEMORIES_STORAGE_KEY } from "@/lib/sessionTranscriptMemory";
 
 const STORAGE_KEY = "demeter-asr-settings";
 let originalLocalStorage: Storage | undefined;
 
 const resetStore = () => {
   window.localStorage.clear();
+  window.sessionStorage.clear();
   useAsrStore.getState().resetApp();
   useAsrStore.setState({ hasHydrated: false } as Partial<AsrConfigStore>);
 };
@@ -82,7 +84,7 @@ describe("asr-store mutation guards", () => {
     expect(entries.some((entry) => entry.message === "debug logging enabled" && entry.level === "debug")).toBe(true);
   });
 
-  it("manages session transcript memories independently and never persists them", () => {
+  it("persists session transcript memories only in sessionStorage and clears them on reset", () => {
     useAsrStore.setState({ hasHydrated: true } as Partial<AsrConfigStore>);
 
     const state = useAsrStore.getState();
@@ -114,9 +116,34 @@ describe("asr-store mutation guards", () => {
     expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.segmentCount).toBe(1);
     expect(Object.prototype.hasOwnProperty.call(useAsrStore.getState().sessionTranscriptMemories.upload ?? {}, "segments")).toBe(false);
 
+    const persistedAfterSet = JSON.parse(
+      window.sessionStorage.getItem(SESSION_TRANSCRIPT_MEMORIES_STORAGE_KEY) ?? "{}"
+    ) as Record<string, unknown>;
+    expect(persistedAfterSet.upload).toMatchObject({
+      mode: "upload",
+      provider: "upload",
+      transcriptText: "Bonjour",
+      segmentCount: 1,
+    });
+    expect(persistedAfterSet.cloud).toMatchObject({
+      mode: "cloud",
+      provider: "mistral",
+      transcriptText: "Salut",
+      segmentCount: 1,
+    });
+
     state.clearSessionTranscriptMemory("upload");
     expect(useAsrStore.getState().sessionTranscriptMemories.upload).toBeNull();
     expect(useAsrStore.getState().sessionTranscriptMemories.cloud).not.toBeNull();
+
+    const persistedAfterClear = JSON.parse(
+      window.sessionStorage.getItem(SESSION_TRANSCRIPT_MEMORIES_STORAGE_KEY) ?? "{}"
+    ) as Record<string, unknown>;
+    expect(persistedAfterClear.upload).toBeNull();
+    expect(persistedAfterClear.cloud).toMatchObject({
+      mode: "cloud",
+      provider: "mistral",
+    });
 
     const persisted = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}") as Record<string, unknown>;
     expect(persisted.sessionTranscriptMemories).toBeUndefined();
@@ -125,6 +152,7 @@ describe("asr-store mutation guards", () => {
     expect(useAsrStore.getState().sessionTranscriptMemories.upload).toBeNull();
     expect(useAsrStore.getState().sessionTranscriptMemories.cloud).toBeNull();
     expect(useAsrStore.getState().sessionTranscriptMemories.mic).toBeNull();
+    expect(window.sessionStorage.getItem(SESSION_TRANSCRIPT_MEMORIES_STORAGE_KEY)).toBeNull();
   });
 
   it("migrates legacy debugConfidence to logLevel=debug", () => {

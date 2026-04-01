@@ -1,4 +1,4 @@
-import { memo, useMemo, type ReactNode } from "react";
+import { memo, useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,7 +12,6 @@ interface CloudChunkCardProps {
   isActive?: boolean;
   onOpen: (chunkId: string) => void;
   onPlay: (chunkId: string) => void;
-  children?: ReactNode;
 }
 
 export const CloudChunkCard = memo(function CloudChunkCard({
@@ -20,7 +19,6 @@ export const CloudChunkCard = memo(function CloudChunkCard({
   isActive = false,
   onOpen,
   onPlay,
-  children,
 }: CloudChunkCardProps) {
   const speakerAssignments = useAsrStore((state) => state.speakerAssignments.cloud);
 
@@ -40,7 +38,7 @@ export const CloudChunkCard = memo(function CloudChunkCard({
       data-testid={`cloud-chunk-card-${chunk.chunkId}`}
       className={isActive ? "border-primary/60 bg-primary/5 shadow-sm" : undefined}
     >
-      <CardHeader className="space-y-3">
+      <CardHeader className="space-y-3 pb-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
@@ -84,8 +82,13 @@ export const CloudChunkCard = memo(function CloudChunkCard({
           <p className="text-xs text-muted-foreground">Aucun speaker détecté sur ce morceau.</p>
         )}
       </CardHeader>
-
-      {isActive && children ? <CardContent className="space-y-4 border-t pt-4">{children}</CardContent> : null}
+      <CardContent className="space-y-3 pt-0">
+        {chunk.textSample ? (
+          <p className="text-sm leading-6 text-muted-foreground">{chunk.textSample}</p>
+        ) : (
+          <p className="text-sm text-muted-foreground">Aucun extrait disponible pour cette partie.</p>
+        )}
+      </CardContent>
     </Card>
   );
 });

@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { useState } from "react";
 import { renderWithStore } from "@/test/utils";
 import { useAsrStore } from "@/store/asr-store";
 import CloudUploadPage from "./CloudUploadPage";
 import * as cloudHook from "@/hooks/useCloudTranscription";
 import type { AudioMetadata } from "@/lib/audio";
+import type { TranscriptionSegment } from "@/lib/export";
 import { groupCloudTranscriptionSegments } from "@/lib/cloud/transcriptionChunks";
 
 const backendPermissionMocks = vi.hoisted(() => ({
@@ -20,14 +20,26 @@ vi.mock("@/hooks/useBackendPermissions", () => ({
   useBackendPermissions: () => ({}),
 }));
 
-function createHookValue(overrides: Partial<ReturnType<typeof cloudHook.useCloudTranscription>> = {}) {
-  const segments = overrides.segments ?? [];
-  const chunkSummaries = overrides.chunkSummaries ?? groupCloudTranscriptionSegments(segments);
+type HookOverrides = Partial<ReturnType<typeof cloudHook.useCloudTranscription>> & {
+  segments?: TranscriptionSegment[];
+};
+
+function createHookValue(overrides: HookOverrides = {}) {
+  const {
+    segments = [],
+    chunkSummaries: providedChunkSummaries,
+    loadChunkSegments: providedLoadChunkSegments,
+    loadAllSegmentsForExport: providedLoadAllSegmentsForExport,
+    ...rest
+  } = overrides;
+  const chunkSummaries = providedChunkSummaries ?? groupCloudTranscriptionSegments(segments);
+  const loadChunkSegments =
+    providedLoadChunkSegments ?? vi.fn(async (chunkId: string) => segments.filter((segment) => segment.chunkId === chunkId));
+  const loadAllSegmentsForExport = providedLoadAllSegmentsForExport ?? vi.fn(async () => segments);
   return {
     selectedFile: null,
     previewUrl: null,
     audioMetadata: null,
-    segments,
     chunkSummaries,
     chunkGroups: chunkSummaries,
     telemetrySummary: null,
@@ -56,7 +68,9 @@ function createHookValue(overrides: Partial<ReturnType<typeof cloudHook.useCloud
     resetTranscriptionSession: vi.fn(),
     updateSegmentText: vi.fn(),
     updateSegmentSpeaker: vi.fn(),
-    ...overrides,
+    loadChunkSegments,
+    loadAllSegmentsForExport,
+    ...rest,
   } satisfies ReturnType<typeof cloudHook.useCloudTranscription>;
 }
 
@@ -80,7 +94,7 @@ describe("CloudUploadPage", () => {
   });
 
   it("shows the docx export only after a completed cloud transcription", () => {
-    const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(
+    vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(
       createHookValue({
         status: "done",
         segments: [
@@ -100,7 +114,6 @@ describe("CloudUploadPage", () => {
     renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
 
     expect(screen.getByRole("button", { name: /^Télécharger en DOCX$/i })).toBeInTheDocument();
-    hookSpy.mockRestore();
   });
 
   it("renders the cloud upload UI with remaining providers", () => {
@@ -171,47 +184,46 @@ describe("CloudUploadPage", () => {
     expect(screen.queryByRole("switch", { name: "Diarization" })).toBeNull();
   });
 
-  it("renders summary cards by default and mounts one detail panel on demand", () => {
-    const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(
-      createHookValue({
-        selectedFile: new File(["audio"], "session.wav", { type: "audio/wav" }),
-        previewUrl: "blob:mock-session",
-        audioMetadata: {
-          name: "session.wav",
-          durationSec: 24,
-          sampleRate: 16000,
-        } satisfies AudioMetadata,
-        segments: [
-          {
-            index: 0,
-            start: 0,
-            end: 5,
-            text: "Bonjour",
-            speaker: "SPEAKER_00",
-            chunkId: "mistral-1",
-            strategy: "chunks",
-          },
-          {
-            index: 1,
-            start: 5,
-            end: 9,
-            text: "Suite",
-            speaker: "SPEAKER_01",
-            chunkId: "mistral-1",
-            strategy: "chunks",
-          },
-          {
-            index: 2,
-            start: 9,
-            end: 14,
-            text: "Segment suivant",
-            speaker: "SPEAKER_00",
-            chunkId: "mistral-2",
-            strategy: "chunks",
-          },
-        ],
-      })
-    );
+  it("renders summary cards by default and mounts one detail panel on demand", async () => {
+    const hookValue = createHookValue({
+      selectedFile: new File(["audio"], "session.wav", { type: "audio/wav" }),
+      previewUrl: "blob:mock-session",
+      audioMetadata: {
+        name: "session.wav",
+        durationSec: 24,
+        sampleRate: 16000,
+      } satisfies AudioMetadata,
+      segments: [
+        {
+          index: 0,
+          start: 0,
+          end: 5,
+          text: "Bonjour",
+          speaker: "SPEAKER_00",
+          chunkId: "mistral-1",
+          strategy: "chunks",
+        },
+        {
+          index: 1,
+          start: 5,
+          end: 9,
+          text: "Suite",
+          speaker: "SPEAKER_01",
+          chunkId: "mistral-1",
+          strategy: "chunks",
+        },
+        {
+          index: 2,
+          start: 9,
+          end: 14,
+          text: "Segment suivant",
+          speaker: "SPEAKER_00",
+          chunkId: "mistral-2",
+          strategy: "chunks",
+        },
+      ],
+    });
+    vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(hookValue);
 
     const { container } = renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
 
@@ -226,23 +238,81 @@ describe("CloudUploadPage", () => {
     expect(within(secondChunkCard).getByText("Partie 2")).toBeInTheDocument();
     expect(within(firstChunkCard).getByText("00:00 - 00:09")).toBeInTheDocument();
     expect(within(secondChunkCard).getByText("00:09 - 00:14")).toBeInTheDocument();
+    expect(hookValue.loadChunkSegments).not.toHaveBeenCalled();
 
-    expect(screen.queryByRole("button", { name: /Lecture/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Assigner les speakers de la partie/i })).toBeNull();
-    expect(screen.queryByRole("columnheader", { name: /speaker/i })).toBeNull();
+    const chunkListContainer = container.querySelector("div.relative.min-w-full")?.parentElement;
+    expect(chunkListContainer).toBeTruthy();
+    expect(chunkListContainer).toHaveClass("overflow-auto");
+    expect(chunkListContainer).not.toHaveClass("border");
+    expect(chunkListContainer).not.toHaveClass("bg-background/50");
+    expect(chunkListContainer).not.toHaveClass("rounded-lg");
 
+    expect(screen.queryByTestId("cloud-chunk-details-mistral-1")).toBeNull();
     fireEvent.click(within(firstChunkCard).getByRole("button", { name: /Ouvrir/i }));
 
     const detailsPanel = screen.getByTestId("cloud-chunk-details-mistral-1");
-    expect(within(detailsPanel).getByRole("button", { name: /Lecture/i })).toBeInTheDocument();
-    expect(within(detailsPanel).getByRole("button", { name: /Assigner les speakers de la partie/i })).toBeInTheDocument();
-    expect(within(detailsPanel).getByRole("columnheader", { name: /speaker/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(hookValue.loadChunkSegments).toHaveBeenCalledWith("mistral-1");
+    });
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /détails de la partie/i })).toBeInTheDocument();
+    });
+    expect(document.body.style.overflow).toBe("hidden");
+    await waitFor(() => {
+      expect(within(detailsPanel).getByRole("button", { name: /Lecture/i })).toBeInTheDocument();
+      expect(within(detailsPanel).getByRole("button", { name: /Assigner les speakers de la partie/i })).toBeInTheDocument();
+      expect(within(detailsPanel).getByRole("columnheader", { name: /speaker/i })).toBeInTheDocument();
+    });
     expect(Array.from(container.querySelectorAll('[data-testid^="cloud-chunk-card-"]')).map((node) => node.getAttribute("data-testid"))).toEqual([
       "cloud-chunk-card-mistral-1",
       "cloud-chunk-card-mistral-2",
     ]);
     expect(screen.getAllByRole("button", { name: /Lecture/i })).toHaveLength(1);
-    hookSpy.mockRestore();
+
+    fireEvent.click(within(detailsPanel).getByRole("button", { name: /Fermer/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /détails de la partie/i })).toBeNull();
+    });
+    expect(document.body.style.overflow).toBe("");
+  });
+
+  it("closes the detail modal with Escape", async () => {
+    const hookValue = createHookValue({
+      selectedFile: new File(["audio"], "session.wav", { type: "audio/wav" }),
+      previewUrl: "blob:mock-session",
+      audioMetadata: {
+        name: "session.wav",
+        durationSec: 24,
+        sampleRate: 16000,
+      } satisfies AudioMetadata,
+      segments: [
+        {
+          index: 0,
+          start: 0,
+          end: 5,
+          text: "Bonjour",
+          speaker: "SPEAKER_00",
+          chunkId: "mistral-1",
+          strategy: "chunks",
+        },
+      ],
+    });
+    vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(hookValue);
+
+    renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
+
+    fireEvent.click(within(screen.getByTestId("cloud-chunk-card-mistral-1")).getByRole("button", { name: /Ouvrir/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /détails de la partie/i })).toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /détails de la partie/i })).toBeNull();
+    });
+    expect(document.body.style.overflow).toBe("");
   });
 
   it("virtualizes long cloud chunk lists while preserving the summary order", () => {
@@ -255,7 +325,7 @@ describe("CloudUploadPage", () => {
       chunkId: `mistral-${index + 1}`,
       strategy: "chunks" as const,
     }));
-    const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(createHookValue({ segments }));
+    vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(createHookValue({ segments }));
 
     const { container } = renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
 
@@ -267,34 +337,32 @@ describe("CloudUploadPage", () => {
     expect(renderedCards[0]).toBe("cloud-chunk-card-mistral-1");
     expect(renderedCards).not.toContain("cloud-chunk-card-mistral-18");
     expect(screen.getByText("Partie 1")).toBeInTheDocument();
-    hookSpy.mockRestore();
   });
 
-  it("does not expose global speaker assignment in cloud mode", () => {
-    const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(
-      createHookValue({
-        segments: [
-          {
-            index: 0,
-            start: 0,
-            end: 2,
-            text: "Bonjour",
-            speaker: "SPEAKER_00",
-            chunkId: "mistral-1",
-            strategy: "chunks",
-          },
-          {
-            index: 1,
-            start: 3,
-            end: 5,
-            text: "Salut",
-            speaker: "SPEAKER_00",
-            chunkId: "mistral-2",
-            strategy: "chunks",
-          },
-        ],
-      })
-    );
+  it("does not expose global speaker assignment in cloud mode", async () => {
+    const hookValue = createHookValue({
+      segments: [
+        {
+          index: 0,
+          start: 0,
+          end: 2,
+          text: "Bonjour",
+          speaker: "SPEAKER_00",
+          chunkId: "mistral-1",
+          strategy: "chunks",
+        },
+        {
+          index: 1,
+          start: 3,
+          end: 5,
+          text: "Salut",
+          speaker: "SPEAKER_00",
+          chunkId: "mistral-2",
+          strategy: "chunks",
+        },
+      ],
+    });
+    vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(hookValue);
 
     renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
 
@@ -302,42 +370,43 @@ describe("CloudUploadPage", () => {
     const firstChunkCard = screen.getByTestId("cloud-chunk-card-mistral-1");
     expect(within(firstChunkCard).queryByRole("button", { name: /Assigner les speakers de la partie/i })).toBeNull();
     fireEvent.click(within(firstChunkCard).getByRole("button", { name: /Ouvrir/i }));
+    await waitFor(() => {
+      expect(hookValue.loadChunkSegments).toHaveBeenCalledWith("mistral-1");
+    });
     expect(screen.getByRole("button", { name: /Assigner les speakers de la partie/i })).toBeInTheDocument();
-    hookSpy.mockRestore();
   });
 
-  it("updates only the local chunk speaker assignments from a chunk card", () => {
-    const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(
-      createHookValue({
-        selectedFile: new File(["audio"], "session.wav", { type: "audio/wav" }),
-        previewUrl: "blob:mock-session",
-        audioMetadata: {
-          name: "session.wav",
-          durationSec: 24,
-          sampleRate: 16000,
-        } satisfies AudioMetadata,
-        segments: [
-          {
-            index: 0,
-            start: 0,
-            end: 4,
-            text: "Bonjour",
-            speaker: "SPEAKER_00",
-            chunkId: "mistral-1",
-            strategy: "chunks",
-          },
-          {
-            index: 1,
-            start: 4,
-            end: 8,
-            text: "Suite",
-            speaker: "SPEAKER_00",
-            chunkId: "mistral-2",
-            strategy: "chunks",
-          },
-        ],
-      })
-    );
+  it("updates only the local chunk speaker assignments from a chunk card", async () => {
+    const hookValue = createHookValue({
+      selectedFile: new File(["audio"], "session.wav", { type: "audio/wav" }),
+      previewUrl: "blob:mock-session",
+      audioMetadata: {
+        name: "session.wav",
+        durationSec: 24,
+        sampleRate: 16000,
+      } satisfies AudioMetadata,
+      segments: [
+        {
+          index: 0,
+          start: 0,
+          end: 4,
+          text: "Bonjour",
+          speaker: "SPEAKER_00",
+          chunkId: "mistral-1",
+          strategy: "chunks",
+        },
+        {
+          index: 1,
+          start: 4,
+          end: 8,
+          text: "Suite",
+          speaker: "SPEAKER_00",
+          chunkId: "mistral-2",
+          strategy: "chunks",
+        },
+      ],
+    });
+    vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(hookValue);
 
     useAsrStore.setState({
       speakerAssignments: {
@@ -356,9 +425,13 @@ describe("CloudUploadPage", () => {
 
     const firstChunkCard = screen.getByTestId("cloud-chunk-card-mistral-1");
     fireEvent.click(within(firstChunkCard).getByRole("button", { name: /Ouvrir/i }));
+    const detailsPanel = screen.getByTestId("cloud-chunk-details-mistral-1");
+    await waitFor(() => {
+      expect(within(detailsPanel).getByRole("columnheader", { name: /speaker/i })).toBeInTheDocument();
+    });
     fireEvent.click(screen.getByRole("button", { name: /Assigner les speakers de la partie/i }));
 
-    const dialog = screen.getByRole("dialog");
+    const dialog = screen.getByRole("dialog", { name: /assigner les speakers par chunk/i });
     fireEvent.change(within(dialog).getByLabelText("Nom Partie 1 SPEAKER_00"), {
       target: { value: "Martin" },
     });
@@ -376,12 +449,18 @@ describe("CloudUploadPage", () => {
       lastName: "Dupont",
     });
 
-    hookSpy.mockRestore();
   });
 
   it("lets cloud users reassign a segment speaker from the chunk table", async () => {
-    const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockImplementation(() => {
-      const [segments, setSegments] = useState([
+    const hookValue = createHookValue({
+      selectedFile: new File(["audio"], "session.wav", { type: "audio/wav" }),
+      previewUrl: "blob:mock-session",
+      audioMetadata: {
+        name: "session.wav",
+        durationSec: 24,
+        sampleRate: 16000,
+      } satisfies AudioMetadata,
+      segments: [
         {
           index: 0,
           start: 0,
@@ -409,24 +488,9 @@ describe("CloudUploadPage", () => {
           chunkId: "cloud-1",
           strategy: "chunks" as const,
         },
-      ]);
-
-      return createHookValue({
-        selectedFile: new File(["audio"], "session.wav", { type: "audio/wav" }),
-        previewUrl: "blob:mock-session",
-        audioMetadata: {
-          name: "session.wav",
-          durationSec: 24,
-          sampleRate: 16000,
-        } satisfies AudioMetadata,
-        segments,
-        updateSegmentSpeaker: (segmentIndex: number, speakerId: string) => {
-          setSegments((current) =>
-            current.map((segment) => (segment.index === segmentIndex ? { ...segment, speaker: speakerId.trim() } : segment))
-          );
-        },
-      });
+      ],
     });
+    vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(hookValue);
 
     useAsrStore.setState({
       speakerAssignments: {
@@ -451,6 +515,9 @@ describe("CloudUploadPage", () => {
     fireEvent.click(within(chunkCard).getByRole("button", { name: /Ouvrir/i }));
 
     const detailsPanel = screen.getByTestId("cloud-chunk-details-cloud-1");
+    await waitFor(() => {
+      expect(within(detailsPanel).getByRole("button", { name: /modifier le segment 1/i })).toBeInTheDocument();
+    });
     const firstSpeakerSelect = within(detailsPanel).getByRole("combobox", { name: /speaker du segment 1/i });
     const secondSpeakerSelect = within(detailsPanel).getByRole("combobox", { name: /speaker du segment 2/i });
 
@@ -469,7 +536,45 @@ describe("CloudUploadPage", () => {
       );
     });
 
-    hookSpy.mockRestore();
+  });
+
+  it("clears the active chunk when cloudShowSegments is disabled", async () => {
+    const hookValue = createHookValue({
+      selectedFile: new File(["audio"], "session.wav", { type: "audio/wav" }),
+      previewUrl: "blob:mock-session",
+      audioMetadata: {
+        name: "session.wav",
+        durationSec: 24,
+        sampleRate: 16000,
+      } satisfies AudioMetadata,
+      segments: [
+        {
+          index: 0,
+          start: 0,
+          end: 4,
+          text: "Bonjour",
+          speaker: "SPEAKER_00",
+          chunkId: "cloud-1",
+          strategy: "chunks" as const,
+        },
+      ],
+    });
+    vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(hookValue);
+
+    const { unmount } = renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
+
+    fireEvent.click(within(screen.getByTestId("cloud-chunk-card-cloud-1")).getByRole("button", { name: /Ouvrir/i }));
+    await waitFor(() => {
+      expect(screen.getByTestId("cloud-chunk-details-cloud-1")).toBeInTheDocument();
+    });
+
+    useAsrStore.setState({ cloudShowSegments: false });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("cloud-chunk-details-cloud-1")).toBeNull();
+    });
+
+    unmount();
   });
 
   it("shows reset session button in cloud status card", () => {
@@ -487,7 +592,7 @@ describe("CloudUploadPage", () => {
   });
 
   it("shows mistral error detail in status card", () => {
-    const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(
+    vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(
       createHookValue({
         status: "error",
         statusDetail: "Mistral API (401): Unauthorized",
@@ -498,11 +603,10 @@ describe("CloudUploadPage", () => {
 
     expect(screen.getByText("Erreur")).toBeInTheDocument();
     expect(screen.getByText("Mistral API (401): Unauthorized")).toBeInTheDocument();
-    hookSpy.mockRestore();
   });
 
   it("renders long prepared upload metadata without dropping the file name", () => {
-    const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(
+    vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(
       createHookValue({
         preparedUpload: {
           provider: "demeter_sante",
@@ -519,12 +623,11 @@ describe("CloudUploadPage", () => {
     expect(screen.getByText(/dernier fichier préparé avant envoi/i)).toBeInTheDocument();
     expect(screen.getByText(/consultation_super_longue_avec_un_nom_de_fichier_extremement_verbeux/i)).toBeInTheDocument();
     expect(screen.getByText(/21313456 octets/i)).toBeInTheDocument();
-    hookSpy.mockRestore();
   });
 
   it("allows editing a cloud segment from the table", async () => {
-    const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockImplementation(() => {
-      const [segments, setSegments] = useState([
+    const hookValue = createHookValue({
+      segments: [
         {
           index: 0,
           start: 0,
@@ -533,25 +636,20 @@ describe("CloudUploadPage", () => {
           chunkId: "cloud-1",
           strategy: "chunks" as const,
         },
-      ]);
-
-      return createHookValue({
-        segments,
-        updateSegmentText: (segmentIndex: number, text: string) => {
-          setSegments((current) =>
-            current.map((segment) => (segment.index === segmentIndex ? { ...segment, text: text.trim() } : segment))
-          );
-        },
-      });
+      ],
     });
+    vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(hookValue);
 
     renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
 
     const chunkCard = screen.getByTestId("cloud-chunk-card-cloud-1");
     fireEvent.click(within(chunkCard).getByRole("button", { name: /Ouvrir/i }));
-    expect(screen.getByTestId("cloud-chunk-details-cloud-1")).toBeInTheDocument();
+    const detailsPanel = screen.getByTestId("cloud-chunk-details-cloud-1");
+    await waitFor(() => {
+      expect(within(detailsPanel).getByRole("button", { name: /modifier le segment 1/i })).toBeInTheDocument();
+    });
     fireEvent.click(screen.getByRole("button", { name: /modifier le segment 1/i }));
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: /modifier le segment #1/i })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/texte du segment/i), {
       target: { value: "Texte cloud modifié" },
@@ -561,7 +659,5 @@ describe("CloudUploadPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Texte cloud modifié")).toBeInTheDocument();
     });
-    expect(screen.queryByText("Bonjour")).toBeNull();
-    hookSpy.mockRestore();
   });
 });

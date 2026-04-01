@@ -8,6 +8,7 @@ import { estimateTokenCount } from "@/lib/tokens";
 import { resolveSegmentSpeakerLabel } from "@/lib/speakerAssignments";
 import { SegmentEditorDialog } from "@/components/results/SegmentEditorDialog";
 import { useVirtualizedList } from "@/hooks/useVirtualizedList";
+import { cn } from "@/lib/utils";
 
 interface ResultsTableProps {
   segments: TranscriptionSegment[];
@@ -19,6 +20,7 @@ interface ResultsTableProps {
   onSegmentTextChange?: (segmentIndex: number, text: string) => void;
   onSegmentSpeakerChange?: (segmentIndex: number, speakerId: string) => void;
   segmentEditingDisabled?: boolean;
+  expandToFill?: boolean;
 }
 
 const RESULTS_TABLE_FALLBACK_HEIGHT = 360;
@@ -33,6 +35,7 @@ export const ResultsTable = memo(function ResultsTable({
   onSegmentTextChange,
   onSegmentSpeakerChange,
   segmentEditingDisabled = false,
+  expandToFill = false,
 }: ResultsTableProps) {
   const [query, setQuery] = useState("");
   const [editingSegment, setEditingSegment] = useState<{ index: number; text: string } | null>(null);
@@ -156,7 +159,7 @@ export const ResultsTable = memo(function ResultsTable({
   );
 
   return (
-    <div className="space-y-3">
+    <div className={cn(expandToFill ? "flex h-full min-h-0 flex-col gap-3" : "space-y-3")}>
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
         <span>{segments.length} segments</span>
         <span>Tokens (est.) : {totalTokenCount}</span>
@@ -178,7 +181,7 @@ export const ResultsTable = memo(function ResultsTable({
         }}
       />
 
-      <div ref={parentRef} className="h-[360px] overflow-auto rounded-md border">
+      <div ref={parentRef} className={cn("overflow-auto rounded-md border", expandToFill ? "flex-1 min-h-0" : "h-[360px]")}>
         <div className="min-w-[860px]" role="table" aria-label="Résultats de transcription">
           <div
             role="row"
