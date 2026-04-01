@@ -529,6 +529,7 @@ function CloudUploadPage() {
             showSrt={cloudShowExportSrt}
             showJson={cloudShowExportJson}
             showTelemetry={cloudShowExportTelemetry}
+            showDocx={status === "done" && segments.length > 0}
             mode="cloud"
           />
 

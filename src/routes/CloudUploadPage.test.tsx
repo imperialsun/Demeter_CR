@@ -76,6 +76,31 @@ describe("CloudUploadPage", () => {
     expect(screen.getByRole("button", { name: /SRT/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /JSON/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Telemetry/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Télécharger en DOCX$/i })).toBeNull();
+  });
+
+  it("shows the docx export only after a completed cloud transcription", () => {
+    const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(
+      createHookValue({
+        status: "done",
+        segments: [
+          {
+            index: 0,
+            start: 0,
+            end: 5,
+            text: "Bonjour",
+            speaker: "SPEAKER_00",
+            chunkId: "mistral-1",
+            strategy: "chunks",
+          },
+        ],
+      })
+    );
+
+    renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
+
+    expect(screen.getByRole("button", { name: /^Télécharger en DOCX$/i })).toBeInTheDocument();
+    hookSpy.mockRestore();
   });
 
   it("renders the cloud upload UI with remaining providers", () => {

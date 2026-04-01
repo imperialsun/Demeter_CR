@@ -75,7 +75,22 @@ describe('LocalUploadPage', () => {
     expect(vttButton).toBeInTheDocument();
     expect(srtButton).toBeInTheDocument();
     expect(jsonButton).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Télécharger en DOCX$/i })).toBeNull();
     expect(vttButton?.compareDocumentPosition(segmentCell) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows the docx export only after a finished local transcription", () => {
+    renderWithStore(
+      <LocalUploadPage />,
+      {
+        status: "ready",
+        statusDetail: "Prêt",
+        showSegments: true,
+        segments: [{ index: 0, text: "segment-order-marker", start: 0, end: 1 }],
+      } as any
+    );
+
+    expect(screen.getByRole("button", { name: /^Télécharger en DOCX$/i })).toBeInTheDocument();
   });
 
   it('shows reset session button and clears local upload session state', async () => {

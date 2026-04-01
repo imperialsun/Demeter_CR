@@ -26,6 +26,7 @@ function LocalUploadPage() {
   const setUploadedFile = useAsrStore((state) => state.setUploadedFile);
   const setPreviewUrl = useAsrStore((state) => state.setPreviewUrl);
   const segments = useAsrStore((state) => state.segments);
+  const status = useAsrStore((state) => state.status);
   const showSegments = useAsrStore((state) => state.showSegments);
   const telemetrySummary = useAsrStore((state) => state.telemetrySummary);
   const setTelemetrySummary = useAsrStore((state) => state.setTelemetrySummary);
@@ -234,7 +235,11 @@ function LocalUploadPage() {
 
         <div className="space-y-4">
           <AudioPlayer file={selectedFile} metadata={audioMetadata} previewUrl={previewUrl} segments={segments} />
-          <ExportButtons segments={segments} telemetry={telemetrySummary ?? undefined} />
+          <ExportButtons
+            segments={segments}
+            telemetry={telemetrySummary ?? undefined}
+            showDocx={status === "ready" && segments.length > 0}
+          />
 
           {showSegments && (
             segments.length ? (

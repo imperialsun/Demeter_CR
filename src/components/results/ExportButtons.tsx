@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Download, Users } from "lucide-react";
+import { Download, Loader2, Users } from "lucide-react";
 import {
   serializeVtt,
   serializeSrt,
@@ -27,6 +27,7 @@ interface ExportButtonsProps {
   showSrt?: boolean;
   showJson?: boolean;
   showTelemetry?: boolean;
+  showDocx?: boolean;
   mode?: "upload" | "mic" | "cloud";
 }
 
@@ -37,19 +38,25 @@ export const ExportButtons = memo(function ExportButtons({
   showSrt,
   showJson,
   showTelemetry,
+  showDocx,
   mode = "upload",
 }: ExportButtonsProps) {
   const [isSpeakerDialogOpen, setSpeakerDialogOpen] = useState(false);
+  const [isDocxExporting, setDocxExporting] = useState(false);
   const speakerAssignments = useAsrStore((s) => s.speakerAssignments[mode]);
   const setSpeakerAssignments = useAsrStore((s) => s.setSpeakerAssignments);
+  const audioSource = useAsrStore((s) => s.audioSource);
+  const uploadedFile = useAsrStore((s) => s.uploadedFile);
   const speakerEntries = useMemo(
     () => (mode === "cloud" ? [] : collectSpeakerAssignmentEntries(segments, mode)),
     [mode, segments]
   );
+  const sourceLabel = audioSource?.label?.trim() || uploadedFile?.name?.trim() || undefined;
   const segmentsForExport = useMemo(
     () => applySpeakerAssignments(segments, speakerAssignments, mode),
     [mode, segments, speakerAssignments]
   );
+  const showExportDocx = Boolean(showDocx && segments.length);
   const exportVtt = useCallback(() => {
     if (!segments.length) return;
     const header = buildExportHeader(mode);
@@ -102,6 +109,46 @@ export const ExportButtons = memo(function ExportButtons({
   const showExportJson = typeof showJson === "boolean" ? showJson : storeShowJson;
   const showExportTelemetry = typeof showTelemetry === "boolean" ? showTelemetry : storeShowTelemetry;
 
+  const exportDocx = useCallback(async () => {
+    if (!segmentsForExport.length || isDocxExporting) {
+      return;
+    }
+    setDocxExporting(true);
+    const generatedAt = new Date().toISOString();
+    logger.info("[export] DOCX download requested", {
+      mode,
+      segmentCount: segmentsForExport.length,
+      sourceLabel: sourceLabel ?? null,
+    });
+    try {
+      const { buildTranscriptDocx, downloadDocxBlob, formatTranscriptDocxFilename } = await import(
+        "@/lib/docx/transcriptDocx"
+      );
+      const blob = await buildTranscriptDocx(segmentsForExport, {
+        sourceMode: mode,
+        sourceLabel,
+        generatedAt,
+      });
+      const filename = formatTranscriptDocxFilename(new Date(generatedAt));
+      downloadDocxBlob(blob, filename);
+      logger.info("[export] DOCX download done", {
+        mode,
+        segmentCount: segmentsForExport.length,
+        sourceLabel: sourceLabel ?? null,
+        filename,
+      });
+    } catch (error) {
+      logger.error("[export] DOCX download failed", {
+        mode,
+        segmentCount: segmentsForExport.length,
+        sourceLabel: sourceLabel ?? null,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setDocxExporting(false);
+    }
+  }, [isDocxExporting, mode, segmentsForExport, sourceLabel]);
+
   const handleApplySpeakerAssignments = useCallback(
     (nextAssignments: SpeakerAssignmentMap) => {
       logger.info("[results] speaker assignments applied", {
@@ -117,6 +164,21 @@ export const ExportButtons = memo(function ExportButtons({
   return (
     <>
       <div className="flex flex-wrap gap-2">
+        {showExportDocx ? (
+          <Button
+            className="gap-2"
+            disabled={isDocxExporting}
+            onClick={() => {
+              void exportDocx();
+            }}
+            size="sm"
+            variant="default"
+          >
+            {isDocxExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Télécharger en DOCX
+          </Button>
+        ) : null}
+
         {speakerEntries.length ? (
           <Button
             variant="outline"

@@ -1,9 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ExportButtons } from "./ExportButtons";
 import * as exportLib from "@/lib/export";
 import { useAsrStore } from "@/store/asr-store";
+
+const transcriptDocxMocks = vi.hoisted(() => ({
+  buildTranscriptDocx: vi.fn(async () => new Blob(["docx"], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" })),
+  downloadDocxBlob: vi.fn(),
+  formatTranscriptDocxFilename: vi.fn(() => "transcription-brute-2026-02-16-0905.docx"),
+}));
 
 vi.mock("@/lib/export", async () => ({
   ...(await vi.importActual("@/lib/export")),
@@ -14,14 +20,26 @@ vi.mock("@/lib/export", async () => ({
   serializeTelemetry: vi.fn(() => "telemetry"),
 }));
 
+vi.mock("@/lib/docx/transcriptDocx", async () => ({
+  ...(await vi.importActual("@/lib/docx/transcriptDocx")),
+  buildTranscriptDocx: transcriptDocxMocks.buildTranscriptDocx,
+  downloadDocxBlob: transcriptDocxMocks.downloadDocxBlob,
+  formatTranscriptDocxFilename: transcriptDocxMocks.formatTranscriptDocxFilename,
+}));
+
 describe("ExportButtons", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    transcriptDocxMocks.buildTranscriptDocx.mockClear();
+    transcriptDocxMocks.downloadDocxBlob.mockClear();
+    transcriptDocxMocks.formatTranscriptDocxFilename.mockClear();
     useAsrStore.setState({
       showExportVtt: true,
       showExportSrt: true,
       showExportJson: true,
       showExportTelemetry: true,
+      audioSource: null,
+      uploadedFile: null,
       runExportHeaders: {
         upload: null,
         mic: null,
@@ -51,6 +69,7 @@ describe("ExportButtons", () => {
     expect(srt).toBeTruthy();
     expect(json).toBeTruthy();
     expect(tele).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Télécharger en DOCX$/i })).toBeNull();
 
     fireEvent.click(vtt);
     fireEvent.click(srt);
@@ -63,6 +82,53 @@ describe("ExportButtons", () => {
     const lastVttPayload = vttCalls[vttCalls.length - 1][0];
     expect(lastVttPayload[0]).toMatchObject({ text: "a" });
     expect((exportLib.serializeTelemetry as any)).toHaveBeenCalledWith(telemetry, expect.any(Object));
+  });
+
+  it("renders the docx export only when enabled and downloads the transcript docx", async () => {
+    useAsrStore.setState({
+      audioSource: {
+        id: "upload:session.wav:1",
+        label: "session.wav",
+        type: "file",
+      },
+      uploadedFile: new File(["audio"], "session.wav", { type: "audio/wav" }),
+    } as any);
+
+    const segments: any[] = [
+      {
+        index: 0,
+        start: 0,
+        end: 1,
+        text: "Bonjour",
+        speaker: "Alice",
+        chunkId: "chunk-1",
+        strategy: "chunks",
+      },
+    ];
+
+    render(<ExportButtons segments={segments} showDocx mode="upload" />);
+
+    const docxButton = screen.getByRole("button", { name: /^Télécharger en DOCX$/i });
+    fireEvent.click(docxButton);
+
+    await waitFor(() => {
+      expect(transcriptDocxMocks.buildTranscriptDocx).toHaveBeenCalledTimes(1);
+      expect(transcriptDocxMocks.downloadDocxBlob).toHaveBeenCalledTimes(1);
+    });
+
+    expect(transcriptDocxMocks.buildTranscriptDocx).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ text: "Bonjour", speaker: "Alice" })]),
+      expect.objectContaining({
+        sourceMode: "upload",
+        sourceLabel: "session.wav",
+        generatedAt: expect.any(String),
+      })
+    );
+    expect(transcriptDocxMocks.formatTranscriptDocxFilename).toHaveBeenCalledWith(expect.any(Date));
+    expect(transcriptDocxMocks.downloadDocxBlob).toHaveBeenCalledWith(
+      expect.any(Blob),
+      "transcription-brute-2026-02-16-0905.docx"
+    );
   });
 
   it("disables export buttons when there is no data", () => {

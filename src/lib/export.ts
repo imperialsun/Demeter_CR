@@ -32,6 +32,8 @@ export interface ExportHeader {
   runtime?: Record<string, unknown>;
 }
 
+export type ExportMode = ExportHeader["mode"];
+
 export function serializeVtt(segments: TranscriptionSegment[], header?: ExportHeader): string {
   logger.debug("[export] serializing VTT", {
     segmentCount: segments.length,
