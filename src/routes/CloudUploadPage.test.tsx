@@ -22,13 +22,14 @@ vi.mock("@/hooks/useBackendPermissions", () => ({
 
 function createHookValue(overrides: Partial<ReturnType<typeof cloudHook.useCloudTranscription>> = {}) {
   const segments = overrides.segments ?? [];
-  const chunkGroups = overrides.chunkGroups ?? groupCloudTranscriptionSegments(segments);
+  const chunkSummaries = overrides.chunkSummaries ?? groupCloudTranscriptionSegments(segments);
   return {
     selectedFile: null,
     previewUrl: null,
     audioMetadata: null,
     segments,
-    chunkGroups,
+    chunkSummaries,
+    chunkGroups: chunkSummaries,
     telemetrySummary: null,
     status: "idle" as const,
     statusDetail: null,
@@ -145,7 +146,7 @@ describe("CloudUploadPage", () => {
     expect(screen.queryByRole("switch", { name: "Diarization" })).toBeNull();
   });
 
-  it("renders one card per chunk with a local player and speaker controls", () => {
+  it("renders summary cards by default and mounts one detail panel on demand", () => {
     const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(
       createHookValue({
         selectedFile: new File(["audio"], "session.wav", { type: "audio/wav" }),
@@ -187,20 +188,60 @@ describe("CloudUploadPage", () => {
       })
     );
 
-    renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
+    const { container } = renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
 
     const firstChunkCard = screen.getByTestId("cloud-chunk-card-mistral-1");
     const secondChunkCard = screen.getByTestId("cloud-chunk-card-mistral-2");
+    const initialCardOrder = Array.from(container.querySelectorAll('[data-testid^="cloud-chunk-card-"]')).map((node) =>
+      node.getAttribute("data-testid")
+    );
 
-    expect(within(firstChunkCard).getByText("Morceau 1")).toBeInTheDocument();
-    expect(within(secondChunkCard).getByText("Morceau 2")).toBeInTheDocument();
+    expect(initialCardOrder).toEqual(["cloud-chunk-card-mistral-1", "cloud-chunk-card-mistral-2"]);
+    expect(within(firstChunkCard).getByText("Partie 1")).toBeInTheDocument();
+    expect(within(secondChunkCard).getByText("Partie 2")).toBeInTheDocument();
     expect(within(firstChunkCard).getByText("00:00 - 00:09")).toBeInTheDocument();
     expect(within(secondChunkCard).getByText("00:09 - 00:14")).toBeInTheDocument();
-    expect(within(firstChunkCard).getByRole("button", { name: /Lecture/i })).toBeInTheDocument();
-    expect(within(secondChunkCard).getByRole("button", { name: /Lecture/i })).toBeInTheDocument();
-    expect(within(firstChunkCard).getByRole("button", { name: /Assigner les speakers du morceau/i })).toBeInTheDocument();
-    expect(within(secondChunkCard).getByRole("button", { name: /Assigner les speakers du morceau/i })).toBeInTheDocument();
-    expect(within(firstChunkCard).getByRole("columnheader", { name: /speaker/i })).toBeInTheDocument();
+
+    expect(screen.queryByRole("button", { name: /Lecture/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Assigner les speakers de la partie/i })).toBeNull();
+    expect(screen.queryByRole("columnheader", { name: /speaker/i })).toBeNull();
+
+    fireEvent.click(within(firstChunkCard).getByRole("button", { name: /Ouvrir/i }));
+
+    const detailsPanel = screen.getByTestId("cloud-chunk-details-mistral-1");
+    expect(within(detailsPanel).getByRole("button", { name: /Lecture/i })).toBeInTheDocument();
+    expect(within(detailsPanel).getByRole("button", { name: /Assigner les speakers de la partie/i })).toBeInTheDocument();
+    expect(within(detailsPanel).getByRole("columnheader", { name: /speaker/i })).toBeInTheDocument();
+    expect(Array.from(container.querySelectorAll('[data-testid^="cloud-chunk-card-"]')).map((node) => node.getAttribute("data-testid"))).toEqual([
+      "cloud-chunk-card-mistral-1",
+      "cloud-chunk-card-mistral-2",
+    ]);
+    expect(screen.getAllByRole("button", { name: /Lecture/i })).toHaveLength(1);
+    hookSpy.mockRestore();
+  });
+
+  it("virtualizes long cloud chunk lists while preserving the summary order", () => {
+    const segments = Array.from({ length: 18 }, (_, index) => ({
+      index,
+      start: index * 10,
+      end: index * 10 + 5,
+      text: `Segment ${index + 1}`,
+      speaker: index % 2 === 0 ? "SPEAKER_00" : "SPEAKER_01",
+      chunkId: `mistral-${index + 1}`,
+      strategy: "chunks" as const,
+    }));
+    const hookSpy = vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(createHookValue({ segments }));
+
+    const { container } = renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
+
+    const renderedCards = Array.from(container.querySelectorAll('[data-testid^="cloud-chunk-card-"]')).map((node) =>
+      node.getAttribute("data-testid")
+    );
+
+    expect(renderedCards.length).toBeLessThan(18);
+    expect(renderedCards[0]).toBe("cloud-chunk-card-mistral-1");
+    expect(renderedCards).not.toContain("cloud-chunk-card-mistral-18");
+    expect(screen.getByText("Partie 1")).toBeInTheDocument();
     hookSpy.mockRestore();
   });
 
@@ -234,7 +275,9 @@ describe("CloudUploadPage", () => {
 
     expect(screen.queryByRole("button", { name: /^Assigner speakers$/i })).toBeNull();
     const firstChunkCard = screen.getByTestId("cloud-chunk-card-mistral-1");
-    expect(within(firstChunkCard).getByRole("button", { name: /Assigner les speakers du morceau/i })).toBeInTheDocument();
+    expect(within(firstChunkCard).queryByRole("button", { name: /Assigner les speakers de la partie/i })).toBeNull();
+    fireEvent.click(within(firstChunkCard).getByRole("button", { name: /Ouvrir/i }));
+    expect(screen.getByRole("button", { name: /Assigner les speakers de la partie/i })).toBeInTheDocument();
     hookSpy.mockRestore();
   });
 
@@ -287,13 +330,14 @@ describe("CloudUploadPage", () => {
     renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
 
     const firstChunkCard = screen.getByTestId("cloud-chunk-card-mistral-1");
-    fireEvent.click(within(firstChunkCard).getByRole("button", { name: /Assigner les speakers du morceau/i }));
+    fireEvent.click(within(firstChunkCard).getByRole("button", { name: /Ouvrir/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Assigner les speakers de la partie/i }));
 
     const dialog = screen.getByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("Nom Morceau 1 SPEAKER_00"), {
+    fireEvent.change(within(dialog).getByLabelText("Nom Partie 1 SPEAKER_00"), {
       target: { value: "Martin" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Prénom Morceau 1 SPEAKER_00"), {
+    fireEvent.change(within(dialog).getByLabelText("Prénom Partie 1 SPEAKER_00"), {
       target: { value: "Alice" },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "Appliquer" }));
@@ -379,8 +423,11 @@ describe("CloudUploadPage", () => {
     renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
 
     const chunkCard = screen.getByTestId("cloud-chunk-card-cloud-1");
-    const firstSpeakerSelect = within(chunkCard).getByRole("combobox", { name: /speaker du segment 1/i });
-    const secondSpeakerSelect = within(chunkCard).getByRole("combobox", { name: /speaker du segment 2/i });
+    fireEvent.click(within(chunkCard).getByRole("button", { name: /Ouvrir/i }));
+
+    const detailsPanel = screen.getByTestId("cloud-chunk-details-cloud-1");
+    const firstSpeakerSelect = within(detailsPanel).getByRole("combobox", { name: /speaker du segment 1/i });
+    const secondSpeakerSelect = within(detailsPanel).getByRole("combobox", { name: /speaker du segment 2/i });
 
     expect(firstSpeakerSelect).toHaveTextContent("Dupont Alice · SPEAKER_00");
     expect(secondSpeakerSelect).toHaveTextContent("Dupont Alice · SPEAKER_00");
@@ -389,10 +436,10 @@ describe("CloudUploadPage", () => {
     fireEvent.click(screen.getByRole("option", { name: "Martin Bob · SPEAKER_01" }));
 
     await waitFor(() => {
-      expect(within(chunkCard).getByRole("combobox", { name: /speaker du segment 1/i })).toHaveTextContent(
+      expect(within(detailsPanel).getByRole("combobox", { name: /speaker du segment 1/i })).toHaveTextContent(
         "Martin Bob · SPEAKER_01"
       );
-      expect(within(chunkCard).getByRole("combobox", { name: /speaker du segment 2/i })).toHaveTextContent(
+      expect(within(detailsPanel).getByRole("combobox", { name: /speaker du segment 2/i })).toHaveTextContent(
         "Dupont Alice · SPEAKER_00"
       );
     });
@@ -476,7 +523,9 @@ describe("CloudUploadPage", () => {
     renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
 
     const chunkCard = screen.getByTestId("cloud-chunk-card-cloud-1");
-    fireEvent.click(within(chunkCard).getByRole("button", { name: /modifier le segment 1/i }));
+    fireEvent.click(within(chunkCard).getByRole("button", { name: /Ouvrir/i }));
+    expect(screen.getByTestId("cloud-chunk-details-cloud-1")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /modifier le segment 1/i }));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/texte du segment/i), {

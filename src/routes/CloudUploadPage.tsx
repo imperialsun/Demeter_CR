@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AudioUploader } from "@/components/audio/AudioUploader";
 import { ExportButtons } from "@/components/results/ExportButtons";
 import { CloudChunkCard } from "@/components/results/CloudChunkCard";
+import { CloudChunkDetailsPanel } from "@/components/results/CloudChunkDetailsPanel";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { useAsrStore } from "@/store/asr-store";
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { useCloudTranscription } from "@/hooks/useCloudTranscription";
+import { useVirtualizedList } from "@/hooks/useVirtualizedList";
 import { canUseCloudProvider } from "@/lib/backend-permissions";
 import logger from "@/lib/logger";
 import { SESSION_ONLY_SECRET_NOTICE } from "@/lib/secret-storage-copy";
@@ -27,6 +29,19 @@ type CloudProviderId = "whisper" | "mistral" | "demeter_sante";
 
 function formatMebibytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MiB`;
+}
+
+function readBrowserMemorySnapshot() {
+  if (typeof performance === "undefined" || !("memory" in performance)) {
+    return null;
+  }
+  const { memory } = performance as unknown as {
+    memory: { usedJSHeapSize: number; totalJSHeapSize: number };
+  };
+  return {
+    usedJSHeapSizeMb: Math.round(memory.usedJSHeapSize / (1024 * 1024)),
+    totalJSHeapSizeMb: Math.round(memory.totalJSHeapSize / (1024 * 1024)),
+  };
 }
 
 function CloudUploadPage() {
@@ -72,7 +87,7 @@ function CloudUploadPage() {
     previewUrl,
     audioMetadata,
     segments,
-    chunkGroups,
+    chunkSummaries,
     telemetrySummary,
     status,
     statusDetail,
@@ -88,11 +103,186 @@ function CloudUploadPage() {
     updateSegmentText,
     updateSegmentSpeaker,
   } = useCloudTranscription(provider);
+  const [activeChunkId, setActiveChunkId] = useState<string | null>(null);
+  const [autoPlayRequest, setAutoPlayRequest] = useState<{ chunkId: string; requestId: number } | null>(null);
+  const autoPlayRequestCounterRef = useRef(0);
+  const initialProviderRef = useRef(provider);
+  const hasRecordedResultsSnapshotRef = useRef(false);
+  const lastOpenedChunkIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    logger.debug("[cloud][ui] page view", { route: "/cloudupload", mode: "cloud" });
+    logger.debug("[cloud][ui] page view", {
+      route: "/cloudupload",
+      mode: "cloud",
+      provider: initialProviderRef.current,
+    });
     telemetry?.logEvent?.("CLOUD_UPLOAD_PAGE_VIEW", { route: "/cloudupload", mode: "cloud" });
   }, [telemetry]);
+
+  const activeChunk = useMemo(
+    () => chunkSummaries.find((chunk) => chunk.chunkId === activeChunkId) ?? null,
+    [activeChunkId, chunkSummaries]
+  );
+  const activeChunkSegments = useMemo(() => {
+    if (!activeChunk) {
+      return [];
+    }
+    return segments.filter((segment) => segment.chunkId === activeChunk.chunkId);
+  }, [activeChunk, segments]);
+  const activeChunkAutoPlayRequestId =
+    activeChunk && autoPlayRequest?.chunkId === activeChunk.chunkId ? autoPlayRequest.requestId : null;
+
+  const {
+    parentRef: chunkListRef,
+    virtualItems: chunkVirtualItems,
+    totalSize: chunkVirtualTotalSize,
+    measureElement: measureChunkElement,
+  } = useVirtualizedList({
+    items: chunkSummaries,
+    estimateSize: (index) => (chunkSummaries[index]?.chunkId === activeChunkId ? 760 : 196),
+    getItemKey: (chunk) => chunk.chunkId,
+    overscan: 2,
+    fallbackHeight: 640,
+  });
+
+  const handleOpenChunk = useCallback((chunkId: string) => {
+    setActiveChunkId(chunkId);
+    setAutoPlayRequest(null);
+  }, []);
+
+  const handlePlayChunk = useCallback((chunkId: string) => {
+    autoPlayRequestCounterRef.current += 1;
+    setActiveChunkId(chunkId);
+    setAutoPlayRequest({ chunkId, requestId: autoPlayRequestCounterRef.current });
+  }, []);
+
+  const handleCloseChunk = useCallback(() => {
+    setActiveChunkId(null);
+    setAutoPlayRequest(null);
+  }, []);
+
+  const handleAutoPlayRequestConsumed = useCallback(() => {
+    setAutoPlayRequest(null);
+  }, []);
+
+  useEffect(() => {
+    if (!chunkSummaries.length) {
+      if (activeChunkId !== null) {
+        setActiveChunkId(null);
+      }
+      setAutoPlayRequest(null);
+      hasRecordedResultsSnapshotRef.current = false;
+      lastOpenedChunkIdRef.current = null;
+      return;
+    }
+
+    if (activeChunkId && !chunkSummaries.some((chunk) => chunk.chunkId === activeChunkId)) {
+      setActiveChunkId(null);
+      setAutoPlayRequest(null);
+    }
+  }, [activeChunkId, chunkSummaries]);
+
+  useEffect(() => {
+    if (!chunkSummaries.length) {
+      hasRecordedResultsSnapshotRef.current = false;
+      return;
+    }
+    if (!hasRecordedResultsSnapshotRef.current) {
+      hasRecordedResultsSnapshotRef.current = true;
+      const memorySnapshot = readBrowserMemorySnapshot();
+      logger.info("[cloud][ui] results rendered", {
+        route: "/cloudupload",
+        provider,
+        chunkCount: chunkSummaries.length,
+        segmentCount: segments.length,
+        memorySnapshot,
+      });
+      telemetry?.snapshotMemory?.("CLOUD_RESULTS_RENDERED");
+      telemetry?.logEvent?.("RAM_USAGE", {
+        context: "cloud_results_rendered",
+        chunkCount: chunkSummaries.length,
+        segmentCount: segments.length,
+        memorySnapshot,
+      });
+    }
+  }, [chunkSummaries.length, provider, segments.length, telemetry]);
+
+  useEffect(() => {
+    if (!activeChunk) {
+      if (lastOpenedChunkIdRef.current) {
+        const memorySnapshot = readBrowserMemorySnapshot();
+        logger.info("[cloud][ui] chunk detail closed", {
+          route: "/cloudupload",
+          chunkId: lastOpenedChunkIdRef.current,
+          memorySnapshot,
+        });
+        telemetry?.snapshotMemory?.(`CLOUD_CHUNK_CLOSE_${lastOpenedChunkIdRef.current}`);
+        telemetry?.logEvent?.("RAM_USAGE", {
+          context: "cloud_chunk_close",
+          chunkId: lastOpenedChunkIdRef.current,
+          chunkCount: chunkSummaries.length,
+          memorySnapshot,
+        });
+        lastOpenedChunkIdRef.current = null;
+      }
+      return;
+    }
+    if (lastOpenedChunkIdRef.current === activeChunk.chunkId) {
+      return;
+    }
+
+    if (lastOpenedChunkIdRef.current) {
+      const memorySnapshot = readBrowserMemorySnapshot();
+      logger.info("[cloud][ui] chunk detail closed", {
+          route: "/cloudupload",
+          chunkId: lastOpenedChunkIdRef.current,
+          memorySnapshot,
+        });
+      telemetry?.snapshotMemory?.(`CLOUD_CHUNK_CLOSE_${lastOpenedChunkIdRef.current}`);
+      telemetry?.logEvent?.("RAM_USAGE", {
+        context: "cloud_chunk_close",
+        chunkId: lastOpenedChunkIdRef.current,
+        chunkCount: chunkSummaries.length,
+        memorySnapshot,
+      });
+      }
+    lastOpenedChunkIdRef.current = activeChunk.chunkId;
+    const memorySnapshot = readBrowserMemorySnapshot();
+    logger.info("[cloud][ui] chunk detail opened", {
+      route: "/cloudupload",
+      chunkId: activeChunk.chunkId,
+      chunkCount: chunkSummaries.length,
+      segmentCount: activeChunkSegments.length,
+      wordTimestampsEnabled: cloudEnableWordTimestamps,
+      showSegmentConfidence: cloudShowSegmentConfidence,
+      memorySnapshot,
+    });
+    telemetry?.snapshotMemory?.(`CLOUD_CHUNK_OPEN_${activeChunk.chunkId}`);
+    telemetry?.logEvent?.("RAM_USAGE", {
+      context: "cloud_chunk_open",
+      chunkId: activeChunk.chunkId,
+      chunkCount: chunkSummaries.length,
+      segmentCount: activeChunkSegments.length,
+      memorySnapshot,
+    });
+  }, [
+    activeChunk,
+    activeChunkSegments.length,
+    chunkSummaries.length,
+    cloudEnableWordTimestamps,
+    cloudShowSegmentConfidence,
+    telemetry,
+  ]);
+
+  useEffect(() => {
+    if (status !== "preprocessing") {
+      return;
+    }
+    setActiveChunkId(null);
+    setAutoPlayRequest(null);
+    hasRecordedResultsSnapshotRef.current = false;
+    lastOpenedChunkIdRef.current = null;
+  }, [status]);
 
   const statusMeta = useMemo(() => {
     switch (status) {
@@ -342,28 +532,65 @@ function CloudUploadPage() {
             mode="cloud"
           />
 
-          {cloudShowSegments ? (
-            chunkGroups.length ? (
+      {cloudShowSegments ? (
+            chunkSummaries.length ? (
               <div className="space-y-4">
-                {chunkGroups.map((chunk) => (
-                  <CloudChunkCard
-                    key={chunk.chunkId}
-                    chunk={chunk}
-                    file={selectedFile}
-                    previewUrl={previewUrl}
-                    metadata={audioMetadata}
-                    enableWordTimestamps={cloudEnableWordTimestamps}
-                    showSegmentConfidence={cloudShowSegmentConfidence}
-                    onSegmentTextChange={updateSegmentText}
-                    onSegmentSpeakerChange={updateSegmentSpeaker}
-                    segmentEditingDisabled={isResettingSession || isTranscribing}
-                  />
-                ))}
+                {!activeChunk ? (
+                  <Card>
+                    <CardContent className="py-6 text-sm text-muted-foreground">
+                      Sélectionnez une partie pour ouvrir le lecteur partagé, les détails de transcription et
+                      l&apos;édition des speakers sans déplacer la carte dans la liste.
+                    </CardContent>
+                  </Card>
+                ) : null}
+
+                <div ref={chunkListRef} className="h-[min(72vh,48rem)] overflow-auto rounded-lg border bg-background/50">
+                  <div className="relative min-w-full" style={{ height: chunkVirtualTotalSize }}>
+                    {chunkVirtualItems.map((virtualRow) => {
+                      const chunk = chunkSummaries[virtualRow.index];
+                      if (!chunk) {
+                        return null;
+                      }
+                      const isActive = activeChunkId === chunk.chunkId;
+                      return (
+                        <div
+                          key={chunk.chunkId}
+                          ref={measureChunkElement}
+                          data-index={virtualRow.index}
+                        className="absolute left-0 top-0 w-full px-4 py-4"
+                          style={{ transform: `translateY(${virtualRow.start}px)` }}
+                        >
+                          <CloudChunkCard chunk={chunk} isActive={isActive} onOpen={handleOpenChunk} onPlay={handlePlayChunk}>
+                            {isActive && activeChunk ? (
+                              <CloudChunkDetailsPanel
+                                key={activeChunk.chunkId}
+                                chunk={activeChunk}
+                                segments={activeChunkSegments}
+                                file={selectedFile}
+                                previewUrl={previewUrl}
+                                metadata={audioMetadata}
+                                enableWordTimestamps={cloudEnableWordTimestamps}
+                                showSegmentConfidence={cloudShowSegmentConfidence}
+                                segmentEditingDisabled={isResettingSession || isTranscribing}
+                                autoPlayRequestId={activeChunkAutoPlayRequestId}
+                                onAutoPlayRequestConsumed={handleAutoPlayRequestConsumed}
+                                onSegmentTextChange={updateSegmentText}
+                                onSegmentSpeakerChange={updateSegmentSpeaker}
+                                onClose={handleCloseChunk}
+                              />
+                            ) : null}
+                          </CloudChunkCard>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             ) : (
               <Card>
                 <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                  Les morceaux apparaîtront ici dès que la transcription aura démarré.
+                  Les morceaux apparaîtront ici dès que la transcription aura démarré. Un seul lecteur et un seul
+                  panneau détaillé sont montés à la fois pour limiter la mémoire.
                 </CardContent>
               </Card>
             )

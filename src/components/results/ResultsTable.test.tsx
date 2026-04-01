@@ -73,6 +73,23 @@ describe("ResultsTable", () => {
     expect(screen.queryByText("Bonjour le monde")).toBeNull();
   });
 
+  it("virtualizes long segment lists", () => {
+    const longSegments = Array.from({ length: 24 }, (_, index) => ({
+      index,
+      start: index * 2,
+      end: index * 2 + 1,
+      text: `Segment ${index + 1}`,
+      chunkId: "chunk-long",
+      strategy: "chunks" as const,
+    }));
+
+    render(<ResultsTable segments={longSegments as any} />);
+
+    expect(screen.getByText("Segment 1")).toBeInTheDocument();
+    expect(screen.queryByText("Segment 24")).toBeNull();
+    expect(screen.getAllByRole("row").length).toBeLessThan(24);
+  });
+
   it("shows missing confidence as dash", () => {
     render(<ResultsTable segments={sample as any} />);
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);

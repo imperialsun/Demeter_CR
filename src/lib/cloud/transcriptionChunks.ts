@@ -8,7 +8,6 @@ export interface CloudTranscriptionChunkGroup {
   end: number;
   duration: number;
   segmentCount: number;
-  segments: TranscriptionSegment[];
   speakerIds: string[];
 }
 
@@ -34,12 +33,11 @@ export function buildCloudTranscriptionChunkGroup(
   return {
     chunkId: normalizedChunkId,
     chunkIndex,
-    label: `Morceau ${chunkIndex + 1}`,
+    label: `Partie ${chunkIndex + 1}`,
     start: Number.isFinite(start) ? start : 0,
     end,
     duration: Math.max(0, end - (Number.isFinite(start) ? start : 0)),
     segmentCount: segments.length,
-    segments: segments as TranscriptionSegment[],
     speakerIds,
   };
 }

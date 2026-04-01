@@ -90,6 +90,18 @@ describe("telemetryView", () => {
     expect(stats.unknown.latestErrorType).toBe("ERROR");
   });
 
+  it("classifies visibility and requestData background events as local warnings", () => {
+    const events = enrichTelemetryEvents([
+      makeEvent("VISIBILITY_CHANGE", 1, { hidden: true, visibilityState: "hidden" }),
+      makeEvent("BACKGROUND_RUN_CONTINUED", 2, { hidden: true }),
+      makeEvent("REQUESTDATA_TIMEOUT_RETRY", 3, { hidden: true }),
+      makeEvent("REQUESTDATA_STALLED_BUT_ALIVE", 4, { hidden: true }),
+    ]);
+
+    expect(events.map((event) => event.domain)).toEqual(["local", "local", "local", "local"]);
+    expect(events.map((event) => event.severity)).toEqual(["warn", "warn", "warn", "warn"]);
+  });
+
   it("normalizes query params and alert domain mapping", () => {
     expect(normalizeTelemetryScope("llm_local")).toBe("llm_local");
     expect(normalizeTelemetryScope("bad")).toBe("all");

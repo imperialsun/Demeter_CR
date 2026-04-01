@@ -197,10 +197,126 @@ describe("demeterClient", () => {
   it("uses the backend direct route and extended timeout for long audio", async () => {
     const telemetry = new TelemetryCollector("demeter-backend-direct");
     const file = new File(["audio"], "audio.wav", { type: "audio/wav" });
+    const progressSnapshots: Array<{ chunkIndex?: number; chunkCount?: number; status?: string }> = [];
+    const operationId = "demeter-audio-test-operation";
+    let pollCount = 0;
 
-    backendApiMocks.backendFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ text: "bonjour" }), { status: 200, headers: { "Content-Type": "application/json" } })
-    );
+    backendApiMocks.backendFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (path === "/providers/demeter-sante/audio/transcriptions/backend" && method === "POST") {
+        return new Response(
+          JSON.stringify({
+            operationId,
+            status: "running",
+            statusCode: 202,
+            stage: "queued",
+            chunkIndex: 0,
+            chunkCount: 2,
+            progress: 0,
+            updatedAt: new Date().toISOString(),
+          }),
+          { status: 202, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      if (path === `/providers/demeter-sante/audio/transcriptions/backend/operations/${operationId}` && method === "GET") {
+        pollCount += 1;
+        if (pollCount === 1) {
+          return new Response(
+            JSON.stringify({
+              operationId,
+              status: "running",
+              statusCode: 202,
+              stage: "chunk_completed",
+              chunkIndex: 1,
+              chunkCount: 2,
+              progress: 0.5,
+              updatedAt: new Date().toISOString(),
+              response: {
+                text: "bonjour",
+                segments: [
+                  {
+                    text: "bonjour",
+                    start: 0,
+                    end: 1,
+                    speaker: "SPEAKER_00",
+                    chunkId: "demeter-backend-001",
+                  },
+                ],
+                chunks: [
+                  {
+                    text: "bonjour",
+                    chunkId: "demeter-backend-001",
+                    index: 0,
+                    startSec: 0,
+                    endSec: 5,
+                    durationSec: 5,
+                    segmentCount: 1,
+                  },
+                ],
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+
+        return new Response(
+          JSON.stringify({
+            operationId,
+            status: "completed",
+            statusCode: 200,
+            stage: "completed",
+            chunkIndex: 2,
+            chunkCount: 2,
+            progress: 1,
+            updatedAt: new Date().toISOString(),
+            finishedAt: new Date().toISOString(),
+            response: {
+              text: "bonjour\nmonde",
+              segments: [
+                {
+                  text: "bonjour",
+                  start: 0,
+                  end: 1,
+                  speaker: "SPEAKER_00",
+                  chunkId: "demeter-backend-001",
+                },
+                {
+                  text: "monde",
+                  start: 5,
+                  end: 6,
+                  speaker: "SPEAKER_01",
+                  chunkId: "demeter-backend-002",
+                },
+              ],
+              chunks: [
+                {
+                  text: "bonjour",
+                  chunkId: "demeter-backend-001",
+                  index: 0,
+                  startSec: 0,
+                  endSec: 5,
+                  durationSec: 5,
+                  segmentCount: 1,
+                },
+                {
+                  text: "monde",
+                  chunkId: "demeter-backend-002",
+                  index: 1,
+                  startSec: 5,
+                  endSec: 10,
+                  durationSec: 5,
+                  segmentCount: 1,
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+
+      throw new Error(`unexpected backend fetch request: ${method} ${path}`);
+    });
 
     const result = await transcribeWithDemeterSante(
       {
@@ -208,11 +324,27 @@ describe("demeterClient", () => {
         backendDirect: true,
         durationSec: 7201,
         model: "voxtral-mini-latest",
+        onBackendOperationProgress: (snapshot) => {
+          progressSnapshots.push({
+            status: snapshot.status,
+            chunkIndex: snapshot.chunkIndex,
+            chunkCount: snapshot.chunkCount,
+          });
+        },
       },
       telemetry
     );
 
-    expect(result.text).toBe("bonjour");
+    expect(result.text).toBe("bonjour\nmonde");
+    expect(progressSnapshots[0]).toEqual(
+      expect.objectContaining({
+        status: "running",
+        chunkIndex: 0,
+        chunkCount: 2,
+      })
+    );
+    expect(progressSnapshots.some((snapshot) => snapshot.chunkIndex === 1)).toBe(true);
+    expect(progressSnapshots.some((snapshot) => snapshot.chunkIndex === 2)).toBe(true);
     const [path, init] = backendApiMocks.backendFetch.mock.calls[0] ?? [];
     expect(path).toBe("/providers/demeter-sante/audio/transcriptions/backend");
     expect(init).toEqual(
@@ -224,5 +356,5 @@ describe("demeterClient", () => {
         }),
       })
     );
-  });
+  }, 20_000);
 });

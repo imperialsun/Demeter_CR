@@ -1,71 +1,28 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { AudioPlayer } from "@/components/audio/AudioPlayer";
-import { ResultsTable } from "@/components/results/ResultsTable";
-import { SpeakerAssignmentDialog } from "@/components/results/SpeakerAssignmentDialog";
-import { collectSpeakerAssignmentEntries, resolveSegmentSpeakerLabel, type SpeakerAssignmentMap } from "@/lib/speakerAssignments";
-import type { AudioMetadata } from "@/lib/audio";
-import type { CloudTranscriptionChunkGroup } from "@/lib/cloud/transcriptionChunks";
-import { formatCloudChunkTimeRange } from "@/lib/cloud/transcriptionChunks";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatCloudChunkTimeRange, type CloudTranscriptionChunkGroup } from "@/lib/cloud/transcriptionChunks";
+import { resolveSegmentSpeakerLabel } from "@/lib/speakerAssignments";
 import { useAsrStore } from "@/store/asr-store";
-import { Users } from "lucide-react";
+import { Play, PanelRightOpen, Users } from "lucide-react";
 
 interface CloudChunkCardProps {
   chunk: CloudTranscriptionChunkGroup;
-  file?: File | null;
-  previewUrl?: string | null;
-  metadata?: AudioMetadata | null;
-  showSegmentConfidence?: boolean;
-  enableWordTimestamps?: boolean;
-  segmentEditingDisabled?: boolean;
-  onSegmentTextChange?: (segmentIndex: number, text: string) => void;
-  onSegmentSpeakerChange?: (segmentIndex: number, speakerId: string) => void;
+  isActive?: boolean;
+  onOpen: (chunkId: string) => void;
+  onPlay: (chunkId: string) => void;
+  children?: ReactNode;
 }
 
 export const CloudChunkCard = memo(function CloudChunkCard({
   chunk,
-  file,
-  previewUrl,
-  metadata,
-  showSegmentConfidence,
-  enableWordTimestamps,
-  segmentEditingDisabled = false,
-  onSegmentTextChange,
-  onSegmentSpeakerChange,
+  isActive = false,
+  onOpen,
+  onPlay,
+  children,
 }: CloudChunkCardProps) {
-  const [speakerDialogOpen, setSpeakerDialogOpen] = useState(false);
   const speakerAssignments = useAsrStore((state) => state.speakerAssignments.cloud);
-  const setSpeakerAssignments = useAsrStore((state) => state.setSpeakerAssignments);
-
-  const localSpeakerEntries = useMemo(
-    () =>
-      collectSpeakerAssignmentEntries(chunk.segments, "cloud").map((entry) => ({
-        ...entry,
-        chunkLabel: chunk.label,
-      })),
-    [chunk.label, chunk.segments]
-  );
-
-  const speakerOptions = useMemo(
-    () =>
-      chunk.speakerIds.map((speakerId) => {
-        const resolvedLabel =
-          resolveSegmentSpeakerLabel({ chunkId: chunk.chunkId, speaker: speakerId }, speakerAssignments, "cloud") ?? speakerId;
-        return {
-          value: speakerId,
-          label: resolvedLabel === speakerId ? speakerId : `${resolvedLabel} · ${speakerId}`,
-        };
-      }),
-    [chunk.chunkId, chunk.speakerIds, speakerAssignments]
-  );
 
   const resolvedSpeakers = useMemo(() => {
     const labels = new Set<string>();
@@ -78,53 +35,47 @@ export const CloudChunkCard = memo(function CloudChunkCard({
     return [...labels];
   }, [chunk.chunkId, chunk.speakerIds, speakerAssignments]);
 
-  const handleApplySpeakerAssignments = (nextAssignments: SpeakerAssignmentMap) => {
-    const mergedAssignments = { ...speakerAssignments };
-    for (const key of Object.keys(mergedAssignments)) {
-      if (key.startsWith(`${chunk.chunkId}::`)) {
-        delete mergedAssignments[key];
-      }
-    }
-    for (const [key, value] of Object.entries(nextAssignments)) {
-      mergedAssignments[key] = value;
-    }
-    setSpeakerAssignments("cloud", mergedAssignments);
-    setSpeakerDialogOpen(false);
-  };
-
   return (
-    <Card data-testid={`cloud-chunk-card-${chunk.chunkId}`}>
+    <Card
+      data-testid={`cloud-chunk-card-${chunk.chunkId}`}
+      className={isActive ? "border-primary/60 bg-primary/5 shadow-sm" : undefined}
+    >
       <CardHeader className="space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="secondary">{chunk.label}</Badge>
+              <Badge variant={isActive ? "default" : "secondary"}>{isActive ? "Ouverte" : "Résumé"}</Badge>
               <Badge variant="outline">{formatCloudChunkTimeRange(chunk.start, chunk.end)}</Badge>
               <Badge variant="outline">{chunk.segmentCount} segments</Badge>
               <Badge variant="outline">{chunk.speakerIds.length} speakers</Badge>
             </div>
-            <CardTitle className="text-base">Résultat du morceau</CardTitle>
-            <CardDescription>ID technique: {chunk.chunkId}</CardDescription>
+            <CardTitle className="text-base">{chunk.label}</CardTitle>
+            <CardDescription className="break-words">ID technique: {chunk.chunkId}</CardDescription>
           </div>
 
-          {localSpeakerEntries.length ? (
+          <div className="flex flex-wrap gap-2">
             <Button
               type="button"
-              variant="outline"
+              variant={isActive ? "secondary" : "outline"}
               size="sm"
-              className="gap-2"
-              onClick={() => setSpeakerDialogOpen(true)}
+              onClick={() => onOpen(chunk.chunkId)}
+              aria-expanded={isActive}
             >
-              <Users className="h-4 w-4" />
-              Assigner les speakers du morceau
+              <PanelRightOpen className="h-4 w-4" />
+              {isActive ? "Ouverte" : "Ouvrir"}
             </Button>
-          ) : null}
+            <Button type="button" variant="default" size="sm" className="gap-2" onClick={() => onPlay(chunk.chunkId)}>
+              <Play className="h-4 w-4" />
+              Lire
+            </Button>
+          </div>
         </div>
 
         {resolvedSpeakers.length ? (
           <div className="flex flex-wrap gap-2">
             {resolvedSpeakers.map((speaker) => (
-              <Badge key={speaker} variant="outline">
+              <Badge key={speaker} variant="outline" className="gap-1">
+                <Users className="h-3 w-3" />
                 {speaker}
               </Badge>
             ))}
@@ -134,39 +85,7 @@ export const CloudChunkCard = memo(function CloudChunkCard({
         )}
       </CardHeader>
 
-      <CardContent className="space-y-4">
-        <AudioPlayer
-          file={file}
-          metadata={metadata}
-          previewUrl={previewUrl}
-          segments={chunk.segments}
-          rangeStart={chunk.start}
-          rangeEnd={chunk.end}
-          timeDisplayMode="absolute"
-          variant="inline"
-        />
-
-        <ResultsTable
-          segments={chunk.segments}
-          enableWordTimestamps={enableWordTimestamps}
-          showSegmentConfidence={showSegmentConfidence}
-          mode="cloud"
-          speakerOptions={speakerOptions}
-          onSegmentTextChange={onSegmentTextChange}
-          onSegmentSpeakerChange={onSegmentSpeakerChange}
-          segmentEditingDisabled={segmentEditingDisabled}
-        />
-      </CardContent>
-
-      {speakerDialogOpen ? (
-        <SpeakerAssignmentDialog
-          mode="cloud"
-          entries={localSpeakerEntries}
-          assignments={speakerAssignments}
-          onApply={handleApplySpeakerAssignments}
-          onCancel={() => setSpeakerDialogOpen(false)}
-        />
-      ) : null}
+      {isActive && children ? <CardContent className="space-y-4 border-t pt-4">{children}</CardContent> : null}
     </Card>
   );
 });

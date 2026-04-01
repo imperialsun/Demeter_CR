@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAsrStore } from "@/store/asr-store";
 import { TelemetryCollector, type TelemetrySummary } from "@/lib/telemetry";
 import { probeAudioMetadata, type AudioMetadata } from "@/lib/audio";
@@ -17,7 +17,7 @@ import { parseWhisperOutput } from "@/lib/cloud/whisperSegments";
 import { MISTRAL_MAX_UPLOAD_BYTES, transcribeWithMistral } from "@/lib/cloud/mistralClient";
 import { resolveMistralSegmentDurationSec } from "@/lib/cloud/mistralParams";
 import { parseMistralOutput } from "@/lib/cloud/mistralSegments";
-import { transcribeWithDemeterSante } from "@/lib/cloud/demeterClient";
+import { transcribeWithDemeterSante, type DemeterBackendTranscriptionOperationResponse } from "@/lib/cloud/demeterClient";
 import { backendRefresh } from "@/lib/backend-auth";
 import {
   sendFrontendAudioErrorReport,
@@ -35,11 +35,7 @@ import { resolveChunkingConfig } from "@/hooks/useCloudTranscription.steps";
 import { createSessionTranscriptMemoryEntry, getSessionTranscriptText } from "@/lib/sessionTranscriptMemory";
 import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
 import { releaseFfmpeg } from "@/lib/ffmpeg-loader";
-import {
-  buildCloudTranscriptionChunkGroup,
-  groupCloudTranscriptionSegments,
-  type CloudTranscriptionChunkGroup,
-} from "@/lib/cloud/transcriptionChunks";
+import { groupCloudTranscriptionSegments } from "@/lib/cloud/transcriptionChunks";
 
 type CloudStatus = "idle" | "preprocessing" | "uploading" | "transcribing" | "stopping" | "done" | "error";
 
@@ -98,7 +94,6 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [audioMetadata, setAudioMetadata] = useState<AudioMetadata | null>(null);
   const [segments, setSegments] = useState<TranscriptionSegment[]>([]);
-  const [chunkGroups, setChunkGroups] = useState<CloudTranscriptionChunkGroup[]>([]);
   const [telemetrySummary, setTelemetrySummary] = useState<TelemetrySummary | null>(null);
   const [status, setStatus] = useState<CloudStatus>("idle");
   const [statusDetail, setStatusDetail] = useState<string | null>(null);
@@ -113,11 +108,13 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
   const isTranscribingRef = useRef(false);
   const stopRequestedRef = useRef(false);
   const segmentsRef = useRef<TranscriptionSegment[]>([]);
-  const chunkGroupsRef = useRef<CloudTranscriptionChunkGroup[]>([]);
   const cloudTranscriptTextRef = useRef("");
   const cloudTranscriptSegmentCountRef = useRef(0);
   const activeTranscriptProviderRef = useRef(provider);
   const telemetryRef = useRef<TelemetryCollector | null>(null);
+  const runAbortControllerRef = useRef<AbortController | null>(null);
+  const backendDirectLastSegmentCountRef = useRef(0);
+  const chunkSummaries = useMemo(() => groupCloudTranscriptionSegments(segments), [segments]);
 
   const hfApiToken = useAsrStore((s) => s.hfApiToken);
   const cloudMistralApiUrl = useAsrStore((s) => s.cloudMistralApiUrl);
@@ -131,7 +128,9 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
   const cloudTopP = useAsrStore((s) => s.cloudTopP);
   const cloudDoSample = useAsrStore((s) => s.cloudDoSample);
   const registerTelemetry = useAsrStore((s) => s.registerTelemetry);
+  const registerAudioSource = useAsrStore((s) => s.registerAudioSource);
   const setGlobalTelemetrySummary = useAsrStore((s) => s.setTelemetrySummary);
+  const setRunExportHeader = useAsrStore((s) => s.setRunExportHeader);
   const setSessionTranscriptMemory = useAsrStore((s) => s.setSessionTranscriptMemory);
   const clearSessionTranscriptMemory = useAsrStore((s) => s.clearSessionTranscriptMemory);
   const resolvedSettings = useMemo(() => {
@@ -156,11 +155,9 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
 
   const resetCloudTranscriptBuffers = useCallback(() => {
     segmentsRef.current = [];
-    chunkGroupsRef.current = [];
     cloudTranscriptTextRef.current = "";
     cloudTranscriptSegmentCountRef.current = 0;
     setSegments([]);
-    setChunkGroups([]);
   }, []);
 
   useEffect(() => {
@@ -201,9 +198,13 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         }
       }
       stopRequestedRef.current = false;
+      runAbortControllerRef.current = null;
+      backendDirectLastSegmentCountRef.current = 0;
       telemetryRef.current = null;
       resetCloudTranscriptBuffers();
       cloudSessionIdRef.current = null;
+      registerAudioSource(null);
+      setRunExportHeader("cloud", null);
       setSelectedFile(null);
       setPreviewUrl(null);
       setAudioMetadata(null);
@@ -218,8 +219,33 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       setIsTranscribing(false);
       setStopRequested(false);
     },
-    [clearSessionTranscriptMemory, previewUrl, registerTelemetry, resetCloudTranscriptBuffers, setGlobalTelemetrySummary]
+    [
+      clearSessionTranscriptMemory,
+      previewUrl,
+      registerAudioSource,
+      registerTelemetry,
+      resetCloudTranscriptBuffers,
+      setGlobalTelemetrySummary,
+      setRunExportHeader,
+    ]
   );
+
+  const cleanupTransientSessionCache = useCallback(async () => {
+    const sessionId = cloudSessionIdRef.current;
+    if (!sessionId) {
+      return;
+    }
+
+    cloudSessionIdRef.current = null;
+    try {
+      await deleteSessionSegments(sessionId);
+    } catch (error) {
+      logger.warn("[cloud] failed to clean transient session cache", {
+        sessionId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, []);
 
   const persistCloudTune = useCallback(
     (
@@ -260,14 +286,18 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
 
   const publishCloudTranscriptMemory = useCallback(
     (providerName: "whisper" | "mistral" | "demeter_sante", metadata: AudioMetadata | null) => {
+      const currentSegments = segmentsRef.current;
+      const transcriptText =
+        cloudTranscriptTextRef.current || getSessionTranscriptText(currentSegments);
+      const segmentCount = cloudTranscriptSegmentCountRef.current || currentSegments.length;
       setSessionTranscriptMemory(
         "cloud",
         createSessionTranscriptMemoryEntry({
           mode: "cloud",
           provider: providerName,
           segments: [],
-          transcriptText: cloudTranscriptTextRef.current,
-          segmentCount: cloudTranscriptSegmentCountRef.current,
+          transcriptText,
+          segmentCount,
           audioSource: selectedFile
             ? { id: `${providerName}:${selectedFile.name}:${selectedFile.size}`, label: selectedFile.name, type: "file" }
             : null,
@@ -296,17 +326,15 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
           : appendedText;
       }
 
-      const groupedNextSegments = groupCloudTranscriptionSegments(nextSegments);
-      const nextChunkGroups = [
-        ...chunkGroupsRef.current,
-        ...groupedNextSegments.map((group, offset) =>
-          buildCloudTranscriptionChunkGroup(group.segments, chunkGroupsRef.current.length + offset, group.chunkId)
-        ),
-      ];
-      chunkGroupsRef.current = nextChunkGroups;
-
-      setSegments(nextAllSegments);
-      setChunkGroups(nextChunkGroups);
+      startTransition(() => {
+        setSegments(nextAllSegments);
+      });
+      logger.debug("[cloud] transcript segments appended", {
+        provider: providerName,
+        appendedCount: nextSegments.length,
+        totalSegments: nextAllSegments.length,
+        transcriptChars: cloudTranscriptTextRef.current.length,
+      });
       publishCloudTranscriptMemory(providerName, metadata);
     },
     [publishCloudTranscriptMemory]
@@ -332,19 +360,9 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
 
       const nextSegments = currentSegments.map((segment) => (segment.index === segmentIndex ? nextTargetSegment : segment));
       segmentsRef.current = nextSegments;
-      setSegments(nextSegments);
-
-      const nextChunkGroups = chunkGroupsRef.current.map((group) => {
-        if (!group.segments.some((segment) => segment.index === segmentIndex)) {
-          return group;
-        }
-        const updatedSegments = group.segments.map((segment) =>
-          segment.index === segmentIndex ? nextTargetSegment : segment
-        );
-        return buildCloudTranscriptionChunkGroup(updatedSegments, group.chunkIndex, group.chunkId);
+      startTransition(() => {
+        setSegments(nextSegments);
       });
-      chunkGroupsRef.current = nextChunkGroups;
-      setChunkGroups(nextChunkGroups);
 
       if (options?.refreshTranscriptMemory) {
         cloudTranscriptTextRef.current = getSessionTranscriptText(nextSegments);
@@ -408,6 +426,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
   const abortCloudRunAndWait = useCallback(async () => {
     runIdRef.current += 1;
     stopRequestedRef.current = true;
+    runAbortControllerRef.current?.abort();
     const wasRunning = isTranscribingRef.current;
     if (!wasRunning) {
       return;
@@ -443,19 +462,24 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     setIsResettingSession(true);
     try {
       await abortCloudRunAndWait();
-      const sessionId = cloudSessionIdRef.current;
-      if (sessionId) {
-        await deleteSessionSegments(sessionId);
-        cloudSessionIdRef.current = null;
-      }
+      await cleanupTransientSessionCache();
     } finally {
       clearCloudSessionState();
       setIsResettingSession(false);
     }
-  }, [abortCloudRunAndWait, clearCloudSessionState, isResettingSession]);
+  }, [abortCloudRunAndWait, clearCloudSessionState, cleanupTransientSessionCache, isResettingSession]);
 
   const handleFileSelected = useCallback(async (file: File) => {
-    logger.info("[cloud] file selected", { name: file.name, size: file.size, type: file.type });
+    logger.info("[cloud] file selected", { provider, name: file.name, size: file.size, type: file.type });
+    registerAudioSource(
+      {
+        id: `${provider}:${file.name}:${file.size}`,
+        label: file.name,
+        type: "file",
+      },
+      null
+    );
+    setRunExportHeader("cloud", null);
     setSelectedFile(file);
     resetCloudTranscriptBuffers();
     telemetryRef.current = null;
@@ -474,23 +498,48 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         void err;
       }
     }
-    const url = URL.createObjectURL(file);
-    setPreviewUrl(url);
+    setPreviewUrl(null);
     try {
       const metadata = await probeAudioMetadata(file);
       setAudioMetadata(metadata);
+      registerAudioSource(
+        {
+          id: `${provider}:${file.name}:${file.size}`,
+          label: file.name,
+          type: "file",
+        },
+        metadata
+      );
+      logger.info("[cloud] file metadata resolved", {
+        provider,
+        name: file.name,
+        sizeBytes: file.size,
+        mimeType: file.type || "application/octet-stream",
+        durationSec: metadata.durationSec,
+        sampleRate: metadata.sampleRate ?? null,
+        channels: metadata.channels ?? null,
+      });
     } catch (err) {
       logger.warn("[cloud] metadata probe failed", err);
       setStatus("error");
       setStatusDetail("Impossible de lire les métadonnées audio");
     }
-  }, [previewUrl, registerTelemetry, resetCloudTranscriptBuffers, setGlobalTelemetrySummary]);
+  }, [
+    previewUrl,
+    provider,
+    registerAudioSource,
+    registerTelemetry,
+    resetCloudTranscriptBuffers,
+    setGlobalTelemetrySummary,
+    setRunExportHeader,
+  ]);
 
   const stopTranscription = useCallback(async () => {
     if (!isTranscribing) return;
     setStopRequested(true);
     setStatus("stopping");
     setStatusDetail("Arrêt demandé");
+    runAbortControllerRef.current?.abort();
     const telemetry = telemetryRef.current;
     telemetry?.logEvent("STOP_REQUESTED", { context: "cloud" });
     logger.info("[cloud] stop requested", { provider });
@@ -710,37 +759,16 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     const shouldAbort = () => stopRequestedRef.current || runIdRef.current !== runId;
     let backendDiarizationEffective = diarizationEnabled;
     let backendDiarizationFallbackChunks = 0;
-
-    logger.info("[cloud][demeter] long audio routed to backend", {
-      runId,
-      fileName: sourceFile.name,
-      mimeType: sourceFile.type || "application/octet-stream",
-      sizeBytes: sourceFile.size,
-      durationSec: sourceDurationSec,
-      thresholdSec: CLOUD_LONG_AUDIO_BACKEND_THRESHOLD_SEC,
-    });
-    telemetry.logEvent("LOG_INFO", {
-      context: "cloud_demeter_long_audio_backend_direct",
-      provider: "demeter_sante",
-      runId,
-      fileName: sourceFile.name,
-      mimeType: sourceFile.type || "application/octet-stream",
-      sizeBytes: sourceFile.size,
-      durationSec: sourceDurationSec,
-      thresholdSec: CLOUD_LONG_AUDIO_BACKEND_THRESHOLD_SEC,
-    });
-
-    setStatus("uploading");
-    setStatusDetail("Audio long, traitement backend");
-    setProgress(0.5);
-    setPreparedUpload({
-      provider: "demeter_sante",
-      fileName: sourceFile.name,
-      mimeType: sourceFile.type || "application/octet-stream",
-      sizeBytes: sourceFile.size,
-      chunkIndex: 1,
-      totalChunks: 1,
-    });
+    const backendOperationParseOptions = {
+      offsetSec: 0,
+      startIndex: 0,
+      chunkId: "demeter-backend-direct",
+      fallbackDurationSec: sourceDurationSec,
+      includeWordTimestamps: settings.cloudEnableWordTimestamps,
+    };
+    const backendRunAbortController = new AbortController();
+    runAbortControllerRef.current = backendRunAbortController;
+    backendDirectLastSegmentCountRef.current = 0;
 
     const onDiarizationResolved = ({
       requestedDiarize,
@@ -773,8 +801,84 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       });
     };
 
-    telemetry.startTimer("cloud_transcribe");
+    const consumeBackendOperationSnapshot = (snapshot: DemeterBackendTranscriptionOperationResponse) => {
+      if (shouldAbort()) {
+        return;
+      }
+      const chunkIndex = Math.max(0, snapshot.chunkIndex ?? 0);
+      const chunkCount = Math.max(0, snapshot.chunkCount ?? 0);
+      const backendProgress = typeof snapshot.progress === "number"
+        ? Math.max(0, Math.min(1, snapshot.progress))
+        : chunkCount > 0
+          ? Math.max(0, Math.min(1, chunkIndex / chunkCount))
+          : 0;
+      setPreparedUpload({
+        provider: "demeter_sante",
+        fileName: sourceFile.name,
+        mimeType: sourceFile.type || "application/octet-stream",
+        sizeBytes: sourceFile.size,
+        chunkIndex,
+        totalChunks: chunkCount,
+      });
+      setStatus("transcribing");
+      setStatusDetail(`Chunk ${chunkIndex}/${chunkCount}`);
+      setProgress(Math.max(0.5, 0.5 + backendProgress * 0.5));
+      if (!snapshot.response) {
+        return;
+      }
+
+      const parsedSegments = parseMistralOutput(snapshot.response, backendOperationParseOptions);
+      if (parsedSegments.length <= backendDirectLastSegmentCountRef.current) {
+        return;
+      }
+
+      const nextSegments = parsedSegments.slice(backendDirectLastSegmentCountRef.current);
+      backendDirectLastSegmentCountRef.current = parsedSegments.length;
+      appendCloudSegments(nextSegments, "demeter_sante", metadata);
+      logger.debug("[cloud][demeter] backend chunk appended", {
+        operationId: snapshot.operationId,
+        status: snapshot.status,
+        stage: snapshot.stage,
+        chunkIndex,
+        chunkCount,
+        appendedCount: nextSegments.length,
+        totalSegments: parsedSegments.length,
+      });
+    };
+
     try {
+      logger.info("[cloud][demeter] long audio routed to backend", {
+        runId,
+        fileName: sourceFile.name,
+        mimeType: sourceFile.type || "application/octet-stream",
+        sizeBytes: sourceFile.size,
+        durationSec: sourceDurationSec,
+        thresholdSec: CLOUD_LONG_AUDIO_BACKEND_THRESHOLD_SEC,
+      });
+      telemetry.logEvent("LOG_INFO", {
+        context: "cloud_demeter_long_audio_backend_direct",
+        provider: "demeter_sante",
+        runId,
+        fileName: sourceFile.name,
+        mimeType: sourceFile.type || "application/octet-stream",
+        sizeBytes: sourceFile.size,
+        durationSec: sourceDurationSec,
+        thresholdSec: CLOUD_LONG_AUDIO_BACKEND_THRESHOLD_SEC,
+      });
+
+      setStatus("uploading");
+      setStatusDetail("Audio long, traitement backend");
+      setProgress(0.5);
+      setPreparedUpload({
+        provider: "demeter_sante",
+        fileName: sourceFile.name,
+        mimeType: sourceFile.type || "application/octet-stream",
+        sizeBytes: sourceFile.size,
+        chunkIndex: 0,
+        totalChunks: 0,
+      });
+
+      telemetry.startTimer("cloud_transcribe");
       const output = await transcribeWithDemeterSante(
         {
           file: sourceFile,
@@ -782,6 +886,8 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
           model: demeterModel,
           durationSec: sourceDurationSec,
           backendDirect: true,
+          signal: backendRunAbortController.signal,
+          onBackendOperationProgress: consumeBackendOperationSnapshot,
           onDiarizationResolved,
         },
         telemetry
@@ -794,28 +900,38 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         return;
       }
 
-      const parsedSegments = parseMistralOutput(output, {
-        offsetSec: 0,
-        startIndex: 0,
-        chunkId: "demeter-backend-direct",
-        fallbackDurationSec: sourceDurationSec,
-        includeWordTimestamps: settings.cloudEnableWordTimestamps,
-      });
-      const parsedChunkGroups = groupCloudTranscriptionSegments(parsedSegments);
-      for (const group of parsedChunkGroups) {
-        const summary = summarizeSegments(group.segments);
+      const parsedSegments = parseMistralOutput(output, backendOperationParseOptions);
+      if (parsedSegments.length > backendDirectLastSegmentCountRef.current) {
+        const nextSegments = parsedSegments.slice(backendDirectLastSegmentCountRef.current);
+        backendDirectLastSegmentCountRef.current = parsedSegments.length;
+        appendCloudSegments(nextSegments, "demeter_sante", metadata);
+      }
+
+      const parsedChunkSummaries = groupCloudTranscriptionSegments(parsedSegments);
+      const parsedSegmentsByChunkId = new Map<string, TranscriptionSegment[]>();
+      for (const segment of parsedSegments) {
+        const chunkId = segment.chunkId?.trim() || `__chunk-${segment.index}`;
+        const bucket = parsedSegmentsByChunkId.get(chunkId);
+        if (bucket) {
+          bucket.push(segment);
+        } else {
+          parsedSegmentsByChunkId.set(chunkId, [segment]);
+        }
+      }
+      for (const group of parsedChunkSummaries) {
+        const chunkSegments = parsedSegmentsByChunkId.get(group.chunkId) ?? [];
+        const summary = summarizeSegments(chunkSegments);
         telemetry.logEvent("CLOUD_SEGMENTS_READY", {
           provider: "demeter_sante",
           routeMode: "backend_direct",
           segmentIndex: group.chunkIndex,
-          totalSegments: parsedChunkGroups.length,
+          totalSegments: parsedChunkSummaries.length,
           count: summary.count,
           totalDurationSec: summary.totalDurationSec,
           textChars: summary.textChars,
           tokenCount: summary.tokenCount,
         });
       }
-      appendCloudSegments(parsedSegments, "demeter_sante", metadata);
 
       const summary = summarizeSegments(parsedSegments);
       logger.debug("[cloud][demeter] backend direct segments ready", {
@@ -860,6 +976,9 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         traceId: reportTraceId,
       });
       throw error;
+    } finally {
+      runAbortControllerRef.current = null;
+      backendDirectLastSegmentCountRef.current = 0;
     }
   }, [appendCloudSegments, cloudDemeterDiarizationEnabled, cloudDemeterModel, selectedFile]);
 
@@ -1345,6 +1464,12 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     registerTelemetry(telemetry);
     setGlobalTelemetrySummary(null);
     telemetry.startTimer("cloud_total");
+    logger.info("[cloud] transcription run requested", {
+      provider,
+      fileName: currentFile.name,
+      sizeBytes: currentFile.size,
+      mimeType: currentFile.type || "application/octet-stream",
+    });
     settings.clearSpeakerAssignments("cloud");
     clearSessionTranscriptMemory("cloud");
     resetCloudTranscriptBuffers();
@@ -1399,6 +1524,32 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       if (!audioMetadata) {
         setAudioMetadata(metadata);
       }
+      logger.info("[cloud] transcription run started", {
+        provider,
+        fileName: currentFile.name,
+        sizeBytes: currentFile.size,
+        mimeType: currentFile.type || "application/octet-stream",
+        durationSec: metadata.durationSec,
+        sampleRate: metadata.sampleRate ?? null,
+        channels: metadata.channels ?? null,
+        preprocessingMode: settings.cloudPreprocessingMode,
+        showSegments: settings.cloudShowSegments,
+        enableWordTimestamps: settings.cloudEnableWordTimestamps,
+        showSegmentConfidence: settings.cloudShowSegmentConfidence,
+      });
+      telemetry.logEvent("CLOUD_TRANSCRIBE_START", {
+        provider,
+        fileName: currentFile.name,
+        sizeBytes: currentFile.size,
+        mimeType: currentFile.type || "application/octet-stream",
+        durationSec: metadata.durationSec,
+        sampleRate: metadata.sampleRate ?? null,
+        channels: metadata.channels ?? null,
+        preprocessingMode: settings.cloudPreprocessingMode,
+        showSegments: settings.cloudShowSegments,
+        enableWordTimestamps: settings.cloudEnableWordTimestamps,
+        showSegmentConfidence: settings.cloudShowSegmentConfidence,
+      });
       logger.debug("[cloud] resolved session settings", {
         provider,
         maxTokensSource: resolvedSettings.sources.maxTokens,
@@ -1573,14 +1724,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       if (backendDirectRoute) {
         setStatus("uploading");
         setStatusDetail("Audio long, traitement backend");
-        setPreparedUpload({
-          provider: "demeter_sante",
-          fileName: currentFile.name,
-          mimeType: currentFile.type || "application/octet-stream",
-          sizeBytes: currentFile.size,
-          chunkIndex: 1,
-          totalChunks: 1,
-        });
+        setPreparedUpload(null);
         await runDemeterBackendDirectTranscription({
           runId,
           settings,
@@ -1657,7 +1801,12 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       setGlobalTelemetrySummary(summary ?? null);
       registerTelemetry(null);
       telemetryRef.current = null;
+      cloudTranscriptTextRef.current = "";
+      cloudTranscriptSegmentCountRef.current = 0;
       await releaseFfmpeg();
+      await cleanupTransientSessionCache();
+      setPreparedUpload(null);
+      setPreviewUrl(null);
       if (stopRequestedRef.current && status !== "error") {
         setStatus("idle");
         setStatusDetail("Arrêté");
@@ -1677,6 +1826,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     runWhisperTranscription,
     resolvedSettings,
     clearSessionTranscriptMemory,
+    cleanupTransientSessionCache,
     resetCloudTranscriptBuffers,
     setGlobalTelemetrySummary,
     selectedFile,
@@ -1688,7 +1838,8 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     previewUrl,
     audioMetadata,
     segments,
-    chunkGroups,
+    chunkSummaries,
+    chunkGroups: chunkSummaries,
     telemetrySummary,
     status,
     statusDetail,

@@ -7,7 +7,7 @@ import { useAsrStore, MODEL_PRESETS, serializePersistedSettings } from "@/store/
 import { cn } from "@/lib/utils";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "@/components/ui/use-toast";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ChangePasswordDialog } from "@/components/layout/ChangePasswordDialog";
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
@@ -27,6 +27,7 @@ import { getCloudStatusMeta } from "@/lib/cloudStatusMeta";
 import { resolveActiveLlmPipelineConfig } from "@/lib/llm/providerSettings";
 import { getLocalLlmModelProfile } from "@/lib/llm/localModelCatalog";
 import { downloadBlob } from "@/lib/export";
+import { getDocumentVisibilitySnapshot, useDocumentVisibility } from "@/lib/documentVisibility";
 import {
   ActivitySquare,
   Bot,
@@ -36,6 +37,7 @@ import {
   Cog,
   Download,
   EllipsisVertical,
+  EyeOff,
   KeyRound,
   Loader2,
   LogOut,
@@ -76,8 +78,9 @@ const LOG_LEVEL_OPTIONS: Array<{ value: LogLevel; label: string }> = [
   { value: "debug", label: LOG_LEVEL_LABELS.debug },
 ];
 
-function buildDiagnosticLogSessionSnapshot(snapshot: ReturnType<typeof useAsrStore.getState>) {
+function buildDiagnosticLogSessionSnapshot(snapshot: ReturnType<typeof useAsrStore.getState>, route: string) {
   return {
+    route,
     hasHydrated: snapshot.hasHydrated,
     status: snapshot.status,
     statusDetail: snapshot.statusDetail,
@@ -93,6 +96,10 @@ function buildDiagnosticLogSessionSnapshot(snapshot: ReturnType<typeof useAsrSto
     progress: snapshot.progress,
     audioSource: snapshot.audioSource,
     audioMetadata: snapshot.audioMetadata,
+    segmentCount: snapshot.segments.length,
+    chunkPlanCount: snapshot.chunkPlan.length,
+    cloudRunExportHeader: snapshot.runExportHeaders.cloud ?? null,
+    browserVisibility: getDocumentVisibilitySnapshot(),
     logLevel: snapshot.logLevel,
     webGpuSupported: snapshot.webGpuSupported,
     wasmAvailable: snapshot.wasmAvailable,
@@ -219,6 +226,9 @@ export function Topbar() {
 
   const logLevel = useAsrStore((s) => s.logLevel);
   const setLogLevel = useAsrStore((s) => s.setLogLevel);
+  const visibilitySnapshot = useDocumentVisibility();
+  const lastVisibilityVersionRef = useRef(visibilitySnapshot.version);
+  const lastBackgroundTelemetryKeyRef = useRef<string | null>(null);
 
   const presetLabel =
     activePreset === "custom"
@@ -280,6 +290,27 @@ export function Topbar() {
       : isLlmLocalRoute
         ? llmLocalStatusDetail
       : statusDetail;
+  const hasLongRunningWork =
+    status === "downloading" ||
+    status === "loading" ||
+    status === "transcribing" ||
+    status === "stopping" ||
+    cloudStatus === "preprocessing" ||
+    cloudStatus === "uploading" ||
+    cloudStatus === "transcribing" ||
+    cloudStatus === "stopping" ||
+    llmApiStatus === "preparing" ||
+    llmApiStatus === "generating" ||
+    llmApiStatus === "formatting" ||
+    llmLocalStatus === "preparing" ||
+    llmLocalStatus === "generating" ||
+    llmLocalStatus === "formatting";
+  const backgroundBadge = visibilitySnapshot.hidden ? (
+    <Badge variant="warning" className="gap-1">
+      <EyeOff className="h-3 w-3" />
+      Arrière-plan
+    </Badge>
+  ) : null;
 
   useEffect(() => {
     logger.debug("[topbar] debug controls visibility", { showDebugActions, mode: getEnvMode() });
@@ -298,6 +329,67 @@ export function Topbar() {
     });
   }, [location.pathname, logLevel, statusDetailLabel, statusLabel]);
 
+  useEffect(() => {
+    if (visibilitySnapshot.version === lastVisibilityVersionRef.current) {
+      return;
+    }
+
+    lastVisibilityVersionRef.current = visibilitySnapshot.version;
+    telemetryCollector?.logEvent("VISIBILITY_CHANGE", {
+      route: location.pathname,
+      visibilityState: visibilitySnapshot.visibilityState,
+      hidden: visibilitySnapshot.hidden,
+      pageHidden: visibilitySnapshot.pageHidden,
+      eventType: visibilitySnapshot.eventType,
+      persisted: visibilitySnapshot.persisted,
+    });
+  }, [
+    location.pathname,
+    telemetryCollector,
+    visibilitySnapshot.eventType,
+    visibilitySnapshot.hidden,
+    visibilitySnapshot.pageHidden,
+    visibilitySnapshot.persisted,
+    visibilitySnapshot.version,
+    visibilitySnapshot.visibilityState,
+  ]);
+
+  useEffect(() => {
+    if (!visibilitySnapshot.hidden || !hasLongRunningWork) {
+      lastBackgroundTelemetryKeyRef.current = null;
+      return;
+    }
+
+    const telemetryKey = `${visibilitySnapshot.version}`;
+    if (lastBackgroundTelemetryKeyRef.current === telemetryKey) {
+      return;
+    }
+    lastBackgroundTelemetryKeyRef.current = telemetryKey;
+
+    telemetryCollector?.logEvent("BACKGROUND_RUN_CONTINUED", {
+      route: location.pathname,
+      visibilityState: visibilitySnapshot.visibilityState,
+      hidden: visibilitySnapshot.hidden,
+      pageHidden: visibilitySnapshot.pageHidden,
+      status,
+      cloudStatus,
+      llmApiStatus,
+      llmLocalStatus,
+    });
+  }, [
+    cloudStatus,
+    hasLongRunningWork,
+    llmApiStatus,
+    llmLocalStatus,
+    location.pathname,
+    status,
+    telemetryCollector,
+    visibilitySnapshot.hidden,
+    visibilitySnapshot.pageHidden,
+    visibilitySnapshot.version,
+    visibilitySnapshot.visibilityState,
+  ]);
+
   const handleLogLevelChange = (value: string) => {
     logger.info("[topbar] log level changed", { from: logLevel, to: value });
     setLogLevel(value as LogLevel);
@@ -307,17 +399,19 @@ export function Topbar() {
     const snapshot = useAsrStore.getState();
     const telemetry = snapshot.telemetryCollector?.exportSummary() ?? snapshot.telemetrySummary ?? null;
     logger.info("[topbar] diagnostic log export requested", {
+      route: location.pathname,
       logLevel: snapshot.logLevel,
       telemetryAvailable: Boolean(telemetry),
       hydrated: snapshot.hasHydrated,
     });
     const bundle = exportDiagnosticLogBundle({
-      session: buildDiagnosticLogSessionSnapshot(snapshot),
+      session: buildDiagnosticLogSessionSnapshot(snapshot, location.pathname),
       settings: serializePersistedSettings(snapshot),
       telemetry,
     });
     const filename = buildDiagnosticLogFilename(bundle.exportedAt);
     logger.info("[topbar] diagnostic log export prepared", {
+      route: location.pathname,
       entryCount: bundle.logs.length,
       filename,
       persistenceStatus: bundle.diagnostics.persistenceStatus,
@@ -378,6 +472,7 @@ export function Topbar() {
           <p className="text-sm font-medium text-muted-foreground">Cloud</p>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={cloudStatusMeta.variant}>{cloudStatusMeta.label}</Badge>
+            {backgroundBadge}
             <Badge variant="outline" className="gap-1">
               <Cloud className="h-3 w-3" /> Cloud
             </Badge>
@@ -388,6 +483,7 @@ export function Topbar() {
           <p className="text-sm font-medium text-muted-foreground">LLM Cloud</p>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={llmStatusMeta.variant}>{llmStatusMeta.label}</Badge>
+            {backgroundBadge}
             <Badge variant="outline" className="gap-1">
               <Cloud className="h-3 w-3" /> {llmProviderLabel}
             </Badge>
@@ -400,6 +496,7 @@ export function Topbar() {
           <p className="text-sm font-medium text-muted-foreground">Backend</p>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={backendBadgeVariant}>{backendBadgeLabel}</Badge>
+            {backgroundBadge}
             {showPreferenceBadge ? (
               <Badge variant="outline" className="capitalize">
                 {`Préférence : ${backendPreference}`}
@@ -423,6 +520,7 @@ export function Topbar() {
             <Badge variant={backendBadgeVariant}>
               {backendBadgeLabel}
             </Badge>
+            {backgroundBadge}
             {showPreferenceBadge ? (
               <Badge variant="outline" className="capitalize">
                 {`Préférence : ${backendPreference}`}

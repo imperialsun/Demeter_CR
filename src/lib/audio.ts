@@ -1,4 +1,5 @@
 import type { ChunkDefinition } from "@/lib/chunking";
+import { getDocumentVisibilitySnapshot } from "@/lib/documentVisibility";
 import { TelemetryCollector } from "@/lib/telemetry";
 import logger from "@/lib/logger";
 
@@ -36,6 +37,12 @@ export interface SegmentDecodeOptions {
 
 const TARGET_SAMPLE_RATE = 16000;
 
+function releaseDecodedAudioReferences(...references: Array<unknown>) {
+  for (const reference of references) {
+    void reference;
+  }
+}
+
 export async function decodeFileFully(
   file: File,
   telemetry?: TelemetryCollector,
@@ -54,68 +61,87 @@ export async function decodeFileFully(
     targetSampleRate,
   });
 
-  const arrayBuffer = await file.arrayBuffer();
+  let arrayBuffer: ArrayBuffer | null = await file.arrayBuffer();
   const ctx = new AudioContext();
   logger.info("[decode-full] audio context created", { sampleRate: ctx.sampleRate });
-  const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-  if (!audioBuffer) {
-    throw new Error("Échec du décodage audio.");
-  }
-  logger.info("[decode-full] decoded buffer", {
-    durationSec: audioBuffer.duration,
-    sampleRate: audioBuffer.sampleRate,
-    channels: audioBuffer.numberOfChannels,
-    frames: audioBuffer.length,
-  });
-  // Snapshot memory and estimate decoded audio size
-  telemetry?.snapshotMemory("FULL_DECODE_AFTER_AUDIOBUFFER");
-  logger.info("[decode-full] memory estimate (audioBuffer)", {
-    frames: audioBuffer.length,
-    channels: audioBuffer.numberOfChannels,
-    estimatedBytes: audioBuffer.length * audioBuffer.numberOfChannels * 4,
-  });
-  const metadata = buildMetadata(file, audioBuffer);
-  const audioBufferFrames = audioBuffer.length;
-  const audioBufferChannels = audioBuffer.numberOfChannels;
-  const audioBufferSampleRate = audioBuffer.sampleRate;
-  const mono = mixToMono(audioBuffer);
-  logger.info("[decode-full] mixed to mono", { frames: mono.length });
-  const pcm = await resampleMono(mono, audioBufferSampleRate, targetSampleRate);
-  telemetry?.snapshotMemory("FULL_DECODE_AFTER_RELEASE");
-  logger.info("[decode-full] released intermediate buffers");
-  logger.info("[decode-full] resampled", {
-    from: audioBufferSampleRate,
-    to: targetSampleRate,
-    frames: pcm.length,
-    durationSec: pcm.length / targetSampleRate,
-  });
-  telemetry?.snapshotMemory("FULL_DECODE_AFTER_RESAMPLE");
-  logger.info("[decode-full] memory estimate (pcm)", {
-    frames: pcm.length,
-    estimatedBytes: pcm.length * 4,
-  });
-  await ctx.close();
-  logger.info("[decode-full] audio context closed");
-
-  // Final memory snapshot and summary for full decode
-  telemetry?.snapshotMemory("FULL_DECODE_END");
-  telemetry?.logEvent("MEMORY_SUMMARY", {
-    strategy: "full",
-    estimatedAudioBufferBytes: audioBufferFrames * audioBufferChannels * 4,
-    estimatedPcmBytes: pcm.length * 4,
-  });
-
-  telemetry?.stopTimer("decode_audio_total");
-  telemetry?.logEvent("END_DECODE", {
-    durationSec: metadata.durationSec,
-    sampleRate: targetSampleRate,
-  });
-
-  return {
-    metadata: { ...metadata, sampleRate: targetSampleRate },
-    pcm,
-    sampleRate: targetSampleRate,
+  let audioBuffer: AudioBuffer | null;
+  let contextClosed = false;
+  const closeContext = async () => {
+    if (contextClosed) return;
+    contextClosed = true;
+    try {
+      await ctx.close();
+      logger.info("[decode-full] audio context closed");
+    } catch (err) {
+      logger.warn("[decode-full] audio context close failed", err);
+    }
   };
+
+  try {
+    audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    if (!audioBuffer) {
+      throw new Error("Échec du décodage audio.");
+    }
+    logger.info("[decode-full] decoded buffer", {
+      durationSec: audioBuffer.duration,
+      sampleRate: audioBuffer.sampleRate,
+      channels: audioBuffer.numberOfChannels,
+      frames: audioBuffer.length,
+    });
+    // Snapshot memory and estimate decoded audio size
+    telemetry?.snapshotMemory("FULL_DECODE_AFTER_AUDIOBUFFER");
+    logger.info("[decode-full] memory estimate (audioBuffer)", {
+      frames: audioBuffer.length,
+      channels: audioBuffer.numberOfChannels,
+      estimatedBytes: audioBuffer.length * audioBuffer.numberOfChannels * 4,
+    });
+    const metadata = buildMetadata(file, audioBuffer);
+    const audioBufferFrames = audioBuffer.length;
+    const audioBufferChannels = audioBuffer.numberOfChannels;
+    const audioBufferSampleRate = audioBuffer.sampleRate;
+    const mono = mixToMono(audioBuffer);
+    logger.info("[decode-full] mixed to mono", { frames: mono.length });
+    audioBuffer = null;
+    arrayBuffer = null;
+    releaseDecodedAudioReferences(audioBuffer, arrayBuffer);
+    await closeContext();
+    const pcm = await resampleMono(mono, audioBufferSampleRate, targetSampleRate);
+    telemetry?.snapshotMemory("FULL_DECODE_AFTER_RELEASE");
+    logger.info("[decode-full] released intermediate buffers");
+    logger.info("[decode-full] resampled", {
+      from: audioBufferSampleRate,
+      to: targetSampleRate,
+      frames: pcm.length,
+      durationSec: pcm.length / targetSampleRate,
+    });
+    telemetry?.snapshotMemory("FULL_DECODE_AFTER_RESAMPLE");
+    logger.info("[decode-full] memory estimate (pcm)", {
+      frames: pcm.length,
+      estimatedBytes: pcm.length * 4,
+    });
+
+    // Final memory snapshot and summary for full decode
+    telemetry?.snapshotMemory("FULL_DECODE_END");
+    telemetry?.logEvent("MEMORY_SUMMARY", {
+      strategy: "full",
+      estimatedAudioBufferBytes: audioBufferFrames * audioBufferChannels * 4,
+      estimatedPcmBytes: pcm.length * 4,
+    });
+
+    telemetry?.stopTimer("decode_audio_total");
+    telemetry?.logEvent("END_DECODE", {
+      durationSec: metadata.durationSec,
+      sampleRate: targetSampleRate,
+    });
+
+    return {
+      metadata: { ...metadata, sampleRate: targetSampleRate },
+      pcm,
+      sampleRate: targetSampleRate,
+    };
+  } finally {
+    await closeContext();
+  }
 }
 
 export async function decodeFileSegmentToPcm(
@@ -205,9 +231,23 @@ export async function decodeFileSegmentToPcm(
     }
   };
 
+  let cleanedUp = false;
+  const cleanup = async () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    stopRecorder();
+    try {
+      await processingQueue;
+    } catch (err) {
+      void err;
+    }
+    await decodeCtx.close();
+  };
+
   const stopRecorder = () => {
     if (stopped) return;
     stopped = true;
+    requestPending = false;
     clearRequestTimeout();
     if (recorder.state !== "inactive") {
       recorder.stop();
@@ -218,38 +258,65 @@ export async function decodeFileSegmentToPcm(
     URL.revokeObjectURL(url);
   };
 
-  const scheduleRequestData = () => {
+  const getRequestTimeoutMs = () => {
+    const visibility = getDocumentVisibilitySnapshot();
+    if (visibility.hidden) {
+      const hiddenMultiplier = Math.max(2, Math.min(8, requestRetryCount + 1));
+      return Math.min(15_000, REQUESTDATA_TIMEOUT_MS * hiddenMultiplier);
+    }
+    return REQUESTDATA_TIMEOUT_MS;
+  };
+
+  const issueRequestData = (reason: "initial" | "retry") => {
     if (stopped || requestPending || recorder.state !== "recording") return;
     requestPending = true;
-    requestRetryCount = 0;
+    requestTimeoutId = window.setTimeout(onRequestTimeout, getRequestTimeoutMs());
     try {
       recorder.requestData();
     } catch (e) {
-      logger.warn("[progressive-segment] requestData failed", e);
+      logger.warn("[progressive-segment] requestData failed", { reason, error: e });
       requestPending = false;
-      return;
     }
-    requestTimeoutId = window.setTimeout(function onRequestTimeout() {
-      requestRetryCount += 1;
-      telemetry?.logEvent("REQUESTDATA_TIMEOUT", { tries: requestRetryCount });
-      if (requestRetryCount <= REQUESTDATA_MAX_RETRIES) {
-        try {
-          recorder.requestData();
-        } catch (e) {
-          logger.warn("[progressive-segment] requestData retry failed", e);
-        }
-        requestTimeoutId = window.setTimeout(onRequestTimeout, REQUESTDATA_TIMEOUT_MS);
-      } else {
-        telemetry?.recordAlert("REQUESTDATA_FALLBACK", {
-          reason: "timeout",
-          requestRetries: requestRetryCount,
-        });
-        logger.warn("[progressive-segment] requestData timed out, stopping segment");
-        requestPending = false;
-        requestTimeoutId = null;
-        stopRecorder();
-      }
-    }, REQUESTDATA_TIMEOUT_MS);
+  };
+
+  const scheduleRequestData = (options?: { resetRetries?: boolean }) => {
+    if (stopped || requestPending || recorder.state !== "recording") return;
+    if (options?.resetRetries ?? true) {
+      requestRetryCount = 0;
+    }
+    issueRequestData(options?.resetRetries === false ? "retry" : "initial");
+  };
+
+  const onRequestTimeout = () => {
+    if (stopped || recorder.state !== "recording") return;
+    clearRequestTimeout();
+    requestPending = false;
+    requestRetryCount += 1;
+    const visibility = getDocumentVisibilitySnapshot();
+    telemetry?.logEvent("REQUESTDATA_TIMEOUT_RETRY", {
+      reason: "timeout",
+      tries: requestRetryCount,
+      hidden: visibility.hidden,
+      visibilityState: visibility.visibilityState,
+      segmentIndex: segment.index,
+      timeoutMs: getRequestTimeoutMs(),
+    });
+    if (requestRetryCount > REQUESTDATA_MAX_RETRIES || visibility.hidden) {
+      telemetry?.logEvent("REQUESTDATA_STALLED_BUT_ALIVE", {
+        reason: "timeout",
+        tries: requestRetryCount,
+        hidden: visibility.hidden,
+        visibilityState: visibility.visibilityState,
+        segmentIndex: segment.index,
+      });
+    }
+    logger.warn("[progressive-segment] requestData timed out, retrying", {
+      segmentIndex: segment.index,
+      requestRetryCount,
+      hidden: visibility.hidden,
+      visibilityState: visibility.visibilityState,
+    });
+    scheduleRequestData({ resetRetries: false });
   };
 
   options.signal?.addEventListener("abort", () => {
@@ -258,9 +325,18 @@ export async function decodeFileSegmentToPcm(
   });
 
   recorder.addEventListener("dataavailable", (event) => {
-    if (!event.data || event.data.size === 0 || decodeError) return;
     requestPending = false;
     clearRequestTimeout();
+    if (decodeError) return;
+    if (!event.data || event.data.size === 0) {
+      logger.debug("[progressive-segment] empty data chunk", {
+        segmentIndex: segment.index,
+        requestRetryCount,
+      });
+      scheduleRequestData({ resetRetries: false });
+      return;
+    }
+    requestRetryCount = 0;
 
     if (pendingQueueCount >= MAX_PENDING_CHUNKS) {
       telemetry?.logEvent("SKIP_CHUNK", { reason: "queue_full", segmentIndex: segment.index });
@@ -318,48 +394,51 @@ export async function decodeFileSegmentToPcm(
         } catch (err) {
           void err;
         }
-        await decodeCtx.close();
         resolve();
       },
       { once: true }
     );
   });
 
-  recorder.start();
-  scheduleRequestData();
-  await audio.play();
-  audio.addEventListener(
-    "ended",
-    () => {
-      stopRecorder();
-    },
-    { once: true }
-  );
+  try {
+    recorder.start();
+    scheduleRequestData();
+    await audio.play();
+    audio.addEventListener(
+      "ended",
+      () => {
+        stopRecorder();
+      },
+      { once: true }
+    );
 
-  await stopPromise;
+    await stopPromise;
 
-  if (decodeError) {
-    throw decodeError;
+    if (decodeError) {
+      throw decodeError;
+    }
+
+    const pcm = concatFloat32Arrays(collected, collectedSamples);
+    telemetry?.stopTimer("decode_audio_segment_total");
+    telemetry?.logEvent("END_DECODE", {
+      strategy: "progressive_segment",
+      segmentIndex: segment.index,
+      samples: pcm.length,
+    });
+    logger.info("[progressive-segment] done", {
+      segmentIndex: segment.index,
+      pcmFrames: pcm.length,
+      durationSec: pcm.length / targetSampleRate,
+    });
+
+    return {
+      pcm,
+      sampleRate: targetSampleRate,
+      durationSec: pcm.length / targetSampleRate,
+    };
+  } finally {
+    await cleanup();
   }
-
-  const pcm = concatFloat32Arrays(collected, collectedSamples);
-  telemetry?.stopTimer("decode_audio_segment_total");
-  telemetry?.logEvent("END_DECODE", {
-    strategy: "progressive_segment",
-    segmentIndex: segment.index,
-    samples: pcm.length,
-  });
-  logger.info("[progressive-segment] done", {
-    segmentIndex: segment.index,
-    pcmFrames: pcm.length,
-    durationSec: pcm.length / targetSampleRate,
-  });
-
-  return {
-    pcm,
-    sampleRate: targetSampleRate,
-    durationSec: pcm.length / targetSampleRate,
-  };
 }
 
 export async function decodeCompressedBlobToPcm(
@@ -370,33 +449,53 @@ export async function decodeCompressedBlobToPcm(
   telemetry?.startTimer("decode_audio_total");
   telemetry?.logEvent("START_DECODE", { strategy: "segment_blob" });
 
-  const arrayBuffer = await blob.arrayBuffer();
+  let arrayBuffer: ArrayBuffer | null = await blob.arrayBuffer();
   const ctx = new AudioContext();
   logger.info("[decode-blob] audio context created", { sampleRate: ctx.sampleRate });
-  const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-  if (!audioBuffer) {
-    throw new Error("Échec du décodage du segment.");
+  let audioBuffer: AudioBuffer | null;
+  let contextClosed = false;
+  const closeContext = async () => {
+    if (contextClosed) return;
+    contextClosed = true;
+    try {
+      await ctx.close();
+      logger.info("[decode-blob] audio context closed");
+    } catch (err) {
+      logger.warn("[decode-blob] audio context close failed", err);
+    }
+  };
+
+  try {
+    audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+    if (!audioBuffer) {
+      throw new Error("Échec du décodage du segment.");
+    }
+
+    const metadata: AudioMetadata = {
+      durationSec: audioBuffer.duration,
+      sampleRate: audioBuffer.sampleRate,
+    };
+    const audioBufferSampleRate = audioBuffer.sampleRate;
+    const mono = mixToMono(audioBuffer);
+    audioBuffer = null;
+    arrayBuffer = null;
+    releaseDecodedAudioReferences(audioBuffer, arrayBuffer);
+    await closeContext();
+    const pcm = await resampleMono(mono, audioBufferSampleRate, targetSampleRate);
+    telemetry?.snapshotMemory("SEGMENT_DECODE_AFTER_RELEASE");
+    logger.info("[decode-blob] released intermediate buffers");
+
+    telemetry?.stopTimer("decode_audio_total");
+    telemetry?.logEvent("END_DECODE", { strategy: "segment_blob", sampleRate: targetSampleRate });
+
+    return {
+      metadata: { ...metadata, sampleRate: targetSampleRate },
+      pcm,
+      sampleRate: targetSampleRate,
+    };
+  } finally {
+    await closeContext();
   }
-
-  const metadata: AudioMetadata = {
-    durationSec: audioBuffer.duration,
-    sampleRate: audioBuffer.sampleRate,
-  };
-  const audioBufferSampleRate = audioBuffer.sampleRate;
-  const mono = mixToMono(audioBuffer);
-  const pcm = await resampleMono(mono, audioBufferSampleRate, targetSampleRate);
-  telemetry?.snapshotMemory("SEGMENT_DECODE_AFTER_RELEASE");
-  logger.info("[decode-blob] released intermediate buffers");
-  await ctx.close();
-
-  telemetry?.stopTimer("decode_audio_total");
-  telemetry?.logEvent("END_DECODE", { strategy: "segment_blob", sampleRate: targetSampleRate });
-
-  return {
-    metadata: { ...metadata, sampleRate: targetSampleRate },
-    pcm,
-    sampleRate: targetSampleRate,
-  };
 }
 
 export async function probeAudioMetadata(file: File): Promise<AudioMetadata> {
@@ -413,21 +512,29 @@ export async function probeAudioMetadata(file: File): Promise<AudioMetadata> {
   const audio = document.createElement("audio");
   audio.preload = "metadata";
   audio.src = url;
-  await waitForEvent(audio, "loadedmetadata");
+  try {
+    await waitForEvent(audio, "loadedmetadata");
 
-  // Avoid decoding full files here to prevent large memory spikes during import.
-  const sampleRate: number | undefined = undefined;
+    // Avoid decoding full files here to prevent large memory spikes during import.
+    const sampleRate: number | undefined = undefined;
 
-  const metadata: AudioMetadata = {
-    name: file.name,
-    durationSec: Number.isFinite(audio.duration) ? audio.duration : 0,
-    sizeBytes: file.size,
-    mimeType: file.type,
-    lastModified: file.lastModified,
-    sampleRate: sampleRate,
-  };
-  URL.revokeObjectURL(url);
-  return metadata;
+    return {
+      name: file.name,
+      durationSec: Number.isFinite(audio.duration) ? audio.duration : 0,
+      sizeBytes: file.size,
+      mimeType: file.type,
+      lastModified: file.lastModified,
+      sampleRate,
+    };
+  } finally {
+    try {
+      audio.removeAttribute("src");
+      audio.load();
+    } catch (err) {
+      void err;
+    }
+    URL.revokeObjectURL(url);
+  }
 }
 
 export function mixToMono(buffer: AudioBuffer): Float32Array {

@@ -1,21 +1,13 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { useAsrStore } from "@/store/asr-store";
 import type { TranscriptionSegment } from "@/lib/export";
 import logger from "@/lib/logger";
 import { estimateTokenCount } from "@/lib/tokens";
 import { resolveSegmentSpeakerLabel } from "@/lib/speakerAssignments";
 import { SegmentEditorDialog } from "@/components/results/SegmentEditorDialog";
+import { useVirtualizedList } from "@/hooks/useVirtualizedList";
 
 interface ResultsTableProps {
   segments: TranscriptionSegment[];
@@ -28,6 +20,8 @@ interface ResultsTableProps {
   onSegmentSpeakerChange?: (segmentIndex: number, speakerId: string) => void;
   segmentEditingDisabled?: boolean;
 }
+
+const RESULTS_TABLE_FALLBACK_HEIGHT = 360;
 
 export const ResultsTable = memo(function ResultsTable({
   segments,
@@ -59,16 +53,64 @@ export const ResultsTable = memo(function ResultsTable({
   const canEditSegments = Boolean(onSegmentTextChange) && !segmentEditingDisabled;
   const canSelectSpeaker = mode === "cloud" && Boolean(onSegmentSpeakerChange) && resolvedSpeakerOptions.length > 0;
   const canEditSpeaker = canSelectSpeaker && !segmentEditingDisabled && resolvedSpeakerOptions.length > 1;
-  const emptyRowColSpan = (resolvedShowSegmentConfidence ? 6 : 5) + (resolvedShowSpeaker ? 1 : 0);
   const filtered = useMemo(() => {
     if (!query) return segments;
     const lower = query.toLowerCase();
     return segments.filter((segment) => segment.text.toLowerCase().includes(lower));
-  }, [segments, query]);
+  }, [query, segments]);
   const totalTokenCount = useMemo(
     () => segments.reduce((acc, segment) => acc + estimateTokenCount(segment.text), 0),
     [segments]
   );
+
+  const gridTemplateColumns = useMemo(() => {
+    const columns = ["3rem", "6rem", "6rem"];
+    if (resolvedShowSpeaker) {
+      columns.push("14rem");
+    }
+    if (resolvedShowSegmentConfidence) {
+      columns.push("6rem");
+    }
+    columns.push("8rem", "minmax(0, 1fr)");
+    return columns.join(" ");
+  }, [resolvedShowSegmentConfidence, resolvedShowSpeaker]);
+
+  const estimateRowSize = useCallback(
+    (index: number) => {
+      const segment = filtered[index];
+      if (!segment) {
+        return 72;
+      }
+      let size = 72;
+      if (resolvedShowSegmentConfidence) {
+        size += 4;
+      }
+      if (resolvedShowSpeaker) {
+        size += 4;
+      }
+      if (resolvedEnableWordTimestamps && segment.words?.length) {
+        size += 24 + Math.min(segment.words.length, 12) * 18;
+      }
+      if (canEditSegments) {
+        size += 8;
+      }
+      return size;
+    },
+    [canEditSegments, filtered, resolvedEnableWordTimestamps, resolvedShowSegmentConfidence, resolvedShowSpeaker]
+  );
+
+  const {
+    parentRef,
+    virtualItems,
+    totalSize,
+    measureElement,
+  } = useVirtualizedList({
+    items: filtered,
+    estimateSize: estimateRowSize,
+    getItemKey: (segment) => segment.index,
+    overscan: 2,
+    fallbackHeight: RESULTS_TABLE_FALLBACK_HEIGHT,
+  });
 
   useEffect(() => {
     if (!editingSegment) return;
@@ -135,150 +177,205 @@ export const ResultsTable = memo(function ResultsTable({
           setQuery(event.target.value);
         }}
       />
-      <ScrollArea className="h-[360px] rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-12">#</TableHead>
-              <TableHead>Début</TableHead>
-              <TableHead>Fin</TableHead>
-              {resolvedShowSpeaker ? <TableHead className="w-56">Speaker</TableHead> : null}
-              {resolvedShowSegmentConfidence ? <TableHead className="w-24">Conf.</TableHead> : null}
-              <TableHead className="w-28">Tokens (est.)</TableHead>
-              <TableHead>Texte</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filtered.map((segment) => (
-              <TableRow key={segment.index}>
-                <TableCell className="font-medium">{segment.index + 1}</TableCell>
-                <TableCell>{formatTimestamp(segment.start)}</TableCell>
-                <TableCell>{formatTimestamp(segment.end)}</TableCell>
-                {resolvedShowSpeaker ? (
-                  <TableCell className="align-top">
-                    {canSelectSpeaker && normalizeSpeakerId(segment.speaker) ? (
-                      <Select
-                        value={normalizeSpeakerId(segment.speaker) ?? undefined}
-                        onValueChange={(value) => {
-                          if (!canEditSpeaker || !onSegmentSpeakerChange) return;
-                          onSegmentSpeakerChange(segment.index, value);
-                        }}
-                      >
-                        <SelectTrigger
-                          aria-label={`Speaker du segment ${segment.index + 1}`}
-                          className="h-8 w-full text-xs"
-                          disabled={!canEditSpeaker}
-                        >
-                          <SelectValue placeholder="Speaker" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {resolvedSpeakerOptions.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <div className="text-sm">{resolveSegmentSpeakerLabel(segment, speakerAssignments, mode) || "—"}</div>
-                    )}
-                  </TableCell>
-                ) : null}
-                {resolvedShowSegmentConfidence ? (
-                  <TableCell>
-                    {typeof segment.confidence === "number" ? (
-                      <div className="text-sm font-mono">
-                        <span className={
-                          segment.confidence >= 0.85 ? "text-emerald-600" : segment.confidence >= 0.6 ? "text-amber-600" : "text-destructive-600"
-                        }>{Math.round(segment.confidence * 100)}%</span>
-                      </div>
-                    ) : (
-                      <div className="text-sm text-muted-foreground">—</div>
-                    )}
-                  </TableCell>
-                ) : null}
-                <TableCell className="text-sm font-mono">
-                  {estimateTokenCount(segment.text)}
-                </TableCell>
-                <TableCell className="max-w-xl whitespace-pre-wrap text-sm align-top">
-                  {canEditSegments ? (
-                    <button
-                      type="button"
-                      className="group w-full cursor-pointer rounded-md px-2 py-1 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      aria-label={`Modifier le segment ${segment.index + 1}`}
-                      onClick={() => {
-                        setEditingSegment({ index: segment.index, text: segment.text });
-                      }}
-                    >
-                      <div>{segment.text}</div>
-                      {resolvedEnableWordTimestamps && segment.words && segment.words.length ? (
-                        <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                          {segment.words.map((w, i) => (
-                            <span key={i} className="rounded bg-muted/10 px-1 py-0.5">
-                              <span className="font-medium">{w.word}</span>
-                              <span className="ml-1 text-xs text-muted-foreground">
-                                [{formatTimestamp(w.start)} - {formatTimestamp(w.end)}]
-                              </span>
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
-                    </button>
-                  ) : (
-                    <div className="space-y-2">
-                      <div>{segment.text}</div>
-                      {resolvedEnableWordTimestamps && segment.words && segment.words.length ? (
-                        <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                          {segment.words.map((w, i) => (
-                            <span key={i} className="rounded bg-muted/10 px-1 py-0.5">
-                              <span className="font-medium">{w.word}</span>
-                              <span className="ml-1 text-xs text-muted-foreground">
-                                [{formatTimestamp(w.start)} - {formatTimestamp(w.end)}]
-                              </span>
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-            {!filtered.length ? (
-              <TableRow>
-                <TableCell colSpan={emptyRowColSpan} className="h-24 text-center text-muted-foreground">
-                  Aucun segment ne correspond à « {query} ».
-                </TableCell>
-              </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
-      </ScrollArea>
 
-      <SegmentEditorDialog
-        open={editingSegment !== null}
-        segmentNumber={(editingSegment?.index ?? 0) + 1}
-        initialText={editingSegment?.text ?? ""}
-        onSave={handleSaveSegmentText}
-        onCancel={() => {
-          setEditingSegment(null);
-        }}
-      />
+      <div ref={parentRef} className="h-[360px] overflow-auto rounded-md border">
+        <div className="min-w-[860px]" role="table" aria-label="Résultats de transcription">
+          <div
+            role="row"
+            className="sticky top-0 z-10 grid border-b bg-background/95 text-xs font-medium uppercase tracking-wide text-muted-foreground"
+            style={{ gridTemplateColumns }}
+          >
+            <div role="columnheader" className="px-3 py-2">
+              #
+            </div>
+            <div role="columnheader" className="px-3 py-2">
+              Début
+            </div>
+            <div role="columnheader" className="px-3 py-2">
+              Fin
+            </div>
+            {resolvedShowSpeaker ? (
+              <div role="columnheader" className="px-3 py-2">
+                Speaker
+              </div>
+            ) : null}
+            {resolvedShowSegmentConfidence ? (
+              <div role="columnheader" className="px-3 py-2">
+                Conf.
+              </div>
+            ) : null}
+            <div role="columnheader" className="px-3 py-2">
+              Tokens (est.)
+            </div>
+            <div role="columnheader" className="px-3 py-2">
+              Texte
+            </div>
+          </div>
+
+          {filtered.length ? (
+            <div className="relative" style={{ height: totalSize }}>
+              {virtualItems.map((virtualRow) => {
+                const segment = filtered[virtualRow.index];
+                if (!segment) {
+                  return null;
+                }
+
+                return (
+                  <div
+                    key={segment.index}
+                    ref={measureElement}
+                    data-index={virtualRow.index}
+                    role="row"
+                    className="absolute left-0 top-0 grid w-full items-start border-b bg-background/60 text-sm"
+                    style={{
+                      gridTemplateColumns,
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
+                    <div role="cell" className="px-3 py-2 font-medium">
+                      {segment.index + 1}
+                    </div>
+                    <div role="cell" className="px-3 py-2 font-mono text-xs">
+                      {formatTimestamp(segment.start)}
+                    </div>
+                    <div role="cell" className="px-3 py-2 font-mono text-xs">
+                      {formatTimestamp(segment.end)}
+                    </div>
+                    {resolvedShowSpeaker ? (
+                      <div role="cell" className="px-3 py-2 align-top">
+                        {canSelectSpeaker && normalizeSpeakerId(segment.speaker) ? (
+                          <Select
+                            value={normalizeSpeakerId(segment.speaker) ?? undefined}
+                            onValueChange={(value) => {
+                              if (!canEditSpeaker || !onSegmentSpeakerChange) return;
+                              onSegmentSpeakerChange(segment.index, value);
+                            }}
+                          >
+                            <SelectTrigger
+                              aria-label={`Speaker du segment ${segment.index + 1}`}
+                              className="h-8 w-full text-xs"
+                              disabled={!canEditSpeaker}
+                            >
+                              <SelectValue placeholder="Speaker" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {resolvedSpeakerOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <div className="text-sm">
+                            {resolveSegmentSpeakerLabel(segment, speakerAssignments, mode) || "—"}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+                    {resolvedShowSegmentConfidence ? (
+                      <div role="cell" className="px-3 py-2">
+                        {typeof segment.confidence === "number" ? (
+                          <div className="text-sm font-mono">
+                            <span
+                              className={
+                                segment.confidence >= 0.85
+                                  ? "text-emerald-600"
+                                  : segment.confidence >= 0.6
+                                    ? "text-amber-600"
+                                    : "text-destructive-600"
+                              }
+                            >
+                              {Math.round(segment.confidence * 100)}%
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="text-sm text-muted-foreground">—</div>
+                        )}
+                      </div>
+                    ) : null}
+                    <div role="cell" className="px-3 py-2 font-mono text-sm">
+                      {estimateTokenCount(segment.text)}
+                    </div>
+                    <div role="cell" className="max-w-xl whitespace-pre-wrap px-3 py-2 text-sm">
+                      {canEditSegments ? (
+                        <button
+                          type="button"
+                          className="group w-full cursor-pointer rounded-md px-2 py-1 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-label={`Modifier le segment ${segment.index + 1}`}
+                          onClick={() => {
+                            setEditingSegment({ index: segment.index, text: segment.text });
+                          }}
+                        >
+                          <div>{segment.text}</div>
+                          {resolvedEnableWordTimestamps && segment.words && segment.words.length ? (
+                            <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                              {segment.words.map((word, wordIndex) => (
+                                <span key={wordIndex} className="rounded bg-muted/10 px-1 py-0.5">
+                                  <span className="font-medium">{word.word}</span>
+                                  <span className="ml-1 text-xs text-muted-foreground">
+                                    [{formatTimestamp(word.start)} - {formatTimestamp(word.end)}]
+                                  </span>
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+                        </button>
+                      ) : (
+                        <div className="space-y-2">
+                          <div>{segment.text}</div>
+                          {resolvedEnableWordTimestamps && segment.words && segment.words.length ? (
+                            <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                              {segment.words.map((word, wordIndex) => (
+                                <span key={wordIndex} className="rounded bg-muted/10 px-1 py-0.5">
+                                  <span className="font-medium">{word.word}</span>
+                                  <span className="ml-1 text-xs text-muted-foreground">
+                                    [{formatTimestamp(word.start)} - {formatTimestamp(word.end)}]
+                                  </span>
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="flex min-h-[240px] items-center justify-center px-4 text-sm text-muted-foreground">
+              Aucun segment ne correspond à « {query} ».
+            </div>
+          )}
+        </div>
+      </div>
+
+      {editingSegment ? (
+        <SegmentEditorDialog
+          open
+          segmentNumber={editingSegment.index + 1}
+          initialText={editingSegment.text}
+          onSave={handleSaveSegmentText}
+          onCancel={() => setEditingSegment(null)}
+        />
+      ) : null}
     </div>
   );
 });
 
 function formatTimestamp(seconds: number) {
-  const hrs = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-  const millis = Math.floor((seconds - Math.floor(seconds)) * 1000);
-  return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs
+  const totalMs = Math.max(0, Math.round(seconds * 1000));
+  const hours = Math.floor(totalMs / 3_600_000);
+  const minutes = Math.floor((totalMs % 3_600_000) / 60_000);
+  const secs = Math.floor((totalMs % 60_000) / 1000);
+  const ms = totalMs % 1000;
+  return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${secs
     .toString()
-    .padStart(2, "0")}.${millis.toString().padStart(3, "0")}`;
+    .padStart(2, "0")}.${ms.toString().padStart(3, "0")}`;
 }
 
-function normalizeSpeakerId(value: string | undefined): string | undefined {
+function normalizeSpeakerId(value: string | undefined) {
   const normalized = value?.trim();
   return normalized ? normalized : undefined;
 }

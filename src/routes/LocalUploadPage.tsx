@@ -233,7 +233,7 @@ function LocalUploadPage() {
         </div>
 
         <div className="space-y-4">
-          <AudioPlayer file={selectedFile} metadata={audioMetadata} previewUrl={previewUrl} />
+          <AudioPlayer file={selectedFile} metadata={audioMetadata} previewUrl={previewUrl} segments={segments} />
           <ExportButtons segments={segments} telemetry={telemetrySummary ?? undefined} />
 
           {showSegments && (

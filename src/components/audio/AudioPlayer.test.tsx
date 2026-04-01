@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithStore } from '@/test/utils';
 import { AudioPlayer } from './AudioPlayer';
 
@@ -39,7 +39,7 @@ describe('AudioPlayer', () => {
   it('renders metadata and formatted duration', () => {
     const file = createTestFile();
     const metadata = { name: 'foo.wav', durationSec: 75, sampleRate: 16000 } as any;
-    renderWithStore(<AudioPlayer file={file} metadata={metadata} />);
+    renderWithStore(<AudioPlayer file={file} metadata={metadata} segments={[]} />);
 
     expect(screen.getByText(/Pré-écoute/)).toBeInTheDocument();
     expect(screen.getByText('Nom : foo.wav')).toBeInTheDocument();
@@ -54,14 +54,14 @@ describe('AudioPlayer', () => {
       durationSec: 75,
       sampleRate: 16000,
     } as any;
-    renderWithStore(<AudioPlayer file={file} metadata={metadata} />);
+    renderWithStore(<AudioPlayer file={file} metadata={metadata} segments={[]} />);
 
     expect(screen.getByText(/consultation_audio_nom_extremement_long_2026_03_12/i)).toBeInTheDocument();
   });
 
   it('play button triggers play and toggles to Pause', async () => {
     const file = createTestFile();
-    renderWithStore(<AudioPlayer file={file} metadata={null} />);
+    renderWithStore(<AudioPlayer file={file} metadata={null} segments={[]} />);
 
     const playButton = screen.getByRole('button', { name: /Lecture/i });
     expect(playButton).toBeInTheDocument();
@@ -73,7 +73,7 @@ describe('AudioPlayer', () => {
 
   it('skip forward/back updates current time', () => {
     const file = createTestFile();
-    renderWithStore(<AudioPlayer file={file} metadata={null} />);
+    renderWithStore(<AudioPlayer file={file} metadata={null} segments={[]} />);
 
     const audio = document.querySelector('audio') as HTMLAudioElement;
     // Ensure duration/currentTime are writable on this instance for tests
@@ -94,7 +94,7 @@ describe('AudioPlayer', () => {
   it('keeps the first chunk bounded and shows global time', () => {
     const file = createTestFile();
     const pauseSpy = vi.spyOn(HTMLMediaElement.prototype, "pause");
-    renderWithStore(<AudioPlayer file={file} metadata={null} rangeStart={0} rangeEnd={9} timeDisplayMode="absolute" />);
+    renderWithStore(<AudioPlayer file={file} metadata={null} segments={[]} rangeStart={0} rangeEnd={9} timeDisplayMode="absolute" />);
 
     const audio = document.querySelector('audio') as HTMLAudioElement;
     Object.defineProperty(audio, 'duration', { value: 100, configurable: true });
@@ -121,7 +121,7 @@ describe('AudioPlayer', () => {
   it('shows global time for a later chunk while staying bounded', () => {
     const file = createTestFile();
     const pauseSpy = vi.spyOn(HTMLMediaElement.prototype, "pause");
-    renderWithStore(<AudioPlayer file={file} metadata={null} rangeStart={10} rangeEnd={20} timeDisplayMode="absolute" />);
+    renderWithStore(<AudioPlayer file={file} metadata={null} segments={[]} rangeStart={10} rangeEnd={20} timeDisplayMode="absolute" />);
 
     const audio = document.querySelector('audio') as HTMLAudioElement;
     Object.defineProperty(audio, 'duration', { value: 100, configurable: true });
@@ -141,7 +141,7 @@ describe('AudioPlayer', () => {
     expect(audio.currentTime).toBe(20);
   });
 
-  it('prev/next segment navigates between segments using store', () => {
+  it('prev/next segment navigates between explicit segments', () => {
     const file = createTestFile();
     const segments = [
       { index: 0, start: 0, text: 'a' },
@@ -149,8 +149,7 @@ describe('AudioPlayer', () => {
       { index: 2, start: 10, text: 'c' },
     ];
     // set currentTime to 6 so prev should go to 5
-    const store = { segments } as any;
-    renderWithStore(<AudioPlayer file={file} metadata={null} />, store);
+    renderWithStore(<AudioPlayer file={file} metadata={null} segments={segments as any} />);
 
     const audio = document.querySelector('audio') as HTMLAudioElement;
     Object.defineProperty(audio, 'currentTime', { value: 6, writable: true, configurable: true });
@@ -166,5 +165,40 @@ describe('AudioPlayer', () => {
     fireEvent.click(next);
     // should go to next segment > 6 which is 10
     expect(audio.currentTime).toBeCloseTo(10, 2);
+  });
+
+  it('autoplays once when a new request id is received', async () => {
+    const file = createTestFile();
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype as any, "play");
+    renderWithStore(
+      <AudioPlayer
+        file={file}
+        metadata={null}
+        segments={[]}
+        autoPlayRequestId={1}
+      />
+    );
+
+    const audio = document.querySelector('audio') as HTMLAudioElement;
+    fireEvent(audio, new Event('loadedmetadata'));
+
+    await waitFor(() => {
+      expect(playSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('releases the audio element and object URL on unmount', () => {
+    const file = createTestFile();
+    const pauseSpy = vi.spyOn(HTMLMediaElement.prototype, "pause");
+    const removeAttributeSpy = vi.spyOn(HTMLMediaElement.prototype, "removeAttribute");
+    const loadSpy = vi.spyOn(HTMLMediaElement.prototype, "load");
+
+    const { unmount } = renderWithStore(<AudioPlayer file={file} metadata={null} segments={[]} />);
+    unmount();
+
+    expect(pauseSpy).toHaveBeenCalled();
+    expect(removeAttributeSpy).toHaveBeenCalledWith("src");
+    expect(loadSpy).toHaveBeenCalled();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:mock");
   });
 });

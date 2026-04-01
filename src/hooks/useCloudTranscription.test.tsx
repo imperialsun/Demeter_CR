@@ -227,6 +227,20 @@ describe("useCloudTranscription", () => {
     await act(async () => {
       await api.handleFileSelected(file);
     });
+    expect(api.previewUrl).toBeNull();
+    expect(useAsrStore.getState().audioSource).toEqual(
+      expect.objectContaining({
+        id: "whisper:audio.wav:1",
+        label: "audio.wav",
+        type: "file",
+      })
+    );
+    expect(useAsrStore.getState().audioMetadata).toEqual(
+      expect.objectContaining({
+        durationSec: 10,
+        sampleRate: 16000,
+      })
+    );
     await act(async () => {
       await api.startTranscription();
     });
@@ -239,6 +253,11 @@ describe("useCloudTranscription", () => {
     expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.segmentCount).toBe(api.segments.length);
     expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.transcriptText).toContain("Bonjour");
     expect(Object.prototype.hasOwnProperty.call(useAsrStore.getState().sessionTranscriptMemories.cloud ?? {}, "segments")).toBe(false);
+    expect(
+      useAsrStore
+        .getState()
+        .telemetrySummary?.events.some((event) => event.type === "CLOUD_TRANSCRIBE_START")
+    ).toBe(true);
     expect(useAsrStore.getState().telemetryCollector).toBeNull();
     expect(mocks.releaseFfmpeg).toHaveBeenCalledTimes(1);
   });
@@ -486,14 +505,7 @@ describe("useCloudTranscription", () => {
       }),
       expect.anything()
     );
-    expect(api.preparedUpload).toEqual(
-      expect.objectContaining({
-        provider: "demeter_sante",
-        fileName: "long-audio.wav",
-        chunkIndex: 1,
-        totalChunks: 1,
-      })
-    );
+    expect(api.preparedUpload).toBeNull();
   });
 
   it("keeps backend direct chunk groups distinct so the UI stays chunk-aware", async () => {
@@ -536,8 +548,8 @@ describe("useCloudTranscription", () => {
     });
     expect(api.chunkGroups[0]?.chunkId).toBe("demeter-backend-001");
     expect(api.chunkGroups[1]?.chunkId).toBe("demeter-backend-002");
-    expect(api.chunkGroups[0]?.segments).toHaveLength(1);
-    expect(api.chunkGroups[1]?.segments).toHaveLength(1);
+    expect(api.chunkGroups[0]?.segmentCount).toBe(1);
+    expect(api.chunkGroups[1]?.segmentCount).toBe(1);
   });
 
   it("blocks an empty source file, logs it, and reports the error without retry", async () => {

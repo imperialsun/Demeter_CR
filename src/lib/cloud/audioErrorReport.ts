@@ -50,8 +50,9 @@ export type FrontendAudioErrorReportPayload = {
   diagnosticBundle: ReturnType<typeof exportDiagnosticLogBundle>;
 };
 
-function buildDiagnosticLogSessionSnapshot(snapshot: ReturnType<typeof useAsrStore.getState>) {
+function buildDiagnosticLogSessionSnapshot(snapshot: ReturnType<typeof useAsrStore.getState>, route: string) {
   return {
+    route,
     hasHydrated: snapshot.hasHydrated,
     status: snapshot.status,
     statusDetail: snapshot.statusDetail,
@@ -67,6 +68,9 @@ function buildDiagnosticLogSessionSnapshot(snapshot: ReturnType<typeof useAsrSto
     progress: snapshot.progress,
     audioSource: snapshot.audioSource,
     audioMetadata: snapshot.audioMetadata,
+    segmentCount: snapshot.segments.length,
+    chunkPlanCount: snapshot.chunkPlan.length,
+    cloudRunExportHeader: snapshot.runExportHeaders.cloud ?? null,
     logLevel: snapshot.logLevel,
     webGpuSupported: snapshot.webGpuSupported,
     wasmAvailable: snapshot.wasmAvailable,
@@ -207,6 +211,7 @@ async function postFrontendErrorReport(payload: FrontendAudioErrorReportPayload)
 export async function sendFrontendAudioErrorReport(input: AudioErrorReportInput): Promise<boolean> {
   const storeState = useAsrStore.getState();
   const telemetrySummary: TelemetrySummary | null = input.telemetry?.exportSummary() ?? null;
+  const route = typeof window !== "undefined" ? window.location.pathname : "/";
   const backendError = isAudioErrorReportBackendError(input.backendError)
     ? {
         ...input.backendError,
@@ -218,7 +223,7 @@ export async function sendFrontendAudioErrorReport(input: AudioErrorReportInput)
         traceId: input.traceId,
       });
   const diagnosticBundle = exportDiagnosticLogBundle({
-    session: buildDiagnosticLogSessionSnapshot(storeState),
+    session: buildDiagnosticLogSessionSnapshot(storeState, route),
     settings: serializePersistedSettings(storeState),
     telemetry: telemetrySummary,
   });

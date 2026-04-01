@@ -17,6 +17,16 @@ export interface CachedSegment {
   rawMimeType?: string;
 }
 
+type SerializedBlob = {
+  bytes: ArrayBuffer;
+  type: string;
+};
+
+type StoredSegmentRecord = Omit<CachedSegment, "blob" | "rawBlob"> & {
+  blob: SerializedBlob;
+  rawBlob?: SerializedBlob;
+};
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === "undefined") {
@@ -34,6 +44,20 @@ function openDb(): Promise<IDBDatabase> {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
+}
+
+async function serializeBlob(blob: Blob): Promise<SerializedBlob> {
+  return {
+    bytes: await blob.arrayBuffer(),
+    type: blob.type,
+  };
+}
+
+function deserializeBlob(serialized: SerializedBlob | undefined): Blob | undefined {
+  if (!serialized) {
+    return undefined;
+  }
+  return new Blob([serialized.bytes], { type: serialized.type });
 }
 
 function withStore<T>(
@@ -58,13 +82,25 @@ function withStore<T>(
 }
 
 export async function putSegment(record: CachedSegment): Promise<void> {
-  await withStore("readwrite", (store) => store.put(record));
+  const storedRecord: StoredSegmentRecord = {
+    ...record,
+    blob: await serializeBlob(record.blob),
+    rawBlob: record.rawBlob ? await serializeBlob(record.rawBlob) : undefined,
+  };
+  await withStore("readwrite", (store) => store.put(storedRecord));
 }
 
 export async function getSegment(sessionId: string, index: number): Promise<CachedSegment | null> {
   const key = `${sessionId}:${index}`;
-  const result = await withStore<CachedSegment | undefined>("readonly", (store) => store.get(key));
-  return result ?? null;
+  const result = await withStore<StoredSegmentRecord | undefined>("readonly", (store) => store.get(key));
+  if (!result) {
+    return null;
+  }
+  return {
+    ...result,
+    blob: deserializeBlob(result.blob) ?? new Blob(),
+    rawBlob: deserializeBlob(result.rawBlob),
+  };
 }
 
 export async function deleteSegment(sessionId: string, index: number): Promise<void> {

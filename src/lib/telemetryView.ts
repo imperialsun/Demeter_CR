@@ -47,7 +47,11 @@ const LOCAL_DOMAIN_EVENTS = new Set([
   "PROGRESS_CONFIDENCE",
   "CALIBRATION_REQUESTED",
   "REQUESTDATA_TIMEOUT",
+  "REQUESTDATA_TIMEOUT_RETRY",
+  "REQUESTDATA_STALLED_BUT_ALIVE",
   "REQUESTDATA_FALLBACK",
+  "VISIBILITY_CHANGE",
+  "BACKGROUND_RUN_CONTINUED",
 ]);
 
 const DOMAIN_ORDER: TelemetryDomain[] = ["local", "cloud", "llm_local", "llm_cloud", "unknown"];
@@ -128,6 +132,14 @@ export function resolveTelemetrySeverity(event: TelemetryEvent): TelemetrySeveri
   if (event.type === "LOG_ERROR") return "error";
   if (event.type === "LOG_INFO") return "info";
 
+  if (event.type === "VISIBILITY_CHANGE") {
+    return event.data?.hidden === true || event.data?.pageHidden === true ? "warn" : "info";
+  }
+
+  if (event.type === "BACKGROUND_RUN_CONTINUED") {
+    return "warn";
+  }
+
   if (event.type === "ERROR" || event.type.endsWith("_ERROR") || event.type.endsWith("_FAILED")) {
     return "error";
   }
@@ -136,7 +148,9 @@ export function resolveTelemetrySeverity(event: TelemetryEvent): TelemetrySeveri
     event.type === "ALERT" ||
     event.type.endsWith("_BLOCKED") ||
     event.type.endsWith("_FALLBACK") ||
-    event.type.endsWith("_TIMEOUT")
+    event.type.endsWith("_TIMEOUT") ||
+    event.type.endsWith("_RETRY") ||
+    event.type.endsWith("_ALIVE")
   ) {
     return "warn";
   }

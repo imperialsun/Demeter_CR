@@ -218,6 +218,7 @@ export async function extractSegmentBlob(
     await cleanupOutputWorkspace(finalPath);
     const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
     blob = new Blob([bytes as BlobPart], { type: finalMime });
+    bytes.fill(0);
 
     telemetry?.logEvent("END_DECODE", { strategy: "cloud_segment", segmentIndex: segment.index });
     logger.debug("[cloud][segment] extract done", {

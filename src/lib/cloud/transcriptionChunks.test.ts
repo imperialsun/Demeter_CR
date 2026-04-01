@@ -46,7 +46,7 @@ describe("groupCloudTranscriptionSegments", () => {
     expect(groups[0]).toMatchObject({
       chunkId: "chunk-a",
       chunkIndex: 0,
-      label: "Morceau 1",
+      label: "Partie 1",
       start: 0,
       end: 10,
       duration: 10,
@@ -56,7 +56,7 @@ describe("groupCloudTranscriptionSegments", () => {
     expect(groups[1]).toMatchObject({
       chunkId: "chunk-b",
       chunkIndex: 1,
-      label: "Morceau 2",
+      label: "Partie 2",
       start: 12,
       end: 24,
       duration: 12,

@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { Topbar } from './Topbar';
 import { useAsrStore } from '@/store/asr-store';
+import { TelemetryCollector } from '@/lib/telemetry';
 import * as backendSupport from '@/lib/backend-support';
 import * as backendSession from '@/lib/backend-session';
 import * as toastMod from '@/components/ui/use-toast';
@@ -139,6 +140,19 @@ vi.mock("@/lib/runtime-config", () => ({
 const BACKEND_AUTH_KEY = "demeter-backend-authenticated";
 const BACKEND_SESSION_KEY = "demeter-backend-session";
 const connectedEmail = "praticien@example.com";
+let visibilityState: "visible" | "hidden" = "visible";
+
+function installVisibilityMocks(state: "visible" | "hidden" = "visible") {
+  visibilityState = state;
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    get: () => visibilityState,
+  });
+  Object.defineProperty(document, "hidden", {
+    configurable: true,
+    get: () => visibilityState === "hidden",
+  });
+}
 
 describe('Topbar', () => {
   beforeEach(() => {
@@ -156,6 +170,7 @@ describe('Topbar', () => {
       configurable: true,
       value: vi.fn(),
     });
+    installVisibilityMocks("visible");
     modelTestHook.runTest.mockReset();
     modelTestHook.stopTest.mockReset();
     modelTestHook.closeSummary.mockReset();
@@ -413,6 +428,45 @@ describe('Topbar', () => {
     const downloadSpy = vi.spyOn(exportLib, "downloadBlob").mockImplementation(() => undefined);
     vi.spyOn(toastMod, 'toast').mockImplementation(() => 't-id' as any);
     const user = userEvent.setup();
+    const cloudRunExportHeader = {
+      exportedAt: "2026-03-19T12:34:56.000Z",
+      mode: "cloud" as const,
+      settings: {
+        cloud: {
+          provider: "whisper",
+        },
+      },
+      runtime: {
+        runId: 42,
+        provider: "whisper",
+        fileName: "session.wav",
+        fileType: "audio/wav",
+        fileSizeBytes: 123,
+        durationSec: 24,
+        sampleRate: 16000,
+        settingSources: {
+          maxTokens: "settings",
+          temperature: "settings",
+          topP: "settings",
+          doSample: "settings",
+        },
+      },
+    };
+
+    useAsrStore.setState({
+      audioSource: { id: "whisper:session.wav:123", label: "session.wav", type: "file" },
+      audioMetadata: {
+        name: "session.wav",
+        durationSec: 24,
+        sampleRate: 16000,
+        channels: 1,
+        sizeBytes: 123,
+        mimeType: "audio/wav",
+      },
+      runExportHeaders: {
+        cloud: cloudRunExportHeader,
+      },
+    } as any);
 
     render(<Topbar />);
 
@@ -433,7 +487,34 @@ describe('Topbar', () => {
       telemetry: unknown;
     };
     expect(bundleContext.settings).toEqual(expect.objectContaining({ logLevel: "info" }));
-    expect(bundleContext.session).toEqual(expect.objectContaining({ hasHydrated: false, status: "idle", logLevel: "info" }));
+    expect(bundleContext.session).toEqual(
+      expect.objectContaining({
+        route: "/localupload",
+        hasHydrated: false,
+        status: "idle",
+        logLevel: "info",
+        audioSource: expect.objectContaining({
+          id: "whisper:session.wav:123",
+          label: "session.wav",
+          type: "file",
+        }),
+        audioMetadata: expect.objectContaining({
+          durationSec: 24,
+          sampleRate: 16000,
+        }),
+        browserVisibility: expect.objectContaining({
+          hidden: false,
+          visibilityState: "visible",
+        }),
+        cloudRunExportHeader: expect.objectContaining({
+          mode: "cloud",
+          runtime: expect.objectContaining({
+            fileName: "session.wav",
+            provider: "whisper",
+          }),
+        }),
+      })
+    );
 
     const payload = JSON.parse(content as string) as { schemaVersion?: number; logs?: unknown[] };
     expect(payload.schemaVersion).toBe(1);
@@ -448,6 +529,32 @@ describe('Topbar', () => {
       },
     ]);
     expect(toastMod.toast).toHaveBeenCalledWith("Fichier de logs téléchargé.");
+  });
+
+  it("shows a background badge and emits telemetry when the tab hides during a run", async () => {
+    const telemetryCollector = new TelemetryCollector("topbar-visibility-test");
+    useAsrStore.setState({
+      telemetryCollector,
+      isTranscribing: true,
+      status: "transcribing",
+      cloudStatus: "transcribing",
+    } as any);
+
+    render(<Topbar />);
+
+    expect(screen.queryByText("Arrière-plan")).toBeNull();
+
+    act(() => {
+      installVisibilityMocks("hidden");
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(await screen.findByText("Arrière-plan")).toBeInTheDocument();
+    await waitFor(() => {
+      const events = telemetryCollector.exportSummary().events;
+      expect(events.some((event) => event.type === "VISIBILITY_CHANGE")).toBe(true);
+      expect(events.some((event) => event.type === "BACKGROUND_RUN_CONTINUED")).toBe(true);
+    });
   });
 
   it('hides backend info and shows cloud status badges on /cloudupload', () => {

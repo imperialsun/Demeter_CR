@@ -11,7 +11,7 @@ import {
   probeAudioMetadata,
   resampleMono,
 } from "@/lib/audio";
-import { mockAudioContext, mockDocumentAudio, mockMediaRecorder } from "@/test/audioMocks";
+import { createFakeBlobWithArrayBuffer, mockAudioContext, mockDocumentAudio, mockMediaRecorder } from "@/test/audioMocks";
 
 function makeAudioBuffer(
   channels: number,
@@ -192,7 +192,9 @@ describe("audio decode", () => {
       [0, 0.5, 1, 0.5, 0, -0.5],
     ], 8000);
     const sliceSpy = vi.spyOn(ArrayBuffer.prototype, "slice");
-    registerRestore(mockAudioContext(fakeBuffer));
+    const restoreAudio = mockAudioContext(fakeBuffer);
+    registerRestore(restoreAudio);
+    const closeSpy = vi.spyOn((globalThis as any).AudioContext.prototype, "close");
     delete (globalThis as any).OfflineAudioContext;
 
     const telemetry = {
@@ -209,6 +211,7 @@ describe("audio decode", () => {
     expect(decoded.metadata.sampleRate).toBe(16000);
     expect(telemetry.startTimer).toHaveBeenCalledWith("decode_audio_total");
     expect(telemetry.stopTimer).toHaveBeenCalledWith("decode_audio_total");
+    expect(closeSpy).toHaveBeenCalledTimes(1);
     expect(sliceSpy).not.toHaveBeenCalled();
   });
 
@@ -235,7 +238,9 @@ describe("audio decode", () => {
   it("decodeCompressedBlobToPcm decodes and resamples", async () => {
     const fakeBuffer = makeAudioBuffer(1, 5, [[0.1, 0.2, 0.3, 0.2, 0.1]], 1000);
     const sliceSpy = vi.spyOn(ArrayBuffer.prototype, "slice");
-    registerRestore(mockAudioContext(fakeBuffer));
+    const restoreAudio = mockAudioContext(fakeBuffer);
+    registerRestore(restoreAudio);
+    const closeSpy = vi.spyOn((globalThis as any).AudioContext.prototype, "close");
     delete (globalThis as any).OfflineAudioContext;
     const telemetry = { startTimer: vi.fn(), stopTimer: vi.fn(), logEvent: vi.fn(), snapshotMemory: vi.fn() };
     const blob = new Blob([new Uint8Array([1, 2, 3])], { type: "audio/webm" });
@@ -243,6 +248,7 @@ describe("audio decode", () => {
     const result = await decodeCompressedBlobToPcm(blob, telemetry as never, 2000);
     expect(result.sampleRate).toBe(2000);
     expect(result.pcm.length).toBeGreaterThan(0);
+    expect(closeSpy).toHaveBeenCalledTimes(1);
     expect(sliceSpy).not.toHaveBeenCalled();
   });
 
@@ -389,6 +395,81 @@ describe("progressive segment decode", () => {
       { targetSampleRate: 1000 }
     );
     expect(result.pcm.length).toBe(0);
+  });
+
+  it("retries requestData timeouts instead of stopping the progressive segment", async () => {
+    vi.useFakeTimers();
+    try {
+      registerRestore(mockDocumentAudio({ duration: 1 }));
+      const OriginalRecorder = (globalThis as any).MediaRecorder;
+      let requestCount = 0;
+      class RetryRecorder extends EventTarget {
+        state: "inactive" | "recording" = "inactive";
+        mimeType = "audio/webm";
+        constructor() {
+          super();
+        }
+        start() {
+          this.state = "recording";
+        }
+        stop() {
+          this.state = "inactive";
+          this.dispatchEvent(new Event("stop"));
+        }
+        requestData() {
+          requestCount += 1;
+          if (requestCount === 2) {
+            const evt: any = new Event("dataavailable");
+            evt.data = createFakeBlobWithArrayBuffer(256);
+            this.dispatchEvent(evt);
+          }
+        }
+      }
+      (globalThis as any).MediaRecorder = RetryRecorder;
+      registerRestore(() => {
+        (globalThis as any).MediaRecorder = OriginalRecorder;
+      });
+      const fakeBuffer = makeAudioBuffer(1, 10, [new Array(10).fill(0.2)], 1000);
+      registerRestore(mockAudioContext(fakeBuffer));
+      vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:requestdata-retry");
+      vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+      const telemetry = {
+        startTimer: vi.fn(),
+        stopTimer: vi.fn(),
+        logEvent: vi.fn(),
+        recordAlert: vi.fn(),
+      };
+
+      const file = new File([new Uint8Array([1])], "clip.webm", { type: "audio/webm" });
+      const resultPromise = decodeFileSegmentToPcm(
+        file,
+        { index: 5, startSec: 0, endSec: 0.01 },
+        { targetSampleRate: 1000, telemetry: telemetry as never, requestDataTimeoutMs: 1, requestDataRetries: 0 }
+      );
+
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(1);
+
+      const result = await resultPromise;
+      expect(result.pcm.length).toBeGreaterThan(0);
+      expect(result.sampleRate).toBe(1000);
+      expect(requestCount).toBeGreaterThanOrEqual(2);
+      expect(telemetry.logEvent).toHaveBeenCalledWith(
+        "REQUESTDATA_TIMEOUT_RETRY",
+        expect.objectContaining({
+          segmentIndex: 5,
+          tries: 1,
+          hidden: false,
+        })
+      );
+      expect(telemetry.logEvent).toHaveBeenCalledWith(
+        "PROGRESS_SEGMENT_PCM",
+        expect.objectContaining({ segmentIndex: 5, samples: expect.any(Number) })
+      );
+      await vi.runOnlyPendingTimersAsync();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("propagates decode errors from progressive chunk decoding", async () => {

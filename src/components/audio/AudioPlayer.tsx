@@ -2,7 +2,6 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useAsrStore } from "@/store/asr-store";
 import type { AudioMetadata } from "@/lib/audio";
 import type { TranscriptionSegment } from "@/lib/export";
 import { Play, Pause, SkipBack, SkipForward, Repeat, Volume2, ChevronLeft, ChevronRight } from "lucide-react";
@@ -11,11 +10,13 @@ interface AudioPlayerProps {
   file?: File | null;
   metadata?: AudioMetadata | null;
   previewUrl?: string | null;
-  segments?: TranscriptionSegment[];
+  segments: TranscriptionSegment[];
   rangeStart?: number;
   rangeEnd?: number;
   timeDisplayMode?: "relative" | "absolute";
   variant?: "card" | "inline";
+  autoPlayRequestId?: number | null;
+  onAutoPlayRequestConsumed?: () => void;
 }
 
 export const AudioPlayer = memo(function AudioPlayer({
@@ -27,6 +28,8 @@ export const AudioPlayer = memo(function AudioPlayer({
   rangeEnd,
   timeDisplayMode = "relative",
   variant = "card",
+  autoPlayRequestId,
+  onAutoPlayRequestConsumed,
 }: AudioPlayerProps) {
   const objectUrl = useMemo(() => {
     if (!file || previewUrl) return undefined;
@@ -41,22 +44,35 @@ export const AudioPlayer = memo(function AudioPlayer({
   const [volume, setVolume] = useState(1);
   const [loop, setLoop] = useState(false);
   const [isSeeking, setIsSeeking] = useState(false);
+  const handledAutoPlayRequestIdRef = useRef<number | null>(null);
 
-  const storeSegments = useAsrStore((s) => s.segments);
   const hasRangePlayback =
     typeof rangeStart === "number" && typeof rangeEnd === "number" && Number.isFinite(rangeStart) && Number.isFinite(rangeEnd) && rangeEnd > rangeStart;
   const playbackStart = hasRangePlayback ? Math.max(0, rangeStart) : 0;
   const playbackEnd = hasRangePlayback ? Math.max(playbackStart, rangeEnd) : duration ?? 0;
-  const segments = useMemo(() => {
-    const sourceSegments = segmentsProp ?? storeSegments;
-    if (!hasRangePlayback) return sourceSegments;
-    return sourceSegments.filter((segment) => segment.end > playbackStart && segment.start < playbackEnd);
-  }, [hasRangePlayback, playbackEnd, playbackStart, segmentsProp, storeSegments]);
+  const playbackSegments = useMemo(() => {
+    if (!hasRangePlayback) return segmentsProp;
+    return segmentsProp.filter((segment) => segment.end > playbackStart && segment.start < playbackEnd);
+  }, [hasRangePlayback, playbackEnd, playbackStart, segmentsProp]);
 
   useEffect(() => {
+    const audioElement = audioRef.current;
     return () => {
+      if (audioElement) {
+        try {
+          audioElement.pause();
+          audioElement.removeAttribute("src");
+          audioElement.load();
+        } catch (err) {
+          void err;
+        }
+      }
       if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
+        try {
+          URL.revokeObjectURL(objectUrl);
+        } catch (err) {
+          void err;
+        }
       }
     };
   }, [objectUrl]);
@@ -78,6 +94,52 @@ export const AudioPlayer = memo(function AudioPlayer({
       el.currentTime = playbackStart;
     }
   }, [hasRangePlayback, playbackStart]);
+
+  useEffect(() => {
+    if (typeof autoPlayRequestId !== "number") {
+      handledAutoPlayRequestIdRef.current = null;
+      return;
+    }
+    if (handledAutoPlayRequestIdRef.current === autoPlayRequestId) {
+      return;
+    }
+    handledAutoPlayRequestIdRef.current = autoPlayRequestId;
+
+    const el = audioRef.current;
+    if (!el) {
+      onAutoPlayRequestConsumed?.();
+      return;
+    }
+
+    const startPlayback = async () => {
+      if (hasRangePlayback && (el.currentTime < playbackStart || el.currentTime >= playbackEnd)) {
+        el.currentTime = playbackStart;
+        setCurrentTime(playbackStart);
+      }
+      try {
+        await el.play();
+        setIsPlaying(true);
+      } catch (error) {
+        setIsPlaying(false);
+        void error;
+      } finally {
+        onAutoPlayRequestConsumed?.();
+      }
+    };
+
+    if (el.readyState > 0) {
+      void startPlayback();
+      return;
+    }
+
+    const handleLoadedMetadata = () => {
+      void startPlayback();
+    };
+    el.addEventListener("loadedmetadata", handleLoadedMetadata, { once: true });
+    return () => {
+      el.removeEventListener("loadedmetadata", handleLoadedMetadata);
+    };
+  }, [autoPlayRequestId, hasRangePlayback, onAutoPlayRequestConsumed, playbackEnd, playbackStart]);
 
   const onLoaded = useCallback(() => {
     const el = audioRef.current;
@@ -135,24 +197,24 @@ export const AudioPlayer = memo(function AudioPlayer({
   }, [hasRangePlayback, playbackEnd, playbackStart]);
 
   const prevSegment = useCallback(() => {
-    if (!segments.length) return;
+    if (!playbackSegments.length) return;
     const t = currentTime;
-    const prev = [...segments].reverse().find((s) => s.start < t - 0.05);
+    const prev = [...playbackSegments].reverse().find((s) => s.start < t - 0.05);
     if (prev && audioRef.current) {
       audioRef.current.currentTime = prev.start;
       setCurrentTime(prev.start);
     }
-  }, [segments, currentTime]);
+  }, [playbackSegments, currentTime]);
 
   const nextSegment = useCallback(() => {
-    if (!segments.length) return;
+    if (!playbackSegments.length) return;
     const t = currentTime;
-    const next = segments.find((s) => s.start > t + 0.05);
+    const next = playbackSegments.find((s) => s.start > t + 0.05);
     if (next && audioRef.current) {
       audioRef.current.currentTime = next.start;
       setCurrentTime(next.start);
     }
-  }, [segments, currentTime]);
+  }, [playbackSegments, currentTime]);
 
   const displayCurrent = hasRangePlayback
     ? timeDisplayMode === "relative"
