@@ -102,6 +102,60 @@ describe("backend settings integration", () => {
     }
   });
 
+  it("uses backend settings as the source of truth when bootstrapping over stale local storage", async () => {
+    const user = await createBackendUser();
+    vi.resetModules();
+    await configureBackendRuntime();
+    const jar = await createAppCookieJar();
+    const restoreFetch = jar.installGlobally();
+
+    try {
+      const authModule = await import("@/lib/backend-auth");
+      const settingsModule = await import("@/lib/backend-settings-sync");
+      const storageModule = await import("@/lib/storage");
+      const storeModule = await import("@/store/asr-store");
+
+      await authModule.backendLogin(user.email, user.password);
+
+      vi.useFakeTimers();
+      try {
+        settingsModule.queueBackendSettingsSync({
+          activePreset: "balanced",
+          showSegments: true,
+          chunkDurationSec: 21,
+        });
+        await vi.advanceTimersByTimeAsync(1_001);
+      } finally {
+        vi.useRealTimers();
+      }
+
+      window.localStorage.setItem(
+        "demeter-asr-settings",
+        JSON.stringify({
+          activePreset: "fast",
+          showSegments: false,
+          chunkDurationSec: 15,
+        }),
+      );
+
+      const serverSettings = await settingsModule.pullBackendSettings();
+      expect(serverSettings?.settings).toMatchObject({
+        activePreset: "balanced",
+        showSegments: true,
+        chunkDurationSec: 21,
+      });
+
+      storageModule.replaceSettingsCacheFromBackend(serverSettings?.settings ?? {});
+      storeModule.useAsrStore.getState().hydrateFromStorage();
+
+      expect(storeModule.useAsrStore.getState().activePreset).toBe("balanced");
+      expect(storeModule.useAsrStore.getState().showSegments).toBe(true);
+      expect(storeModule.useAsrStore.getState().chunkDurationSec).toBe(21);
+    } finally {
+      restoreFetch();
+    }
+  });
+
   it("keeps syncing settings even when feature.settings is denied for the page", async () => {
     const user = await createBackendUser();
     await updateUserEntitlements(user.id, [
