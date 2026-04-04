@@ -88,7 +88,30 @@ const mocks = vi.hoisted(() => ({
     },
   ]),
   transcribeWithMistral: vi.fn(async () => ({ text: "ok" })),
-  transcribeWithDemeterSante: vi.fn(async () => ({ text: "ok" })),
+  transcribeWithDemeterSante: vi.fn(async () => ({
+    text: "Bonjour",
+    chunks: [
+      {
+        chunkId: "demeter-default-001",
+        index: 0,
+        startSec: 0,
+        endSec: 1,
+        durationSec: 1,
+        segmentCount: 1,
+        text: "Bonjour",
+        segments: [
+          {
+            index: 0,
+            start: 0,
+            end: 1,
+            text: "Bonjour",
+            speaker: "SPEAKER_00",
+            chunkId: "demeter-default-001",
+          },
+        ],
+      },
+    ],
+  })),
   parseMistralOutput: vi.fn(() => [
     {
       index: 0,
@@ -316,14 +339,17 @@ describe("useCloudTranscription", () => {
       expect(api.chunkGroups[0]?.speakerIds).toEqual(["SPEAKER_00"]);
     });
 
+    const chunkId = api.chunkGroups[0]?.chunkId;
+    expect(chunkId).toBe("demeter-default-001");
+
     await act(async () => {
-      await api.updateSegmentSpeaker("mistral-1", 0, "SPEAKER_01");
+      await api.updateSegmentSpeaker(chunkId ?? "demeter-default-001", 0, "SPEAKER_01");
     });
 
     await waitFor(() => {
       expect(api.chunkGroups[0]?.speakerIds).toEqual(["SPEAKER_01"]);
     });
-    const updatedSegments = await api.loadChunkSegments("mistral-1");
+    const updatedSegments = await api.loadChunkSegments(chunkId ?? "demeter-default-001");
     expect(updatedSegments[0]?.speaker).toBe("SPEAKER_01");
   });
 
@@ -518,28 +544,307 @@ describe("useCloudTranscription", () => {
     expect(api.preparedUpload).toBeNull();
   });
 
+  it("appends only unseen backend chunks from cumulative demeter snapshots", async () => {
+    mocks.probeAudioMetadata.mockResolvedValueOnce({ durationSec: 7201, sampleRate: 16000 });
+    const firstChunk = {
+      chunkId: "demeter-backend-001",
+      index: 0,
+      startSec: 0,
+      endSec: 5,
+      durationSec: 5,
+      segmentCount: 2,
+      text: "Premier segment A\nPremier segment B",
+      segments: [
+        {
+          index: 0,
+          start: 0,
+          end: 2,
+          text: "Premier segment A",
+          chunkId: "demeter-backend-001",
+          speaker: "SPEAKER_00",
+        },
+        {
+          index: 1,
+          start: 2,
+          end: 5,
+          text: "Premier segment B",
+          chunkId: "demeter-backend-001",
+          speaker: "SPEAKER_01",
+        },
+      ],
+    };
+    const secondChunk = {
+      chunkId: "demeter-backend-002",
+      index: 1,
+      startSec: 5,
+      endSec: 10,
+      durationSec: 5,
+      segmentCount: 2,
+      text: "Second segment A\nSecond segment B",
+      segments: [
+        {
+          index: 2,
+          start: 5,
+          end: 7,
+          text: "Second segment A",
+          chunkId: "demeter-backend-002",
+          speaker: "SPEAKER_00",
+        },
+        {
+          index: 3,
+          start: 7,
+          end: 10,
+          text: "Second segment B",
+          chunkId: "demeter-backend-002",
+          speaker: "SPEAKER_01",
+        },
+      ],
+    };
+    mocks.transcribeWithDemeterSante.mockImplementationOnce(async (request: {
+      onBackendOperationProgress?: (snapshot: unknown) => void;
+    }) => {
+      request.onBackendOperationProgress?.({
+        operationId: "op-123",
+        status: "running",
+        stage: "chunk_completed",
+        chunkIndex: 1,
+        chunkCount: 2,
+        progress: 0.5,
+        response: {
+          text: firstChunk.text,
+          chunks: [firstChunk],
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      request.onBackendOperationProgress?.({
+        operationId: "op-123",
+        status: "running",
+        stage: "chunk_completed",
+        chunkIndex: 2,
+        chunkCount: 2,
+        progress: 1,
+        response: {
+          text: `${firstChunk.text}\n${secondChunk.text}`,
+          chunks: [firstChunk, secondChunk],
+        },
+      });
+      return {
+        text: `${firstChunk.text}\n${secondChunk.text}`,
+        chunks: [firstChunk, secondChunk],
+      };
+    });
+
+    let api!: ReturnType<typeof useCloudTranscription>;
+    render(<HookHarness provider="demeter_sante" onReady={(value) => (api = value)} />);
+    const file = new File(["a"], "long-audio.wav", { type: "audio/wav" });
+
+    await act(async () => {
+      await api.handleFileSelected(file);
+    });
+    await act(async () => {
+      await api.startTranscription();
+    });
+
+    await waitFor(() => {
+      expect(api.status).toBe("done");
+      expect(api.chunkGroups).toHaveLength(2);
+      expect(api.chunkGroups[0]?.segmentCount).toBe(2);
+      expect(api.chunkGroups[1]?.segmentCount).toBe(2);
+    });
+
+    const exportedSegments = await api.loadAllSegmentsForExport();
+    expect(exportedSegments.map((segment) => segment.text)).toEqual([
+      "Premier segment A",
+      "Premier segment B",
+      "Second segment A",
+      "Second segment B",
+    ]);
+    expect(api.chunkGroups[0]?.chunkId).toBe("demeter-backend-001");
+    expect(api.chunkGroups[1]?.chunkId).toBe("demeter-backend-002");
+    expect((await api.loadChunkSegments(api.chunkGroups[0]!.chunkId)).map((segment) => segment.text)).toEqual([
+      "Premier segment A",
+      "Premier segment B",
+    ]);
+    expect((await api.loadChunkSegments(api.chunkGroups[1]!.chunkId)).map((segment) => segment.text)).toEqual([
+      "Second segment A",
+      "Second segment B",
+    ]);
+    expect(mocks.parseMistralOutput).not.toHaveBeenCalled();
+  });
+
+  it("keeps chunk-specific segments inside each backend part", async () => {
+    mocks.probeAudioMetadata.mockResolvedValueOnce({ durationSec: 7201, sampleRate: 16000 });
+    const firstChunk = [
+      {
+        chunkId: "demeter-backend-001",
+        index: 0,
+        startSec: 0,
+        endSec: 5,
+        durationSec: 5,
+        segmentCount: 2,
+        text: "Chunk 1A\nChunk 1B",
+        segments: [
+          {
+            index: 0,
+            start: 0,
+            end: 2,
+            text: "Chunk 1A",
+            chunkId: "demeter-backend-001",
+            speaker: "SPEAKER_00",
+          },
+          {
+            index: 1,
+            start: 2,
+            end: 5,
+            text: "Chunk 1B",
+            chunkId: "demeter-backend-001",
+            speaker: "SPEAKER_01",
+          },
+        ],
+      },
+      {
+        chunkId: "demeter-backend-002",
+        index: 1,
+        startSec: 5,
+        endSec: 10,
+        durationSec: 5,
+        segmentCount: 1,
+        text: "Chunk 2",
+        segments: [
+          {
+            index: 2,
+            start: 5,
+            end: 10,
+            text: "Chunk 2",
+            chunkId: "demeter-backend-002",
+            speaker: "SPEAKER_02",
+          },
+        ],
+      },
+    ];
+    mocks.transcribeWithDemeterSante.mockImplementationOnce(async (request: {
+      onBackendOperationProgress?: (snapshot: unknown) => void;
+    }) => {
+      request.onBackendOperationProgress?.({
+        operationId: "op-456",
+        status: "running",
+        stage: "chunk_completed",
+        chunkIndex: 1,
+        chunkCount: 2,
+        progress: 0.5,
+        response: {
+          text: "Chunk 1A\nChunk 1B",
+          chunks: [firstChunk[0]],
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      request.onBackendOperationProgress?.({
+        operationId: "op-456",
+        status: "running",
+        stage: "chunk_completed",
+        chunkIndex: 2,
+        chunkCount: 2,
+        progress: 1,
+        response: {
+          text: "Chunk 1A\nChunk 1B\nChunk 2",
+          chunks: firstChunk,
+        },
+      });
+      return {
+        text: "Chunk 1A\nChunk 1B\nChunk 2",
+        chunks: firstChunk,
+      };
+    });
+
+    let api!: ReturnType<typeof useCloudTranscription>;
+    render(<HookHarness provider="demeter_sante" onReady={(value) => (api = value)} />);
+    const file = new File(["a"], "long-audio.wav", { type: "audio/wav" });
+
+    await act(async () => {
+      await api.handleFileSelected(file);
+    });
+    await act(async () => {
+      await api.startTranscription();
+    });
+
+    await waitFor(() => {
+      expect(api.status).toBe("done");
+      expect(api.chunkGroups).toHaveLength(2);
+    });
+
+    expect(api.chunkGroups[0]?.chunkId).toBe("demeter-backend-001");
+    expect(api.chunkGroups[1]?.chunkId).toBe("demeter-backend-002");
+    expect(api.chunkGroups[0]?.segmentCount).toBe(2);
+    expect(api.chunkGroups[1]?.segmentCount).toBe(1);
+    const firstChunkSegments = await api.loadChunkSegments(api.chunkGroups[0]!.chunkId);
+    const secondChunkSegments = await api.loadChunkSegments(api.chunkGroups[1]!.chunkId);
+    expect(firstChunkSegments.map((segment) => segment.text)).toEqual(["Chunk 1A", "Chunk 1B"]);
+    expect(secondChunkSegments.map((segment) => segment.text)).toEqual(["Chunk 2"]);
+  });
+
   it("keeps backend direct chunk groups distinct so the UI stays chunk-aware", async () => {
     mocks.probeAudioMetadata.mockResolvedValueOnce({ durationSec: 7201, sampleRate: 16000 });
-    mocks.parseMistralOutput.mockReturnValueOnce([
+    const chunks = [
       {
-        index: 0,
-        start: 0,
-        end: 5,
-        text: "Chunk 1",
         chunkId: "demeter-backend-001",
-        strategy: "chunks",
-        speaker: "SPEAKER_00",
+        index: 0,
+        startSec: 0,
+        endSec: 5,
+        durationSec: 5,
+        segmentCount: 1,
+        text: "Chunk 1",
+        segments: [
+          {
+            index: 0,
+            start: 0,
+            end: 5,
+            text: "Chunk 1",
+            chunkId: "demeter-backend-001",
+            speaker: "SPEAKER_00",
+          },
+        ],
       },
       {
-        index: 1,
-        start: 5,
-        end: 10,
-        text: "Chunk 2",
         chunkId: "demeter-backend-002",
-        strategy: "chunks",
-        speaker: "SPEAKER_01",
+        index: 1,
+        startSec: 5,
+        endSec: 10,
+        durationSec: 5,
+        segmentCount: 1,
+        text: "Chunk 2",
+        segments: [
+          {
+            index: 1,
+            start: 5,
+            end: 10,
+            text: "Chunk 2",
+            chunkId: "demeter-backend-002",
+            speaker: "SPEAKER_01",
+          },
+        ],
       },
-    ]);
+    ];
+    mocks.transcribeWithDemeterSante.mockImplementationOnce(async (request: {
+      onBackendOperationProgress?: (snapshot: unknown) => void;
+    }) => {
+      request.onBackendOperationProgress?.({
+        operationId: "op-789",
+        status: "running",
+        stage: "chunk_completed",
+        chunkIndex: 1,
+        chunkCount: 2,
+        progress: 0.5,
+        response: {
+          text: chunks[0].text,
+          chunks: [chunks[0]],
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return {
+        text: "Chunk 1\nChunk 2",
+        chunks,
+      };
+    });
 
     let api!: ReturnType<typeof useCloudTranscription>;
     render(<HookHarness provider="demeter_sante" onReady={(value) => (api = value)} />);
@@ -560,6 +865,8 @@ describe("useCloudTranscription", () => {
     expect(api.chunkGroups[1]?.chunkId).toBe("demeter-backend-002");
     expect(api.chunkGroups[0]?.segmentCount).toBe(1);
     expect(api.chunkGroups[1]?.segmentCount).toBe(1);
+    expect((await api.loadChunkSegments("demeter-backend-001")).map((segment) => segment.text)).toEqual(["Chunk 1"]);
+    expect((await api.loadChunkSegments("demeter-backend-002")).map((segment) => segment.text)).toEqual(["Chunk 2"]);
   });
 
   it("blocks an empty source file, logs it, and reports the error without retry", async () => {
@@ -609,7 +916,29 @@ describe("useCloudTranscription", () => {
           traceId: "trace-audio-1",
         })
       )
-      .mockResolvedValueOnce({ text: "ok" });
+      .mockResolvedValueOnce({
+        text: "ok",
+        chunks: [
+          {
+            chunkId: "demeter-retry-001",
+            index: 0,
+            startSec: 0,
+            endSec: 1,
+            durationSec: 1,
+            segmentCount: 1,
+            text: "ok",
+            segments: [
+              {
+                index: 0,
+                start: 0,
+                end: 1,
+                text: "ok",
+                chunkId: "demeter-retry-001",
+              },
+            ],
+          },
+        ],
+      });
 
     let api!: ReturnType<typeof useCloudTranscription>;
     render(<HookHarness provider="demeter_sante" onReady={(value) => (api = value)} />);
@@ -651,7 +980,29 @@ describe("useCloudTranscription", () => {
     mocks.buildFixedSegments.mockReturnValueOnce([{ start: 0, end: 10 }]);
     mocks.transcribeWithDemeterSante
       .mockRejectedValueOnce(new Error("The upstream server is timing out"))
-      .mockResolvedValue({ text: "ok" });
+      .mockResolvedValue({
+        text: "ok",
+        chunks: [
+          {
+            chunkId: "demeter-timeout-001",
+            index: 0,
+            startSec: 0,
+            endSec: 10,
+            durationSec: 10,
+            segmentCount: 1,
+            text: "ok",
+            segments: [
+              {
+                index: 0,
+                start: 0,
+                end: 10,
+                text: "ok",
+                chunkId: "demeter-timeout-001",
+              },
+            ],
+          },
+        ],
+      });
 
     let api!: ReturnType<typeof useCloudTranscription>;
     render(<HookHarness provider="demeter_sante" onReady={(value) => (api = value)} />);

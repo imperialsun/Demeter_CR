@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { waitFor } from "@testing-library/dom";
-import { createBackendUser, getActivitySummary } from "@/test/backend/adminClient";
-import { createAppCookieJar, configureBackendRuntime, resetBrowserState } from "@/test/backend/runtime";
+import { createBackendUser, getActivitySummary } from "./adminClient";
+import { createAppCookieJar, configureBackendRuntime, resetBrowserState } from "./runtime";
 
 describe("backend activity integration", () => {
   beforeEach(() => {

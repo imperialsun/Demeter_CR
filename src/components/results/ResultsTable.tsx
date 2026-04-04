@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { usePageScrollContainer } from "@/components/layout/page-scroll-container";
 import { useAsrStore } from "@/store/asr-store";
 import type { TranscriptionSegment } from "@/lib/export";
 import logger from "@/lib/logger";
@@ -42,6 +43,7 @@ export const ResultsTable = memo(function ResultsTable({
   const storeEnableWordTimestamps = useAsrStore((s) => s.enableWordTimestamps);
   const storeShowSegmentConfidence = useAsrStore((s) => s.showSegmentConfidence);
   const speakerAssignments = useAsrStore((s) => s.speakerAssignments[mode]);
+  const pageScrollContainerRef = usePageScrollContainer();
   const resolvedSpeakerOptions = speakerOptions ?? [];
   const resolvedEnableWordTimestamps =
     typeof enableWordTimestamps === "boolean" ? enableWordTimestamps : storeEnableWordTimestamps;
@@ -106,6 +108,7 @@ export const ResultsTable = memo(function ResultsTable({
     parentRef,
     virtualItems,
     totalSize,
+    scrollMargin,
     measureElement,
   } = useVirtualizedList({
     items: filtered,
@@ -113,7 +116,9 @@ export const ResultsTable = memo(function ResultsTable({
     getItemKey: (segment) => segment.index,
     overscan: 2,
     fallbackHeight: RESULTS_TABLE_FALLBACK_HEIGHT,
+    scrollElementRef: expandToFill ? undefined : pageScrollContainerRef ?? undefined,
   });
+  const shouldUsePageScroll = !expandToFill && Boolean(pageScrollContainerRef);
 
   useEffect(() => {
     if (!editingSegment) return;
@@ -181,7 +186,14 @@ export const ResultsTable = memo(function ResultsTable({
         }}
       />
 
-      <div ref={parentRef} className={cn("overflow-auto rounded-md border", expandToFill ? "flex-1 min-h-0" : "h-[360px]")}>
+      <div
+        ref={parentRef}
+        data-testid="results-table-scroll"
+        className={cn(
+          "rounded-md border",
+          expandToFill ? "flex-1 min-h-0 overflow-auto" : shouldUsePageScroll ? "overflow-x-auto" : "h-[360px] overflow-auto"
+        )}
+      >
         <div className="min-w-[860px]" role="table" aria-label="Résultats de transcription">
           <div
             role="row"
@@ -227,14 +239,14 @@ export const ResultsTable = memo(function ResultsTable({
                   <div
                     key={segment.index}
                     ref={measureElement}
-                    data-index={virtualRow.index}
-                    role="row"
-                    className="absolute left-0 top-0 grid w-full items-start border-b bg-background/60 text-sm"
-                    style={{
-                      gridTemplateColumns,
-                      transform: `translateY(${virtualRow.start}px)`,
-                    }}
-                  >
+                      data-index={virtualRow.index}
+                      role="row"
+                      className="absolute left-0 top-0 grid w-full items-start border-b bg-background/60 text-sm"
+                      style={{
+                        gridTemplateColumns,
+                        transform: `translateY(${virtualRow.start - scrollMargin}px)`,
+                      }}
+                    >
                     <div role="cell" className="px-3 py-2 font-medium">
                       {segment.index + 1}
                     </div>

@@ -6,6 +6,7 @@ import {
   type PersistedSettings,
   type PersistedSettingsInput,
   DEFAULT_SETTINGS,
+  clampDemeterChunkDurationSec,
 } from "@/lib/storage";
 import {
   clearSecureTokens,
@@ -491,6 +492,7 @@ interface AsrConfigState {
   cloudMistralDiarizationEnabled: boolean;
   cloudDemeterModel: string;
   cloudDemeterDiarizationEnabled: boolean;
+  cloudDemeterChunkDurationSec: number;
   cloudWhisperChunkDurationSec: number;
   cloudWhisperOverlapSec: number;
   cloudMistralChunkDurationSec: number;
@@ -702,6 +704,9 @@ interface AsrConfigActions {
   setCloudMistralDiarizationEnabled: (value: boolean) => void;
   setCloudDemeterModel: (value: string) => void;
   setCloudDemeterDiarizationEnabled: (value: boolean) => void;
+  setCloudDemeterChunking: (params: Partial<{
+    chunkDurationSec: number;
+  }>) => void;
   setCloudWhisperChunking: (params: Partial<{
     chunkDurationSec: number;
     overlapSec: number;
@@ -923,6 +928,7 @@ export function serializePersistedSettings(state: AsrConfigState): PersistedSett
     cloudMistralDiarizationEnabled: state.cloudMistralDiarizationEnabled,
     cloudDemeterModel: state.cloudDemeterModel,
     cloudDemeterDiarizationEnabled: state.cloudDemeterDiarizationEnabled,
+    cloudDemeterChunkDurationSec: state.cloudDemeterChunkDurationSec,
     cloudWhisperChunkDurationSec: state.cloudWhisperChunkDurationSec,
     cloudWhisperOverlapSec: state.cloudWhisperOverlapSec,
     cloudMistralChunkDurationSec: state.cloudMistralChunkDurationSec,
@@ -1080,6 +1086,7 @@ const initialState: AsrConfigState = {
   cloudMistralDiarizationEnabled: DEFAULT_SETTINGS.cloudMistralDiarizationEnabled,
   cloudDemeterModel: DEFAULT_SETTINGS.cloudDemeterModel,
   cloudDemeterDiarizationEnabled: DEFAULT_SETTINGS.cloudDemeterDiarizationEnabled,
+  cloudDemeterChunkDurationSec: DEFAULT_SETTINGS.cloudDemeterChunkDurationSec,
   cloudWhisperChunkDurationSec: DEFAULT_SETTINGS.cloudWhisperChunkDurationSec,
   cloudWhisperOverlapSec: DEFAULT_SETTINGS.cloudWhisperOverlapSec,
   cloudMistralChunkDurationSec: DEFAULT_SETTINGS.cloudMistralChunkDurationSec,
@@ -1681,6 +1688,9 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         settings.cloudDemeterDiarizationEnabled ??
         settings.cloudMistralDiarizationEnabled ??
         fallbackSettings.cloudDemeterDiarizationEnabled,
+      cloudDemeterChunkDurationSec: clampDemeterChunkDurationSec(
+        getHydrationInputValue(settings, "cloudDemeterChunkDurationSec", fallbackSettings.cloudDemeterChunkDurationSec)
+      ),
       cloudWhisperChunkDurationSec:
         getHydrationInputValue(settings, "cloudWhisperChunkDurationSec", fallbackSettings.cloudWhisperChunkDurationSec),
       cloudWhisperOverlapSec: getHydrationInputValue(
@@ -2066,6 +2076,12 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
   setCloudMistralDiarizationEnabled: (value) => set(() => ({ cloudMistralDiarizationEnabled: value })),
   setCloudDemeterModel: (value) => set(() => ({ cloudDemeterModel: value })),
   setCloudDemeterDiarizationEnabled: (value) => set(() => ({ cloudDemeterDiarizationEnabled: value })),
+  setCloudDemeterChunking: (params) =>
+    set((state) => ({
+      cloudDemeterChunkDurationSec: clampDemeterChunkDurationSec(
+        params.chunkDurationSec ?? state.cloudDemeterChunkDurationSec
+      ),
+    })),
   setCloudWhisperChunking: (params) =>
     set((state) => ({
       cloudWhisperChunkDurationSec: params.chunkDurationSec ?? state.cloudWhisperChunkDurationSec,

@@ -143,7 +143,7 @@ export function isBackendAudioValidationError(error: unknown): boolean {
   return AUDIO_VALIDATION_ERROR_CODES.has(error.code) || isAudioValidationMessage(error.message);
 }
 
-export function shouldRetryRawAudioUpload(error: unknown): boolean {
+export function shouldRetryAudioUpload(error: unknown): boolean {
   if (isBackendAudioValidationError(error)) {
     return true;
   }

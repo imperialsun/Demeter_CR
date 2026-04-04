@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { screen, fireEvent, waitFor } from '@testing-library/react';
-import { renderWithStore } from '@/test/utils';
+import { renderWithStore } from '../test/utils';
 import { useAsrStore } from '@/store/asr-store';
 import LocalUploadPage from './LocalUploadPage';
 import * as audioLib from '@/lib/audio';
@@ -76,6 +76,7 @@ describe('LocalUploadPage', () => {
     expect(srtButton).toBeInTheDocument();
     expect(jsonButton).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Télécharger en DOCX$/i })).toBeNull();
+    expect(screen.getByTestId("results-table-scroll")).not.toHaveClass("overflow-auto");
     expect(vttButton?.compareDocumentPosition(segmentCell) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 

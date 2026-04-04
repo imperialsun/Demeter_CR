@@ -11,6 +11,7 @@ import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { usePageScrollContainer } from "@/components/layout/page-scroll-container";
 import { useAsrStore } from "@/store/asr-store";
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { useCloudTranscription } from "@/hooks/useCloudTranscription";
@@ -46,10 +47,12 @@ function readBrowserMemorySnapshot() {
 
 function CloudUploadPage() {
   useBackendPermissions();
+  const pageScrollContainerRef = usePageScrollContainer();
   const backendMode = isBackendMode();
   const canUseWhisper = canUseCloudProvider("whisper");
   const canUseMistral = canUseCloudProvider("mistral");
   const canUseDemeter = canUseCloudProvider("demeter_sante");
+  const shouldUsePageScroll = Boolean(pageScrollContainerRef);
   const allowedProviders = useMemo<CloudProviderId[]>(() => {
     const providers: CloudProviderId[] = [];
     if (canUseWhisper) providers.push("whisper");
@@ -135,6 +138,7 @@ function CloudUploadPage() {
     parentRef: chunkListRef,
     virtualItems: chunkVirtualItems,
     totalSize: chunkVirtualTotalSize,
+    scrollMargin: chunkScrollMargin,
     measureElement: measureChunkElement,
   } = useVirtualizedList({
     items: chunkSummaries,
@@ -142,6 +146,7 @@ function CloudUploadPage() {
     getItemKey: (chunk) => chunk.chunkId,
     overscan: 2,
     fallbackHeight: 640,
+    scrollElementRef: shouldUsePageScroll ? pageScrollContainerRef ?? undefined : undefined,
   });
 
   const handleOpenChunk = useCallback((chunkId: string) => {
@@ -547,7 +552,8 @@ function CloudUploadPage() {
             chunkSummaries.length ? (
               <div
                 ref={chunkListRef}
-                className="h-[min(72vh,48rem)] overflow-auto"
+                data-testid="cloud-chunk-list"
+                className={shouldUsePageScroll ? undefined : "h-[min(72vh,48rem)] overflow-auto"}
               >
                 <div className="relative min-w-full" style={{ height: chunkVirtualTotalSize }}>
                   {chunkVirtualItems.map((virtualRow) => {
@@ -562,7 +568,7 @@ function CloudUploadPage() {
                         ref={measureChunkElement}
                         data-index={virtualRow.index}
                         className="absolute left-0 top-0 w-full px-4 py-4"
-                        style={{ transform: `translateY(${virtualRow.start}px)` }}
+                        style={{ transform: `translateY(${virtualRow.start - chunkScrollMargin}px)` }}
                       >
                         <CloudChunkCard chunk={chunk} isActive={isActive} onOpen={handleOpenChunk} onPlay={handlePlayChunk} />
                       </div>

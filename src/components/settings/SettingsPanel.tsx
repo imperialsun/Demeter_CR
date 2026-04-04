@@ -31,6 +31,10 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTheme, type Theme } from "@/components/theme-context";
 import { computeDefaultOverlap } from "@/lib/chunking";
+import {
+  DEMETER_CHUNK_DURATION_MAX_SEC,
+  DEMETER_CHUNK_DURATION_MIN_SEC,
+} from "@/lib/storage";
 import { cn } from "@/lib/utils";
 import { testWasmMultithreadSupport } from "@/lib/backend-support";
 import logger from "@/lib/logger";
@@ -284,6 +288,7 @@ export function SettingsPanel({
     cloudDoSample,
     mistralApiKey,
     cloudDemeterDiarizationEnabled,
+    cloudDemeterChunkDurationSec,
     cloudWhisperChunkDurationSec,
     cloudWhisperOverlapSec,
     cloudMistralChunkDurationSec,
@@ -319,6 +324,7 @@ export function SettingsPanel({
     setHfApiToken,
     setMistralApiKey,
     setCloudDemeterDiarizationEnabled,
+    setCloudDemeterChunking,
     setCloudWhisperChunking,
     setCloudMistralChunking,
     setCloudMaxTokens,
@@ -344,6 +350,7 @@ export function SettingsPanel({
       cloudDoSample: state.cloudDoSample,
       mistralApiKey: state.mistralApiKey,
       cloudDemeterDiarizationEnabled: state.cloudDemeterDiarizationEnabled,
+      cloudDemeterChunkDurationSec: state.cloudDemeterChunkDurationSec,
       cloudWhisperChunkDurationSec: state.cloudWhisperChunkDurationSec,
       cloudWhisperOverlapSec: state.cloudWhisperOverlapSec,
       cloudMistralChunkDurationSec: state.cloudMistralChunkDurationSec,
@@ -379,6 +386,7 @@ export function SettingsPanel({
       setHfApiToken: state.setHfApiToken,
       setMistralApiKey: state.setMistralApiKey,
       setCloudDemeterDiarizationEnabled: state.setCloudDemeterDiarizationEnabled,
+      setCloudDemeterChunking: state.setCloudDemeterChunking,
       setCloudWhisperChunking: state.setCloudWhisperChunking,
       setCloudMistralChunking: state.setCloudMistralChunking,
       setCloudMaxTokens: state.setCloudMaxTokens,
@@ -2897,16 +2905,20 @@ export function SettingsPanel({
                     <div className="rounded-md border bg-muted/30 p-3">
                       <p className="text-sm font-medium">Chunking Demeter</p>
                       <p className="mb-3 text-xs text-muted-foreground">
-                        Demeter réutilise la segmentation Mistral. Réduisez la durée si Mistral renvoie encore un `504`.
+                        Durée de chunk propre à Demeter. La valeur est bornée entre 10 et 28 minutes.
                       </p>
                       <NumberField
                         id="cloud-demeter-chunk-duration"
-                        label="Durée chunk (s)"
-                        min={5}
-                        max={3600}
+                        label="Durée chunk (min)"
+                        min={Math.round(DEMETER_CHUNK_DURATION_MIN_SEC / 60)}
+                        max={Math.round(DEMETER_CHUNK_DURATION_MAX_SEC / 60)}
                         step={1}
-                        value={cloudMistralChunkDurationSec}
-                        onChange={(value) => setCloudMistralChunking({ chunkDurationSec: value })}
+                        value={Math.round(cloudDemeterChunkDurationSec / 60)}
+                        onChange={(value) =>
+                          setCloudDemeterChunking({
+                            chunkDurationSec: Math.round(value * 60),
+                          })
+                        }
                       />
                       <NumberField
                         id="cloud-demeter-overlap"

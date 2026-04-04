@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createBackendUser } from "@/test/backend/adminClient";
-import { createAppCookieJar, configureBackendRuntime, resetBrowserState } from "@/test/backend/runtime";
+import { createBackendUser } from "./adminClient";
+import { createAppCookieJar, configureBackendRuntime, resetBrowserState } from "./runtime";
 
 const INTEGRATION_TIMEOUT_MS = 120_000;
 

@@ -11,7 +11,7 @@ import {
   probeAudioMetadata,
   resampleMono,
 } from "@/lib/audio";
-import { createFakeBlobWithArrayBuffer, mockAudioContext, mockDocumentAudio, mockMediaRecorder } from "@/test/audioMocks";
+import { createFakeBlobWithArrayBuffer, mockAudioContext, mockDocumentAudio, mockMediaRecorder } from "../test/audioMocks";
 
 function makeAudioBuffer(
   channels: number,

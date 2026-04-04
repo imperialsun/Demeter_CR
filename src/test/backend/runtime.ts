@@ -1,5 +1,5 @@
-import { TestCookieJar } from "@/test/backend/cookieJar";
-import { ensureBackendHarness } from "@/test/backend/harness";
+import { TestCookieJar } from "./cookieJar";
+import { ensureBackendHarness } from "./harness";
 
 export async function createAppCookieJar() {
   const nativeFetch = globalThis.__demeterNativeFetch ?? globalThis.fetch.bind(globalThis);

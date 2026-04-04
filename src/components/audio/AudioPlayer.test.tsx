@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { screen, fireEvent, waitFor } from '@testing-library/react';
-import { renderWithStore } from '@/test/utils';
+import { renderWithStore } from '../../test/utils';
 import { AudioPlayer } from './AudioPlayer';
 
 // Simple helpers to mock play/pause on HTMLMediaElement

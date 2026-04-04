@@ -100,7 +100,7 @@ export const CloudChunkDetailsPanel = memo(function CloudChunkDetailsPanel({
     return () => {
       cancelled = true;
     };
-  }, [chunk.chunkId, loadChunkSegments, segments]);
+  }, [chunk.chunkId, chunk.segmentCount, loadChunkSegments, segments]);
 
   useEffect(() => {
     const modalRoot = modalRef.current;

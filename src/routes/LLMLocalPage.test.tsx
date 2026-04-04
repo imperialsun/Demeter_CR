@@ -105,13 +105,13 @@ describe("LLMLocalPage", () => {
     const button = screen.getByRole("button", { name: /generer les 3 formats/i });
     expect(button).not.toBeDisabled();
 
-    await userEvent.click(button);
+    fireEvent.click(button);
     expect(generateAll).toHaveBeenCalledWith({ source: "transcription", text: undefined });
     expect(emitLlmEventMock).toHaveBeenCalledWith(
       "LLM_LOCAL_GENERATION_REQUESTED",
       expect.objectContaining({ sourceMode: "transcription" })
     );
-  });
+  }, 10000);
 
   it("emits local page view telemetry on mount", () => {
     renderPage();

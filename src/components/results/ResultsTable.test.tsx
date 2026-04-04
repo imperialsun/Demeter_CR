@@ -73,6 +73,13 @@ describe("ResultsTable", () => {
     expect(screen.queryByText("Bonjour le monde")).toBeNull();
   });
 
+  it("keeps the legacy internal scroll container when no page scroll context is available", () => {
+    render(<ResultsTable segments={sample as any} />);
+
+    expect(screen.getByTestId("results-table-scroll")).toHaveClass("overflow-auto");
+    expect(screen.getByTestId("results-table-scroll")).toHaveClass("h-[360px]");
+  });
+
   it("virtualizes long segment lists", () => {
     const longSegments = Array.from({ length: 24 }, (_, index) => ({
       index,

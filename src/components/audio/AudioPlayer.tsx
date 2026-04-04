@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { AudioMetadata } from "@/lib/audio";
 import type { TranscriptionSegment } from "@/lib/export";
+import logger from "@/lib/logger";
 import { Play, Pause, SkipBack, SkipForward, Repeat, Volume2, ChevronLeft, ChevronRight } from "lucide-react";
 
 interface AudioPlayerProps {
@@ -18,6 +19,16 @@ interface AudioPlayerProps {
   autoPlayRequestId?: number | null;
   onAutoPlayRequestConsumed?: () => void;
 }
+
+type AudioUiLogContext = {
+  fileName: string;
+  variant: "card" | "inline";
+  hasPreviewUrl: boolean;
+  hasRangePlayback: boolean;
+  playbackStart: number | null;
+  playbackEnd: number | null;
+  segmentCount: number;
+};
 
 export const AudioPlayer = memo(function AudioPlayer({
   file,
@@ -45,7 +56,6 @@ export const AudioPlayer = memo(function AudioPlayer({
   const [loop, setLoop] = useState(false);
   const [isSeeking, setIsSeeking] = useState(false);
   const handledAutoPlayRequestIdRef = useRef<number | null>(null);
-
   const hasRangePlayback =
     typeof rangeStart === "number" && typeof rangeEnd === "number" && Number.isFinite(rangeStart) && Number.isFinite(rangeEnd) && rangeEnd > rangeStart;
   const playbackStart = hasRangePlayback ? Math.max(0, rangeStart) : 0;
@@ -54,6 +64,37 @@ export const AudioPlayer = memo(function AudioPlayer({
     if (!hasRangePlayback) return segmentsProp;
     return segmentsProp.filter((segment) => segment.end > playbackStart && segment.start < playbackEnd);
   }, [hasRangePlayback, playbackEnd, playbackStart, segmentsProp]);
+  const hasFile = Boolean(file);
+  const audioUiLogContextRef = useRef<AudioUiLogContext>({
+    fileName: file?.name ?? metadata?.name ?? "unknown",
+    variant,
+    hasPreviewUrl: Boolean(previewUrl),
+    hasRangePlayback,
+    playbackStart: hasRangePlayback ? playbackStart : null,
+    playbackEnd: hasRangePlayback ? playbackEnd : null,
+    segmentCount: segmentsProp.length,
+  });
+
+  audioUiLogContextRef.current = {
+    fileName: file?.name ?? metadata?.name ?? "unknown",
+    variant,
+    hasPreviewUrl: Boolean(previewUrl),
+    hasRangePlayback,
+    playbackStart: hasRangePlayback ? playbackStart : null,
+    playbackEnd: hasRangePlayback ? playbackEnd : null,
+    segmentCount: segmentsProp.length,
+  };
+
+  useEffect(() => {
+    if (!hasFile) {
+      return;
+    }
+
+    logger.debug("[audio][ui] mounted", audioUiLogContextRef.current);
+    return () => {
+      logger.debug("[audio][ui] unmounted", audioUiLogContextRef.current);
+    };
+  }, [hasFile]);
 
   useEffect(() => {
     const audioElement = audioRef.current;
@@ -116,14 +157,31 @@ export const AudioPlayer = memo(function AudioPlayer({
         el.currentTime = playbackStart;
         setCurrentTime(playbackStart);
       }
+      logger.info("[audio][ui] autoplay requested", {
+        requestId: autoPlayRequestId,
+        ...audioUiLogContextRef.current,
+        currentTime: roundAudioTime(el.currentTime),
+      });
       try {
         await el.play();
         setIsPlaying(true);
+        logger.info("[audio][ui] autoplay started", {
+          requestId: autoPlayRequestId,
+          ...audioUiLogContextRef.current,
+          currentTime: roundAudioTime(el.currentTime),
+        });
       } catch (error) {
         setIsPlaying(false);
+        logger.warn("[audio][ui] autoplay failed", {
+          requestId: autoPlayRequestId,
+          message: error instanceof Error ? error.message : String(error),
+        });
         void error;
       } finally {
         onAutoPlayRequestConsumed?.();
+        logger.debug("[audio][ui] autoplay request consumed", {
+          requestId: autoPlayRequestId,
+        });
       }
     };
 
@@ -149,6 +207,10 @@ export const AudioPlayer = memo(function AudioPlayer({
       el.currentTime = playbackStart;
       setCurrentTime(playbackStart);
     }
+    logger.debug("[audio][ui] metadata loaded", {
+      ...audioUiLogContextRef.current,
+      durationSec: roundAudioTime(el.duration || 0),
+    });
   }, [hasRangePlayback, playbackStart]);
 
   const onTimeUpdate = useCallback(() => {
@@ -156,6 +218,11 @@ export const AudioPlayer = memo(function AudioPlayer({
     if (!el) return;
     const current = el.currentTime || 0;
     if (hasRangePlayback && current >= playbackEnd - 0.01) {
+      logger.debug("[audio][ui] playback reached range end", {
+        ...audioUiLogContextRef.current,
+        currentTime: roundAudioTime(current),
+        loop,
+      });
       if (loop) {
         el.currentTime = playbackStart;
         setCurrentTime(playbackStart);
@@ -174,6 +241,11 @@ export const AudioPlayer = memo(function AudioPlayer({
   const togglePlay = useCallback(() => {
     const el = audioRef.current;
     if (!el) return;
+    logger.info("[audio][ui] play toggle requested", {
+      ...audioUiLogContextRef.current,
+      action: el.paused ? "play" : "pause",
+      currentTime: roundAudioTime(el.currentTime),
+    });
     if (hasRangePlayback && (el.currentTime < playbackStart || el.currentTime >= playbackEnd)) {
       el.currentTime = playbackStart;
       setCurrentTime(playbackStart);
@@ -192,7 +264,15 @@ export const AudioPlayer = memo(function AudioPlayer({
     if (!el) return;
     const minTime = hasRangePlayback ? playbackStart : 0;
     const maxTime = hasRangePlayback ? playbackEnd : el.duration || 0;
-    el.currentTime = Math.max(minTime, Math.min(maxTime, el.currentTime + secs));
+    const nextTime = Math.max(minTime, Math.min(maxTime, el.currentTime + secs));
+    logger.debug("[audio][ui] seek skipped", {
+      ...audioUiLogContextRef.current,
+      direction: secs < 0 ? "backward" : "forward",
+      seconds: Math.abs(secs),
+      from: roundAudioTime(el.currentTime),
+      to: roundAudioTime(nextTime),
+    });
+    el.currentTime = nextTime;
     setCurrentTime(el.currentTime);
   }, [hasRangePlayback, playbackEnd, playbackStart]);
 
@@ -200,6 +280,12 @@ export const AudioPlayer = memo(function AudioPlayer({
     if (!playbackSegments.length) return;
     const t = currentTime;
     const prev = [...playbackSegments].reverse().find((s) => s.start < t - 0.05);
+    logger.debug("[audio][ui] segment navigation requested", {
+      ...audioUiLogContextRef.current,
+      direction: "previous",
+      currentTime: roundAudioTime(t),
+      targetTime: prev ? roundAudioTime(prev.start) : null,
+    });
     if (prev && audioRef.current) {
       audioRef.current.currentTime = prev.start;
       setCurrentTime(prev.start);
@@ -210,6 +296,12 @@ export const AudioPlayer = memo(function AudioPlayer({
     if (!playbackSegments.length) return;
     const t = currentTime;
     const next = playbackSegments.find((s) => s.start > t + 0.05);
+    logger.debug("[audio][ui] segment navigation requested", {
+      ...audioUiLogContextRef.current,
+      direction: "next",
+      currentTime: roundAudioTime(t),
+      targetTime: next ? roundAudioTime(next.start) : null,
+    });
     if (next && audioRef.current) {
       audioRef.current.currentTime = next.start;
       setCurrentTime(next.start);
@@ -277,9 +369,9 @@ export const AudioPlayer = memo(function AudioPlayer({
 
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-1">
-          <Button size="sm" variant="ghost" onClick={() => skip(-5)} title="Recule de 5s">
-            <SkipBack className="h-4 w-4" />
-          </Button>
+            <Button size="sm" variant="ghost" onClick={() => skip(-5)} title="Recule de 5s">
+              <SkipBack className="h-4 w-4" />
+            </Button>
           <Button size="sm" onClick={togglePlay} className="gap-2">
             {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
             {isPlaying ? "Pause" : "Lecture"}
@@ -290,16 +382,26 @@ export const AudioPlayer = memo(function AudioPlayer({
         </div>
 
         <div className="flex items-center gap-1">
-          <Button size="sm" variant="ghost" onClick={prevSegment} title="Segment précédent">
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
+            <Button size="sm" variant="ghost" onClick={prevSegment} title="Segment précédent">
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
           <Button size="sm" variant="ghost" onClick={nextSegment} title="Segment suivant">
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
 
         <div className="flex items-center gap-2">
-          <Select value={String(playbackRate)} onValueChange={(v) => setPlaybackRate(Number(v))}>
+          <Select
+            value={String(playbackRate)}
+            onValueChange={(v) => {
+              const nextRate = Number(v);
+              logger.debug("[audio][ui] playback rate changed", {
+                ...audioUiLogContextRef.current,
+                playbackRate: nextRate,
+              });
+              setPlaybackRate(nextRate);
+            }}
+          >
             <SelectTrigger className="w-24">
               <SelectValue />
             </SelectTrigger>
@@ -316,7 +418,19 @@ export const AudioPlayer = memo(function AudioPlayer({
 
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <div className="flex items-center gap-2">
-            <Button size="sm" variant={loop ? "secondary" : "ghost"} onClick={() => setLoop((l) => !l)} title="Boucle">
+            <Button
+              size="sm"
+              variant={loop ? "secondary" : "ghost"}
+              onClick={() => {
+                const nextLoop = !loop;
+                logger.info("[audio][ui] loop toggled", {
+                  ...audioUiLogContextRef.current,
+                  loop: nextLoop,
+                });
+                setLoop(nextLoop);
+              }}
+              title="Boucle"
+            >
               <Repeat className="h-4 w-4" />
             </Button>
             <div className="flex items-center gap-2">
@@ -328,7 +442,14 @@ export const AudioPlayer = memo(function AudioPlayer({
                 max={1}
                 step={0.01}
                 value={volume}
-                onChange={(e) => setVolume(Number(e.target.value))}
+                onChange={(e) => {
+                  const nextVolume = Number(e.target.value);
+                  logger.debug("[audio][ui] volume changed", {
+                    ...audioUiLogContextRef.current,
+                    volume: nextVolume,
+                  });
+                  setVolume(nextVolume);
+                }}
               />
             </div>
           </div>
@@ -378,4 +499,8 @@ function formatShortTime(seconds: number) {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+}
+
+function roundAudioTime(seconds: number) {
+  return Math.round(seconds * 100) / 100;
 }

@@ -6,7 +6,7 @@ import {
   mockDocumentAudio,
   mockMediaRecorder,
   mockOfflineAudioContext,
-} from '@/test/audioMocks';
+} from './audioMocks';
 
 describe('audioMocks helpers', () => {
   it('mockAudioContext overrides decodeAudioData and restores original context', async () => {

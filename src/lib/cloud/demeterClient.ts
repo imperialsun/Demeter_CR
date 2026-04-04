@@ -15,24 +15,55 @@ import { backendRefresh } from "@/lib/backend-auth";
 
 const DEMETER_TRANSCRIPTIONS_PATH = "/providers/demeter-sante/audio/transcriptions";
 const DEMETER_TRANSCRIPTIONS_BACKEND_PATH = "/providers/demeter-sante/audio/transcriptions/backend";
-const DEMETER_TRANSCRIPTIONS_BACKEND_OPERATIONS_PATH = "/providers/demeter-sante/audio/transcriptions/backend/operations";
-const DEMETER_MODELS_PATH = "/providers/demeter-sante/models";
+const DEMETER_TRANSCRIPTIONS_OPERATIONS_PATH = "/providers/demeter-sante/audio/transcriptions/operations";
+const DEMETER_UPLOAD_SLICE_SIZE_BYTES = 5 * 1024 * 1024;
 const DEMETER_TRANSCRIPTION_REQUEST_TIMEOUT_MS = 300_000;
-const DEMETER_BACKEND_DIRECT_REQUEST_TIMEOUT_MS = 25 * 60 * 1000;
+const DEMETER_BACKEND_DIRECT_REQUEST_TIMEOUT_MS = 60_000;
 const DEMETER_BACKEND_DIRECT_STATUS_REQUEST_TIMEOUT_MS = 15_000;
 const DEMETER_BACKEND_DIRECT_STATUS_POLL_INTERVAL_MS = 10_000;
-const DEMETER_PROBE_REQUEST_TIMEOUT_MS = 10_000;
-const DEMETER_UPLOAD_NETWORK_DIAGNOSTIC_MESSAGE =
-  "Le backend Demeter Santé répond, mais l'envoi du fichier échoue avant réponse. Vérifiez le proxy, la taille du fichier et la stabilité réseau puis réessayez.";
-const DEMETER_MULTIPART_PROBE_DIAGNOSTIC_MESSAGE =
-  "La route Demeter Santé accepte un POST multipart léger, mais l'envoi du fichier préparé échoue avant réponse. Le problème concerne probablement la taille du fichier, une limite proxy intermédiaire ou une coupure pendant l'upload.";
+
+export type DemeterTranscriptionChunkSegment = {
+  index?: unknown;
+  start?: unknown;
+  end?: unknown;
+  text?: unknown;
+  speaker?: unknown;
+  speaker_id?: unknown;
+  confidence?: unknown;
+  words?: unknown;
+  chunkId?: unknown;
+  chunk_id?: unknown;
+};
+
+export type DemeterTranscriptionChunk = {
+  chunkId?: unknown;
+  chunk_id?: unknown;
+  index?: unknown;
+  startSec?: unknown;
+  start_sec?: unknown;
+  endSec?: unknown;
+  end_sec?: unknown;
+  durationSec?: unknown;
+  duration_sec?: unknown;
+  segmentCount?: unknown;
+  segment_count?: unknown;
+  text?: unknown;
+  fileName?: unknown;
+  file_name?: unknown;
+  mimeType?: unknown;
+  mime_type?: unknown;
+  sourceFormat?: unknown;
+  source_format?: unknown;
+  normalizedFormat?: unknown;
+  normalized_format?: unknown;
+  segments?: DemeterTranscriptionChunkSegment[];
+};
 
 export type DemeterTranscriptionResponse = {
   text?: unknown;
   language?: unknown;
   duration?: unknown;
-  segments?: unknown;
-  chunks?: unknown;
+  chunks?: DemeterTranscriptionChunk[];
   words?: unknown;
 };
 
@@ -66,103 +97,8 @@ type DemeterTranscriptionRequest = {
   }) => void;
 };
 
-async function probeDemeterBackendReachability(
-  telemetryContext: Record<string, unknown>,
-  telemetry?: TelemetryCollector
-): Promise<{ reachable: boolean; detail: string }> {
-  try {
-    const response = await backendFetch(DEMETER_MODELS_PATH, {
-      method: "GET",
-      timeoutMs: DEMETER_PROBE_REQUEST_TIMEOUT_MS,
-      retryAttempts: 0,
-    });
-    if (response.ok) {
-      telemetry?.logEvent("LOG_INFO", {
-        ...telemetryContext,
-        phase: "backend_probe",
-        probePath: DEMETER_MODELS_PATH,
-        probeStatus: response.status,
-        probeReachable: true,
-      });
-      return { reachable: true, detail: `probe status ${response.status}` };
-    }
-
-    const error = await parseBackendHttpError(response, DEMETER_MODELS_PATH, "GET");
-    const detail = formatBackendErrorMessage(error);
-    telemetry?.logEvent("LOG_INFO", {
-      ...telemetryContext,
-      phase: "backend_probe",
-      probePath: DEMETER_MODELS_PATH,
-      probeStatus: response.status,
-      probeReachable: true,
-      probeDetail: detail,
-    });
-    return { reachable: true, detail: `probe status ${response.status}: ${detail}` };
-  } catch (probeError) {
-    const detail = formatBackendErrorMessage(probeError);
-    telemetry?.logEvent("LOG_WARN", {
-      ...telemetryContext,
-      phase: "backend_probe",
-      probePath: DEMETER_MODELS_PATH,
-      probeReachable: false,
-      probeDetail: detail,
-    });
-    return { reachable: false, detail };
-  }
-}
-
-async function probeDemeterMultipartReachability(
-  telemetryContext: Record<string, unknown>,
-  telemetry?: TelemetryCollector
-): Promise<{ reachable: boolean; detail: string }> {
-  const probeFormData = new FormData();
-  probeFormData.set("diarize", "false");
-  probeFormData.set("file", new File([new Uint8Array([0])], "demeter-probe.wav", { type: "audio/wav" }));
-
-  try {
-    const response = await backendFetch(DEMETER_TRANSCRIPTIONS_PATH, {
-      method: "POST",
-      body: probeFormData,
-      timeoutMs: DEMETER_PROBE_REQUEST_TIMEOUT_MS,
-      retryAttempts: 0,
-    });
-    if (response.ok) {
-      telemetry?.logEvent("LOG_INFO", {
-        ...telemetryContext,
-        phase: "multipart_probe",
-        probePath: DEMETER_TRANSCRIPTIONS_PATH,
-        probeStatus: response.status,
-        probeReachable: true,
-      });
-      return { reachable: true, detail: `multipart probe status ${response.status}` };
-    }
-
-    const error = await parseBackendHttpError(response, DEMETER_TRANSCRIPTIONS_PATH, "POST");
-    const detail = formatBackendErrorMessage(error);
-    telemetry?.logEvent("LOG_INFO", {
-      ...telemetryContext,
-      phase: "multipart_probe",
-      probePath: DEMETER_TRANSCRIPTIONS_PATH,
-      probeStatus: response.status,
-      probeReachable: true,
-      probeDetail: detail,
-    });
-    return { reachable: true, detail: `multipart probe status ${response.status}: ${detail}` };
-  } catch (probeError) {
-    const detail = formatBackendErrorMessage(probeError);
-    telemetry?.logEvent("LOG_WARN", {
-      ...telemetryContext,
-      phase: "multipart_probe",
-      probePath: DEMETER_TRANSCRIPTIONS_PATH,
-      probeReachable: false,
-      probeDetail: detail,
-    });
-    return { reachable: false, detail };
-  }
-}
-
 function buildDemeterBackendOperationStatusPath(operationId: string): string {
-  return `${DEMETER_TRANSCRIPTIONS_BACKEND_OPERATIONS_PATH}/${encodeURIComponent(operationId)}`;
+  return `${DEMETER_TRANSCRIPTIONS_OPERATIONS_PATH}/${encodeURIComponent(operationId)}`;
 }
 
 function isDemeterBackendOperationTerminalStatus(status: string): boolean {
@@ -187,6 +123,48 @@ function createAbortError(message = "La requête a été interrompue") {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+}
+
+function createDemeterUploadId(): string {
+  const crypto = globalThis.crypto;
+  if (crypto && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `demeter-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function buildDemeterSliceHeaders(params: {
+  uploadId: string;
+  sliceIndex: number;
+  sliceCount: number;
+  final: boolean;
+  audioDurationSec?: number;
+}): HeadersInit {
+  const headers: Record<string, string> = {
+    "X-Demeter-Transport": "slice-v1",
+    "X-Demeter-Upload-Id": params.uploadId,
+    "X-Demeter-Upload-Index": String(params.sliceIndex),
+    "X-Demeter-Upload-Count": String(params.sliceCount),
+    "X-Demeter-Upload-Final": params.final ? "true" : "false",
+  };
+  if (typeof params.audioDurationSec === "number" && Number.isFinite(params.audioDurationSec)) {
+    headers["X-Cloud-Audio-Duration-Sec"] = String(Math.max(0, params.audioDurationSec));
+  }
+  return headers;
+}
+
+function buildDemeterSliceFormData(request: DemeterTranscriptionRequest, slice: Blob): FormData {
+  const formData = new FormData();
+  const diarize = request.diarize ?? true;
+  formData.set("diarize", diarize ? "true" : "false");
+  if (diarize) {
+    formData.append("timestamp_granularities", "segment");
+  }
+  if (typeof request.model === "string" && request.model.trim().length > 0) {
+    formData.set("model", request.model.trim());
+  }
+  formData.set("file", slice, request.file.name);
+  return formData;
 }
 
 async function sendDemeterBackendOperationRequest(
@@ -244,22 +222,16 @@ export async function transcribeWithDemeterSante(
   const diarize = request.diarize ?? true;
   const backendDirect = request.backendDirect ?? false;
   const endpointPath = backendDirect ? DEMETER_TRANSCRIPTIONS_BACKEND_PATH : DEMETER_TRANSCRIPTIONS_PATH;
-  const timeoutMs = backendDirect ? DEMETER_BACKEND_DIRECT_REQUEST_TIMEOUT_MS : DEMETER_TRANSCRIPTION_REQUEST_TIMEOUT_MS;
-  const formData = new FormData();
-  formData.set("diarize", diarize ? "true" : "false");
-  if (diarize) {
-    formData.append("timestamp_granularities", "segment");
-  }
-  if (typeof request.model === "string" && request.model.trim().length > 0) {
-    formData.set("model", request.model.trim());
-  }
-  formData.set("file", request.file, request.file.name);
+  const uploadTimeoutMs = DEMETER_BACKEND_DIRECT_REQUEST_TIMEOUT_MS;
+  const statusTimeoutMs = DEMETER_BACKEND_DIRECT_STATUS_REQUEST_TIMEOUT_MS;
+  const pollIntervalMs = DEMETER_BACKEND_DIRECT_STATUS_POLL_INTERVAL_MS;
 
   const { backendBaseUrl } = getRuntimeConfig();
   const endpoint = `${backendBaseUrl.replace(/\/+$/, "")}${endpointPath}`;
-  const audioDurationSec = typeof request.durationSec === "number" && Number.isFinite(request.durationSec)
-    ? Math.max(0, request.durationSec)
-    : undefined;
+  const audioDurationSec =
+    typeof request.durationSec === "number" && Number.isFinite(request.durationSec)
+      ? Math.max(0, request.durationSec)
+      : undefined;
   const telemetryContext = {
     provider: "demeter_sante",
     diarize,
@@ -274,310 +246,284 @@ export async function transcribeWithDemeterSante(
 
   telemetry?.logEvent("CLOUD_UPLOAD_START", {
     ...telemetryContext,
+    transport: "slice-v1",
+    sliceCount: Math.max(1, Math.ceil(request.file.size / DEMETER_UPLOAD_SLICE_SIZE_BYTES)),
     phase: "backend_request_start",
   });
 
-  const headers: HeadersInit | undefined =
-    audioDurationSec !== undefined ? { "X-Cloud-Audio-Duration-Sec": String(audioDurationSec) } : undefined;
+  const uploadId = createDemeterUploadId();
+  const sliceCount = Math.max(1, Math.ceil(request.file.size / DEMETER_UPLOAD_SLICE_SIZE_BYTES));
+  const retryAttempts = 1;
+  let operationId = uploadId;
+  let operationStarted = false;
 
-  if (backendDirect) {
-    let operationId = "";
+  const cancelBackendOperation = async () => {
+    if (!operationStarted) {
+      return;
+    }
     try {
-      const startResponse = await sendDemeterTranscriptionRequest(formData, request.signal, endpointPath, timeoutMs, headers);
-      if (!startResponse.ok) {
-        const error = await parseBackendHttpError(startResponse, endpointPath, "POST");
+      await sendDemeterBackendOperationRequest(buildDemeterBackendOperationStatusPath(operationId), {
+        method: "DELETE",
+        timeoutMs: statusTimeoutMs,
+      });
+    } catch (cancelError) {
+      logger.warn("[cloud][demeter] backend operation cancel request failed", {
+        operationId,
+        message: cancelError instanceof Error ? cancelError.message : String(cancelError),
+      });
+    }
+  };
+
+  try {
+    for (let sliceIndex = 0; sliceIndex < sliceCount; sliceIndex += 1) {
+      if (request.signal?.aborted) {
+        await cancelBackendOperation();
+        throw createAbortError();
+      }
+
+      const start = sliceIndex * DEMETER_UPLOAD_SLICE_SIZE_BYTES;
+      const end = Math.min(request.file.size, start + DEMETER_UPLOAD_SLICE_SIZE_BYTES);
+      const sliceBlob = request.file.slice(start, end, request.file.type || "application/octet-stream");
+      const formData = buildDemeterSliceFormData(request, sliceBlob);
+      const headers = buildDemeterSliceHeaders({
+        uploadId,
+        sliceIndex,
+        sliceCount,
+        final: sliceIndex === sliceCount - 1,
+        audioDurationSec,
+      });
+
+      const sliceResponse = await sendDemeterTranscriptionRequest(
+        formData,
+        request.signal,
+        endpointPath,
+        uploadTimeoutMs,
+        headers,
+        retryAttempts
+      );
+
+      if (!sliceResponse.ok) {
+        const error = await parseBackendHttpError(sliceResponse, endpointPath, "POST");
         const message = formatBackendErrorMessage(error);
-        logger.error("[cloud][demeter] backend direct start failed", { status: startResponse.status, message, endpoint });
+        logger.error("[cloud][demeter] slice request failed", {
+          status: sliceResponse.status,
+          message,
+          endpoint,
+          uploadId,
+          sliceIndex,
+          sliceCount,
+        });
         telemetry?.logEvent("CLOUD_UPLOAD_FAILED", {
           ...telemetryContext,
-          phase: "backend_operation_start",
-          status: startResponse.status,
+          transport: "slice-v1",
+          phase: "backend_response",
+          operationId,
+          sliceIndex,
+          sliceCount,
+          status: sliceResponse.status,
           message,
         });
         telemetry?.recordAlert("CLOUD_DEMETER_REQUEST_FAILED", {
           ...telemetryContext,
-          phase: "backend_operation_start",
-          status: startResponse.status,
+          transport: "slice-v1",
+          phase: "backend_response",
+          operationId,
+          sliceIndex,
+          sliceCount,
+          status: sliceResponse.status,
           message,
         });
         throw error;
       }
 
-      const startPayload = await parseBackendJson<DemeterBackendTranscriptionOperationResponse>(startResponse);
-      operationId = startPayload.operationId.trim();
-      if (!operationId) {
-        throw new Error("Réponse backend Demeter invalide: operationId manquant");
-      }
-
-      request.onBackendOperationProgress?.(startPayload);
       telemetry?.logEvent("CLOUD_UPLOAD_PROGRESS", {
         ...telemetryContext,
-        phase: "backend_operation_started",
+        transport: "slice-v1",
+        phase: "slice_uploaded",
         operationId,
-        status: startPayload.status,
-        stage: startPayload.stage,
-        chunkIndex: startPayload.chunkIndex,
-        chunkCount: startPayload.chunkCount,
-        progress: startPayload.progress,
+        sliceIndex: sliceIndex + 1,
+        sliceCount,
       });
 
-      const operationStatusPath = buildDemeterBackendOperationStatusPath(operationId);
-      const cancelBackendOperation = async () => {
-        try {
-          await sendDemeterBackendOperationRequest(operationStatusPath, {
-            method: "DELETE",
-            timeoutMs: DEMETER_BACKEND_DIRECT_STATUS_REQUEST_TIMEOUT_MS,
-          });
-        } catch (cancelError) {
-          logger.warn("[cloud][demeter] backend direct cancel request failed", {
-            operationId,
-            message: cancelError instanceof Error ? cancelError.message : String(cancelError),
+      if (sliceIndex < sliceCount - 1) {
+        continue;
+      }
+
+      operationStarted = true;
+      let startPayload: DemeterBackendTranscriptionOperationResponse | null = null;
+      try {
+        startPayload = await parseBackendJson<DemeterBackendTranscriptionOperationResponse>(sliceResponse);
+      } catch (parseError) {
+        if (sliceResponse.status !== 204) {
+          logger.warn("[cloud][demeter] backend operation start response parse failed, continuing with upload id", {
+            uploadId,
+            status: sliceResponse.status,
+            message: parseError instanceof Error ? parseError.message : String(parseError),
           });
         }
-      };
-      while (true) {
+      }
+
+      if (startPayload) {
+        const returnedOperationId = startPayload.operationId.trim();
+        if (!returnedOperationId) {
+          throw new Error("Réponse backend Demeter invalide: operationId manquant");
+        }
+        if (returnedOperationId !== uploadId) {
+          throw new Error("Réponse backend Demeter incohérente: operationId différent");
+        }
+        operationId = returnedOperationId;
+        request.onBackendOperationProgress?.(startPayload);
+        telemetry?.logEvent("CLOUD_UPLOAD_PROGRESS", {
+          ...telemetryContext,
+          transport: "slice-v1",
+          phase: "backend_operation_started",
+          operationId,
+          status: startPayload.status,
+          stage: startPayload.stage,
+          chunkIndex: startPayload.chunkIndex,
+          chunkCount: startPayload.chunkCount,
+          progress: startPayload.progress,
+        });
+      }
+    }
+
+    const operationStatusPath = buildDemeterBackendOperationStatusPath(operationId);
+    await sleep(pollIntervalMs);
+    while (true) {
+      if (request.signal?.aborted) {
+        await cancelBackendOperation();
+        throw createAbortError();
+      }
+
+      let pollResponse: Response;
+      try {
+        pollResponse = await sendDemeterBackendOperationRequest(operationStatusPath, {
+          method: "GET",
+          signal: request.signal,
+          timeoutMs: statusTimeoutMs,
+        });
+      } catch (pollError) {
         if (request.signal?.aborted) {
           await cancelBackendOperation();
           throw createAbortError();
         }
-
-        let pollResponse: Response;
-        try {
-          pollResponse = await sendDemeterBackendOperationRequest(operationStatusPath, {
-            method: "GET",
-            signal: request.signal,
-            timeoutMs: DEMETER_BACKEND_DIRECT_STATUS_REQUEST_TIMEOUT_MS,
+        if (isDemeterBackendOperationRetryableError(pollError)) {
+          logger.warn("[cloud][demeter] status poll retry", {
+            operationId,
+            message: formatBackendErrorMessage(pollError),
           });
-        } catch (pollError) {
-          if (request.signal?.aborted) {
-            await cancelBackendOperation();
-            throw createAbortError();
+          await sleep(pollIntervalMs);
+          continue;
+        }
+        throw pollError;
+      }
+
+      if (!pollResponse.ok) {
+        const error = await parseBackendHttpError(pollResponse, operationStatusPath, "GET");
+        if (isDemeterBackendOperationRetryableError(error)) {
+          logger.warn("[cloud][demeter] status retryable response", {
+            operationId,
+            status: error.status,
+            message: error.message,
+          });
+          await sleep(pollIntervalMs);
+          continue;
+        }
+        throw error;
+      }
+
+      const snapshot = await parseBackendJson<DemeterBackendTranscriptionOperationResponse>(pollResponse);
+      const returnedOperationId = snapshot.operationId?.trim();
+      if (!returnedOperationId) {
+        throw new Error("Réponse backend Demeter invalide: operationId manquant dans le statut");
+      }
+      if (returnedOperationId !== operationId) {
+        throw new Error("Réponse backend Demeter incohérente: operationId différent");
+      }
+
+      request.onBackendOperationProgress?.(snapshot);
+      telemetry?.logEvent("CLOUD_UPLOAD_PROGRESS", {
+        ...telemetryContext,
+        transport: "slice-v1",
+        phase: "backend_operation_progress",
+        operationId,
+        status: snapshot.status,
+        stage: snapshot.stage,
+        chunkIndex: snapshot.chunkIndex,
+        chunkCount: snapshot.chunkCount,
+        progress: snapshot.progress,
+      });
+
+      if (isDemeterBackendOperationTerminalStatus(snapshot.status)) {
+        if (snapshot.status === "completed") {
+          const finalResponse = snapshot.response;
+          if (!finalResponse) {
+            throw new Error("Backend transcription completed without response payload");
           }
-          if (isDemeterBackendOperationRetryableError(pollError)) {
-            logger.warn("[cloud][demeter] backend direct status poll retry", {
-              operationId,
-              message: formatBackendErrorMessage(pollError),
-            });
-            await sleep(DEMETER_BACKEND_DIRECT_STATUS_POLL_INTERVAL_MS);
-            continue;
-          }
-          throw pollError;
+          request.onDiarizationResolved?.({
+            requestedDiarize: diarize,
+            effectiveDiarize: diarize,
+            fallbackApplied: false,
+          });
+          telemetry?.logEvent("CLOUD_UPLOAD_DONE", {
+            ...telemetryContext,
+            transport: "slice-v1",
+            phase: "backend_operation_done",
+            operationId,
+            chunkCount: snapshot.chunkCount,
+            chunkIndex: snapshot.chunkIndex,
+            progress: snapshot.progress,
+          });
+          return finalResponse;
         }
 
-        if (!pollResponse.ok) {
-          const error = await parseBackendHttpError(pollResponse, operationStatusPath, "GET");
-          if (isDemeterBackendOperationRetryableError(error)) {
-            logger.warn("[cloud][demeter] backend direct status retryable response", {
-              operationId,
-              status: error.status,
-              message: error.message,
-            });
-            await sleep(DEMETER_BACKEND_DIRECT_STATUS_POLL_INTERVAL_MS);
-            continue;
-          }
-          throw error;
-        }
-
-        const snapshot = await parseBackendJson<DemeterBackendTranscriptionOperationResponse>(pollResponse);
-        if (!snapshot.operationId) {
-          throw new Error("Réponse backend Demeter invalide: operationId manquant dans le statut");
-        }
-        if (snapshot.operationId !== operationId) {
-          throw new Error("Réponse backend Demeter incohérente: operationId différent");
-        }
-
-        request.onBackendOperationProgress?.(snapshot);
-        telemetry?.logEvent("CLOUD_UPLOAD_PROGRESS", {
-          ...telemetryContext,
-          phase: "backend_operation_progress",
-          operationId,
-          status: snapshot.status,
-          stage: snapshot.stage,
-          chunkIndex: snapshot.chunkIndex,
-          chunkCount: snapshot.chunkCount,
-          progress: snapshot.progress,
-        });
-
-        if (isDemeterBackendOperationTerminalStatus(snapshot.status)) {
-          if (snapshot.status === "completed") {
-            const finalResponse = snapshot.response;
-            if (!finalResponse) {
-              throw new Error("Backend transcription completed without response payload");
-            }
-            request.onDiarizationResolved?.({
-              requestedDiarize: diarize,
-              effectiveDiarize: diarize,
-              fallbackApplied: false,
-            });
-            telemetry?.logEvent("CLOUD_UPLOAD_DONE", {
-              ...telemetryContext,
-              phase: "backend_operation_done",
-              operationId,
-              chunkCount: snapshot.chunkCount,
-              chunkIndex: snapshot.chunkIndex,
-              progress: snapshot.progress,
-            });
-            return finalResponse;
-          }
-
-          const statusCode = typeof snapshot.statusCode === "number" && snapshot.statusCode > 0
+        const statusCode =
+          typeof snapshot.statusCode === "number" && snapshot.statusCode > 0
             ? snapshot.statusCode
             : snapshot.status === "cancelled"
               ? 408
               : 500;
-          const message = snapshot.lastError?.trim() || `Backend transcription operation ${snapshot.status}`;
-          throw new BackendHttpError({
-            status: statusCode,
-            code: snapshot.status === "cancelled" ? "cancelled" : "backend_transcription_failed",
-            message,
-            path: operationStatusPath,
-            method: "GET",
-          });
-        }
-
-        await sleep(DEMETER_BACKEND_DIRECT_STATUS_POLL_INTERVAL_MS);
-      }
-    } catch (error) {
-      if (request.signal?.aborted) {
-        if (operationId) {
-          try {
-            await sendDemeterBackendOperationRequest(buildDemeterBackendOperationStatusPath(operationId), {
-              method: "DELETE",
-              timeoutMs: DEMETER_BACKEND_DIRECT_STATUS_REQUEST_TIMEOUT_MS,
-            });
-          } catch (cancelError) {
-            logger.warn("[cloud][demeter] backend direct cancel request failed during abort", {
-              operationId,
-              message: cancelError instanceof Error ? cancelError.message : String(cancelError),
-            });
-          }
-        }
-        throw createAbortError();
+        const message = snapshot.lastError?.trim() || `Backend transcription operation ${snapshot.status}`;
+        throw new BackendHttpError({
+          status: statusCode,
+          code: snapshot.status === "cancelled" ? "cancelled" : "backend_transcription_failed",
+          message,
+          path: operationStatusPath,
+          method: "GET",
+        });
       }
 
-      const message = formatBackendErrorMessage(error);
-      logger.error("[cloud][demeter] backend direct operation failed", {
-        endpoint,
-        operationId,
-        message,
-      });
-      telemetry?.logEvent("CLOUD_UPLOAD_FAILED", {
-        ...telemetryContext,
-        phase: "backend_operation",
-        operationId,
-        message,
-      });
-      telemetry?.recordAlert("CLOUD_DEMETER_REQUEST_FAILED", {
-        ...telemetryContext,
-        phase: "backend_operation",
-        operationId,
-        message,
-      });
-      throw error;
+      await sleep(pollIntervalMs);
     }
-  }
-
-  let response: Response;
-  try {
-    response = await sendDemeterTranscriptionRequest(formData, request.signal, endpointPath, timeoutMs, headers);
   } catch (error) {
     if (request.signal?.aborted) {
-      throw error;
+      await cancelBackendOperation();
+      throw createAbortError();
     }
-    const message = formatBackendErrorMessage(error);
-    const multipartProbe = await probeDemeterMultipartReachability(telemetryContext, telemetry);
-    const probe = await probeDemeterBackendReachability(telemetryContext, telemetry);
-    const surfacedMessage = multipartProbe.reachable
-      ? `${DEMETER_MULTIPART_PROBE_DIAGNOSTIC_MESSAGE} (taille fichier: ${request.file.size} octets; ${multipartProbe.detail})`
-      : probe.reachable
-        ? `${DEMETER_UPLOAD_NETWORK_DIAGNOSTIC_MESSAGE} (${probe.detail})`
-        : message;
-    logger.error("[cloud][demeter] request failed before response", {
-      endpoint,
-      message,
-      surfacedMessage,
-      multipartProbeReachable: multipartProbe.reachable,
-      multipartProbeDetail: multipartProbe.detail,
-      probeReachable: probe.reachable,
-      probeDetail: probe.detail,
-      sizeBytes: request.file.size,
-    });
-    telemetry?.logEvent("CLOUD_UPLOAD_FAILED", {
-      ...telemetryContext,
-      phase: "backend_request",
-      message: surfacedMessage,
-      multipartProbeReachable: multipartProbe.reachable,
-      multipartProbeDetail: multipartProbe.detail,
-      probeReachable: probe.reachable,
-      probeDetail: probe.detail,
-    });
-    telemetry?.recordAlert("CLOUD_DEMETER_NETWORK_FAILED", {
-      ...telemetryContext,
-      phase: "backend_request",
-      message: surfacedMessage,
-      multipartProbeReachable: multipartProbe.reachable,
-      multipartProbeDetail: multipartProbe.detail,
-      probeReachable: probe.reachable,
-      probeDetail: probe.detail,
-    });
-    throw new Error(surfacedMessage, { cause: error });
-  }
 
-  if (!response.ok) {
-    const error = await parseBackendHttpError(response, endpointPath, "POST");
     const message = formatBackendErrorMessage(error);
-    logger.error("[cloud][demeter] request failed", { status: response.status, message, endpoint });
+    logger.error("[cloud][demeter] request failed", {
+      endpoint,
+      operationId,
+      message,
+      transport: "slice-v1",
+    });
     telemetry?.logEvent("CLOUD_UPLOAD_FAILED", {
       ...telemetryContext,
-      phase: "backend_response",
-      status: response.status,
+      transport: "slice-v1",
+      phase: operationStarted ? "backend_operation" : "backend_request",
+      operationId,
       message,
     });
     telemetry?.recordAlert("CLOUD_DEMETER_REQUEST_FAILED", {
       ...telemetryContext,
-      phase: "backend_response",
-      status: response.status,
+      transport: "slice-v1",
+      phase: operationStarted ? "backend_operation" : "backend_request",
+      operationId,
       message,
     });
     throw error;
   }
-
-  let payload: DemeterTranscriptionResponse;
-  try {
-    payload = (await response.json()) as DemeterTranscriptionResponse;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logger.error("[cloud][demeter] response parse failed", {
-      status: response.status,
-      endpoint,
-      message,
-    });
-    telemetry?.logEvent("CLOUD_UPLOAD_FAILED", {
-      ...telemetryContext,
-      phase: "response_parse",
-      status: response.status,
-      message,
-    });
-    telemetry?.recordAlert("CLOUD_DEMETER_RESPONSE_PARSE_FAILED", {
-      ...telemetryContext,
-      phase: "response_parse",
-      status: response.status,
-      message,
-    });
-    throw error;
-  }
-  request.onDiarizationResolved?.({
-    requestedDiarize: diarize,
-    effectiveDiarize: diarize,
-    fallbackApplied: false,
-  });
-
-  telemetry?.logEvent("CLOUD_UPLOAD_DONE", {
-    ...telemetryContext,
-    phase: "done",
-  });
-
-  return payload;
 }
 
 async function sendDemeterTranscriptionRequest(
@@ -585,7 +531,8 @@ async function sendDemeterTranscriptionRequest(
   signal?: AbortSignal,
   path = DEMETER_TRANSCRIPTIONS_PATH,
   timeoutMs = DEMETER_TRANSCRIPTION_REQUEST_TIMEOUT_MS,
-  headers?: HeadersInit
+  headers?: HeadersInit,
+  retryAttempts = 0
 ): Promise<Response> {
   const send = () =>
     backendFetch(path, {
@@ -594,6 +541,7 @@ async function sendDemeterTranscriptionRequest(
       signal,
       timeoutMs,
       headers,
+      retryAttempts,
     });
 
   let response = await send();

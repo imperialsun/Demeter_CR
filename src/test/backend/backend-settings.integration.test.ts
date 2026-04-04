@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createBackendUser, getUserAccess, updateUserEntitlements } from "@/test/backend/adminClient";
-import { createAppCookieJar, configureBackendRuntime, resetBrowserState } from "@/test/backend/runtime";
+import { createBackendUser, getUserAccess, updateUserEntitlements } from "./adminClient";
+import { createAppCookieJar, configureBackendRuntime, resetBrowserState } from "./runtime";
 
 describe("backend settings integration", () => {
   beforeEach(() => {

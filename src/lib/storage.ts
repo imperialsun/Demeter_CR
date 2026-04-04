@@ -29,6 +29,17 @@ const SENSITIVE_SETTING_KEYS = [
   "llmApiHfToken",
 ] as const;
 const LEGACY_SETTING_KEYS = ["cloudApiUrl", "cloudContextPreset"] as const;
+export const DEMETER_CHUNK_DURATION_MIN_SEC = 10 * 60;
+export const DEMETER_CHUNK_DURATION_MAX_SEC = 28 * 60;
+export const DEMETER_CHUNK_DURATION_DEFAULT_SEC = 25 * 60;
+
+export function clampDemeterChunkDurationSec(value: number): number {
+  if (!Number.isFinite(value)) {
+    return DEMETER_CHUNK_DURATION_DEFAULT_SEC;
+  }
+  const rounded = Math.round(value);
+  return Math.max(DEMETER_CHUNK_DURATION_MIN_SEC, Math.min(DEMETER_CHUNK_DURATION_MAX_SEC, rounded));
+}
 
 export interface PersistedSettings {
   activePreset: PresetKey;
@@ -124,6 +135,7 @@ export interface PersistedSettings {
   cloudMistralDiarizationEnabled: boolean;
   cloudDemeterModel: string;
   cloudDemeterDiarizationEnabled: boolean;
+  cloudDemeterChunkDurationSec: number;
   cloudWhisperChunkDurationSec: number;
   cloudWhisperOverlapSec: number;
   cloudMistralChunkDurationSec: number;
@@ -377,6 +389,7 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   cloudMistralDiarizationEnabled: true,
   cloudDemeterModel: "voxtral-mini-latest",
   cloudDemeterDiarizationEnabled: true,
+  cloudDemeterChunkDurationSec: DEMETER_CHUNK_DURATION_DEFAULT_SEC,
   cloudWhisperChunkDurationSec: 30,
   cloudWhisperOverlapSec: 0,
   cloudMistralChunkDurationSec: 900,

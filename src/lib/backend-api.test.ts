@@ -8,7 +8,7 @@ import {
   formatBackendErrorMessage,
   isBackendAudioValidationError,
   parseBackendHttpError,
-  shouldRetryRawAudioUpload,
+  shouldRetryAudioUpload,
 } from "@/lib/backend-api";
 
 describe("backend-api", () => {
@@ -150,7 +150,7 @@ describe("backend-api", () => {
     );
   });
 
-  it("recognizes audio validation errors as retryable raw uploads", () => {
+  it("recognizes audio validation errors as retryable audio uploads", () => {
     const backendError = new BackendHttpError({
       status: 400,
       code: "invalid_audio_file",
@@ -161,8 +161,8 @@ describe("backend-api", () => {
     });
 
     expect(isBackendAudioValidationError(backendError)).toBe(true);
-    expect(shouldRetryRawAudioUpload(backendError)).toBe(true);
-    expect(shouldRetryRawAudioUpload(new Error("Mistral API (400): Audio input could not be decoded."))).toBe(true);
-    expect(shouldRetryRawAudioUpload(new Error("Mistral API (422): validation failed"))).toBe(false);
+    expect(shouldRetryAudioUpload(backendError)).toBe(true);
+    expect(shouldRetryAudioUpload(new Error("Mistral API (400): Audio input could not be decoded."))).toBe(true);
+    expect(shouldRetryAudioUpload(new Error("Mistral API (422): validation failed"))).toBe(false);
   });
 });

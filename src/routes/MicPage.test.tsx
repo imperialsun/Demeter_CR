@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen, fireEvent, waitFor } from '@testing-library/react';
 import MicPage from './MicPage';
 import { useAsrStore } from '@/store/asr-store';
 import * as toastMod from '@/components/ui/use-toast';
+import { renderWithStore } from '../test/utils';
 
 const micMock = {
   isRecording: false,
@@ -59,17 +60,18 @@ describe('MicPage', () => {
   });
 
   it('uses mic export toggles to render export buttons', () => {
-    render(<MicPage />);
+    renderWithStore(<MicPage />);
 
     expect(screen.queryByText('VTT')).toBeNull();
     expect(screen.queryByText('JSON')).toBeNull();
     expect(screen.getByText('SRT')).toBeTruthy();
     expect(screen.getByText('Telemetry')).toBeTruthy();
+    expect(screen.getByTestId("results-table-scroll")).not.toHaveClass("overflow-auto");
   });
 
   it('shows the recording player only when a recording is available', () => {
     micMock.hasRecording = false;
-    const { rerender } = render(<MicPage />);
+    const { rerender } = renderWithStore(<MicPage />);
     expect(screen.queryByLabelText('Lecture enregistrement micro')).toBeNull();
 
     micMock.hasRecording = true;
@@ -80,7 +82,7 @@ describe('MicPage', () => {
   it('disables start recording until noise is calibrated', () => {
     micMock.isRecording = false;
     micMock.noiseCalibrated = false;
-    render(<MicPage />);
+    renderWithStore(<MicPage />);
     const start = screen.getByRole('button', { name: 'Démarrer' }) as HTMLButtonElement;
     expect(start.disabled).toBe(true);
   });
@@ -100,7 +102,7 @@ describe('MicPage', () => {
     micMock.isStopping = false;
     micMock.noiseCalibrated = true;
 
-    render(<MicPage />);
+    renderWithStore(<MicPage />);
     expect(screen.getAllByText('WASM').length).toBeGreaterThan(0);
   });
 
@@ -119,7 +121,7 @@ describe('MicPage', () => {
     micMock.isStopping = false;
     micMock.noiseCalibrated = true;
 
-    render(<MicPage />);
+    renderWithStore(<MicPage />);
     expect(screen.getAllByText('WASM').length).toBeGreaterThan(0);
   });
 
@@ -144,7 +146,7 @@ describe('MicPage', () => {
       overlapSec: 0,
     } as any);
 
-    render(<MicPage />);
+    renderWithStore(<MicPage />);
     expect(screen.queryByRole('button', { name: 'Démarrer' })).toBeNull();
     expect(screen.getByText(/chunks traités/i)).toBeTruthy();
   });
@@ -171,7 +173,7 @@ describe('MicPage', () => {
       overlapSec: 0,
     } as any);
 
-    render(<MicPage />);
+    renderWithStore(<MicPage />);
     const stop = screen.getByRole('button', { name: 'Stop (fin du chunk)' });
     fireEvent.click(stop);
 
@@ -183,7 +185,7 @@ describe('MicPage', () => {
     micMock.noiseCalibrated = true;
     micMock.isRecording = false;
 
-    render(<MicPage />);
+    renderWithStore(<MicPage />);
     fireEvent.click(screen.getByRole("button", { name: "Démarrer" }));
 
     expect(micMock.startRecording).toHaveBeenCalledTimes(1);
@@ -193,7 +195,7 @@ describe('MicPage', () => {
     micMock.noiseCalibrated = true;
     micMock.isRecording = true;
 
-    render(<MicPage />);
+    renderWithStore(<MicPage />);
     fireEvent.click(screen.getByRole("button", { name: "Arrêter" }));
 
     expect(micMock.stopRecording).toHaveBeenCalledTimes(1);
@@ -203,7 +205,7 @@ describe('MicPage', () => {
     micMock.noiseCalibrated = false;
     micMock.isCalibratingNoise = false;
 
-    render(<MicPage />);
+    renderWithStore(<MicPage />);
     fireEvent.click(screen.getByRole("button", { name: "Initialiser bruit" }));
 
     expect(micMock.calibrateSilenceThreshold).toHaveBeenCalledTimes(1);
@@ -218,7 +220,7 @@ describe('MicPage', () => {
     const toastSpy = vi.spyOn(toastMod, "toast").mockImplementation(() => "toast-id" as any);
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:prepared-mp3");
 
-    render(<MicPage />);
+    renderWithStore(<MicPage />);
     fireEvent.click(screen.getByRole("button", { name: /Préparer MP3/i }));
 
     await waitFor(() => {
@@ -235,7 +237,7 @@ describe('MicPage', () => {
 
     const toastSpy = vi.spyOn(toastMod, "toast").mockImplementation(() => "toast-id" as any);
 
-    render(<MicPage />);
+    renderWithStore(<MicPage />);
     fireEvent.click(screen.getByRole("button", { name: /Préparer MP3/i }));
 
     await waitFor(() => {

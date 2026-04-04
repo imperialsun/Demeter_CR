@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { TestCookieJar } from "@/test/backend/cookieJar";
-import { ensureBackendHarness, getBootstrapAdminCredentials } from "@/test/backend/harness";
+import { TestCookieJar } from "./cookieJar";
+import { ensureBackendHarness, getBootstrapAdminCredentials } from "./harness";
 
 type AdminAuthResponse = {
   organization: {

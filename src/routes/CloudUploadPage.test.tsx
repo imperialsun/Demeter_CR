@@ -1,19 +1,20 @@
+import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { renderWithStore } from "@/test/utils";
-import { useAsrStore } from "@/store/asr-store";
+import { renderWithStore } from "../test/utils";
+import { useAsrStore } from "../store/asr-store";
 import CloudUploadPage from "./CloudUploadPage";
-import * as cloudHook from "@/hooks/useCloudTranscription";
-import type { AudioMetadata } from "@/lib/audio";
-import type { TranscriptionSegment } from "@/lib/export";
-import { groupCloudTranscriptionSegments } from "@/lib/cloud/transcriptionChunks";
+import * as cloudHook from "../hooks/useCloudTranscription";
+import type { AudioMetadata } from "../lib/audio";
+import type { TranscriptionSegment } from "../lib/export";
+import { groupCloudTranscriptionSegments } from "../lib/cloud/transcriptionChunks";
 
 const backendPermissionMocks = vi.hoisted(() => ({
   canUseCloudProvider: vi.fn(() => true),
 }));
 
 vi.mock("@/lib/backend-permissions", () => ({
-  canUseCloudProvider: (...args: unknown[]) => backendPermissionMocks.canUseCloudProvider(...args),
+  canUseCloudProvider: (provider: unknown) => backendPermissionMocks.canUseCloudProvider(provider),
 }));
 
 vi.mock("@/hooks/useBackendPermissions", () => ({
@@ -34,7 +35,7 @@ function createHookValue(overrides: HookOverrides = {}) {
   } = overrides;
   const chunkSummaries = providedChunkSummaries ?? groupCloudTranscriptionSegments(segments);
   const loadChunkSegments =
-    providedLoadChunkSegments ?? vi.fn(async (chunkId: string) => segments.filter((segment) => segment.chunkId === chunkId));
+    providedLoadChunkSegments ?? vi.fn(async (chunkId: string) => segments.filter((segment: TranscriptionSegment) => segment.chunkId === chunkId));
   const loadAllSegmentsForExport = providedLoadAllSegmentsForExport ?? vi.fn(async () => segments);
   return {
     selectedFile: null,
@@ -240,9 +241,10 @@ describe("CloudUploadPage", () => {
     expect(within(secondChunkCard).getByText("00:09 - 00:14")).toBeInTheDocument();
     expect(hookValue.loadChunkSegments).not.toHaveBeenCalled();
 
-    const chunkListContainer = container.querySelector("div.relative.min-w-full")?.parentElement;
-    expect(chunkListContainer).toBeTruthy();
-    expect(chunkListContainer).toHaveClass("overflow-auto");
+    const chunkListContainer = screen.getByTestId("cloud-chunk-list");
+    expect(chunkListContainer).toBeInTheDocument();
+    expect(chunkListContainer).not.toHaveClass("overflow-auto");
+    expect(chunkListContainer).not.toHaveClass("h-[min(72vh,48rem)]");
     expect(chunkListContainer).not.toHaveClass("border");
     expect(chunkListContainer).not.toHaveClass("bg-background/50");
     expect(chunkListContainer).not.toHaveClass("rounded-lg");
@@ -263,6 +265,7 @@ describe("CloudUploadPage", () => {
       expect(within(detailsPanel).getByRole("button", { name: /Assigner les speakers de la partie/i })).toBeInTheDocument();
       expect(within(detailsPanel).getByRole("columnheader", { name: /speaker/i })).toBeInTheDocument();
     });
+    expect(within(detailsPanel).getByTestId("results-table-scroll")).toHaveClass("overflow-auto");
     expect(Array.from(container.querySelectorAll('[data-testid^="cloud-chunk-card-"]')).map((node) => node.getAttribute("data-testid"))).toEqual([
       "cloud-chunk-card-mistral-1",
       "cloud-chunk-card-mistral-2",
@@ -275,6 +278,73 @@ describe("CloudUploadPage", () => {
       expect(screen.queryByRole("dialog", { name: /détails de la partie/i })).toBeNull();
     });
     expect(document.body.style.overflow).toBe("");
+  });
+
+  it("refreshes an open chunk detail panel when new cloud segments arrive", async () => {
+    const selectedFile = new File(["audio"], "session.wav", { type: "audio/wav" });
+    const audioMetadata = {
+      name: "session.wav",
+      durationSec: 24,
+      sampleRate: 16000,
+    } satisfies AudioMetadata;
+    const firstSegment = {
+      index: 0,
+      start: 0,
+      end: 5,
+      text: "Bonjour",
+      speaker: "SPEAKER_00",
+      chunkId: "demeter-backend-direct",
+      strategy: "chunks" as const,
+    };
+    const secondSegment = {
+      index: 1,
+      start: 5,
+      end: 9,
+      text: "Suite",
+      speaker: "SPEAKER_01",
+      chunkId: "demeter-backend-direct",
+      strategy: "chunks" as const,
+    };
+    let currentSegments: TranscriptionSegment[] = [firstSegment];
+    const loadChunkSegments = vi.fn(async (chunkId: string) =>
+      currentSegments.filter((segment) => segment.chunkId === chunkId)
+    );
+
+    vi.spyOn(cloudHook, "useCloudTranscription").mockImplementation(() =>
+      createHookValue({
+        selectedFile,
+        previewUrl: "blob:mock-session",
+        audioMetadata,
+        segments: currentSegments,
+        loadChunkSegments,
+      })
+    );
+
+    const { rerender } = renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
+
+    fireEvent.click(
+      within(screen.getByTestId("cloud-chunk-card-demeter-backend-direct")).getByRole("button", { name: /Ouvrir/i })
+    );
+
+    await waitFor(() => {
+      expect(loadChunkSegments).toHaveBeenCalledTimes(1);
+    });
+    const detailsPanel = screen.getByTestId("cloud-chunk-details-demeter-backend-direct");
+    await waitFor(() => {
+      expect(within(detailsPanel).getByText("Bonjour")).toBeInTheDocument();
+    });
+
+    currentSegments = [firstSegment, secondSegment];
+    rerender(<CloudUploadPage />);
+
+    await waitFor(() => {
+      expect(loadChunkSegments).toHaveBeenCalledTimes(2);
+    });
+
+    await waitFor(() => {
+      expect(within(detailsPanel).getAllByText("2 segments").length).toBeGreaterThan(0);
+      expect(within(detailsPanel).getByText("Suite")).toBeInTheDocument();
+    });
   });
 
   it("closes the detail modal with Escape", async () => {
@@ -613,6 +683,7 @@ describe("CloudUploadPage", () => {
           chunkIndex: 1,
           totalChunks: 2,
           fileName: "consultation_super_longue_avec_un_nom_de_fichier_extremement_verbeux_2026_03_12_version_finale_prepared_chunk_01.wav",
+          mimeType: "audio/wav",
           sizeBytes: 21313456,
         },
       })

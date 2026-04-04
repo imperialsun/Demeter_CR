@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PasswordStrengthMeter } from "@/components/ui/PasswordStrengthMeter";
+import logger from "@/lib/logger";
 
 interface ChangePasswordDialogProps {
   open: boolean;
@@ -28,6 +29,9 @@ export function ChangePasswordDialog({ open, onClose, onSubmit }: ChangePassword
       return;
     }
 
+    logger.info("[auth][ui] change password dialog opened", {
+      dialog: "change_password",
+    });
     setCurrentPassword("");
     setPassword("");
     setConfirmPassword("");
@@ -71,6 +75,10 @@ export function ChangePasswordDialog({ open, onClose, onSubmit }: ChangePassword
 
   const handleDismiss = () => {
     if (!submitting) {
+      logger.info("[auth][ui] change password dialog dismissed", {
+        dialog: "change_password",
+        reason: "user_action",
+      });
       onClose();
     }
   };
@@ -78,12 +86,27 @@ export function ChangePasswordDialog({ open, onClose, onSubmit }: ChangePassword
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
+    logger.info("[auth][ui] change password submit requested", {
+      dialog: "change_password",
+      hasCurrentPassword: Boolean(currentPassword.trim()),
+      hasNewPassword: Boolean(password.trim()),
+      hasConfirmation: Boolean(confirmPassword.trim()),
+      passwordsMatch: password === confirmPassword,
+    });
 
     if (!currentPassword.trim() || !password.trim() || !confirmPassword.trim()) {
+      logger.warn("[auth][ui] change password validation failed", {
+        dialog: "change_password",
+        reason: "missing_fields",
+      });
       setError("Veuillez saisir votre mot de passe actuel puis confirmer votre nouveau mot de passe.");
       return;
     }
     if (password !== confirmPassword) {
+      logger.warn("[auth][ui] change password validation failed", {
+        dialog: "change_password",
+        reason: "password_mismatch",
+      });
       setError("Les mots de passe ne correspondent pas.");
       return;
     }
@@ -94,12 +117,20 @@ export function ChangePasswordDialog({ open, onClose, onSubmit }: ChangePassword
       await onSubmit(currentPassword, password);
       succeeded = true;
     } catch (reason) {
-      setError(formatBackendErrorMessage(reason));
+      const message = formatBackendErrorMessage(reason);
+      logger.error("[auth][ui] change password submit failed", {
+        dialog: "change_password",
+        message,
+      });
+      setError(message);
     } finally {
       setSubmitting(false);
     }
 
     if (succeeded) {
+      logger.info("[auth][ui] change password submit succeeded", {
+        dialog: "change_password",
+      });
       onClose();
     }
   };

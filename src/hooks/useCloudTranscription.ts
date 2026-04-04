@@ -6,7 +6,7 @@ import { buildFixedSegments } from "@/lib/chunking";
 import { type CloudAutoTuneResult, type CloudPreprocessSettings } from "@/lib/cloud/preprocessCloudAudio";
 import logger from "@/lib/logger";
 import { toast } from "@/components/ui/use-toast";
-import type { TranscriptionSegment } from "@/lib/export";
+import type { TranscriptionSegment, WordSegment } from "@/lib/export";
 import { summarizeSegments } from "@/lib/cloud/segmentSummary";
 import { stageCloudSegments, type CloudStagedSegment } from "@/lib/cloud/cloudStaging";
 import { splitCloudSegmentWindow } from "@/lib/cloud/segmentWindows";
@@ -17,11 +17,18 @@ import { parseWhisperOutput } from "@/lib/cloud/whisperSegments";
 import { MISTRAL_MAX_UPLOAD_BYTES, transcribeWithMistral } from "@/lib/cloud/mistralClient";
 import { resolveMistralSegmentDurationSec } from "@/lib/cloud/mistralParams";
 import { parseMistralOutput } from "@/lib/cloud/mistralSegments";
-import { transcribeWithDemeterSante, type DemeterBackendTranscriptionOperationResponse } from "@/lib/cloud/demeterClient";
+import {
+  transcribeWithDemeterSante,
+  type DemeterBackendTranscriptionOperationResponse,
+  type DemeterTranscriptionChunk,
+  type DemeterTranscriptionChunkSegment,
+  type DemeterTranscriptionResponse,
+} from "@/lib/cloud/demeterClient";
+import { clampDemeterChunkDurationSec, DEMETER_CHUNK_DURATION_MAX_SEC, DEMETER_CHUNK_DURATION_DEFAULT_SEC } from "@/lib/storage";
 import { backendRefresh } from "@/lib/backend-auth";
 import {
   sendFrontendAudioErrorReport,
-  shouldRetryRawAudioUpload,
+  shouldRetryAudioUpload,
   type AudioErrorReportFile,
 } from "@/lib/cloud/audioErrorReport";
 import {
@@ -122,7 +129,8 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
   const activeTranscriptProviderRef = useRef(provider);
   const telemetryRef = useRef<TelemetryCollector | null>(null);
   const runAbortControllerRef = useRef<AbortController | null>(null);
-  const backendDirectLastSegmentCountRef = useRef(0);
+  const backendDirectSeenChunkIdsRef = useRef<Set<string>>(new Set());
+  const backendDirectAppendQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   const hfApiToken = useAsrStore((s) => s.hfApiToken);
   const cloudMistralApiUrl = useAsrStore((s) => s.cloudMistralApiUrl);
@@ -205,7 +213,8 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       }
       stopRequestedRef.current = false;
       runAbortControllerRef.current = null;
-      backendDirectLastSegmentCountRef.current = 0;
+      backendDirectSeenChunkIdsRef.current.clear();
+      backendDirectAppendQueueRef.current = Promise.resolve();
       telemetryRef.current = null;
       resetCloudTranscriptBuffers();
       registerAudioSource(null);
@@ -818,16 +827,11 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     const sessionId = cloudSessionIdRef.current ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     cloudSessionIdRef.current = sessionId;
     setCloudSessionId(sessionId);
-    const backendOperationParseOptions = {
-      offsetSec: 0,
-      startIndex: 0,
-      chunkId: "demeter-backend-direct",
-      fallbackDurationSec: sourceDurationSec,
-      includeWordTimestamps: settings.cloudEnableWordTimestamps,
-    };
     const backendRunAbortController = new AbortController();
     runAbortControllerRef.current = backendRunAbortController;
-    backendDirectLastSegmentCountRef.current = 0;
+    backendDirectSeenChunkIdsRef.current.clear();
+    backendDirectAppendQueueRef.current = Promise.resolve();
+    let nextDemeterSegmentIndex = 0;
 
     const onDiarizationResolved = ({
       requestedDiarize,
@@ -886,23 +890,51 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         return;
       }
 
-      const parsedSegments = parseMistralOutput(snapshot.response, backendOperationParseOptions);
-      if (parsedSegments.length <= backendDirectLastSegmentCountRef.current) {
+      const chunkBatch = buildDemeterBackendChunkBatch(snapshot.response, {
+        fallbackChunkId: "demeter-backend-direct",
+        includeWordTimestamps: settings.cloudEnableWordTimestamps,
+        startSegmentIndex: nextDemeterSegmentIndex,
+      });
+      nextDemeterSegmentIndex = chunkBatch.nextSegmentIndex;
+      const nextChunkGroups = chunkBatch.groups.filter((group) => {
+        const normalizedChunkId = normalizeChunkId(group.chunkId);
+        if (!normalizedChunkId) {
+          return false;
+        }
+        if (backendDirectSeenChunkIdsRef.current.has(normalizedChunkId)) {
+          return false;
+        }
+        backendDirectSeenChunkIdsRef.current.add(normalizedChunkId);
+        return true;
+      });
+      if (!nextChunkGroups.length) {
         return;
       }
 
-      const nextSegments = parsedSegments.slice(backendDirectLastSegmentCountRef.current);
-      backendDirectLastSegmentCountRef.current = parsedSegments.length;
-      void appendCloudSegments(nextSegments, "demeter_sante", metadata);
-      logger.debug("[cloud][demeter] backend chunk appended", {
-        operationId: snapshot.operationId,
-        status: snapshot.status,
-        stage: snapshot.stage,
-        chunkIndex,
-        chunkCount,
-        appendedCount: nextSegments.length,
-        totalSegments: parsedSegments.length,
-      });
+      const appendedSegmentCount = nextChunkGroups.reduce((count, group) => count + group.segments.length, 0);
+      backendDirectAppendQueueRef.current = backendDirectAppendQueueRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          if (shouldAbort()) {
+            return;
+          }
+          for (const group of nextChunkGroups) {
+            if (shouldAbort()) {
+              return;
+            }
+            await appendCloudSegments(group.segments, "demeter_sante", metadata);
+          }
+          logger.debug("[cloud][demeter] backend chunk appended", {
+            operationId: snapshot.operationId,
+            status: snapshot.status,
+            stage: snapshot.stage,
+            chunkIndex,
+            chunkCount,
+            appendedChunkCount: nextChunkGroups.length,
+            appendedSegmentCount,
+            totalChunks: chunkBatch.groups.length,
+          });
+        });
     };
 
     try {
@@ -959,32 +991,37 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         return;
       }
 
-      const parsedSegments = parseMistralOutput(output, backendOperationParseOptions);
-      if (parsedSegments.length > backendDirectLastSegmentCountRef.current) {
-        const nextSegments = parsedSegments.slice(backendDirectLastSegmentCountRef.current);
-        backendDirectLastSegmentCountRef.current = parsedSegments.length;
-        await appendCloudSegments(nextSegments, "demeter_sante", metadata);
+      await backendDirectAppendQueueRef.current;
+
+      const chunkBatch = buildDemeterBackendChunkBatch(output as DemeterTranscriptionResponse, {
+        fallbackChunkId: "demeter-backend-direct",
+        includeWordTimestamps: settings.cloudEnableWordTimestamps,
+        startSegmentIndex: nextDemeterSegmentIndex,
+      });
+      nextDemeterSegmentIndex = chunkBatch.nextSegmentIndex;
+      const chunkGroups = chunkBatch.groups;
+      const nextChunkGroups = chunkGroups.filter((group) => {
+        const normalizedChunkId = normalizeChunkId(group.chunkId);
+        if (!normalizedChunkId) {
+          return false;
+        }
+        if (backendDirectSeenChunkIdsRef.current.has(normalizedChunkId)) {
+          return false;
+        }
+        backendDirectSeenChunkIdsRef.current.add(normalizedChunkId);
+        return true;
+      });
+      for (const group of nextChunkGroups) {
+        await appendCloudSegments(group.segments, "demeter_sante", metadata);
       }
 
-      const parsedSegmentsByChunkId = new Map<string, TranscriptionSegment[]>();
-      for (const segment of parsedSegments) {
-        const chunkId = segment.chunkId?.trim() || `__chunk-${segment.index}`;
-        const bucket = parsedSegmentsByChunkId.get(chunkId);
-        if (bucket) {
-          bucket.push(segment);
-        } else {
-          parsedSegmentsByChunkId.set(chunkId, [segment]);
-        }
-      }
-      const chunkIds = [...parsedSegmentsByChunkId.keys()];
-      for (const [chunkIndex, chunkId] of chunkIds.entries()) {
-        const chunkSegments = parsedSegmentsByChunkId.get(chunkId) ?? [];
-        const summary = summarizeSegments(chunkSegments);
+      for (const [groupIndex, group] of chunkGroups.entries()) {
+        const summary = summarizeSegments(group.segments);
         telemetry.logEvent("CLOUD_SEGMENTS_READY", {
           provider: "demeter_sante",
           routeMode: "backend_direct",
-          segmentIndex: chunkIndex,
-          totalSegments: chunkIds.length,
+          segmentIndex: groupIndex,
+          totalSegments: chunkGroups.length,
           count: summary.count,
           totalDurationSec: summary.totalDurationSec,
           textChars: summary.textChars,
@@ -992,7 +1029,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         });
       }
 
-      const summary = summarizeSegments(parsedSegments);
+      const summary = summarizeSegments(chunkGroups.flatMap((group) => group.segments));
       logger.debug("[cloud][demeter] backend direct segments ready", {
         ...summary,
         provider: "demeter_sante",
@@ -1038,7 +1075,8 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       throw error;
     } finally {
       runAbortControllerRef.current = null;
-      backendDirectLastSegmentCountRef.current = 0;
+      backendDirectSeenChunkIdsRef.current.clear();
+      backendDirectAppendQueueRef.current = Promise.resolve();
     }
   }, [appendCloudSegments, cloudDemeterDiarizationEnabled, cloudDemeterModel, selectedFile]);
 
@@ -1070,11 +1108,9 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     }
 
     const sourceDurationSec = Number.isFinite(metadata.durationSec) ? Math.max(0, metadata.durationSec) : 0;
-    const mistralChunking = resolveEffectiveMistralChunking(
-      model,
-      settings.cloudMistralChunkDurationSec,
-      settings.cloudMistralOverlapSec
-    );
+    const mistralChunking = isDemeter
+      ? resolveEffectiveDemeterChunking(settings.cloudDemeterChunkDurationSec, settings.cloudMistralOverlapSec)
+      : resolveEffectiveMistralChunking(model, settings.cloudMistralChunkDurationSec, settings.cloudMistralOverlapSec);
     const segmentQueue = buildInitialMistralSegmentQueue(sourceDurationSec, mistralChunking);
 
     logger.info(`[cloud][${providerLogKey}] duration-first plan`, {
@@ -1256,7 +1292,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
 	              );
 	        } catch (error) {
 	          const splitSegments = splitCloudSegmentWindow(staged);
-	          const rawRetryRequested = shouldRetryRawAudioUpload(error);
+	          const rawRetryRequested = shouldRetryAudioUpload(error);
 	          const reportTraceId =
 	            error && typeof error === "object" && "traceId" in error && typeof (error as { traceId?: unknown }).traceId === "string"
 	              ? ((error as { traceId?: string }).traceId ?? "").trim()
@@ -1442,37 +1478,70 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         }
 
         const chunkNumber = sentChunkCount + 1;
-        const chunkId = `${providerLogKey}-${chunkNumber}`;
-        const parsedSegments = parseMistralOutput(output, {
-          offsetSec: staged.startSec,
-          startIndex: nextIndex,
-          chunkId,
-          fallbackDurationSec: chunkDurationSec,
-          includeWordTimestamps: settings.cloudEnableWordTimestamps,
-        });
-        nextIndex += parsedSegments.length;
-        await appendCloudSegments(parsedSegments, provider, metadata);
-        allSegments.push(...parsedSegments);
-        sentChunkCount = chunkNumber;
+        if (isDemeter) {
+          const chunkBatch = buildDemeterBackendChunkBatch(output as DemeterTranscriptionResponse, {
+            fallbackChunkId: `${providerLogKey}-${chunkNumber}`,
+            includeWordTimestamps: settings.cloudEnableWordTimestamps,
+            startSegmentIndex: nextIndex,
+          });
+          nextIndex = chunkBatch.nextSegmentIndex;
+          for (const group of chunkBatch.groups) {
+            await appendCloudSegments(group.segments, "demeter_sante", metadata);
+            allSegments.push(...group.segments);
+          }
+          sentChunkCount = chunkNumber;
 
-        await deleteSegment(sessionId, staged.index);
+          await deleteSegment(sessionId, staged.index);
 
-        const summary = summarizeSegments(parsedSegments);
-        logger.debug(`[cloud][${providerLogKey}] segments ready`, {
-          ...summary,
-          provider,
-          segmentIndex: sentChunkCount - 1,
-          totalSegments: stagedSegments.length,
-        });
-        telemetry.logEvent("CLOUD_SEGMENTS_READY", {
-          provider,
-          segmentIndex: sentChunkCount - 1,
-          totalSegments: stagedSegments.length,
-          count: summary.count,
-          totalDurationSec: summary.totalDurationSec,
-          textChars: summary.textChars,
-          tokenCount: summary.tokenCount,
-        });
+          const summary = summarizeSegments(chunkBatch.groups.flatMap((group) => group.segments));
+          logger.debug(`[cloud][${providerLogKey}] segments ready`, {
+            ...summary,
+            provider,
+            segmentIndex: sentChunkCount - 1,
+            totalSegments: stagedSegments.length,
+          });
+          telemetry.logEvent("CLOUD_SEGMENTS_READY", {
+            provider,
+            segmentIndex: sentChunkCount - 1,
+            totalSegments: stagedSegments.length,
+            count: summary.count,
+            totalDurationSec: summary.totalDurationSec,
+            textChars: summary.textChars,
+            tokenCount: summary.tokenCount,
+          });
+        } else {
+          const chunkId = `${providerLogKey}-${chunkNumber}`;
+          const parsedSegments = parseMistralOutput(output, {
+            offsetSec: staged.startSec,
+            startIndex: nextIndex,
+            chunkId,
+            fallbackDurationSec: chunkDurationSec,
+            includeWordTimestamps: settings.cloudEnableWordTimestamps,
+          });
+          nextIndex += parsedSegments.length;
+          await appendCloudSegments(parsedSegments, provider, metadata);
+          allSegments.push(...parsedSegments);
+          sentChunkCount = chunkNumber;
+
+          await deleteSegment(sessionId, staged.index);
+
+          const summary = summarizeSegments(parsedSegments);
+          logger.debug(`[cloud][${providerLogKey}] segments ready`, {
+            ...summary,
+            provider,
+            segmentIndex: sentChunkCount - 1,
+            totalSegments: stagedSegments.length,
+          });
+          telemetry.logEvent("CLOUD_SEGMENTS_READY", {
+            provider,
+            segmentIndex: sentChunkCount - 1,
+            totalSegments: stagedSegments.length,
+            count: summary.count,
+            totalDurationSec: summary.totalDurationSec,
+            textChars: summary.textChars,
+            tokenCount: summary.tokenCount,
+          });
+        }
 
         setProgress(Math.max(0, Math.min(1, 0.5 + (sentChunkCount / Math.max(1, stagedSegments.length)) * 0.5)));
       }
@@ -1536,6 +1605,8 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     resetCloudTranscriptBuffers();
     setProgress(0);
     setStopRequested(false);
+    backendDirectSeenChunkIdsRef.current.clear();
+    backendDirectAppendQueueRef.current = Promise.resolve();
 
     if (currentFile.size === 0) {
       const emptyAudioMessage = "Fichier audio vide";
@@ -1679,9 +1750,8 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       const backendDirectRoute =
         isDemeter && Number.isFinite(metadata.durationSec) && metadata.durationSec > CLOUD_LONG_AUDIO_BACKEND_THRESHOLD_SEC;
 
-      const backendDemeterChunking = resolveEffectiveMistralChunking(
-        settings.cloudDemeterModel,
-        settings.cloudMistralChunkDurationSec,
+      const backendDemeterChunking = resolveEffectiveDemeterChunking(
+        settings.cloudDemeterChunkDurationSec,
         settings.cloudMistralOverlapSec
       );
 
@@ -1927,6 +1997,214 @@ function resolveCloudActivitySourceMode(provider: "whisper" | "mistral" | "demet
   return provider === "demeter_sante" ? "cloud_backend" : "cloud_direct";
 }
 
+type DemeterBackendChunkGroup = {
+  chunkId: string;
+  segments: TranscriptionSegment[];
+};
+
+type DemeterBackendChunkBatch = {
+  groups: DemeterBackendChunkGroup[];
+  nextSegmentIndex: number;
+};
+
+function buildDemeterBackendFallbackChunkId(fallbackChunkId: string, chunkIndex: number): string {
+  const normalizedFallback = normalizeChunkId(fallbackChunkId) ?? "demeter-backend-direct";
+  return `${normalizedFallback}::chunk-${Math.max(0, Math.trunc(chunkIndex))}`;
+}
+
+function resolveDemeterBackendChunkDuration(
+  chunk: DemeterTranscriptionChunk,
+  response: DemeterTranscriptionResponse | null | undefined
+): number {
+  const explicitDuration = toFiniteNumber(chunk.durationSec ?? chunk.duration_sec);
+  if (typeof explicitDuration === "number") {
+    return Math.max(0, explicitDuration);
+  }
+
+  const startSec = toFiniteNumber(chunk.startSec ?? chunk.start_sec);
+  const endSec = toFiniteNumber(chunk.endSec ?? chunk.end_sec);
+  if (typeof startSec === "number" && typeof endSec === "number") {
+    return Math.max(0, endSec - startSec);
+  }
+
+  const totalDuration = toFiniteNumber(response?.duration);
+  return typeof totalDuration === "number" ? Math.max(0, totalDuration) : 0;
+}
+
+function buildDemeterBackendWordSegments(rawWords: unknown): WordSegment[] | undefined {
+  if (!Array.isArray(rawWords)) {
+    return undefined;
+  }
+
+  const words: WordSegment[] = [];
+  for (const rawWord of rawWords) {
+    if (!rawWord || typeof rawWord !== "object") {
+      continue;
+    }
+
+    const text =
+      normalizeChunkText((rawWord as { word?: unknown }).word) ??
+      normalizeChunkText((rawWord as { text?: unknown }).text);
+    if (!text) {
+      continue;
+    }
+
+    const start = toFiniteNumber((rawWord as { start?: unknown }).start) ?? 0;
+    const end = toFiniteNumber((rawWord as { end?: unknown }).end) ?? start;
+    const confidence = toFiniteNumber((rawWord as { confidence?: unknown }).confidence) ?? undefined;
+
+    words.push({
+      word: text,
+      start: Math.max(0, start),
+      end: Math.max(0, Math.max(start, end)),
+      confidence,
+    });
+  }
+
+  return words.length ? words : undefined;
+}
+
+function buildDemeterBackendChunkSegments(
+  chunk: DemeterTranscriptionChunk,
+  response: DemeterTranscriptionResponse | null | undefined,
+  options: {
+    fallbackChunkId: string;
+    includeWordTimestamps: boolean;
+    startSegmentIndex: number;
+    chunkIndex: number;
+  }
+): TranscriptionSegment[] {
+  const rawSegments = Array.isArray(chunk.segments) ? chunk.segments : [];
+  const chunkId =
+    normalizeChunkId(chunk.chunkId ?? chunk.chunk_id) ?? buildDemeterBackendFallbackChunkId(options.fallbackChunkId, options.chunkIndex);
+  const segments: TranscriptionSegment[] = [];
+  let nextIndex = options.startSegmentIndex;
+
+  for (const rawSegment of rawSegments) {
+    if (!rawSegment || typeof rawSegment !== "object") {
+      continue;
+    }
+
+    const segment = rawSegment as DemeterTranscriptionChunkSegment;
+    const text = normalizeChunkText(segment.text);
+    if (!text) {
+      continue;
+    }
+
+    const start = toFiniteNumber(segment.start) ?? toFiniteNumber(chunk.startSec ?? chunk.start_sec) ?? 0;
+    const fallbackEndSec =
+      toFiniteNumber(segment.end) ??
+      toFiniteNumber(chunk.endSec ?? chunk.end_sec) ??
+      resolveDemeterBackendChunkDuration(chunk, response);
+    const confidence = toFiniteNumber(segment.confidence) ?? undefined;
+    const speaker = normalizeChunkText(segment.speaker) ?? normalizeChunkText(segment.speaker_id);
+    const words = options.includeWordTimestamps ? buildDemeterBackendWordSegments(segment.words) : undefined;
+
+    segments.push({
+      index: nextIndex,
+      start: Math.max(0, start),
+      end: Math.max(0, Math.max(start, fallbackEndSec)),
+      text,
+      speaker,
+      chunkId: normalizeChunkId(segment.chunkId ?? segment.chunk_id) ?? chunkId,
+      strategy: "chunks",
+      confidence,
+      confidenceSource: typeof confidence === "number" ? "model" : undefined,
+      words,
+    });
+    nextIndex += 1;
+  }
+
+  if (!segments.length) {
+    const fallbackText = normalizeChunkText(chunk.text);
+    if (fallbackText) {
+      const start = toFiniteNumber(chunk.startSec ?? chunk.start_sec) ?? 0;
+      const end =
+        toFiniteNumber(chunk.endSec ?? chunk.end_sec) ??
+        Math.max(start, resolveDemeterBackendChunkDuration(chunk, response));
+
+      segments.push({
+        index: nextIndex,
+        start: Math.max(0, start),
+        end: Math.max(0, Math.max(start, end)),
+        text: fallbackText,
+        chunkId,
+        strategy: "chunks",
+      });
+    }
+  }
+
+  return segments;
+}
+
+function buildDemeterBackendChunkBatch(
+  response: DemeterTranscriptionResponse | null | undefined,
+  options: {
+    fallbackChunkId: string;
+    includeWordTimestamps: boolean;
+    startSegmentIndex: number;
+  }
+): DemeterBackendChunkBatch {
+  const rawChunks = Array.isArray(response?.chunks) ? response?.chunks : [];
+  if (!rawChunks.length) {
+    return {
+      groups: [],
+      nextSegmentIndex: options.startSegmentIndex,
+    };
+  }
+
+  const groups: DemeterBackendChunkGroup[] = [];
+  let nextSegmentIndex = options.startSegmentIndex;
+
+  for (const [position, rawChunk] of rawChunks.entries()) {
+    if (!rawChunk || typeof rawChunk !== "object") {
+      continue;
+    }
+
+    const chunk = rawChunk as DemeterTranscriptionChunk;
+    const chunkIndex = toFiniteInteger(chunk.index) ?? position;
+    const chunkId =
+      normalizeChunkId(chunk.chunkId ?? chunk.chunk_id) ?? buildDemeterBackendFallbackChunkId(options.fallbackChunkId, chunkIndex);
+    const parsedSegments = buildDemeterBackendChunkSegments(chunk, response, {
+      fallbackChunkId: options.fallbackChunkId,
+      includeWordTimestamps: options.includeWordTimestamps,
+      startSegmentIndex: nextSegmentIndex,
+      chunkIndex,
+    });
+    nextSegmentIndex += parsedSegments.length;
+    groups.push({
+      chunkId,
+      segments: parsedSegments,
+    });
+  }
+
+  return {
+    groups,
+    nextSegmentIndex,
+  };
+}
+
+function normalizeChunkId(value: unknown): string | undefined {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized ? normalized : undefined;
+}
+
+function normalizeChunkText(value: unknown): string | undefined {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized ? normalized : undefined;
+}
+
+function toFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function toFiniteInteger(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return Math.trunc(value);
+}
+
 function resolveEffectiveMistralChunking(
   model: string,
   requestedDurationSec: number,
@@ -1941,6 +2219,22 @@ function resolveEffectiveMistralChunking(
     effectiveOverlapSec: Math.min(resolved.overlap, Math.max(0, effectiveDurationSec - 1)),
     modelMaxDurationSec,
     durationWasCapped: effectiveDurationSec < resolved.duration,
+  };
+}
+
+function resolveEffectiveDemeterChunking(
+  requestedDurationSec: number,
+  requestedOverlapSec: number
+): MistralChunkingConfig {
+  const requestedDuration = Math.max(5, Math.round(requestedDurationSec || 0));
+  const effectiveDurationSec = clampDemeterChunkDurationSec(requestedDurationSec || DEMETER_CHUNK_DURATION_DEFAULT_SEC);
+  const requestedOverlap = Math.max(0, Math.round(requestedOverlapSec || 0));
+  return {
+    requestedDurationSec: requestedDuration,
+    effectiveDurationSec,
+    effectiveOverlapSec: Math.min(requestedOverlap, Math.max(0, effectiveDurationSec - 1)),
+    modelMaxDurationSec: DEMETER_CHUNK_DURATION_MAX_SEC,
+    durationWasCapped: effectiveDurationSec < requestedDuration,
   };
 }
 

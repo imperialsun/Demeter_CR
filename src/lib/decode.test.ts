@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { describe, it, expect } from 'vitest';
 import { decodeCompressedBlobToPcm, decodeFileFully, decodeFileSegmentToPcm } from './audio';
-import { mockAudioContext, mockDocumentAudio, mockMediaRecorder, mockOfflineAudioContext } from '@/test/audioMocks';
+import { mockAudioContext, mockDocumentAudio, mockMediaRecorder, mockOfflineAudioContext } from '../test/audioMocks';
 
 describe('decodeFileFully (with mocks)', () => {
   it('decodes a file and returns pcm and metadata', async () => {

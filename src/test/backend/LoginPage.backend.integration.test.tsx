@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { createBackendUser } from "@/test/backend/adminClient";
-import { createAppCookieJar, configureBackendRuntime, resetBrowserState } from "@/test/backend/runtime";
+import { createBackendUser } from "./adminClient";
+import { createAppCookieJar, configureBackendRuntime, resetBrowserState } from "./runtime";
 
 const smokeMocks = vi.hoisted(() => ({
   hydrateFromStorage: vi.fn(),

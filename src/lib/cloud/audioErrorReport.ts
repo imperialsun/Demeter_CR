@@ -171,7 +171,7 @@ export function describeAudioUploadError(
   };
 }
 
-export { shouldRetryRawAudioUpload } from "@/lib/backend-api";
+export { shouldRetryAudioUpload } from "@/lib/backend-api";
 
 async function postFrontendErrorReport(payload: FrontendAudioErrorReportPayload): Promise<void> {
   let response = await backendFetch(FRONTEND_ERROR_REPORT_PATH, {

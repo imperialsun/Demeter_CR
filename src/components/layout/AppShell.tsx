@@ -2,6 +2,7 @@ import * as React from "react";
 import { useLocation } from "react-router-dom";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
+import { PageScrollContainerContext } from "@/components/layout/page-scroll-container";
 import { getCloudProgressTitleLabel } from "@/lib/cloudStatusMeta";
 import logger from "@/lib/logger";
 import { cn } from "@/lib/utils";
@@ -14,6 +15,7 @@ interface AppShellProps {
 
 export function AppShell({ children, className }: AppShellProps) {
   const location = useLocation();
+  const mainRef = React.useRef<HTMLElement | null>(null);
   const isTranscribing = useAsrStore((state) => state.isTranscribing);
   const progress = useAsrStore((state) => state.progress);
   const cloudStatus = useAsrStore((state) => state.cloudStatus);
@@ -60,14 +62,16 @@ export function AppShell({ children, className }: AppShellProps) {
   }, [isTranscribing, progress]);
 
   return (
-    <div className="flex min-h-screen bg-background text-foreground">
-      <Sidebar />
-      <div className="flex min-h-screen flex-1 flex-col">
-        <Topbar />
-        <main className={cn("flex-1 overflow-y-auto p-4 md:p-8", className)}>
-          {children}
-        </main>
+    <PageScrollContainerContext.Provider value={mainRef}>
+      <div className="flex min-h-screen bg-background text-foreground">
+        <Sidebar />
+        <div className="flex min-h-screen flex-1 flex-col">
+          <Topbar />
+          <main ref={mainRef} className={cn("flex-1 overflow-y-auto p-4 md:p-8", className)}>
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </PageScrollContainerContext.Provider>
   );
 }
