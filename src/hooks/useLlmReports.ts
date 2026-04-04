@@ -43,6 +43,7 @@ import {
 } from "@/lib/backend-api";
 import { isBackendAuthenticated } from "@/lib/backend-session";
 import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
+import { trackBackendPerformanceSummary } from "@/lib/backend-performance-sync";
 
 const FORMAT_ORDER: Array<{ key: ReportResultKey; format: ReportFormat }> = [
   { key: "cri", format: "CRI" },
@@ -97,6 +98,7 @@ export function useLlmReports() {
       const telemetry = new TelemetryCollector();
       registerTelemetry(telemetry);
       setTelemetrySummary(null);
+      telemetry.startTimer("llm_cloud_total");
       let stage = "init";
       const provider = llmApiProvider;
       const sourceMode = input.source;
@@ -116,6 +118,21 @@ export function useLlmReports() {
           modelId: activeModelId,
           sourceMode,
           ...(data ?? {}),
+        });
+      };
+      const publishTelemetrySummary = (status: "success" | "error", meta?: Record<string, unknown>) => {
+        telemetry.stopTimer("llm_cloud_total");
+        const summary = telemetry.exportSummary();
+        setTelemetrySummary(summary);
+        trackBackendPerformanceSummary(summary, {
+          status,
+          route: "/llmapi",
+          meta: {
+            provider,
+            sourceMode,
+            modelId: activeModelId,
+            ...(meta ?? {}),
+          },
         });
       };
 
@@ -389,7 +406,10 @@ export function useLlmReports() {
             modelId: modelId || "unset",
           },
         });
-        setTelemetrySummary(telemetry.exportSummary());
+        publishTelemetrySummary("success", {
+          modelId,
+          sourceMode,
+        });
       } catch (error) {
         const unauthorized = isBackendUnauthorizedError(error);
         const forbidden = isBackendForbiddenError(error);
@@ -412,6 +432,9 @@ export function useLlmReports() {
             : error instanceof Error
               ? error.message
               : "Erreur inconnue lors de la generation";
+        if (unauthorized || forbidden) {
+          telemetry.stopTimer("llm_cloud_total");
+        }
         logger.error("[llm-api] run failed", {
           stage,
           message,
@@ -438,7 +461,12 @@ export function useLlmReports() {
             modelId: activeModelId,
           },
         });
-        setTelemetrySummary(telemetry.exportSummary());
+        publishTelemetrySummary("error", {
+          modelId: activeModelId,
+          sourceMode,
+          stage,
+          message,
+        });
         setLlmApiStatus("error", message);
       }
     },

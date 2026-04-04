@@ -20,6 +20,7 @@ import {
   setSharedAbortController,
 } from "@/hooks/useTranscriptionController";
 import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
+import { trackBackendPerformanceSummary } from "@/lib/backend-performance-sync";
 
 const DEFAULT_BUFFER_SIZE = 4096;
 const MIN_DETECT_INTERVAL_MS = 250;
@@ -523,7 +524,17 @@ export function useMicTranscription() {
 
     if (telemetry && mode !== "abort") {
       telemetry.logEvent("STOPPED");
-      state.setTelemetrySummary(telemetry.exportSummary());
+      const summary = telemetry.exportSummary();
+      state.setTelemetrySummary(summary);
+      trackBackendPerformanceSummary(summary, {
+        status: mode === "complete" ? "success" : "error",
+        route: "/mic",
+        meta: {
+          source: "mic",
+          backend: state.activeBackend ?? state.backendPreference,
+          mode,
+        },
+      });
     }
 
     try {

@@ -15,6 +15,7 @@ import { isBackendMode } from "@/lib/runtime-config";
 import { initializeBackendSession } from "@/lib/backend-auth";
 import { initializeBackendSettingsSync, pullBackendSettings } from "@/lib/backend-settings-sync";
 import { flushBackendActivityQueueNow, initializeBackendActivitySync } from "@/lib/backend-activity-sync";
+import { flushBackendPerformanceQueueNow, initializeBackendPerformanceSync } from "@/lib/backend-performance-sync";
 import { replaceSettingsCacheFromBackend } from "@/lib/storage";
 import { isAuthenticated, setAuthenticated } from "@/lib/auth";
 import "./index.css";
@@ -35,6 +36,8 @@ if (isBackendMode()) {
   logger.info("[app][backend] settings sync initialized");
   initializeBackendActivitySync();
   logger.info("[app][backend] activity sync initialized");
+  initializeBackendPerformanceSync();
+  logger.info("[app][backend] performance sync initialized");
   const me = await initializeBackendSession();
   setAuthenticated(Boolean(me));
   logger.info("[app][auth] backend session resolved", {
@@ -46,6 +49,9 @@ if (isBackendMode()) {
     logger.debug("[app][activity] flushing queued backend activity");
     await flushBackendActivityQueueNow();
     logger.info("[app][activity] queued backend activity flushed");
+    logger.debug("[app][performance] flushing queued backend performance");
+    await flushBackendPerformanceQueueNow();
+    logger.info("[app][performance] queued backend performance flushed");
   }
 } else {
   logger.info("[app][auth] standalone bootstrap", { authenticated: isAuthenticated() });

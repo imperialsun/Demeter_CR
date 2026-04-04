@@ -21,6 +21,7 @@ import { formatTokenCount, resolveLongInputChunkingProfile, resolveModelTokenBud
 import { emitLlmEvent } from "@/lib/llm/telemetrySession";
 import logger from "@/lib/logger";
 import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
+import { trackBackendPerformanceSummary } from "@/lib/backend-performance-sync";
 
 const FORMAT_ORDER: Array<{ key: ReportResultKey; format: ReportFormat }> = [
   { key: "cri", format: "CRI" },
@@ -126,6 +127,7 @@ export function useLlmLocalReports() {
       const telemetry = new TelemetryCollector();
       registerTelemetry(telemetry);
       setTelemetrySummarySafe(null);
+      telemetry.startTimer("llm_local_total");
       setResultsSafe({});
       let stage = "init";
       const markStage = (nextStage: string, data?: Record<string, unknown>) => {
@@ -139,6 +141,23 @@ export function useLlmLocalReports() {
         logger.info("[llm-local] stage", {
           stage: nextStage,
           ...(data ?? {}),
+        });
+      };
+      const publishTelemetrySummary = (status: "success" | "error", meta?: Record<string, unknown>) => {
+        telemetry.stopTimer("llm_local_total");
+        const summary = telemetry.exportSummary();
+        setTelemetrySummarySafe(summary);
+        const currentState = useAsrStore.getState();
+        trackBackendPerformanceSummary(summary, {
+          status,
+          route: "/llmlocal",
+          meta: {
+            provider: "local",
+            sourceMode: input.source,
+            profileId: currentState.llmLocalModelProfile,
+            modelId: currentState.llmLocalModelId,
+            ...(meta ?? {}),
+          },
         });
       };
 
@@ -448,9 +467,13 @@ export function useLlmLocalReports() {
       try {
         await runWithProfile(llmLocalModelProfile);
         throwIfRunInvalidated();
-        setTelemetrySummarySafe(telemetry.exportSummary());
+        publishTelemetrySummary("success", {
+          profileId: llmLocalModelProfile,
+          modelId: useAsrStore.getState().llmLocalModelId,
+        });
       } catch (error) {
         if (isRunAbortedError(error) || !isRunActive()) {
+          telemetry.stopTimer("llm_local_total");
           logger.info("[llm-local] run aborted or reset requested", { runId });
           return;
         }
@@ -484,10 +507,15 @@ export function useLlmLocalReports() {
           try {
             await runWithProfile(fallbackProfile);
             throwIfRunInvalidated();
-            setTelemetrySummarySafe(telemetry.exportSummary());
+            publishTelemetrySummary("success", {
+              profileId: fallbackProfile,
+              modelId: useAsrStore.getState().llmLocalModelId,
+              fallback: true,
+            });
             return;
           } catch (fallbackError) {
             if (isRunAbortedError(fallbackError) || !isRunActive()) {
+              telemetry.stopTimer("llm_local_total");
               logger.info("[llm-local] fallback run aborted or reset requested", { runId });
               return;
             }
@@ -519,7 +547,12 @@ export function useLlmLocalReports() {
                 message: fallbackMessage,
               },
             });
-            setTelemetrySummarySafe(telemetry.exportSummary());
+            publishTelemetrySummary("error", {
+              profileId: fallbackProfile,
+              modelId: useAsrStore.getState().llmLocalModelId,
+              fallback: true,
+              message: fallbackMessage,
+            });
             return;
           }
         }
@@ -558,7 +591,11 @@ export function useLlmLocalReports() {
             description: message,
           });
         }
-        setTelemetrySummarySafe(telemetry.exportSummary());
+        publishTelemetrySummary("error", {
+          profileId: llmLocalModelProfile,
+          modelId: llmLocalModelIdLegacy,
+          message,
+        });
       }
     },
     [

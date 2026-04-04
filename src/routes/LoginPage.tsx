@@ -14,6 +14,7 @@ import { isBackendMode } from "@/lib/runtime-config";
 import { backendLogin } from "@/lib/backend-auth";
 import { pullBackendSettings } from "@/lib/backend-settings-sync";
 import { flushBackendActivityQueueNow } from "@/lib/backend-activity-sync";
+import { flushBackendPerformanceQueueNow } from "@/lib/backend-performance-sync";
 import { replaceSettingsCacheFromBackend } from "@/lib/storage";
 
 type LocationState = { from?: { pathname?: string } };
@@ -83,6 +84,7 @@ export default function LoginPage() {
           logger.warn("[auth] backend settings sync after login failed", syncError);
         }
         await flushBackendActivityQueueNow();
+        await flushBackendPerformanceQueueNow();
         logger.info("Auth login success");
         telemetry?.logEvent("AUTH_LOGIN_SUCCESS", { source: "login_page", mode: "backend" });
         toast("Connexion réussie.");

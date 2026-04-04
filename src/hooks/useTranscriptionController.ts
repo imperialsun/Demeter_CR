@@ -43,6 +43,7 @@ import {
 } from "@/hooks/useTranscriptionController.steps";
 import { createSessionTranscriptMemoryEntry } from "@/lib/sessionTranscriptMemory";
 import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
+import { trackBackendPerformanceSummary } from "@/lib/backend-performance-sync";
 
 const sharedAbortRef: { current: AbortController | null } = { current: null };
 const sharedRunIdRef: { current: number } = { current: 0 };
@@ -1346,6 +1347,15 @@ export function useTranscriptionController() {
       const summary = telemetry.exportSummary();
       throwIfRunInvalidated();
       state.setTelemetrySummary(summary);
+      trackBackendPerformanceSummary(summary, {
+        status: "success",
+        route: "/localupload",
+        meta: {
+          source: "upload",
+          activePreset: state.activePreset,
+          backend: state.activeBackend ?? state.backendPreference,
+        },
+      });
       trackBackendActivityEvent({
         eventKind: "transcription",
         sourceMode: "local",
@@ -1439,6 +1449,17 @@ export function useTranscriptionController() {
           state.setStatus("error", message);
           toast(`Échec de la transcription : ${message}`);
         }
+        const summary = telemetry.exportSummary();
+        trackBackendPerformanceSummary(summary, {
+          status: "error",
+          route: "/localupload",
+          meta: {
+            source: "upload",
+            activePreset: state.activePreset,
+            backend: state.activeBackend ?? state.backendPreference,
+            message,
+          },
+        });
       }
     } finally {
       if (activePipeline) {

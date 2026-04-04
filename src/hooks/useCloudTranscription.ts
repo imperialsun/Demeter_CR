@@ -41,6 +41,7 @@ import { isBackendAuthenticated } from "@/lib/backend-session";
 import { resolveChunkingConfig } from "@/hooks/useCloudTranscription.steps";
 import { createSessionTranscriptMemoryEntry, getSessionTranscriptText } from "@/lib/sessionTranscriptMemory";
 import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
+import { trackBackendPerformanceSummary } from "@/lib/backend-performance-sync";
 import { releaseFfmpeg } from "@/lib/ffmpeg-loader";
 import { type CloudTranscriptionChunkGroup } from "@/lib/cloud/transcriptionChunks";
 import {
@@ -1650,6 +1651,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     runIdRef.current = runId;
     activeTranscriptProviderRef.current = provider;
     setIsTranscribing(true);
+    let backendDirectRoute = false;
 
     try {
       const metadata = audioMetadata ?? await probeAudioMetadata(currentFile);
@@ -1747,7 +1749,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         preprocessOverlapSec: settings.cloudPreprocessOverlapSec,
       };
 
-      const backendDirectRoute =
+      backendDirectRoute =
         isDemeter && Number.isFinite(metadata.durationSec) && metadata.durationSec > CLOUD_LONG_AUDIO_BACKEND_THRESHOLD_SEC;
 
       const backendDemeterChunking = resolveEffectiveDemeterChunking(
@@ -1930,6 +1932,19 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       const summary = telemetryRef.current?.exportSummary();
       setTelemetrySummary(summary ?? null);
       setGlobalTelemetrySummary(summary ?? null);
+      if (summary) {
+        trackBackendPerformanceSummary(summary, {
+          status: runCompletedRef.current ? "success" : "error",
+          route: "/cloudupload",
+          meta: {
+            provider,
+            runCompleted: runCompletedRef.current,
+            stopRequested: stopRequestedRef.current,
+            backendDirectRoute,
+            durationSec: audioMetadata?.durationSec ?? null,
+          },
+        });
+      }
       registerTelemetry(null);
       telemetryRef.current = null;
       cloudTranscriptTextRef.current = "";
