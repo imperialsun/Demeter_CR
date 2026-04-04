@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { waitFor } from "@testing-library/dom";
 import { createBackendUser, getUserAccess, updateUserEntitlements } from "./adminClient";
 import { createAppCookieJar, configureBackendRuntime, resetBrowserState } from "./runtime";
 
@@ -82,24 +83,26 @@ describe("backend settings integration", () => {
         vi.useRealTimers();
       }
 
-      const updatedEnvelope = await settingsModule.pullBackendSettings();
-      expect(updatedEnvelope?.settings).toMatchObject({
-        showSegments: false,
-        memoryMode: storageModule.DEFAULT_SETTINGS.memoryMode,
-        chunkStrategy: storageModule.DEFAULT_SETTINGS.chunkStrategy,
-        segmentationMode: storageModule.DEFAULT_SETTINGS.segmentationMode,
-        autoTunePreprocess: storageModule.DEFAULT_SETTINGS.autoTunePreprocess,
-        llmApiProvider: storageModule.DEFAULT_SETTINGS.llmApiProvider,
+      await waitFor(async () => {
+        const updatedEnvelope = await settingsModule.pullBackendSettings();
+        expect(updatedEnvelope?.settings).toMatchObject({
+          showSegments: false,
+          memoryMode: storageModule.DEFAULT_SETTINGS.memoryMode,
+          chunkStrategy: storageModule.DEFAULT_SETTINGS.chunkStrategy,
+          segmentationMode: storageModule.DEFAULT_SETTINGS.segmentationMode,
+          autoTunePreprocess: storageModule.DEFAULT_SETTINGS.autoTunePreprocess,
+          llmApiProvider: storageModule.DEFAULT_SETTINGS.llmApiProvider,
+        });
+        expect(Object.keys(updatedEnvelope?.settings ?? {}).length).toBe(storageModule.PERSISTED_SETTINGS_KEYS.length);
+        expect(updatedEnvelope?.settings.debugConfidence).toBeUndefined();
+        expect(updatedEnvelope?.settings.llmApiModelId).toBeUndefined();
       });
-      expect(Object.keys(updatedEnvelope?.settings ?? {}).length).toBe(storageModule.PERSISTED_SETTINGS_KEYS.length);
-      expect(updatedEnvelope?.settings.debugConfidence).toBeUndefined();
-      expect(updatedEnvelope?.settings.llmApiModelId).toBeUndefined();
     } finally {
       restoreFetch();
     }
   });
 
-  it("reflects backend permission denies and returns null on forbidden settings pull", async () => {
+  it("keeps syncing settings even when feature.settings is denied for the page", async () => {
     const user = await createBackendUser();
     await updateUserEntitlements(user.id, [
       { permissionCode: "feature.settings", effect: "deny" },
@@ -123,7 +126,12 @@ describe("backend settings integration", () => {
 
       expect(permissionsModule.canAccessFeature("feature.settings")).toBe(false);
       expect(permissionsModule.getFirstAuthorizedRoute()).toBe("/localupload");
-      await expect(settingsModule.pullBackendSettings()).resolves.toBeNull();
+      await expect(settingsModule.pullBackendSettings()).resolves.toEqual({
+        version: 1,
+        schemaVersion: 1,
+        updatedAt: expect.any(String),
+        settings: {},
+      });
     } finally {
       restoreFetch();
     }
