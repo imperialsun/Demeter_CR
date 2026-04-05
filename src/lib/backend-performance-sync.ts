@@ -44,6 +44,11 @@ export interface BackendPerformanceSummaryContext {
   surface?: "frontend";
 }
 
+type BackendPerformanceBatchResult =
+  | { kind: "response"; response: Response }
+  | { kind: "expired" }
+  | { kind: "failed"; response: Response };
+
 interface BackendPerformanceQueuedEvent {
   eventId: string;
   traceId: string;
@@ -175,13 +180,15 @@ export async function flushBackendPerformanceQueueNow() {
   try {
     while (queue.length > 0 && isAuthenticated()) {
       const batch = queue.slice(0, FLUSH_BATCH_SIZE);
-      const response = await sendPerformanceBatch(batch);
-
-      if (response.status === 401 || response.status === 403) {
-        logger.warn("[backend-performance-sync] flush denied by backend", { status: response.status });
+      const result = await sendPerformanceBatch(batch);
+      if (result.kind === "expired") {
+        return;
+      }
+      if (result.kind === "failed") {
         scheduleRetry();
         return;
       }
+      const response = result.response;
       if (!response.ok) {
         const message = await readBackendError(response);
         throw new Error(message);
@@ -214,7 +221,7 @@ export async function flushBackendPerformanceQueueNow() {
   }
 }
 
-async function sendPerformanceBatch(batch: BackendPerformanceQueuedEvent[]): Promise<Response> {
+async function sendPerformanceBatch(batch: BackendPerformanceQueuedEvent[]): Promise<BackendPerformanceBatchResult> {
   const requestBatch = async () =>
     backendFetch("/performance/events", {
       method: "POST",
@@ -226,24 +233,20 @@ async function sendPerformanceBatch(batch: BackendPerformanceQueuedEvent[]): Pro
 
   let response = await requestBatch();
   if (response.status !== 401) {
-    return response;
+    return { kind: "response", response };
   }
 
-  logger.warn("[backend-performance-sync] flush unauthorized, attempting refresh");
-  try {
-    const refreshed = await backendRefresh();
-    if (!refreshed) {
-      return response;
+  logger.info("[backend-performance-sync] flush unauthorized, attempting refresh");
+  const refreshResult = await backendRefresh();
+  if (refreshResult !== "refreshed") {
+    if (refreshResult === "expired") {
+      return { kind: "expired" };
     }
-  } catch (error) {
-    logger.warn("[backend-performance-sync] refresh request failed", {
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return response;
+    return { kind: "failed", response };
   }
 
   response = await requestBatch();
-  return response;
+  return { kind: "response", response };
 }
 
 function loadQueue() {

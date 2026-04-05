@@ -25,7 +25,7 @@ import {
   type DemeterTranscriptionResponse,
 } from "@/lib/cloud/demeterClient";
 import { clampDemeterChunkDurationSec, DEMETER_CHUNK_DURATION_MAX_SEC, DEMETER_CHUNK_DURATION_DEFAULT_SEC } from "@/lib/storage";
-import { backendRefresh } from "@/lib/backend-auth";
+import { backendRefresh, isBackendSessionExpiredError } from "@/lib/backend-auth";
 import {
   sendFrontendAudioErrorReport,
   shouldRetryAudioUpload,
@@ -33,11 +33,9 @@ import {
 } from "@/lib/cloud/audioErrorReport";
 import {
   formatBackendErrorMessage,
-  handleBackendUnauthorized,
   isBackendForbiddenError,
   isBackendUnauthorizedError,
 } from "@/lib/backend-api";
-import { isBackendAuthenticated } from "@/lib/backend-session";
 import { resolveChunkingConfig } from "@/hooks/useCloudTranscription.steps";
 import { createSessionTranscriptMemoryEntry, getSessionTranscriptText } from "@/lib/sessionTranscriptMemory";
 import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
@@ -127,6 +125,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
   const cloudTranscriptSegmentCountRef = useRef(0);
   const chunkSummariesRef = useRef<CloudTranscriptionChunkGroup[]>([]);
   const runCompletedRef = useRef(false);
+  const runExpiredRef = useRef(false);
   const activeTranscriptProviderRef = useRef(provider);
   const telemetryRef = useRef<TelemetryCollector | null>(null);
   const runAbortControllerRef = useRef<AbortController | null>(null);
@@ -1048,6 +1047,9 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       runCompletedRef.current = true;
     } catch (error) {
       telemetry.stopTimer("cloud_transcribe");
+      if (isBackendSessionExpiredError(error)) {
+        throw error;
+      }
       if (
         stopRequestedRef.current ||
         runIdRef.current !== runId ||
@@ -1292,6 +1294,10 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
 	                telemetry
 	              );
 	        } catch (error) {
+	          if (isBackendSessionExpiredError(error)) {
+	            telemetry.stopTimer("cloud_transcribe");
+	            throw error;
+	          }
 	          const splitSegments = splitCloudSegmentWindow(staged);
 	          const rawRetryRequested = shouldRetryAudioUpload(error);
 	          const reportTraceId =
@@ -1594,6 +1600,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     setGlobalTelemetrySummary(null);
     telemetry.startTimer("cloud_total");
     runCompletedRef.current = false;
+    runExpiredRef.current = false;
     await discardCloudTranscriptCache();
     logger.info("[cloud] transcription run requested", {
       provider,
@@ -1894,19 +1901,27 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         return;
       }
     } catch (err) {
+      if (isBackendSessionExpiredError(err)) {
+        runExpiredRef.current = true;
+        setStatus("idle");
+        setStatusDetail("Session expirée");
+        setProgress(0);
+        return;
+      }
       const unauthorized = isBackendUnauthorizedError(err);
       const forbidden = isBackendForbiddenError(err);
       if (unauthorized) {
-        logger.warn("[cloud] unauthorized, attempting refresh before final error handling");
-        try {
-          const refreshed = await backendRefresh();
-          if (!refreshed && !isBackendAuthenticated()) {
-            handleBackendUnauthorized(err);
-          }
-        } catch (refreshError) {
-          logger.warn("[cloud] refresh request failed", {
-            message: refreshError instanceof Error ? refreshError.message : String(refreshError),
-          });
+        logger.info("[cloud] unauthorized, attempting refresh before final error handling");
+        const refreshResult = await backendRefresh();
+        if (refreshResult === "expired") {
+          runExpiredRef.current = true;
+          setStatus("idle");
+          setStatusDetail("Session expirée");
+          setProgress(0);
+          return;
+        }
+        if (refreshResult === "failed") {
+          logger.debug("[cloud] refresh request failed");
         }
       }
       const message = unauthorized || forbidden ? formatBackendErrorMessage(err) : (err as Error)?.message ?? "Erreur inconnue";
@@ -1933,17 +1948,19 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       setTelemetrySummary(summary ?? null);
       setGlobalTelemetrySummary(summary ?? null);
       if (summary) {
-        trackBackendPerformanceSummary(summary, {
-          status: runCompletedRef.current ? "success" : "error",
-          route: "/cloudupload",
-          meta: {
-            provider,
-            runCompleted: runCompletedRef.current,
-            stopRequested: stopRequestedRef.current,
-            backendDirectRoute,
-            durationSec: audioMetadata?.durationSec ?? null,
-          },
-        });
+        if (!runExpiredRef.current) {
+          trackBackendPerformanceSummary(summary, {
+            status: runCompletedRef.current ? "success" : "error",
+            route: "/cloudupload",
+            meta: {
+              provider,
+              runCompleted: runCompletedRef.current,
+              stopRequested: stopRequestedRef.current,
+              backendDirectRoute,
+              durationSec: audioMetadata?.durationSec ?? null,
+            },
+          });
+        }
       }
       registerTelemetry(null);
       telemetryRef.current = null;

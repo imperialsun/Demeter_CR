@@ -1,5 +1,5 @@
 import { backendFetch, formatBackendErrorMessage, isBackendHttpError, parseBackendHttpError } from "@/lib/backend-api";
-import { backendRefresh } from "@/lib/backend-auth";
+import { BackendSessionExpiredError, backendRefresh, isBackendSessionExpiredError } from "@/lib/backend-auth";
 import logger, { exportDiagnosticLogBundle } from "@/lib/logger";
 import { serializePersistedSettings, useAsrStore } from "@/store/asr-store";
 import type { TelemetryCollector, TelemetrySummary } from "@/lib/telemetry";
@@ -184,13 +184,13 @@ async function postFrontendErrorReport(payload: FrontendAudioErrorReportPayload)
   });
 
   if (response.status === 401) {
-    logger.warn("[cloud][audio-report] report unauthorized, retrying after refresh", {
+    logger.info("[cloud][audio-report] report unauthorized, retrying after refresh", {
       traceId: payload.traceId,
       code: payload.backendError.code,
       status: payload.backendError.status,
     });
-    const refreshed = await backendRefresh();
-    if (refreshed) {
+    const refreshResult = await backendRefresh();
+    if (refreshResult === "refreshed") {
       response = await backendFetch(FRONTEND_ERROR_REPORT_PATH, {
         method: "POST",
         headers: {
@@ -199,6 +199,8 @@ async function postFrontendErrorReport(payload: FrontendAudioErrorReportPayload)
         body: JSON.stringify(payload),
         retryAttempts: 0,
       });
+    } else if (refreshResult === "expired") {
+      throw new BackendSessionExpiredError();
     }
   }
 
@@ -250,6 +252,9 @@ export async function sendFrontendAudioErrorReport(input: AudioErrorReportInput)
     });
     return true;
   } catch (error) {
+    if (isBackendSessionExpiredError(error)) {
+      return false;
+    }
     logger.warn("[cloud][audio-report] failed to store report", {
       provider: input.provider,
       traceId: payload.traceId ?? payload.backendError.traceId ?? "-",

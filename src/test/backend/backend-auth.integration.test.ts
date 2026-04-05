@@ -72,8 +72,8 @@ describe("backend auth integration", () => {
 
       await authModule.backendChangePassword(user.password, "NewPass123!");
 
-      const refreshOk = await authModule.backendRefresh();
-      expect(refreshOk).toBe(false);
+      const refreshResult = await authModule.backendRefresh();
+      expect(refreshResult).toBe("expired");
       expect(sessionModule.isBackendAuthenticated()).toBe(false);
 
       await authModule.backendLogout();

@@ -12,7 +12,7 @@ import { generateReportDetailed } from "@/lib/llm/reportService";
 import { getLlmHfClient, generateWithChatThenFallbackText } from "@/lib/llm/hfClient";
 import { generateWithMistralChat } from "@/lib/llm/mistralChatClient";
 import { generateWithDemeterChat } from "@/lib/llm/demeterChatClient";
-import { backendRefresh } from "@/lib/backend-auth";
+import { backendRefresh, isBackendSessionExpiredError } from "@/lib/backend-auth";
 import {
   FALLBACK_MISTRAL_MAX_TOKENS,
   fetchMistralModelsSafe,
@@ -37,11 +37,9 @@ import {
 import logger from "@/lib/logger";
 import {
   formatBackendErrorMessage,
-  handleBackendUnauthorized,
   isBackendForbiddenError,
   isBackendUnauthorizedError,
 } from "@/lib/backend-api";
-import { isBackendAuthenticated } from "@/lib/backend-session";
 import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
 import { trackBackendPerformanceSummary } from "@/lib/backend-performance-sync";
 
@@ -420,19 +418,25 @@ export function useLlmReports() {
           sourceMode,
         });
       } catch (error) {
+        if (isBackendSessionExpiredError(error)) {
+          telemetry.stopTimer("llm_cloud_total");
+          setLlmApiProgress(0);
+          setLlmApiStatus("idle", "Session expirée");
+          return;
+        }
         const unauthorized = isBackendUnauthorizedError(error);
         const forbidden = isBackendForbiddenError(error);
         if (unauthorized) {
-          logger.warn("[llm-api] unauthorized, attempting refresh before final error handling");
-          try {
-            const refreshed = await backendRefresh();
-            if (!refreshed && !isBackendAuthenticated()) {
-              handleBackendUnauthorized(error);
-            }
-          } catch (refreshError) {
-            logger.warn("[llm-api] refresh request failed", {
-              message: refreshError instanceof Error ? refreshError.message : String(refreshError),
-            });
+          logger.info("[llm-api] unauthorized, attempting refresh before final error handling");
+          const refreshResult = await backendRefresh();
+          if (refreshResult === "expired") {
+            telemetry.stopTimer("llm_cloud_total");
+            setLlmApiProgress(0);
+            setLlmApiStatus("idle", "Session expirée");
+            return;
+          }
+          if (refreshResult === "failed") {
+            logger.debug("[llm-api] refresh request failed");
           }
         }
         const message =

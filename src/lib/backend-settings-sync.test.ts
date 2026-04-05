@@ -70,7 +70,7 @@ describe("backend-settings-sync", () => {
       error instanceof BackendHttpError && error.status === 403
     );
     apiMocks.handleBackendUnauthorized.mockReturnValue(false);
-    apiMocks.backendRefresh.mockResolvedValue(true);
+    apiMocks.backendRefresh.mockResolvedValue("refreshed");
   });
 
   afterEach(() => {
@@ -105,7 +105,7 @@ describe("backend-settings-sync", () => {
       error instanceof BackendHttpError && error.status === 401
     );
     apiMocks.isBackendForbiddenError.mockReturnValue(false);
-    apiMocks.backendRefresh.mockResolvedValue(true);
+    apiMocks.backendRefresh.mockResolvedValue("refreshed");
 
     queueBackendSettingsSync({ cloudMaxTokens: 2048 });
 
@@ -152,7 +152,7 @@ describe("backend-settings-sync", () => {
         cloudMaxTokens: 4096,
       },
     });
-    apiMocks.backendRefresh.mockResolvedValue(true);
+    apiMocks.backendRefresh.mockResolvedValue("refreshed");
 
     await expect(pullBackendSettings()).resolves.toEqual({
       version: 4,
@@ -165,6 +165,35 @@ describe("backend-settings-sync", () => {
 
     expect(apiMocks.backendFetch).toHaveBeenCalledTimes(2);
     expect(apiMocks.backendRefresh).toHaveBeenCalledTimes(1);
+    expect(apiMocks.handleBackendUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it("stops retrying when the backend refresh expires during a settings flush", async () => {
+    const unauthorizedError = new BackendHttpError({
+      status: 401,
+      code: "unauthorized",
+      message: "unauthorized",
+      path: "/settings",
+      method: "PUT",
+    });
+
+    apiMocks.backendFetch.mockResolvedValueOnce(new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 }));
+    apiMocks.parseBackendHttpError.mockResolvedValue(unauthorizedError);
+    apiMocks.isBackendUnauthorizedError.mockImplementation((error: unknown) =>
+      error instanceof BackendHttpError && error.status === 401
+    );
+    apiMocks.isBackendForbiddenError.mockReturnValue(false);
+    apiMocks.backendRefresh.mockResolvedValue("expired");
+
+    queueBackendSettingsSync({ cloudMaxTokens: 2048 });
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(apiMocks.backendFetch).toHaveBeenCalledTimes(1);
+    expect(apiMocks.backendRefresh).toHaveBeenCalledTimes(1);
+    expect(apiMocks.handleBackendUnauthorized).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(apiMocks.backendFetch).toHaveBeenCalledTimes(1);
     expect(apiMocks.handleBackendUnauthorized).not.toHaveBeenCalled();
   });
 });

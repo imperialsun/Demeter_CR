@@ -16,6 +16,7 @@ const backendApiMocks = vi.hoisted(() => ({
 
 const backendAuthMocks = vi.hoisted(() => ({
   backendRefresh: vi.fn(),
+  BackendSessionExpiredError: class BackendSessionExpiredError extends Error {},
 }));
 
 const loggerMock = vi.hoisted(() => ({
@@ -42,6 +43,7 @@ vi.mock("@/lib/backend-api", async () => {
 
 vi.mock("@/lib/backend-auth", () => ({
   backendRefresh: (...args: unknown[]) => backendAuthMocks.backendRefresh(...args),
+  BackendSessionExpiredError: backendAuthMocks.BackendSessionExpiredError,
 }));
 
 vi.mock("@/lib/logger", () => ({
@@ -152,7 +154,7 @@ describe("demeterClient", () => {
     let pollAttempts = 0;
     let operationId = "";
 
-    backendAuthMocks.backendRefresh.mockResolvedValue(true);
+    backendAuthMocks.backendRefresh.mockResolvedValue("refreshed");
     backendApiMocks.backendFetch.mockImplementation(async (path: string, init?: RequestInit) => {
       const method = (init?.method ?? "GET").toUpperCase();
       const headers = headersFromInit(init);

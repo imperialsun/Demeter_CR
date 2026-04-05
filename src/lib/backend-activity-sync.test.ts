@@ -54,7 +54,7 @@ describe("backend-activity-sync", () => {
   });
 
   it("refreshes the backend session and retries an activity batch after unauthorized", async () => {
-    backendAuthMocks.backendRefresh.mockResolvedValue(true);
+    backendAuthMocks.backendRefresh.mockResolvedValue("refreshed");
     backendApiMocks.backendFetch
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ accepted: 1, duplicates: 0, rejected: [] }), { status: 200 }));
@@ -74,5 +74,23 @@ describe("backend-activity-sync", () => {
     await waitFor(() => expect(backendApiMocks.backendFetch).toHaveBeenCalledTimes(2));
     expect(backendAuthMocks.backendRefresh).toHaveBeenCalledTimes(1);
     expect(backendApiMocks.parseBackendJson).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops retrying when the backend refresh expires during an activity flush", async () => {
+    backendAuthMocks.backendRefresh.mockResolvedValue("expired");
+    backendApiMocks.backendFetch.mockResolvedValueOnce(new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 }));
+
+    trackBackendActivityEvent({
+      eventKind: "transcription",
+      sourceMode: "local",
+      provider: "mic",
+      status: "success",
+    });
+
+    await waitFor(() => expect(backendApiMocks.backendFetch).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(backendAuthMocks.backendRefresh).toHaveBeenCalledTimes(1);
+    expect(backendApiMocks.backendFetch).toHaveBeenCalledTimes(1);
+    expect(backendApiMocks.parseBackendJson).not.toHaveBeenCalled();
   });
 });

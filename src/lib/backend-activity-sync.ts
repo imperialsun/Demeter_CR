@@ -26,6 +26,11 @@ interface BackendActivityQueuedEvent extends BackendActivityTrackInput {
   occurredAt: string;
 }
 
+type BackendActivityBatchResult =
+  | { kind: "response"; response: Response }
+  | { kind: "expired" }
+  | { kind: "failed"; response: Response };
+
 let queueLoaded = false;
 let queue: BackendActivityQueuedEvent[] = [];
 let listenersReady = false;
@@ -84,13 +89,15 @@ export async function flushBackendActivityQueueNow() {
   try {
     while (queue.length > 0 && isAuthenticated()) {
       const batch = queue.slice(0, FLUSH_BATCH_SIZE);
-      const response = await sendActivityBatch(batch);
-
-      if (response.status === 401 || response.status === 403) {
-        logger.warn("[backend-activity-sync] flush denied by backend", { status: response.status });
+      const result = await sendActivityBatch(batch);
+      if (result.kind === "expired") {
+        return;
+      }
+      if (result.kind === "failed") {
         scheduleRetry();
         return;
       }
+      const response = result.response;
       if (!response.ok) {
         const message = await readBackendError(response);
         throw new Error(message);
@@ -123,7 +130,7 @@ export async function flushBackendActivityQueueNow() {
   }
 }
 
-async function sendActivityBatch(batch: BackendActivityQueuedEvent[]): Promise<Response> {
+async function sendActivityBatch(batch: BackendActivityQueuedEvent[]): Promise<BackendActivityBatchResult> {
   const requestBatch = async () =>
     backendFetch("/activity/events", {
       method: "POST",
@@ -135,24 +142,20 @@ async function sendActivityBatch(batch: BackendActivityQueuedEvent[]): Promise<R
 
   let response = await requestBatch();
   if (response.status !== 401) {
-    return response;
+    return { kind: "response", response };
   }
 
-  logger.warn("[backend-activity-sync] flush unauthorized, attempting refresh");
-  try {
-    const refreshed = await backendRefresh();
-    if (!refreshed) {
-      return response;
+  logger.info("[backend-activity-sync] flush unauthorized, attempting refresh");
+  const refreshResult = await backendRefresh();
+  if (refreshResult !== "refreshed") {
+    if (refreshResult === "expired") {
+      return { kind: "expired" };
     }
-  } catch (error) {
-    logger.warn("[backend-activity-sync] refresh request failed", {
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return response;
+    return { kind: "failed", response };
   }
 
   response = await requestBatch();
-  return response;
+  return { kind: "response", response };
 }
 
 function loadQueue() {

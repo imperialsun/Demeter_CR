@@ -120,4 +120,37 @@ describe("backend-performance-sync", () => {
     expect(payload.events[0]?.traceId).toBe("trace-performance")
     expect(payload.events[0]?.meta.timingKey).toBe("load_model_total")
   })
+
+  it("stops retrying when the backend refresh expires", async () => {
+    backendAuthMocks.backendRefresh.mockResolvedValue("expired")
+    backendApiMocks.backendFetch.mockResolvedValueOnce(new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 }))
+
+    const summary: TelemetrySummary = {
+      sessionId: "session-expired",
+      createdAt: "2026-04-04T10:00:00.000Z",
+      userAgent: "test-agent",
+      transformersVersion: "4.0.0",
+      backend: "webgpu",
+      modelId: "model-1",
+      timings: {
+        load_model_total: 1234,
+      },
+      chunks: [],
+      events: [],
+      memorySnapshots: [],
+      alerts: {},
+    }
+
+    trackBackendPerformanceSummary(summary, {
+      status: "success",
+      route: "/llmlocal",
+      traceId: "trace-performance-expired",
+    })
+
+    await waitFor(() => expect(backendApiMocks.backendFetch).toHaveBeenCalledTimes(1))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(backendAuthMocks.backendRefresh).toHaveBeenCalledTimes(1)
+    expect(backendApiMocks.backendFetch).toHaveBeenCalledTimes(1)
+    expect(backendApiMocks.parseBackendJson).not.toHaveBeenCalled()
+  })
 })

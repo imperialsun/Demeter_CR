@@ -5,7 +5,7 @@ import {
   isBackendRetryableTransportError,
   parseBackendHttpError,
 } from "@/lib/backend-api";
-import { backendRefresh } from "@/lib/backend-auth";
+import { BackendSessionExpiredError, backendRefresh } from "@/lib/backend-auth";
 import type { GenerationStrategy } from "@/lib/llm/hfClient";
 
 const MIN_CONTEXT_RETRY_TOKENS = 1024;
@@ -128,21 +128,13 @@ async function requestDemeterChat(params: {
 
   let response = await request();
   if (!response.ok && response.status === 401) {
-    const unauthorizedError = await parseBackendHttpError(response, "/providers/demeter-sante/chat/completions", "POST");
-    logger.warn("[llm-api][demeter] unauthorized, attempting refresh before retry");
-    try {
-      const refreshed = await backendRefresh();
-      if (!refreshed) {
-        handleBackendUnauthorized(unauthorizedError);
-        throw unauthorizedError;
-      }
-    } catch (refreshError) {
-      logger.warn("[llm-api][demeter] refresh request failed", {
-        message: refreshError instanceof Error ? refreshError.message : String(refreshError),
-      });
-      throw new Error(`Impossible de renouveler la session backend Demeter Santé. ${toErrorMessage(refreshError)}`, {
-        cause: refreshError,
-      });
+    logger.info("[llm-api][demeter] unauthorized, attempting refresh before retry");
+    const refreshResult = await backendRefresh();
+    if (refreshResult === "expired") {
+      throw new BackendSessionExpiredError();
+    }
+    if (refreshResult === "failed") {
+      throw new Error("Impossible de renouveler la session backend Demeter Santé.");
     }
 
     response = await request();

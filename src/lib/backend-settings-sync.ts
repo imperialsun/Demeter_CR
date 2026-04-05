@@ -82,24 +82,16 @@ export async function flushNow() {
     clearRetry();
   } catch (error) {
     if (isBackendUnauthorizedError(error)) {
-      logger.warn("[backend-settings-sync] unauthorized, attempting refresh", {
+      logger.info("[backend-settings-sync] unauthorized, attempting refresh", {
         error: formatBackendErrorMessage(error),
       });
-      try {
-        const refreshed = await backendRefresh();
-        if (!refreshed) {
-          handleBackendUnauthorized(error);
+      const refreshResult = await backendRefresh();
+      if (refreshResult !== "refreshed") {
+        if (refreshResult === "failed") {
+          scheduleRetry();
+        } else {
           clearRetry();
-          logger.warn("[backend-settings-sync] refresh failed, stopping retries", {
-            error: formatBackendErrorMessage(error),
-          });
-          return;
         }
-      } catch (refreshError) {
-        logger.warn("[backend-settings-sync] refresh request failed", {
-          error: refreshError instanceof Error ? refreshError.message : String(refreshError),
-        });
-        scheduleRetry();
         return;
       }
 
@@ -207,24 +199,11 @@ export async function pullBackendSettings(): Promise<BackendSettingsEnvelope | n
     throw error;
   }
 
-  logger.warn("[backend-settings-sync] pull unauthorized, attempting refresh", {
+  logger.info("[backend-settings-sync] pull unauthorized, attempting refresh", {
     error: formatBackendErrorMessage(error),
   });
-  try {
-    const refreshed = await backendRefresh();
-    if (!refreshed) {
-      if (!isBackendAuthenticated()) {
-        handleBackendUnauthorized(error);
-      }
-      logger.warn("[backend-settings-sync] pull refresh failed", {
-        error: formatBackendErrorMessage(error),
-      });
-      return null;
-    }
-  } catch (refreshError) {
-    logger.warn("[backend-settings-sync] pull refresh request failed", {
-      error: refreshError instanceof Error ? refreshError.message : String(refreshError),
-    });
+  const refreshResult = await backendRefresh();
+  if (refreshResult !== "refreshed") {
     return null;
   }
 

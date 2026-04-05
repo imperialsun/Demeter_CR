@@ -11,7 +11,7 @@ import {
   parseBackendJson,
   parseBackendHttpError,
 } from "@/lib/backend-api";
-import { backendRefresh } from "@/lib/backend-auth";
+import { BackendSessionExpiredError, backendRefresh } from "@/lib/backend-auth";
 
 const DEMETER_TRANSCRIPTIONS_PATH = "/providers/demeter-sante/audio/transcriptions";
 const DEMETER_TRANSCRIPTIONS_BACKEND_PATH = "/providers/demeter-sante/audio/transcriptions/backend";
@@ -187,24 +187,16 @@ async function sendDemeterBackendOperationRequest(
     return response;
   }
 
-  logger.warn("[cloud][demeter] unauthorized during backend operation request, attempting refresh before retry", {
+  logger.info("[cloud][demeter] unauthorized during backend operation request, attempting refresh before retry", {
     path,
     method: (init.method ?? "GET").toUpperCase(),
   });
-  try {
-    const refreshed = await backendRefresh();
-    if (!refreshed) {
-      handleBackendUnauthorized(unauthorizedError);
-      return response;
-    }
-  } catch (refreshError) {
-    logger.warn("[cloud][demeter] refresh request failed during backend operation", {
-      path,
-      message: refreshError instanceof Error ? refreshError.message : String(refreshError),
-    });
-    throw new Error(`Impossible de renouveler la session backend Demeter Santé. ${formatBackendErrorMessage(refreshError)}`, {
-      cause: refreshError,
-    });
+  const refreshResult = await backendRefresh();
+  if (refreshResult === "expired") {
+    throw new BackendSessionExpiredError();
+  }
+  if (refreshResult === "failed") {
+    throw new Error("Impossible de renouveler la session backend Demeter Santé.");
   }
 
   response = await send();
@@ -500,6 +492,9 @@ export async function transcribeWithDemeterSante(
       await cancelBackendOperation();
       throw createAbortError();
     }
+    if (error instanceof BackendSessionExpiredError) {
+      throw error;
+    }
 
     const message = formatBackendErrorMessage(error);
     logger.error("[cloud][demeter] request failed", {
@@ -554,20 +549,13 @@ async function sendDemeterTranscriptionRequest(
     return response;
   }
 
-  logger.warn("[cloud][demeter] unauthorized, attempting refresh before retry");
-  try {
-    const refreshed = await backendRefresh();
-    if (!refreshed) {
-      handleBackendUnauthorized(unauthorizedError);
-      return response;
-    }
-  } catch (refreshError) {
-    logger.warn("[cloud][demeter] refresh request failed", {
-      message: refreshError instanceof Error ? refreshError.message : String(refreshError),
-    });
-    throw new Error(`Impossible de renouveler la session backend Demeter Santé. ${formatBackendErrorMessage(refreshError)}`, {
-      cause: refreshError,
-    });
+  logger.info("[cloud][demeter] unauthorized, attempting refresh before retry");
+  const refreshResult = await backendRefresh();
+  if (refreshResult === "expired") {
+    throw new BackendSessionExpiredError();
+  }
+  if (refreshResult === "failed") {
+    throw new Error("Impossible de renouveler la session backend Demeter Santé.");
   }
 
   response = await send();

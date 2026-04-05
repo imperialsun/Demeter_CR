@@ -7,6 +7,21 @@ import {
 } from "@/lib/backend-session";
 import logger from "@/lib/logger";
 
+export type BackendRefreshResult = "refreshed" | "expired" | "failed";
+
+export class BackendSessionExpiredError extends Error {
+  constructor(message = "Session backend expirée") {
+    super(message);
+    this.name = "BackendSessionExpiredError";
+  }
+}
+
+export function isBackendSessionExpiredError(error: unknown): error is BackendSessionExpiredError {
+  return error instanceof BackendSessionExpiredError;
+}
+
+let refreshInFlight: Promise<BackendRefreshResult> | null = null;
+
 export async function backendLogin(email: string, password: string): Promise<BackendSessionPayload> {
   logger.info("[backend-auth] login request", { email });
   const path = "/auth/login";
@@ -83,15 +98,40 @@ export async function backendResetPassword(token: string, password: string): Pro
   }
 }
 
-export async function backendRefresh(): Promise<boolean> {
+async function performBackendRefresh(): Promise<BackendRefreshResult> {
   logger.info("[backend-auth] refresh request");
-  const response = await backendFetch("/auth/refresh", { method: "POST" });
-  if (response.status === 401) {
-    logger.warn("[backend-auth] refresh unauthorized, invalidating session");
-    invalidateBackendSession({ redirectToLogin: false });
+  try {
+    const response = await backendFetch("/auth/refresh", { method: "POST" });
+    if (response.ok) {
+      logger.debug("[backend-auth] refresh response", { ok: true, status: response.status });
+      return "refreshed";
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      logger.info("[backend-auth] refresh session expired", { status: response.status });
+      clearBackendSession();
+      return "expired";
+    }
+
+    const error = await parseBackendHttpError(response, "/auth/refresh", "POST");
+    logger.warn("[backend-auth] refresh failed", { status: error.status, message: error.message });
+    return "failed";
+  } catch (error) {
+    logger.warn("[backend-auth] refresh request failed", {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return "failed";
   }
-  logger.debug("[backend-auth] refresh response", { ok: response.ok, status: response.status });
-  return response.ok;
+}
+
+export async function backendRefresh(): Promise<BackendRefreshResult> {
+  if (!refreshInFlight) {
+    refreshInFlight = performBackendRefresh().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+
+  return refreshInFlight;
 }
 
 export async function backendMe(): Promise<BackendSessionPayload | null> {
@@ -125,10 +165,12 @@ export async function initializeBackendSession(): Promise<BackendSessionPayload 
       return me;
     }
     logger.info("[backend-auth] session init retrying via refresh");
-    const refreshed = await backendRefresh();
-    if (!refreshed) {
-      clearBackendSession();
-      logger.warn("[backend-auth] session init failed after refresh");
+    const refreshResult = await backendRefresh();
+    if (refreshResult !== "refreshed") {
+      if (refreshResult === "failed") {
+        clearBackendSession();
+        logger.warn("[backend-auth] session init failed after refresh");
+      }
       return null;
     }
     const meAfterRefresh = await backendMe();

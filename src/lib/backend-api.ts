@@ -16,12 +16,20 @@ const DEFAULT_RETRY_INITIAL_BACKOFF_MS = 300;
 const DEFAULT_RETRY_MAX_BACKOFF_MS = 2_000;
 const RETRYABLE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const RETRYABLE_HTTP_STATUSES = new Set([404, 408, 502, 503, 504]);
+const SESSION_REFRESH_EXEMPT_PATHS = new Set([
+  "/auth/login",
+  "/auth/refresh",
+  "/auth/logout",
+  "/auth/forgot-password",
+  "/auth/reset-password",
+]);
 
 export type BackendFetchOptions = RequestInit & {
   timeoutMs?: number;
   retryAttempts?: number;
   retryInitialBackoffMs?: number;
   retryMaxBackoffMs?: number;
+  allowSessionRefresh?: boolean;
 };
 
 export class BackendTimeoutError extends Error {
@@ -172,6 +180,20 @@ function isRetryableHttpStatus(status: number): boolean {
   return RETRYABLE_HTTP_STATUSES.has(status);
 }
 
+function canAttemptSessionRefresh(path: string, init?: BackendFetchOptions): boolean {
+  if (init?.allowSessionRefresh === false) {
+    return false;
+  }
+
+  return !SESSION_REFRESH_EXEMPT_PATHS.has(path);
+}
+
+async function refreshBackendSession(): Promise<boolean> {
+  const { backendRefresh } = await import("@/lib/backend-auth");
+  const refreshResult = await backendRefresh();
+  return refreshResult === "refreshed";
+}
+
 export function isBackendRetryableTransportError(error: unknown): boolean {
   if (error instanceof BackendTimeoutError || isNetworkFetchError(error)) {
     return true;
@@ -266,12 +288,48 @@ export async function backendFetch(path: string, init?: BackendFetchOptions): Pr
   const retryInitialBackoffMs = init?.retryInitialBackoffMs ?? DEFAULT_RETRY_INITIAL_BACKOFF_MS;
   const retryMaxBackoffMs = init?.retryMaxBackoffMs ?? DEFAULT_RETRY_MAX_BACKOFF_MS;
   const timeoutMs = init?.timeoutMs ?? getDefaultTimeoutMs(method);
+  const allowSessionRefresh = canAttemptSessionRefresh(path, init);
   const startedAt = performance.now();
 
   let attempt = 0;
+  let sessionRefreshAttempted = false;
   while (true) {
     try {
       const response = await fetchWithTimeout(url, init ?? {}, path, method, timeoutMs);
+      if (response.status === 401 && allowSessionRefresh && !sessionRefreshAttempted) {
+        sessionRefreshAttempted = true;
+        logger.info("[backend-api] unauthorized response, attempting session refresh", {
+          method,
+          path,
+          url,
+        });
+
+        try {
+          const refreshed = await refreshBackendSession();
+          if (refreshed) {
+            logger.info("[backend-api] session refresh succeeded, retrying request", {
+              method,
+              path,
+              url,
+            });
+            continue;
+          }
+
+          logger.info("[backend-api] session refresh expired or unavailable", {
+            method,
+            path,
+            url,
+          });
+        } catch (error) {
+          logger.warn("[backend-api] session refresh attempt failed", {
+            method,
+            path,
+            url,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
       if (isRetryableHttpStatus(response.status) && attempt < retryAttempts) {
         const delayMs = calculateRetryDelayMs(attempt, retryInitialBackoffMs, retryMaxBackoffMs);
         logger.warn("[backend-api] retryable response", {

@@ -1,4 +1,12 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const backendAuthMocks = vi.hoisted(() => ({
+  backendRefresh: vi.fn(),
+}));
+
+vi.mock("@/lib/backend-auth", () => ({
+  backendRefresh: (...args: unknown[]) => backendAuthMocks.backendRefresh(...args),
+}));
 
 import {
   BACKEND_NETWORK_ERROR_MESSAGE,
@@ -12,6 +20,10 @@ import {
 } from "@/lib/backend-api";
 
 describe("backend-api", () => {
+  beforeEach(() => {
+    backendAuthMocks.backendRefresh.mockReset();
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -103,6 +115,35 @@ describe("backend-api", () => {
 
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries once after refreshing the backend session on 401", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("Unauthorized", { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    backendAuthMocks.backendRefresh.mockResolvedValue("refreshed");
+
+    const response = await backendFetch("/settings");
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(backendAuthMocks.backendRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not attempt session refresh on auth endpoints", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("Unauthorized", { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await backendFetch("/auth/refresh", {
+      method: "POST",
+      allowSessionRefresh: true,
+    });
+
+    expect(response.status).toBe(401);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(backendAuthMocks.backendRefresh).not.toHaveBeenCalled();
   });
 
   it("fails fast when the configured timeout expires", async () => {

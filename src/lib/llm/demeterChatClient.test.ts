@@ -8,6 +8,7 @@ const backendApiMocks = vi.hoisted(() => ({
 
 const backendAuthMocks = vi.hoisted(() => ({
   backendRefresh: vi.fn(),
+  BackendSessionExpiredError: class BackendSessionExpiredError extends Error {},
 }));
 
 vi.mock("@/lib/backend-api", async () => {
@@ -22,6 +23,7 @@ vi.mock("@/lib/backend-api", async () => {
 
 vi.mock("@/lib/backend-auth", () => ({
   backendRefresh: (...args: unknown[]) => backendAuthMocks.backendRefresh(...args),
+  BackendSessionExpiredError: backendAuthMocks.BackendSessionExpiredError,
 }));
 
 import { BACKEND_NETWORK_ERROR_MESSAGE, BackendHttpError } from "@/lib/backend-api";
@@ -36,7 +38,7 @@ describe("demeterChatClient", () => {
   });
 
   it("refreshes backend auth and retries the chat completion request when access has expired", async () => {
-    backendAuthMocks.backendRefresh.mockResolvedValue(true);
+    backendAuthMocks.backendRefresh.mockResolvedValue("refreshed");
     backendApiMocks.backendFetch
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 }))
       .mockResolvedValueOnce(
