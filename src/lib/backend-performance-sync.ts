@@ -10,15 +10,15 @@ const RETRY_DELAY_MS = 5_000;
 const FLUSH_BATCH_SIZE = 50;
 
 const TRACKED_TIMINGS: Record<string, { component: string; task: string }> = {
-  load_model_total: { component: "asr", task: "load_model_total" },
-  decode_audio_total: { component: "audio", task: "decode_audio_total" },
-  decode_audio_segment_total: { component: "audio", task: "decode_audio_segment_total" },
-  cloud_decode_ffmpeg: { component: "cloud", task: "cloud_decode_ffmpeg" },
-  cloud_preprocess: { component: "cloud", task: "cloud_preprocess" },
-  cloud_transcribe: { component: "cloud", task: "cloud_transcribe" },
-  cloud_total: { component: "cloud", task: "cloud_total" },
-  llm_local_total: { component: "llm_local", task: "llm_local_total" },
-  llm_cloud_total: { component: "llm_cloud", task: "llm_cloud_total" },
+  load_model_total: { component: "asr", task: "frontend_model_load" },
+  decode_audio_total: { component: "audio", task: "frontend_audio_decode" },
+  decode_audio_segment_total: { component: "audio", task: "frontend_audio_segment_decode" },
+  cloud_decode_ffmpeg: { component: "cloud", task: "frontend_cloud_decode_ffmpeg" },
+  cloud_preprocess: { component: "cloud", task: "frontend_cloud_preprocess" },
+  cloud_transcribe: { component: "cloud", task: "frontend_cloud_transcribe" },
+  cloud_total: { component: "cloud", task: "frontend_cloud_total" },
+  llm_local_total: { component: "llm_local", task: "frontend_llm_local_total" },
+  llm_cloud_total: { component: "llm_cloud", task: "frontend_llm_cloud_total" },
 };
 
 export type BackendPerformanceStatus = "success" | "error";

@@ -114,7 +114,7 @@ describe("backend-performance-sync", () => {
       }>
     }
     expect(payload.events).toHaveLength(2)
-    expect(payload.events.map((event) => event.task)).toEqual(["load_model_total", "llm_local_total"])
+    expect(payload.events.map((event) => event.task)).toEqual(["frontend_model_load", "frontend_llm_local_total"])
     expect(payload.events.every((event) => event.surface === "frontend")).toBe(true)
     expect(payload.events[0]?.route).toBe("/llmlocal")
     expect(payload.events[0]?.traceId).toBe("trace-performance")
