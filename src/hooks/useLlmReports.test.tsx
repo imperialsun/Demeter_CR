@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { useAsrStore } from "@/store/asr-store";
 import { useLlmReports } from "@/hooks/useLlmReports";
 
@@ -240,6 +240,123 @@ describe("useLlmReports telemetry", () => {
 
     expect(useAsrStore.getState().llmApiStatus).toBe("done");
     expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("launches the three cloud report generations in parallel and keeps the format mapping stable", async () => {
+    const pending = new Map<
+      string,
+      {
+        resolve: (value: unknown) => void;
+        reject: (reason?: unknown) => void;
+      }
+    >();
+
+    mocks.generateReportDetailedMock.mockImplementation(
+      async (params: { format: string; modelId: string }) =>
+        new Promise((resolve, reject) => {
+          pending.set(params.format, { resolve, reject });
+        })
+    );
+
+    const { result } = renderHook(() => useLlmReports());
+
+    const runPromise = act(async () => {
+      await result.current.generateAll({ source: "transcription", transcriptMode: "upload" });
+    });
+
+    await waitFor(() => {
+      expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(3);
+    });
+
+    expect(Array.from(pending.keys()).sort()).toEqual(["CRI", "CRO", "CRS"]);
+
+    pending.get("CRS")?.resolve({
+      report: {
+        format: "CRS",
+        title: "CRS title",
+        sections: [{ heading: "Section CRS", paragraphs: ["Paragraphe CRS"] }],
+      },
+      rawResponse: "crs raw",
+      strategy: "chatCompletion",
+    });
+    pending.get("CRI")?.resolve({
+      report: {
+        format: "CRI",
+        title: "CRI title",
+        sections: [{ heading: "Section CRI", paragraphs: ["Paragraphe CRI"] }],
+      },
+      rawResponse: "cri raw",
+      strategy: "chatCompletion",
+    });
+    pending.get("CRO")?.resolve({
+      report: {
+        format: "CRO",
+        title: "CRO title",
+        sections: [{ heading: "Section CRO", paragraphs: ["Paragraphe CRO"] }],
+      },
+      rawResponse: "cro raw",
+      strategy: "chatCompletion",
+    });
+
+    await runPromise;
+
+    const state = useAsrStore.getState();
+    expect(state.llmApiStatus).toBe("done");
+    expect(state.llmApiResults.cri?.report.title).toBe("CRI title");
+    expect(state.llmApiResults.cro?.report.title).toBe("CRO title");
+    expect(state.llmApiResults.crs?.report.title).toBe("CRS title");
+  });
+
+  it("fails the whole cloud batch when one format generation fails", async () => {
+    const pending = new Map<
+      string,
+      {
+        resolve: (value: unknown) => void;
+        reject: (reason?: unknown) => void;
+      }
+    >();
+
+    mocks.generateReportDetailedMock.mockImplementation(
+      async (params: { format: string; modelId: string }) =>
+        new Promise((resolve, reject) => {
+          pending.set(params.format, { resolve, reject });
+        })
+    );
+
+    const { result } = renderHook(() => useLlmReports());
+
+    const runPromise = act(async () => {
+      await result.current.generateAll({ source: "transcription", transcriptMode: "upload" });
+    });
+
+    await waitFor(() => {
+      expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(3);
+    });
+
+    pending.get("CRI")?.resolve({
+      report: {
+        format: "CRI",
+        title: "CRI title",
+        sections: [{ heading: "Section CRI", paragraphs: ["Paragraphe CRI"] }],
+      },
+      rawResponse: "cri raw",
+      strategy: "chatCompletion",
+    });
+    pending.get("CRS")?.resolve({
+      report: {
+        format: "CRS",
+        title: "CRS title",
+        sections: [{ heading: "Section CRS", paragraphs: ["Paragraphe CRS"] }],
+      },
+      rawResponse: "crs raw",
+      strategy: "chatCompletion",
+    });
+    pending.get("CRO")?.reject(new Error("CRO failed"));
+
+    await runPromise;
+
+    expect(useAsrStore.getState().llmApiStatus).toBe("error");
+    expect(useAsrStore.getState().llmApiResults).toEqual({});
   });
 
   it("fails when downloadDocx is called without generated result", async () => {

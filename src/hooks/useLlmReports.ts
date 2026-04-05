@@ -319,11 +319,10 @@ export function useLlmReports() {
           setLlmApiStatus("preparing", `Max tokens ajuste a ${effectiveGenerationMaxTokens} selon le modele`);
         }
 
-        for (let index = 0; index < FORMAT_ORDER.length; index += 1) {
-          const item = FORMAT_ORDER[index]!;
-          setLlmApiStatus("generating", `Generation ${item.format} (${index + 1}/3)`);
-          const generationProgress = 0.5 + (index / FORMAT_ORDER.length) * 0.4;
-          setLlmApiProgress(generationProgress);
+        setLlmApiStatus("generating", "Generation des 3 formats");
+        setLlmApiProgress(0.5);
+
+        const generationTasks = FORMAT_ORDER.map(async (item, index) => {
           markStage("format_generation_start", {
             format: item.format,
             sequence: index + 1,
@@ -361,6 +360,16 @@ export function useLlmReports() {
                     maxTokens: effectiveGenerationMaxTokens,
                   });
 
+          return {
+            item,
+            index,
+            generation,
+          };
+        });
+
+        const generatedReports = await Promise.all(generationTasks);
+
+        for (const { item, index, generation } of generatedReports) {
           const result: ReportResult = {
             format: item.format,
             report: generation.report,
