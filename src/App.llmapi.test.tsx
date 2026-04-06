@@ -33,6 +33,7 @@ vi.mock("@/components/layout/AppShell", () => ({
 
 vi.mock("@/routes/LocalUploadPage", () => ({ default: () => <div>LocalUploadStub</div> }));
 vi.mock("@/routes/CloudUploadPage", () => ({ default: () => <div>CloudUploadStub</div> }));
+vi.mock("@/routes/AssistantPage", () => ({ default: () => <div>AssistantStub</div> }));
 vi.mock("@/routes/LLMLocalPage", () => ({ default: () => <div>LLMLocalStub</div> }));
 vi.mock("@/routes/LLMApiPage", () => ({ default: () => <div>LLMApiStub</div> }));
 vi.mock("@/routes/SettingsPage", () => ({ default: () => <div>SettingsStub</div> }));
@@ -59,6 +60,18 @@ describe("App routing", () => {
     );
 
     expect(await screen.findByText("LLMApiStub")).toBeInTheDocument();
+  });
+
+  it("registers /assistant route", async () => {
+    isAuthenticatedMock.mockReturnValue(true);
+
+    render(
+      <MemoryRouter initialEntries={["/assistant"]}>
+        <App />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("AssistantStub")).toBeInTheDocument();
   });
 
   it("registers /llmlocal route", async () => {

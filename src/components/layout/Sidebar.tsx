@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { NavLink } from "react-router-dom";
-import { Activity, type LucideIcon, Bot, Cloud, FileText, Monitor, Settings } from "lucide-react";
+import { Activity, type LucideIcon, Bot, Cloud, FileText, Monitor, Settings, WandSparkles } from "lucide-react";
 
 import { BrandMark } from "@/components/branding/BrandMark";
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
@@ -17,6 +17,13 @@ type NavItem = {
 };
 
 const NAV_ITEMS: NavItem[] = [
+  {
+    to: "/assistant",
+    label: "Assistant",
+    icon: WandSparkles,
+    permission: "feature.assistant",
+    preload: () => import("@/routes/AssistantPage"),
+  },
   { to: "/localupload", label: "Transcription locale", icon: Monitor, permission: "feature.localupload" },
   {
     to: "/cloudupload",

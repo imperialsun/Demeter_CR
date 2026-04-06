@@ -13,6 +13,7 @@ import LoginPage from "@/routes/LoginPage";
 import ResetPasswordPage from "@/routes/ResetPasswordPage";
 
 const CloudUploadPage = lazy(() => import("@/routes/CloudUploadPage"));
+const AssistantPage = lazy(() => import("@/routes/AssistantPage"));
 const LLMApiPage = lazy(() => import("@/routes/LLMApiPage"));
 const LLMLocalPage = lazy(() => import("@/routes/LLMLocalPage"));
 const SettingsPage = lazy(() => import("@/routes/SettingsPage"));
@@ -47,10 +48,11 @@ function RequireFeature({
   const location = useLocation();
   useBackendPermissions();
   const backendMode = isBackendMode();
-  const allowed = !backendMode || canAccessFeature(permission);
+  const assistantGate = permission === "feature.assistant";
+  const allowed = assistantGate ? canAccessFeature(permission) : !backendMode || canAccessFeature(permission);
 
   useEffect(() => {
-    if (!backendMode) {
+    if (!backendMode && !assistantGate) {
       logger.debug("[route] feature gate bypassed in standalone mode", {
         path: location.pathname,
         permission,
@@ -62,9 +64,9 @@ function RequireFeature({
       return;
     }
     logger.warn("[route] feature gate denied", { path: location.pathname, permission });
-  }, [allowed, backendMode, location.pathname, permission]);
+  }, [allowed, assistantGate, backendMode, location.pathname, permission]);
 
-  if (!backendMode) {
+  if (!backendMode && !assistantGate) {
     return <>{children}</>;
   }
 
@@ -138,6 +140,14 @@ function App() {
           element={
             <RequireFeature permission="feature.cloudupload">
               <CloudUploadPage />
+            </RequireFeature>
+          }
+        />
+        <Route
+          path="/assistant"
+          element={
+            <RequireFeature permission="feature.assistant">
+              <AssistantPage />
             </RequireFeature>
           }
         />

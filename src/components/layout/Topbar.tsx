@@ -253,7 +253,7 @@ export function Topbar() {
   const normalizedPathname = location.pathname.replace(/\/+$/, "") || "/";
   const isLocalUploadRoute = normalizedPathname === "/localupload";
   const canOpenSettings = canAccessFeature("feature.settings");
-  const isCloudRoute = location.pathname === "/cloudupload";
+  const isCloudRoute = location.pathname === "/cloudupload" || location.pathname === "/assistant";
   const isLlmRoute = location.pathname === "/llmapi";
   const isLlmLocalRoute = location.pathname === "/llmlocal";
   const activeLlmPipelineConfig = resolveActiveLlmPipelineConfig(

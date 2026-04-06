@@ -5,6 +5,7 @@ import { isBackendMode } from "@/lib/runtime-config";
 export type FeaturePermission =
   | "feature.localupload"
   | "feature.cloudupload"
+  | "feature.assistant"
   | "feature.llmlocal"
   | "feature.llmapi"
   | "feature.settings"
@@ -13,6 +14,7 @@ export type FeaturePermission =
 export type AppRoute =
   | "/localupload"
   | "/cloudupload"
+  | "/assistant"
   | "/llmlocal"
   | "/llmapi"
   | "/settings"
@@ -26,6 +28,7 @@ export type SettingsTabId = "local" | "cloud" | "llmlocal" | "llm";
 const FEATURE_ROUTE_ORDER: Array<{ route: Exclude<AppRoute, "/forbidden">; feature: FeaturePermission }> = [
   { route: "/localupload", feature: "feature.localupload" },
   { route: "/cloudupload", feature: "feature.cloudupload" },
+  { route: "/assistant", feature: "feature.assistant" },
   { route: "/llmlocal", feature: "feature.llmlocal" },
   { route: "/llmapi", feature: "feature.llmapi" },
   { route: "/settings", feature: "feature.settings" },
@@ -69,6 +72,9 @@ function hasPermission(code: string): boolean {
 }
 
 export function canAccessFeature(feature: FeaturePermission): boolean {
+  if (feature === "feature.assistant") {
+    return isBackendMode() && hasPermission(CLOUD_PROVIDER_PERMISSION_MAP.demeter_sante);
+  }
   return hasPermission(feature);
 }
 

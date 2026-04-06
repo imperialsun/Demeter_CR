@@ -136,6 +136,30 @@ describe("AudioUploader component", () => {
     expect(screen.getByText(/Fichier très long/i)).toBeInTheDocument();
   });
 
+  it("hides the drop zone after metadata is present when requested", () => {
+    const onFileSelected = vi.fn();
+    const { rerender } = render(<AudioUploader onFileSelected={onFileSelected} hideDropZoneWhenMetadata />);
+
+    expect(screen.getByRole("button", { name: /Déposez votre fichier ici/i })).toBeInTheDocument();
+
+    rerender(
+      <AudioUploader
+        onFileSelected={onFileSelected}
+        hideDropZoneWhenMetadata
+        metadata={{
+          name: "selected.wav",
+          durationSec: 42,
+          mimeType: "audio/wav",
+          sizeBytes: 2048,
+          sampleRate: 16000,
+        }}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: /Déposez votre fichier ici/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /Changer de fichier/i })).toBeInTheDocument();
+  });
+
   it("shows fallback duration when duration is not finite", () => {
     render(
       <AudioUploader

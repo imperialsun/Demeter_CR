@@ -21,7 +21,7 @@ export function AppShell({ children, className }: AppShellProps) {
   const cloudStatus = useAsrStore((state) => state.cloudStatus);
   const resetSession = useAsrStore((state) => state.resetSession);
   const normalizedPathname = location.pathname.replace(/\/+$/, "") || "/";
-  const isCloudUploadRoute = normalizedPathname === "/cloudupload";
+  const isCloudWorkflowRoute = normalizedPathname === "/cloudupload" || normalizedPathname === "/assistant";
 
   React.useEffect(() => {
     logger.info("[app-shell] mounted");
@@ -33,7 +33,7 @@ export function AppShell({ children, className }: AppShellProps) {
   React.useEffect(() => {
     if (typeof document === "undefined") return;
     const baseTitle = "Demeter Speech";
-    if (isCloudUploadRoute) {
+    if (isCloudWorkflowRoute) {
       const cloudTitleLabel = getCloudProgressTitleLabel(cloudStatus);
       if (cloudTitleLabel) {
         const pct = Math.round(Math.min(1, Math.max(0, progress)) * 100);
@@ -47,7 +47,7 @@ export function AppShell({ children, className }: AppShellProps) {
     } else {
       document.title = baseTitle;
     }
-  }, [cloudStatus, isCloudUploadRoute, isTranscribing, progress]);
+  }, [cloudStatus, isCloudWorkflowRoute, isTranscribing, progress]);
 
   React.useEffect(() => {
     logger.info("[app-shell] resetting session state on shell mount");

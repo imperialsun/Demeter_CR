@@ -33,6 +33,7 @@ export interface BackendSessionChangeDetail {
 const ROUTE_PERMISSION_MAP: Array<{ path: string; permission: string }> = [
   { path: "/localupload", permission: "feature.localupload" },
   { path: "/cloudupload", permission: "feature.cloudupload" },
+  { path: "/assistant", permission: "provider.cloud.demeter_sante" },
   { path: "/llmlocal", permission: "feature.llmlocal" },
   { path: "/llmapi", permission: "feature.llmapi" },
   { path: "/settings", permission: "feature.settings" },

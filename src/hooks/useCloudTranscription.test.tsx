@@ -204,11 +204,13 @@ vi.mock("@/lib/ffmpeg-loader", () => ({
 function HookHarness({
   provider,
   onReady,
+  options,
 }: {
   provider: "whisper" | "mistral" | "demeter_sante";
   onReady: (api: ReturnType<typeof useCloudTranscription>) => void;
+  options?: Parameters<typeof useCloudTranscription>[1];
 }) {
-  const api = useCloudTranscription(provider);
+  const api = useCloudTranscription(provider, options);
   useEffect(() => {
     onReady(api);
   }, [api, onReady]);
@@ -501,12 +503,48 @@ describe("useCloudTranscription", () => {
     await waitFor(() => {
       expect(api.status).toBe("done");
     });
+    expect(mocks.stageCloudSegments).toHaveBeenCalledTimes(1);
     const exportedSegments = await api.loadAllSegmentsForExport();
     expect(exportedSegments[0]?.speaker).toBe("SPEAKER_00");
     expect(mocks.transcribeWithDemeterSante).toHaveBeenCalledTimes(1);
     expect(mocks.transcribeWithDemeterSante).toHaveBeenCalledWith(
       expect.objectContaining({
         diarize: false,
+      }),
+      expect.anything()
+    );
+  });
+
+  it("forces demeter backend direct in assistant mode even for short files", async () => {
+    let api!: ReturnType<typeof useCloudTranscription>;
+    render(
+      <HookHarness
+        provider="demeter_sante"
+        options={{ forceDemeterBackendDirect: true }}
+        onReady={(value) => (api = value)}
+      />
+    );
+    const file = new File(["a"], "short-audio.wav", { type: "audio/wav" });
+
+    await act(async () => {
+      await api.handleFileSelected(file);
+    });
+    await act(async () => {
+      await api.startTranscription();
+    });
+
+    await waitFor(() => {
+      expect(api.status).toBe("done");
+    });
+
+    expect(mocks.stageCloudSegments).not.toHaveBeenCalled();
+    expect(mocks.transcribeWithDemeterSante).toHaveBeenCalledTimes(1);
+    expect(mocks.transcribeWithDemeterSante).toHaveBeenCalledWith(
+      expect.objectContaining({
+        backendDirect: true,
+        durationSec: 10,
+        diarize: false,
+        model: "voxtral-demeter-latest",
       }),
       expect.anything()
     );

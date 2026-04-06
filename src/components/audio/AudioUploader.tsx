@@ -12,6 +12,7 @@ interface AudioUploaderProps {
   onFileSelected: (file: File) => void;
   metadata?: AudioMetadata | null;
   disabled?: boolean;
+  hideDropZoneWhenMetadata?: boolean;
   title?: string;
   description?: string;
   formatsHint?: string;
@@ -20,7 +21,15 @@ interface AudioUploaderProps {
 const WARNING_DURATION_SEC = 3600;
 const HARD_WARNING_DURATION_SEC = 7200;
 
-export function AudioUploader({ onFileSelected, metadata, disabled, title, description, formatsHint }: AudioUploaderProps) {
+export function AudioUploader({
+  onFileSelected,
+  metadata,
+  disabled,
+  hideDropZoneWhenMetadata,
+  title,
+  description,
+  formatsHint,
+}: AudioUploaderProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -75,6 +84,7 @@ export function AudioUploader({ onFileSelected, metadata, disabled, title, descr
     },
     [handleFiles, disabled]
   );
+  const showDropZone = !(hideDropZoneWhenMetadata && metadata);
 
   const pickFile = useCallback(() => {
     try {
@@ -127,7 +137,7 @@ export function AudioUploader({ onFileSelected, metadata, disabled, title, descr
     if (!metadata) return null;
     if (metadata.durationSec >= HARD_WARNING_DURATION_SEC) {
       return (
-        <div className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div className="flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1 text-[11px] leading-snug text-destructive">
           <AlertTriangle className="h-4 w-4" />
           Fichier très long (&gt; 2 h). Préférez le mode progressif et vérifiez le chunking.
         </div>
@@ -135,7 +145,7 @@ export function AudioUploader({ onFileSelected, metadata, disabled, title, descr
     }
     if (metadata.durationSec >= WARNING_DURATION_SEC) {
       return (
-        <div className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-500">
+        <div className="flex items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px] leading-snug text-amber-500">
           <AlertTriangle className="h-4 w-4" />
           Durée &gt; 1 h : surveillez la mémoire et activez le mode progressif.
         </div>
@@ -143,6 +153,7 @@ export function AudioUploader({ onFileSelected, metadata, disabled, title, descr
     }
     return null;
   };
+  const durationWarning = renderDurationWarning();
 
   return (
     <Card className="overflow-hidden">
@@ -152,78 +163,86 @@ export function AudioUploader({ onFileSelected, metadata, disabled, title, descr
           {description ?? "Glissez-déposez un fichier MP3, WAV ou M4A. Tout est traité localement dans Chrome."}
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div
-          onDragOver={(event) => {
-            event.preventDefault();
-            if (!disabled) {
-              if (!isDragging) {
-                logger.debug("[audio-uploader] drag over started");
+      <CardContent className="space-y-3">
+        {showDropZone ? (
+          <div
+            onDragOver={(event) => {
+              event.preventDefault();
+              if (!disabled) {
+                if (!isDragging) {
+                  logger.debug("[audio-uploader] drag over started");
+                }
+                setIsDragging(true);
               }
-              setIsDragging(true);
-            }
-          }}
-          onDragLeave={() => {
-            logger.debug("[audio-uploader] drag leave");
-            setIsDragging(false);
-          }}
-          onDrop={handleDrop}
-          role="button"
-          tabIndex={0}
-          className={cn(
-            "flex min-h-[200px] cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-border bg-muted/30 p-6 text-center transition focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
-            isDragging && !disabled ? "border-primary bg-primary/10" : "",
-            disabled ? "cursor-not-allowed opacity-60" : ""
-          )}
-          onClick={disabled ? undefined : pickFile}
-        >
-          <UploadCloud className="mb-4 h-10 w-10 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">
-            Déposez votre fichier ici ou <span className="text-primary">cliquez</span> pour parcourir.
-          </p>
-          <p className="text-xs text-muted-foreground/80">
-            {formatsHint ?? "Formats supportés : mp3, wav, m4a, ogg, webm."}
-          </p>
-          {/* keep the input in the DOM (not display:none) so programmatic click reliably opens the file picker across browsers */}
-          <Input
-            ref={inputRef}
-            type="file"
-            accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,audio/aac,audio/ogg,audio/webm"
-            className="sr-only absolute w-0 h-0 opacity-0"
-            onChange={(event) => { logger.debug("[audio-uploader] input change", { files: event.target.files?.length }); handleFiles(event.target.files); }}
-            onClick={() => logger.debug("[audio-uploader] input clicked")}
-            onFocus={() => logger.debug("[audio-uploader] input focused")}
-            disabled={disabled}
-          />
-        </div>
+            }}
+            onDragLeave={() => {
+              logger.debug("[audio-uploader] drag leave");
+              setIsDragging(false);
+            }}
+            onDrop={handleDrop}
+            role="button"
+            tabIndex={0}
+            className={cn(
+              "flex min-h-[200px] cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-border bg-muted/30 p-6 text-center transition focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+              isDragging && !disabled ? "border-primary bg-primary/10" : "",
+              disabled ? "cursor-not-allowed opacity-60" : ""
+            )}
+            onClick={disabled ? undefined : pickFile}
+          >
+            <UploadCloud className="mb-4 h-10 w-10 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">
+              Déposez votre fichier ici ou <span className="text-primary">cliquez</span> pour parcourir.
+            </p>
+            <p className="text-xs text-muted-foreground/80">
+              {formatsHint ?? "Formats supportés : mp3, wav, m4a, ogg, webm."}
+            </p>
+            {/* keep the input in the DOM (not display:none) so programmatic click reliably opens the file picker across browsers */}
+            <Input
+              ref={inputRef}
+              type="file"
+              accept="audio/mpeg,audio/wav,audio/x-wav,audio/mp4,audio/x-m4a,audio/aac,audio/ogg,audio/webm"
+              className="sr-only absolute w-0 h-0 opacity-0"
+              onChange={(event) => { logger.debug("[audio-uploader] input change", { files: event.target.files?.length }); handleFiles(event.target.files); }}
+              onClick={() => logger.debug("[audio-uploader] input clicked")}
+              onFocus={() => logger.debug("[audio-uploader] input focused")}
+              disabled={disabled}
+            />
+          </div>
+        ) : null}
 
         {metadata ? (
-          <div className="rounded-md border bg-background/60 p-4 text-sm">
-            <div className="flex flex-wrap items-start gap-2 text-muted-foreground">
-              <FileAudio className="h-4 w-4" />
-              <span className="min-w-0 flex-1 break-all [overflow-wrap:anywhere]">{metadata.name ?? "Fichier choisi"}</span>
-              <Badge variant="outline">{metadata.mimeType ?? "Type inconnu"}</Badge>
+          <div className="rounded-md border bg-background/60 p-3 text-xs">
+            <div className="flex flex-wrap items-center gap-2">
+              <FileAudio className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 break-all [overflow-wrap:anywhere] text-sm font-medium text-foreground">
+                {metadata.name ?? "Fichier choisi"}
+              </span>
+              <Badge variant="outline" className="h-5 px-2 text-[10px]">
+                {metadata.mimeType ?? "Type inconnu"}
+              </Badge>
             </div>
-            <dl className="mt-2 grid gap-1 text-sm text-muted-foreground">
-              <div className="flex justify-between">
-                <dt>Durée</dt>
-                <dd>{formatDuration(metadata.durationSec)}</dd>
+
+            <div className="mt-2 flex flex-wrap gap-2">
+              <div className="inline-flex items-center gap-1 rounded-full border bg-background/80 px-2 py-0.5">
+                <span className="font-medium text-muted-foreground">Durée</span>
+                <span className="text-foreground">{formatDuration(metadata.durationSec)}</span>
               </div>
-              <div className="flex justify-between">
-                <dt>Taille</dt>
-                <dd>{metadata.sizeBytes ? formatBytes(metadata.sizeBytes) : "—"}</dd>
+              <div className="inline-flex items-center gap-1 rounded-full border bg-background/80 px-2 py-0.5">
+                <span className="font-medium text-muted-foreground">Taille</span>
+                <span className="text-foreground">{metadata.sizeBytes ? formatBytes(metadata.sizeBytes) : "—"}</span>
               </div>
-              <div className="flex justify-between">
-                <dt>Sample rate</dt>
-                <dd>{metadata.sampleRate ? `${metadata.sampleRate} Hz` : "Inconnu"}</dd>
+              <div className="inline-flex items-center gap-1 rounded-full border bg-background/80 px-2 py-0.5">
+                <span className="font-medium text-muted-foreground">Sample rate</span>
+                <span className="text-foreground">{metadata.sampleRate ? `${metadata.sampleRate} Hz` : "Inconnu"}</span>
               </div>
-            </dl>
-            <div className="mt-3 flex justify-end">
-              <Button variant="ghost" size="sm" onClick={pickFile} disabled={disabled}>
+            </div>
+
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0 flex-1">{durationWarning}</div>
+              <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={pickFile} disabled={disabled}>
                 Changer de fichier
               </Button>
             </div>
-            <div className="mt-3">{renderDurationWarning()}</div>
           </div>
         ) : null}
       </CardContent>

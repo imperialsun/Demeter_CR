@@ -61,6 +61,10 @@ type PreparedUploadInfo = {
   totalChunks: number;
 };
 
+type CloudTranscriptionOptions = {
+  forceDemeterBackendDirect?: boolean;
+};
+
 type CloudSegmentWindow = {
   start: number;
   end: number;
@@ -102,7 +106,11 @@ function buildUploadFileFromCache(cached: CachedSegment, staged: CloudStagedSegm
   });
 }
 
-export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter_sante") {
+export function useCloudTranscription(
+  provider: "whisper" | "mistral" | "demeter_sante",
+  options: CloudTranscriptionOptions = {}
+) {
+  const forceDemeterBackendDirect = options.forceDemeterBackendDirect ?? false;
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [audioMetadata, setAudioMetadata] = useState<AudioMetadata | null>(null);
@@ -938,7 +946,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     };
 
     try {
-      logger.info("[cloud][demeter] long audio routed to backend", {
+      logger.info("[cloud][demeter] backend direct route selected", {
         runId,
         fileName: sourceFile.name,
         mimeType: sourceFile.type || "application/octet-stream",
@@ -947,7 +955,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
         thresholdSec: CLOUD_LONG_AUDIO_BACKEND_THRESHOLD_SEC,
       });
       telemetry.logEvent("LOG_INFO", {
-        context: "cloud_demeter_long_audio_backend_direct",
+        context: "cloud_demeter_backend_direct",
         provider: "demeter_sante",
         runId,
         fileName: sourceFile.name,
@@ -958,7 +966,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       });
 
       setStatus("uploading");
-      setStatusDetail("Audio long, traitement backend");
+      setStatusDetail("Envoi direct au backend Demeter");
       setProgress(0.5);
       setPreparedUpload({
         provider: "demeter_sante",
@@ -1659,7 +1667,6 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
     activeTranscriptProviderRef.current = provider;
     setIsTranscribing(true);
     let backendDirectRoute = false;
-
     try {
       const metadata = audioMetadata ?? await probeAudioMetadata(currentFile);
       if (!audioMetadata) {
@@ -1757,7 +1764,9 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
       };
 
       backendDirectRoute =
-        isDemeter && Number.isFinite(metadata.durationSec) && metadata.durationSec > CLOUD_LONG_AUDIO_BACKEND_THRESHOLD_SEC;
+        isDemeter &&
+        (forceDemeterBackendDirect ||
+          (Number.isFinite(metadata.durationSec) && metadata.durationSec > CLOUD_LONG_AUDIO_BACKEND_THRESHOLD_SEC));
 
       const backendDemeterChunking = resolveEffectiveDemeterChunking(
         settings.cloudDemeterChunkDurationSec,
@@ -1863,7 +1872,7 @@ export function useCloudTranscription(provider: "whisper" | "mistral" | "demeter
 
       if (backendDirectRoute) {
         setStatus("uploading");
-        setStatusDetail("Audio long, traitement backend");
+        setStatusDetail("Envoi direct au backend Demeter");
         setPreparedUpload(null);
         await runDemeterBackendDirectTranscription({
           runId,
