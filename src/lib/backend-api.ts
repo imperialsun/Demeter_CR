@@ -1,4 +1,5 @@
 import { invalidateBackendSession } from "@/lib/backend-session";
+import { backendRefresh } from "@/lib/backend-auth";
 import { getRuntimeConfig } from "@/lib/runtime-config";
 import logger from "@/lib/logger";
 
@@ -189,7 +190,6 @@ function canAttemptSessionRefresh(path: string, init?: BackendFetchOptions): boo
 }
 
 async function refreshBackendSession(): Promise<boolean> {
-  const { backendRefresh } = await import("@/lib/backend-auth");
   const refreshResult = await backendRefresh();
   return refreshResult === "refreshed";
 }

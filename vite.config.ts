@@ -84,6 +84,7 @@ export default defineConfig(({ mode }) => {
     build: {
       sourcemap: false,
       manifest: true,
+      chunkSizeWarningLimit: 1500,
       minify: 'terser',
       terserOptions,
       rollupOptions: {
