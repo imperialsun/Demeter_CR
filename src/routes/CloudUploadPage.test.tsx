@@ -118,6 +118,31 @@ describe("CloudUploadPage", () => {
     expect(screen.getByRole("button", { name: /^Télécharger en DOCX$/i })).toBeInTheDocument();
   });
 
+  it("shows a strong local-processing warning only during preprocessing", () => {
+    const hookValue = createHookValue({
+      status: "preprocessing",
+      statusDetail: "Préparation locale des segments",
+    });
+    vi.spyOn(cloudHook, "useCloudTranscription").mockImplementation(() => hookValue);
+
+    const { rerender } = renderWithStore(<CloudUploadPage />);
+
+    expect(screen.getByText("Traitement local en cours")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Gardez cet onglet ouvert jusqu'à la fin pour éviter toute interruption/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Chrome peut ralentir les tâches en arrière-plan/i)
+    ).toBeInTheDocument();
+
+    for (const nextStatus of ["uploading", "transcribing", "done", "idle"] as const) {
+      hookValue.status = nextStatus;
+      hookValue.statusDetail = nextStatus === "idle" ? null : `Status ${nextStatus}`;
+      rerender(<CloudUploadPage />);
+      expect(screen.queryByText("Traitement local en cours")).toBeNull();
+    }
+  });
+
   it("renders the cloud upload UI with remaining providers", () => {
     renderWithStore(<CloudUploadPage />, {
       cloudMaxTokens: 2048,

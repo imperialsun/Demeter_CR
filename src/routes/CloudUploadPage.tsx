@@ -19,7 +19,7 @@ import { useVirtualizedList } from "@/hooks/useVirtualizedList";
 import { canUseCloudProvider } from "@/lib/backend-permissions";
 import logger from "@/lib/logger";
 import { SESSION_ONLY_SECRET_NOTICE } from "@/lib/secret-storage-copy";
-import { Loader2, PauseCircle, Play, Cloud } from "lucide-react";
+import { AlertTriangle, Loader2, PauseCircle, Play, Cloud } from "lucide-react";
 import { isBackendMode } from "@/lib/runtime-config";
 
 const CLOUD_HF_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans cle API Hugging Face.";
@@ -320,6 +320,7 @@ function CloudUploadPage() {
   const canStartTranscription =
     hasAllowedProvider && isCurrentProviderAllowed && !isWhisperTokenMissing && !isMistralTokenMissing;
   const percent = Math.round(progress * 100);
+  const showLocalPreparationWarning = status === "preprocessing";
 
   return (
     <div className="space-y-8">
@@ -462,6 +463,22 @@ function CloudUploadPage() {
                 </Badge>
                 {statusDetail ? <span className="min-w-0 break-words text-sm text-muted-foreground">{statusDetail}</span> : null}
               </div>
+              {showLocalPreparationWarning ? (
+                <div className="rounded-xl border border-amber-500/70 bg-amber-500/10 px-4 py-3 text-sm text-amber-950 shadow-sm dark:text-amber-100">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+                    <div className="space-y-1">
+                      <p className="font-semibold">Traitement local en cours</p>
+                      <p className="leading-snug">
+                        Gardez cet onglet ouvert jusqu'à la fin pour éviter toute interruption.
+                      </p>
+                      <p className="text-xs leading-snug text-amber-800/90 dark:text-amber-200/90">
+                        Chrome peut ralentir les tâches en arrière-plan.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
               <Progress value={percent} className="h-2 w-full" />
               <p className="text-xs text-muted-foreground">{percent}%</p>
               {preparedUpload ? (
