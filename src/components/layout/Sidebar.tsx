@@ -115,7 +115,7 @@ export function Sidebar() {
           </NavLink>
         ))}
       </nav>
-      <p className="mt-6 text-xs text-muted-foreground">Whisper sur Transformers.js — Chrome uniquement</p>
+      <p className="mt-6 text-xs text-muted-foreground">Transcription locale et distante · Chrome uniquement</p>
     </aside>
   );
 }

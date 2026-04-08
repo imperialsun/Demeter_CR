@@ -45,6 +45,8 @@ import { createSessionTranscriptMemoryEntry } from "@/lib/sessionTranscriptMemor
 import { buildSpeakerAwareTranscriptText } from "@/lib/speakerAssignments";
 import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
 import { trackBackendPerformanceSummary } from "@/lib/backend-performance-sync";
+import { BACKGROUND_RESUME_MESSAGE } from "@/lib/transcriptionVisibility";
+import { useDocumentVisibility } from "@/lib/documentVisibility";
 
 const sharedAbortRef: { current: AbortController | null } = { current: null };
 const sharedRunIdRef: { current: number } = { current: 0 };
@@ -95,6 +97,9 @@ export function useTranscriptionController() {
   const segmentationThrottleRef = useRef(0);
   const preprocessThrottleRef = useRef(0);
   const errorResetTimeoutRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
+  const visibilitySnapshot = useDocumentVisibility();
+  const resumeAfterVisibilityRef = useRef(false);
+  const activeUploadFileRef = useRef<File | null>(null);
   const throttleMs = 120;
 
   const isTranscribing = useAsrStore((state) => state.isTranscribing);
@@ -941,6 +946,8 @@ export function useTranscriptionController() {
     clearErrorResetTimer();
     const runId = sharedRunIdRef.current + 1;
     sharedRunIdRef.current = runId;
+    resumeAfterVisibilityRef.current = false;
+    activeUploadFileRef.current = file;
     state.clearLocalUploadModelSizeAlert();
     let modelSizeAlertSeverityForRun: ModelSizeForegroundAlert["severity"] | null = null;
     const setModelSizeAlertForRun = (
@@ -1381,6 +1388,7 @@ export function useTranscriptionController() {
       });
       toast("Transcription terminée.");
       state.setStatus("ready", "Prêt");
+      resumeAfterVisibilityRef.current = false;
     } catch (error) {
       const runInvalidated = runId !== sharedRunIdRef.current || (error as DOMException)?.name === "AbortError";
       if (runInvalidated) {
@@ -1483,6 +1491,9 @@ export function useTranscriptionController() {
         state.registerTelemetry(null);
         scheduleErrorReset(runId);
       } else {
+        if (resumeAfterVisibilityRef.current && !state.stopRequested) {
+          state.setStatus("idle", BACKGROUND_RESUME_MESSAGE);
+        }
         state.setIsTranscribing(false);
         state.resetStopRequest();
         state.registerTelemetry(null);
@@ -1496,6 +1507,7 @@ export function useTranscriptionController() {
     if (!state.isTranscribing) return;
     state.requestStop();
     state.setStatus("stopping", "Arrêt après le chunk courant");
+    resumeAfterVisibilityRef.current = false;
   }, []);
 
   // Immediately abort any in-progress transcription (used for reset/cleanup)
@@ -1504,6 +1516,8 @@ export function useTranscriptionController() {
     sharedRunIdRef.current += 1;
     clearErrorResetTimer();
     const state = useAsrStore.getState();
+    resumeAfterVisibilityRef.current = false;
+    activeUploadFileRef.current = null;
     if (!state.isTranscribing) {
       state.resetStopRequest();
       state.registerTelemetry(null);
@@ -1546,6 +1560,40 @@ export function useTranscriptionController() {
       tick();
     });
   }, [clearErrorResetTimer]);
+
+  useEffect(() => {
+    if (visibilitySnapshot.hidden) {
+      const state = useAsrStore.getState();
+      if (state.isTranscribing && !state.stopRequested) {
+        resumeAfterVisibilityRef.current = true;
+        state.setStatus("transcribing", BACKGROUND_RESUME_MESSAGE);
+      }
+      return;
+    }
+
+    if (!resumeAfterVisibilityRef.current) {
+      return;
+    }
+
+    if (isTranscribing) {
+      return;
+    }
+
+    const state = useAsrStore.getState();
+    if (state.stopRequested) {
+      resumeAfterVisibilityRef.current = false;
+      return;
+    }
+
+    const file = activeUploadFileRef.current ?? state.uploadedFile;
+    if (!file) {
+      resumeAfterVisibilityRef.current = false;
+      return;
+    }
+
+    resumeAfterVisibilityRef.current = false;
+    void startUploadTranscription(file);
+  }, [isTranscribing, startUploadTranscription, visibilitySnapshot.hidden]);
 
   return {
     startUploadTranscription,

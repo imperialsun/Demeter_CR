@@ -44,10 +44,12 @@ import {
   resolveSegmentSpeakerDisplay,
   type SpeakerAssignmentMap,
 } from "@/lib/speakerAssignments";
+import { BACKGROUND_RESUME_MESSAGE } from "@/lib/transcriptionVisibility";
 import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
 import { trackBackendPerformanceSummary } from "@/lib/backend-performance-sync";
 import { releaseFfmpeg } from "@/lib/ffmpeg-loader";
 import { type CloudTranscriptionChunkGroup } from "@/lib/cloud/transcriptionChunks";
+import { useDocumentVisibility } from "@/lib/documentVisibility";
 import {
   appendCloudTranscriptChunkSegments,
   deleteCloudTranscriptSession,
@@ -131,6 +133,7 @@ export function useCloudTranscription(
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isResettingSession, setIsResettingSession] = useState(false);
   const [stopRequested, setStopRequested] = useState(false);
+  const visibilitySnapshot = useDocumentVisibility();
 
   const runIdRef = useRef(0);
   const cloudSessionIdRef = useRef<string | null>(null);
@@ -146,6 +149,7 @@ export function useCloudTranscription(
   const runAbortControllerRef = useRef<AbortController | null>(null);
   const backendDirectSeenChunkIdsRef = useRef<Set<string>>(new Set());
   const backendDirectAppendQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const resumeAfterVisibilityRef = useRef(false);
 
   const hfApiToken = useAsrStore((s) => s.hfApiToken);
   const cloudMistralApiUrl = useAsrStore((s) => s.cloudMistralApiUrl);
@@ -228,6 +232,7 @@ export function useCloudTranscription(
       }
       stopRequestedRef.current = false;
       runAbortControllerRef.current = null;
+      resumeAfterVisibilityRef.current = false;
       backendDirectSeenChunkIdsRef.current.clear();
       backendDirectAppendQueueRef.current = Promise.resolve();
       telemetryRef.current = null;
@@ -621,6 +626,7 @@ export function useCloudTranscription(
     setStatusDetail("Fichier chargé, prêt à lancer");
     setProgress(0);
     setStopRequested(false);
+    resumeAfterVisibilityRef.current = false;
     if (previewUrl) {
       try {
         URL.revokeObjectURL(previewUrl);
@@ -671,6 +677,7 @@ export function useCloudTranscription(
     setStatus("stopping");
     setStatusDetail("Arrêt demandé");
     runAbortControllerRef.current?.abort();
+    resumeAfterVisibilityRef.current = false;
     const telemetry = telemetryRef.current;
     telemetry?.logEvent("STOP_REQUESTED", { context: "cloud" });
     logger.info("[cloud] stop requested", { provider });
@@ -864,6 +871,7 @@ export function useCloudTranscription(
       setProgress(1);
       setStatus("done");
       setStatusDetail("Transcription terminée");
+      resumeAfterVisibilityRef.current = false;
       runCompletedRef.current = true;
     } catch (error) {
       telemetry.stopTimer("cloud_preprocess");
@@ -1109,6 +1117,7 @@ export function useCloudTranscription(
         provider: "demeter_sante",
         routeMode: "backend_direct",
       });
+      resumeAfterVisibilityRef.current = false;
       runCompletedRef.current = true;
     } catch (error) {
       telemetry.stopTimer("cloud_transcribe");
@@ -1624,6 +1633,7 @@ export function useCloudTranscription(
       setProgress(1);
       setStatus("done");
       setStatusDetail("Transcription terminée");
+      resumeAfterVisibilityRef.current = false;
       runCompletedRef.current = true;
     } catch (error) {
       telemetry.stopTimer("cloud_preprocess");
@@ -1666,6 +1676,7 @@ export function useCloudTranscription(
     telemetry.startTimer("cloud_total");
     runCompletedRef.current = false;
     runExpiredRef.current = false;
+    resumeAfterVisibilityRef.current = false;
     await discardCloudTranscriptCache();
     logger.info("[cloud] transcription run requested", {
       provider,
@@ -1969,6 +1980,7 @@ export function useCloudTranscription(
     } catch (err) {
       if (isBackendSessionExpiredError(err)) {
         runExpiredRef.current = true;
+        resumeAfterVisibilityRef.current = false;
         setStatus("idle");
         setStatusDetail("Session expirée");
         setProgress(0);
@@ -1981,6 +1993,7 @@ export function useCloudTranscription(
         const refreshResult = await backendRefresh();
         if (refreshResult === "expired") {
           runExpiredRef.current = true;
+          resumeAfterVisibilityRef.current = false;
           setStatus("idle");
           setStatusDetail("Session expirée");
           setProgress(0);
@@ -1991,7 +2004,11 @@ export function useCloudTranscription(
         }
       }
       const message = unauthorized || forbidden ? formatBackendErrorMessage(err) : (err as Error)?.message ?? "Erreur inconnue";
-      if (stopRequestedRef.current || runIdRef.current !== runId) {
+      if (
+        stopRequestedRef.current ||
+        runIdRef.current !== runId ||
+        (err instanceof Error && err.name === "AbortError")
+      ) {
         logger.info("[cloud] run aborted", { message });
         return;
       }
@@ -2039,7 +2056,11 @@ export function useCloudTranscription(
       }
       setPreparedUpload(null);
       setPreviewUrl(null);
-      if (stopRequestedRef.current && status !== "error") {
+      if (resumeAfterVisibilityRef.current && !runCompletedRef.current && status !== "error") {
+        setStatus("idle");
+        setStatusDetail(BACKGROUND_RESUME_MESSAGE);
+        setProgress(0);
+      } else if (stopRequestedRef.current && status !== "error") {
         setStatus("idle");
         setStatusDetail("Arrêté");
         setProgress(0);
@@ -2064,6 +2085,38 @@ export function useCloudTranscription(
     setGlobalTelemetrySummary,
     selectedFile,
     status,
+  ]);
+
+  useEffect(() => {
+    if (visibilitySnapshot.hidden) {
+      if (isTranscribing && !stopRequestedRef.current && !runCompletedRef.current) {
+        resumeAfterVisibilityRef.current = true;
+        setStatusDetail(BACKGROUND_RESUME_MESSAGE);
+      }
+      return;
+    }
+
+    if (!resumeAfterVisibilityRef.current) {
+      return;
+    }
+
+    if (isResettingSession || stopRequestedRef.current || runCompletedRef.current || !selectedFile) {
+      resumeAfterVisibilityRef.current = false;
+      return;
+    }
+
+    if (isTranscribing) {
+      return;
+    }
+
+    resumeAfterVisibilityRef.current = false;
+    void startTranscription();
+  }, [
+    isResettingSession,
+    isTranscribing,
+    selectedFile,
+    startTranscription,
+    visibilitySnapshot.hidden,
   ]);
 
   return {

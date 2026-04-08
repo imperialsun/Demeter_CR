@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ResultsTable } from "@/components/results/ResultsTable";
 import { SpeakerAssignmentDialog } from "@/components/results/SpeakerAssignmentDialog";
+import { TooltipButton } from "@/components/ui/tooltip-button";
 import { formatCloudChunkTimeRange, type CloudTranscriptionChunkGroup } from "@/lib/cloud/transcriptionChunks";
 import {
   collectSpeakerAssignmentEntries,
@@ -291,7 +292,8 @@ export const CloudChunkDetailsPanel = memo(function CloudChunkDetailsPanel({
 
           {chunk.speakerIds.length ? (
             <div className="flex flex-wrap gap-2">
-              <Button
+              <TooltipButton
+                tooltip="Ouvrir la fenêtre de renommage global pour cette partie."
                 type="button"
                 variant="outline"
                 size="sm"
@@ -301,7 +303,7 @@ export const CloudChunkDetailsPanel = memo(function CloudChunkDetailsPanel({
               >
                 <Users className="h-4 w-4" />
                 Assigner les speakers de la partie
-              </Button>
+              </TooltipButton>
             </div>
           ) : null}
 

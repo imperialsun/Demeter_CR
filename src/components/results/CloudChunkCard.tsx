@@ -1,7 +1,7 @@
 import { memo, useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { TooltipButton } from "@/components/ui/tooltip-button";
 import { formatCloudChunkTimeRange, type CloudTranscriptionChunkGroup } from "@/lib/cloud/transcriptionChunks";
 import { resolveSegmentSpeakerLabel } from "@/lib/speakerAssignments";
 import { useAsrStore } from "@/store/asr-store";
@@ -52,7 +52,8 @@ export const CloudChunkCard = memo(function CloudChunkCard({
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button
+            <TooltipButton
+              tooltip="Afficher le détail de cette partie pour lire ou modifier les segments."
               type="button"
               variant={isActive ? "secondary" : "outline"}
               size="sm"
@@ -61,11 +62,18 @@ export const CloudChunkCard = memo(function CloudChunkCard({
             >
               <PanelRightOpen className="h-4 w-4" />
               {isActive ? "Ouverte" : "Ouvrir"}
-            </Button>
-            <Button type="button" variant="default" size="sm" className="gap-2" onClick={() => onPlay(chunk.chunkId)}>
+            </TooltipButton>
+            <TooltipButton
+              tooltip="Lire un extrait audio centré sur cette partie."
+              type="button"
+              variant="default"
+              size="sm"
+              className="gap-2"
+              onClick={() => onPlay(chunk.chunkId)}
+            >
               <Play className="h-4 w-4" />
               Lire
-            </Button>
+            </TooltipButton>
           </div>
         </div>
 

@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePageScrollContainer } from "@/components/layout/page-scroll-container";
 import { useAsrStore } from "@/store/asr-store";
 import type { TranscriptionSegment } from "@/lib/export";
@@ -164,7 +165,8 @@ export const ResultsTable = memo(function ResultsTable({
   );
 
   return (
-    <div className={cn(expandToFill ? "flex h-full min-h-0 flex-col gap-3" : "space-y-3")}>
+    <TooltipProvider delayDuration={150}>
+      <div className={cn(expandToFill ? "flex h-full min-h-0 flex-col gap-3" : "space-y-3")}>
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
         <span>{segments.length} segments</span>
         <span>Tokens (est.) : {totalTokenCount}</span>
@@ -266,13 +268,20 @@ export const ResultsTable = memo(function ResultsTable({
                               onSegmentSpeakerChange(segment.index, value);
                             }}
                           >
-                            <SelectTrigger
-                              aria-label={`Speaker du segment ${segment.index + 1}`}
-                              className="h-8 w-full text-xs"
-                              disabled={!canEditSpeaker}
-                            >
-                              <SelectValue placeholder="Speaker" />
-                            </SelectTrigger>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <SelectTrigger
+                                  aria-label={`Speaker du segment ${segment.index + 1}`}
+                                  className="h-8 w-full text-xs"
+                                  disabled={!canEditSpeaker}
+                                >
+                                  <SelectValue placeholder="Speaker" />
+                                </SelectTrigger>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-72 text-balance">
+                                Changer le speaker de ce segment. La modification est enregistrée immédiatement.
+                              </TooltipContent>
+                            </Tooltip>
                             <SelectContent>
                               {resolvedSpeakerOptions.map((option) => (
                                 <SelectItem key={option.value} value={option.value}>
@@ -314,28 +323,35 @@ export const ResultsTable = memo(function ResultsTable({
                     </div>
                     <div role="cell" className="max-w-xl whitespace-pre-wrap px-3 py-2 text-sm">
                       {canEditSegments ? (
-                        <button
-                          type="button"
-                          className="group w-full cursor-pointer rounded-md px-2 py-1 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          aria-label={`Modifier le segment ${segment.index + 1}`}
-                          onClick={() => {
-                            setEditingSegment({ index: segment.index, text: segment.text });
-                          }}
-                        >
-                          <div>{segment.text}</div>
-                          {resolvedEnableWordTimestamps && segment.words && segment.words.length ? (
-                            <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                              {segment.words.map((word, wordIndex) => (
-                                <span key={wordIndex} className="rounded bg-muted/10 px-1 py-0.5">
-                                  <span className="font-medium">{word.word}</span>
-                                  <span className="ml-1 text-xs text-muted-foreground">
-                                    [{formatTimestamp(word.start)} - {formatTimestamp(word.end)}]
-                                  </span>
-                                </span>
-                              ))}
-                            </div>
-                          ) : null}
-                        </button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className="group w-full cursor-pointer rounded-md px-2 py-1 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              aria-label={`Modifier le segment ${segment.index + 1}`}
+                              onClick={() => {
+                                setEditingSegment({ index: segment.index, text: segment.text });
+                              }}
+                            >
+                              <div>{segment.text}</div>
+                              {resolvedEnableWordTimestamps && segment.words && segment.words.length ? (
+                                <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                                  {segment.words.map((word, wordIndex) => (
+                                    <span key={wordIndex} className="rounded bg-muted/10 px-1 py-0.5">
+                                      <span className="font-medium">{word.word}</span>
+                                      <span className="ml-1 text-xs text-muted-foreground">
+                                        [{formatTimestamp(word.start)} - {formatTimestamp(word.end)}]
+                                      </span>
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-72 text-balance">
+                            Ouvrir l’éditeur du texte de ce segment. Les modifications sont sauvegardées à la validation.
+                          </TooltipContent>
+                        </Tooltip>
                       ) : (
                         <div className="space-y-2">
                           <div>{segment.text}</div>
@@ -375,7 +391,8 @@ export const ResultsTable = memo(function ResultsTable({
           onCancel={() => setEditingSegment(null)}
         />
       ) : null}
-    </div>
+      </div>
+    </TooltipProvider>
   );
 });
 

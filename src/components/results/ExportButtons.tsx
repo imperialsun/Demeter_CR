@@ -1,4 +1,3 @@
-import { Button } from "@/components/ui/button";
 import { Download, Loader2, Users } from "lucide-react";
 import {
   serializeVtt,
@@ -19,6 +18,7 @@ import {
 } from "@/lib/speakerAssignments";
 import { SpeakerAssignmentDialog } from "@/components/results/SpeakerAssignmentDialog";
 import logger from "@/lib/logger";
+import { TooltipButton } from "@/components/ui/tooltip-button";
 
 interface ExportButtonsProps {
   segments?: TranscriptionSegment[];
@@ -185,7 +185,8 @@ export const ExportButtons = memo(function ExportButtons({
     <>
       <div className="flex flex-wrap gap-2">
         {showExportDocx ? (
-          <Button
+          <TooltipButton
+            tooltip="Télécharge la transcription complète au format DOCX avec les speakers résolus."
             className="gap-2"
             disabled={isDocxExporting}
             onClick={() => {
@@ -196,11 +197,12 @@ export const ExportButtons = memo(function ExportButtons({
           >
             {isDocxExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
             Télécharger en DOCX
-          </Button>
+          </TooltipButton>
         ) : null}
 
         {speakerEntries.length ? (
-          <Button
+          <TooltipButton
+            tooltip="Ouvre la fenêtre de renommage global des speakers pour cette session."
             variant="outline"
             size="sm"
             className="gap-2"
@@ -213,31 +215,59 @@ export const ExportButtons = memo(function ExportButtons({
             }}
           >
             <Users className="h-4 w-4" /> Assigner speakers
-          </Button>
+          </TooltipButton>
         ) : null}
 
         {showExportVtt ? (
-          <Button variant="outline" size="sm" className="gap-2" onClick={() => void exportVtt()} disabled={!resolvedSegmentCount}>
+          <TooltipButton
+            tooltip="Télécharge les sous-titres au format VTT."
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => void exportVtt()}
+            disabled={!resolvedSegmentCount}
+          >
             <Download className="h-4 w-4" /> VTT
-          </Button>
+          </TooltipButton>
         ) : null}
 
         {showExportSrt ? (
-          <Button variant="outline" size="sm" className="gap-2" onClick={() => void exportSrt()} disabled={!resolvedSegmentCount}>
+          <TooltipButton
+            tooltip="Télécharge les sous-titres au format SRT."
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => void exportSrt()}
+            disabled={!resolvedSegmentCount}
+          >
             <Download className="h-4 w-4" /> SRT
-          </Button>
+          </TooltipButton>
         ) : null}
 
         {showExportJson ? (
-          <Button variant="outline" size="sm" className="gap-2" onClick={() => void exportJson()} disabled={!resolvedSegmentCount}>
+          <TooltipButton
+            tooltip="Télécharge les segments au format JSON."
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => void exportJson()}
+            disabled={!resolvedSegmentCount}
+          >
             <Download className="h-4 w-4" /> JSON
-          </Button>
+          </TooltipButton>
         ) : null}
 
         {showExportTelemetry ? (
-          <Button variant="outline" size="sm" className="gap-2" onClick={exportTelemetry} disabled={!telemetry}>
+          <TooltipButton
+            tooltip="Télécharge la télémétrie associée à cette session."
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={exportTelemetry}
+            disabled={!telemetry}
+          >
             <Download className="h-4 w-4" /> Telemetry
-          </Button>
+          </TooltipButton>
         ) : null}
       </div>
 

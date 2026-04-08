@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AudioUploader } from "@/components/audio/AudioUploader";
+import { AssistantHelpPanel } from "@/components/assistant/AssistantHelpPanel";
 import { CloudChunkCard } from "@/components/results/CloudChunkCard";
 import { CloudChunkDetailsPanel } from "@/components/results/CloudChunkDetailsPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { TooltipButton } from "@/components/ui/tooltip-button";
 import { usePageScrollContainer } from "@/components/layout/page-scroll-container";
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { useCloudTranscription } from "@/hooks/useCloudTranscription";
@@ -74,6 +75,7 @@ function AssistantPage() {
   } = useLlmReports();
 
   const [diarizationChoice, setDiarizationChoice] = useState<boolean | null>(null);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [activeChunkId, setActiveChunkId] = useState<string | null>(null);
   const [autoPlayRequest, setAutoPlayRequest] = useState<{ chunkId: string; requestId: number } | null>(null);
   const [waitingJokeOrder, setWaitingJokeOrder] = useState<number[]>([]);
@@ -468,7 +470,21 @@ function AssistantPage() {
                 <CardTitle className="text-xl">Statut</CardTitle>
                 <CardDescription>{statusDescription}</CardDescription>
               </div>
-              <Badge variant={statusVariant}>{statusLabel}</Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant={statusVariant}>{statusLabel}</Badge>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="gap-2 text-muted-foreground"
+                  aria-expanded={isHelpOpen}
+                  aria-controls="assistant-help-panel"
+                  onClick={() => setIsHelpOpen((value) => !value)}
+                >
+                  <Info className="h-4 w-4" />
+                  Aide
+                </Button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-2 xl:grid-cols-4">
@@ -498,15 +514,22 @@ function AssistantPage() {
           </CardHeader>
 
           <CardContent className="space-y-4">
+            {isHelpOpen ? <AssistantHelpPanel /> : null}
+
             {isDiarizationReviewPending ? (
               <div data-testid="assistant-status-body" className="space-y-4 rounded-[1.5rem] border bg-background/70 p-5">
                 <p className="text-sm text-muted-foreground">
                   Relisez les morceaux ci-dessous. Les modifications sont sauvegardées automatiquement.
                 </p>
                 <div className="flex justify-center">
-                  <Button type="button" className="gap-2" onClick={() => void handleContinueAfterTranscriptReview()}>
+                  <TooltipButton
+                    tooltip="Validez la revue pour lancer les rapports avec les derniers noms de speakers et les dernières corrections."
+                    type="button"
+                    className="gap-2"
+                    onClick={() => void handleContinueAfterTranscriptReview()}
+                  >
                     La transcription est ok continuer
-                  </Button>
+                  </TooltipButton>
                 </div>
               </div>
             ) : isProcessing ? (
@@ -529,7 +552,8 @@ function AssistantPage() {
                 data-testid="assistant-status-body"
                 className="flex flex-wrap items-center justify-center gap-2 rounded-[1.5rem] border bg-background/70 p-4"
               >
-                <Button
+                <TooltipButton
+                  tooltip="Télécharge la transcription complète au format DOCX avec les speakers déjà appliqués."
                   type="button"
                   className="gap-2"
                   variant="default"
@@ -540,20 +564,21 @@ function AssistantPage() {
                 >
                   {isTranscriptExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                   Télécharger la transcription (.docx)
-                </Button>
+                </TooltipButton>
                 {REPORT_FORMATS.map((format) => (
-                  <Button
+                  <TooltipButton
                     key={format.key}
                     type="button"
                     className="gap-2"
                     variant="default"
+                    tooltip={`Télécharge le rapport ${format.label} généré à partir de la transcription la plus récente.`}
                     onClick={() => {
                       void downloadDocx(format.key);
                     }}
                   >
                     <Download className="h-4 w-4" />
                     Télécharger {format.label}
-                  </Button>
+                  </TooltipButton>
                 ))}
               </div>
             ) : null}
@@ -571,25 +596,16 @@ function AssistantPage() {
                   </CardDescription>
                 </div>
 
-                <TooltipProvider delayDuration={150}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-9 w-9 text-muted-foreground"
-                        aria-label="Aide morceaux audio"
-                      >
-                        <Info className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="left" className="max-w-72 text-balance">
-                      Chaque carte correspond à un morceau audio. Le détail reste modifiable tant que cette zone est
-                      visible.
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
+                <TooltipButton
+                  tooltip="Chaque carte correspond à un morceau audio. Ouvrez-la pour éditer les segments et les speakers."
+                  tooltipSide="left"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 text-muted-foreground"
+                  aria-label="Aide morceaux audio"
+                >
+                  <Info className="h-4 w-4" />
+                </TooltipButton>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -662,25 +678,16 @@ function AssistantPage() {
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
                       <h2 className="text-sm font-semibold">Diarization</h2>
-                      <TooltipProvider delayDuration={150}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground"
-                              aria-label="Aide diarization"
-                            >
-                              <Info className="h-4 w-4" />
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-72 text-balance">
-                            Activez-la si vous voulez voir les morceaux audio en pleine page, comme dans
-                            <span className="font-medium"> /cloudupload</span>.
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
+                      <TooltipButton
+                        tooltip="Activez la diarization si vous voulez voir les morceaux audio en pleine page, comme dans /cloudupload."
+                        tooltipSide="top"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground"
+                        aria-label="Aide diarization"
+                      >
+                        <Info className="h-4 w-4" />
+                      </TooltipButton>
                     </div>
                     <p className="text-sm text-muted-foreground">
                       Voulez-vous afficher les morceaux audio avec le détail complet des segments ?
@@ -692,7 +699,8 @@ function AssistantPage() {
                 </div>
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <Button
+                  <TooltipButton
+                    tooltip="Affiche les morceaux audio détaillés pour relire les segments et corriger les speakers avant les rapports."
                     type="button"
                     size="lg"
                     className={cn(
@@ -713,9 +721,10 @@ function AssistantPage() {
                         J'affiche les morceaux audio et le détail plein écran.
                       </p>
                     </div>
-                  </Button>
+                  </TooltipButton>
 
-                  <Button
+                  <TooltipButton
+                    tooltip="Passe directement à la transcription simple et aux rapports, sans affichage des chunks."
                     type="button"
                     variant="secondary"
                     size="lg"
@@ -737,14 +746,15 @@ function AssistantPage() {
                         Je veux aller droit au but, sans affichage de chunks.
                       </p>
                     </div>
-                  </Button>
+                  </TooltipButton>
                 </div>
               </div>
             ) : null}
 
             {selectedFile ? (
               <div data-testid="assistant-import-footer-actions" className="flex flex-wrap justify-end gap-2 pt-2">
-                <Button
+                <TooltipButton
+                  tooltip="Réinitialise la session courante et vous permet de repartir avec un autre fichier."
                   type="button"
                   variant="ghost"
                   size="sm"
@@ -754,7 +764,7 @@ function AssistantPage() {
                 >
                   <RotateCcw className="h-4 w-4" />
                   Nouveau fichier
-                </Button>
+                </TooltipButton>
               </div>
             ) : null}
           </CardContent>

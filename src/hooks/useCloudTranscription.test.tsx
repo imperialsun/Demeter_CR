@@ -8,6 +8,7 @@ import { useCloudTranscription } from "@/hooks/useCloudTranscription";
 import type { StageCloudSegmentsOptions } from "@/lib/cloud/cloudStaging";
 import { BackendHttpError } from "@/lib/backend-api";
 import { clearAllCloudTranscriptCache } from "@/lib/cloud/cloudTranscriptCache";
+import { BACKGROUND_RESUME_MESSAGE } from "@/lib/transcriptionVisibility";
 
 const mocks = vi.hoisted(() => ({
   toast: vi.fn(),
@@ -218,6 +219,37 @@ function HookHarness({
   return null;
 }
 
+function installVisibilityState(state: "visible" | "hidden") {
+  const originalHidden = Object.getOwnPropertyDescriptor(document, "hidden");
+  const originalVisibilityState = Object.getOwnPropertyDescriptor(document, "visibilityState");
+
+  const applyState = (next: "visible" | "hidden") => {
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      value: next === "hidden",
+    });
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: next,
+    });
+  };
+
+  applyState(state);
+
+  return () => {
+    if (originalHidden) {
+      Object.defineProperty(document, "hidden", originalHidden);
+    } else {
+      Reflect.deleteProperty(document, "hidden");
+    }
+    if (originalVisibilityState) {
+      Object.defineProperty(document, "visibilityState", originalVisibilityState);
+    } else {
+      Reflect.deleteProperty(document, "visibilityState");
+    }
+  };
+}
+
 describe("useCloudTranscription", () => {
   beforeEach(async () => {
     (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB = fakeIndexedDB;
@@ -323,6 +355,99 @@ describe("useCloudTranscription", () => {
     });
     const updatedSegments = await api.loadChunkSegments("whisper-1");
     expect(updatedSegments[0]?.text).toBe("Bonjour modifié");
+  });
+
+  it("restarts the cloud run automatically after a hidden tab interruption", async () => {
+    useAsrStore.setState({ mistralApiKey: "mistral_secret" } as never);
+
+    let api!: ReturnType<typeof useCloudTranscription>;
+    render(<HookHarness provider="mistral" onReady={(value) => (api = value)} />);
+    const file = new File(["a"], "audio.wav", { type: "audio/wav" });
+
+    const firstDeferred = (() => {
+      let resolve!: (value: { text: string }) => void;
+      let reject!: (reason?: unknown) => void;
+      const promise = new Promise<{ text: string }>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise, resolve, reject };
+    })();
+    const secondDeferred = (() => {
+      let resolve!: (value: { text: string }) => void;
+      let reject!: (reason?: unknown) => void;
+      const promise = new Promise<{ text: string }>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise, resolve, reject };
+    })();
+
+    const restoreVisibility = installVisibilityState("visible");
+    try {
+      await act(async () => {
+        await api.handleFileSelected(file);
+      });
+
+      mocks.transcribeWithMistral
+        .mockImplementationOnce(() => firstDeferred.promise as never)
+        .mockImplementationOnce(() => secondDeferred.promise as never);
+
+      let firstRunPromise: Promise<void>;
+      await act(async () => {
+        firstRunPromise = api.startTranscription();
+      });
+
+      await waitFor(() => {
+        expect(api.status).toBe("transcribing");
+      });
+
+      await act(async () => {
+        installVisibilityState("hidden");
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await waitFor(() => {
+        expect(api.statusDetail).toBe(BACKGROUND_RESUME_MESSAGE);
+      });
+
+      await act(async () => {
+        firstDeferred.reject(new DOMException("Run aborted", "AbortError"));
+      });
+
+      await waitFor(() => {
+        expect(api.status).toBe("idle");
+      });
+
+      await act(async () => {
+        installVisibilityState("visible");
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+
+      await waitFor(() => {
+        expect(mocks.transcribeWithMistral).toHaveBeenCalledTimes(2);
+      });
+
+      await waitFor(() => {
+        expect(api.isTranscribing).toBe(true);
+      });
+
+      await act(async () => {
+        secondDeferred.resolve({ text: "Bonjour" });
+      });
+
+      await waitFor(() => {
+        expect(api.status).toBe("done");
+      });
+      await waitFor(() => {
+        expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.transcriptText).toContain("Bonjour");
+      });
+
+      await act(async () => {
+        await firstRunPromise!;
+      });
+    } finally {
+      restoreVisibility();
+    }
   });
 
   it("rebuilds cloud chunk speaker ids when a segment speaker changes", async () => {

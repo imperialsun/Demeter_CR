@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, act, waitFor } from "@testing-library/react";
 import { useAsrStore } from "@/store/asr-store";
-import { createAsrPipeline, isModelTooLargeError } from "@/lib/asr";
+import { createAsrPipeline, isModelTooLargeError, transcribeChunk } from "@/lib/asr";
+import { BACKGROUND_RESUME_MESSAGE } from "@/lib/transcriptionVisibility";
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -17,6 +18,37 @@ function createDeferred<T>(): Deferred<T> {
     reject = rej;
   });
   return { promise, resolve, reject };
+}
+
+function installVisibilityState(state: "visible" | "hidden") {
+  const originalHidden = Object.getOwnPropertyDescriptor(document, "hidden");
+  const originalVisibilityState = Object.getOwnPropertyDescriptor(document, "visibilityState");
+
+  const applyState = (next: "visible" | "hidden") => {
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      value: next === "hidden",
+    });
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: next,
+    });
+  };
+
+  applyState(state);
+
+  return () => {
+    if (originalHidden) {
+      Object.defineProperty(document, "hidden", originalHidden);
+    } else {
+      Reflect.deleteProperty(document, "hidden");
+    }
+    if (originalVisibilityState) {
+      Object.defineProperty(document, "visibilityState", originalVisibilityState);
+    } else {
+      Reflect.deleteProperty(document, "visibilityState");
+    }
+  };
 }
 
 let transcribeDeferred: Deferred<{
@@ -95,6 +127,7 @@ import { useTranscriptionController } from "./useTranscriptionController";
 describe("useTranscriptionController abort", () => {
   beforeEach(() => {
     vi.useRealTimers();
+    vi.clearAllMocks();
     transcribeDeferred = createDeferred();
     useAsrStore.setState({
       memoryMode: "full",
@@ -163,6 +196,109 @@ describe("useTranscriptionController abort", () => {
       await startPromise!;
     });
     expect(useAsrStore.getState().segments).toHaveLength(0);
+  });
+
+  it("restarts the upload automatically when the tab returns after a background interruption", async () => {
+    let startUpload: ((file: File) => Promise<void>) | null = null;
+
+    function TestComp({ onReady }: { onReady: (startFn: (file: File) => Promise<void>) => void }) {
+      const controller = useTranscriptionController();
+      onReady(controller.startUploadTranscription);
+      return null;
+    }
+
+    await act(async () => {
+      render(<TestComp onReady={(startFn) => { startUpload = startFn; }} />);
+    });
+
+    const restoreVisibility = installVisibilityState("visible");
+    try {
+      const file = new File([new ArrayBuffer(8)], "test.wav", { type: "audio/wav" });
+      if (!startUpload) throw new Error("transcription handler not obtained");
+
+      const firstDeferred = createDeferred<{
+        chunk: { id: string; start: number; end: number; paddedStart: number; paddedEnd: number; index: number };
+        text: string;
+        segments: Array<unknown>;
+        processingMs: number;
+        realtimeFactor: number;
+      }>();
+      const secondDeferred = createDeferred<{
+        chunk: { id: string; start: number; end: number; paddedStart: number; paddedEnd: number; index: number };
+        text: string;
+        segments: Array<unknown>;
+        processingMs: number;
+        realtimeFactor: number;
+      }>();
+      vi.mocked(transcribeChunk)
+        .mockImplementationOnce(() => firstDeferred.promise)
+        .mockImplementationOnce(() => secondDeferred.promise);
+
+      let firstRunPromise: Promise<void>;
+      await act(async () => {
+        firstRunPromise = startUpload!(file);
+      });
+
+      await waitFor(() => {
+        expect(useAsrStore.getState().isTranscribing).toBe(true);
+      });
+
+      await act(async () => {
+        installVisibilityState("hidden");
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await waitFor(() => {
+        expect(useAsrStore.getState().statusDetail).toBe(BACKGROUND_RESUME_MESSAGE);
+      });
+
+      await act(async () => {
+        firstDeferred.reject(new DOMException("Run aborted", "AbortError"));
+      });
+
+      await waitFor(() => {
+        expect(useAsrStore.getState().isTranscribing).toBe(false);
+      });
+
+      await act(async () => {
+        installVisibilityState("visible");
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+
+      await waitFor(() => {
+        expect(createAsrPipeline).toHaveBeenCalledTimes(2);
+      });
+
+      await waitFor(() => {
+        expect(useAsrStore.getState().isTranscribing).toBe(true);
+      });
+
+      await act(async () => {
+        secondDeferred.resolve({
+          chunk: { id: "c1", start: 0, end: 1, paddedStart: 0, paddedEnd: 1, index: 0 },
+          text: "hello again",
+          segments: [
+            {
+              text: "hello again",
+              start: 0,
+              end: 1,
+              confidence: 0.8,
+            },
+          ],
+          processingMs: 1,
+          realtimeFactor: 1,
+        });
+      });
+
+      await waitFor(() => {
+        expect(useAsrStore.getState().status).toBe("ready");
+      });
+
+      await act(async () => {
+        await firstRunPromise!;
+      });
+    } finally {
+      restoreVisibility();
+    }
   });
 
   it("keeps error status for 10 seconds before resetting the session", async () => {

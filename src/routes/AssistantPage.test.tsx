@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 import AssistantPage from "./AssistantPage";
 import { ASSISTANT_JOKES, buildRandomJokeOrder } from "./assistantPageContent";
@@ -226,6 +227,54 @@ describe("AssistantPage", () => {
     expect(screen.queryByText("En attente d'un fichier")).toBeNull();
   });
 
+  it("opens and closes the guided help sections", async () => {
+    Object.assign(pageHooks.cloudState, createCloudHookValue());
+    Object.assign(pageHooks.llmState, createLlmHookValue());
+
+    const user = userEvent.setup();
+    renderWithStore(<AssistantPage />);
+
+    expect(screen.queryByTestId("assistant-help-panel")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Aide" }));
+
+    const panel = screen.getByTestId("assistant-help-panel");
+    const fileSection = screen.getByTestId("assistant-help-section-file");
+    const fileSectionButton = within(fileSection).getByRole("button", { name: /Fichier/i });
+    const fileSectionContent = document.getElementById("assistant-help-section-file-content");
+    if (!fileSectionContent) {
+      throw new Error("Missing file help section content");
+    }
+
+    expect(panel).toBeInTheDocument();
+    expect(fileSectionButton).toHaveAttribute("aria-expanded", "false");
+    expect(fileSectionContent).toHaveClass("hidden");
+
+    await user.click(fileSectionButton);
+
+    expect(fileSectionButton).toHaveAttribute("aria-expanded", "true");
+    expect(fileSectionContent).not.toHaveClass("hidden");
+    expect(fileSectionContent).toHaveTextContent(/Déposez un MP3, WAV ou M4A/i);
+
+    const diarizationSection = screen.getByTestId("assistant-help-section-diarization");
+    const diarizationSectionButton = within(diarizationSection).getByRole("button", { name: /Diarization/i });
+    const diarizationSectionContent = document.getElementById("assistant-help-section-diarization-content");
+    if (!diarizationSectionContent) {
+      throw new Error("Missing diarization help section content");
+    }
+
+    await user.click(diarizationSectionButton);
+
+    expect(diarizationSectionButton).toHaveAttribute("aria-expanded", "true");
+    expect(diarizationSectionContent).not.toHaveClass("hidden");
+    expect(diarizationSectionContent).toHaveTextContent(/parties de la réunion/i);
+
+    await user.click(fileSectionButton);
+
+    expect(fileSectionButton).toHaveAttribute("aria-expanded", "false");
+    expect(fileSectionContent).toHaveClass("hidden");
+  });
+
   it("lets diarization runs pause for manual review before generating reports", async () => {
     const segments: TranscriptionSegment[] = [
       {
@@ -348,6 +397,12 @@ describe("AssistantPage", () => {
     expect(screen.getByTestId("assistant-chunk-list")).toBeInTheDocument();
     expect(screen.getByTestId("cloud-chunk-card-assistant-1")).toBeInTheDocument();
     expect(pageHooks.llmState.generateAll).not.toHaveBeenCalled();
+
+    const user = userEvent.setup();
+    await user.hover(screen.getByRole("button", { name: "Aide morceaux audio" }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(
+      /Chaque carte correspond à un morceau audio\. Ouvrez-la pour éditer les segments et les speakers\./i
+    );
 
     const reviewButton = screen.getByRole("button", { name: "La transcription est ok continuer" });
     fireEvent.click(reviewButton);

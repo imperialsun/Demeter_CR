@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -31,6 +32,37 @@ function makeAudioBuffer(
 const restorerStack: Array<() => void> = [];
 function registerRestore(fn: () => void) {
   restorerStack.push(fn);
+}
+
+function installVisibilityState(state: "visible" | "hidden") {
+  const originalHidden = Object.getOwnPropertyDescriptor(document, "hidden");
+  const originalVisibilityState = Object.getOwnPropertyDescriptor(document, "visibilityState");
+
+  const applyState = (next: "visible" | "hidden") => {
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      value: next === "hidden",
+    });
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: next,
+    });
+  };
+
+  applyState(state);
+
+  return () => {
+    if (originalHidden) {
+      Object.defineProperty(document, "hidden", originalHidden);
+    } else {
+      delete (document as any).hidden;
+    }
+    if (originalVisibilityState) {
+      Object.defineProperty(document, "visibilityState", originalVisibilityState);
+    } else {
+      delete (document as any).visibilityState;
+    }
+  };
 }
 
 afterEach(() => {
@@ -470,6 +502,103 @@ describe("progressive segment decode", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("reissues requestData immediately when the tab becomes visible again after a stalled request", async () => {
+    const OriginalAudio = (globalThis as any).Audio;
+    class VisibilityAudio extends EventTarget {
+      preload = "auto";
+      muted = true;
+      crossOrigin = "anonymous";
+      playbackRate = 1;
+      currentTime = 0;
+      constructor() {
+        super();
+        setTimeout(() => {
+          this.dispatchEvent(new Event("loadedmetadata"));
+        }, 0);
+      }
+      play() {
+        return Promise.resolve();
+      }
+      pause() {}
+      removeAttribute() {}
+      load() {}
+      captureStream() {
+        return { getAudioTracks: () => [{ kind: "audio" }] };
+      }
+    }
+    (globalThis as any).Audio = VisibilityAudio as any;
+    registerRestore(() => {
+      (globalThis as any).Audio = OriginalAudio;
+    });
+    const OriginalRecorder = (globalThis as any).MediaRecorder;
+    let requestCount = 0;
+    class VisibilityAwareRecorder extends EventTarget {
+      state: "inactive" | "recording" = "inactive";
+      mimeType = "audio/webm";
+      constructor() {
+        super();
+      }
+      start() {
+        this.state = "recording";
+      }
+      stop() {
+        this.state = "inactive";
+        this.dispatchEvent(new Event("stop"));
+      }
+      requestData() {
+        requestCount += 1;
+        if (requestCount === 2) {
+          const evt: any = new Event("dataavailable");
+          evt.data = createFakeBlobWithArrayBuffer(256);
+          setTimeout(() => this.dispatchEvent(evt), 0);
+        }
+      }
+    }
+    (globalThis as any).MediaRecorder = VisibilityAwareRecorder;
+    registerRestore(() => {
+      (globalThis as any).MediaRecorder = OriginalRecorder;
+    });
+    const fakeBuffer = makeAudioBuffer(1, 10, [new Array(10).fill(0.2)], 1000);
+    registerRestore(mockAudioContext(fakeBuffer));
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:visibility-resume");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    registerRestore(installVisibilityState("visible"));
+    const telemetry = {
+      startTimer: vi.fn(),
+      stopTimer: vi.fn(),
+      logEvent: vi.fn(),
+      recordAlert: vi.fn(),
+    };
+
+    const file = new File([new Uint8Array([1])], "clip.webm", { type: "audio/webm" });
+    const resultPromise = decodeFileSegmentToPcm(
+      file,
+      { index: 7, startSec: 0, endSec: 0.01 },
+      { targetSampleRate: 1000, telemetry: telemetry as never, requestDataTimeoutMs: 5_000 }
+    );
+
+    await waitFor(() => {
+      expect(requestCount).toBe(1);
+    });
+
+    registerRestore(installVisibilityState("hidden"));
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    registerRestore(installVisibilityState("visible"));
+    document.dispatchEvent(new Event("visibilitychange"));
+
+    await waitFor(() => {
+      expect(requestCount).toBe(2);
+    });
+
+    const result = await resultPromise;
+    expect(result.pcm.length).toBeGreaterThan(0);
+    expect(telemetry.logEvent).toHaveBeenCalledWith(
+      "PROGRESS_SEGMENT_PCM",
+      expect.objectContaining({ segmentIndex: 7, samples: expect.any(Number) })
+    );
   });
 
   it("propagates decode errors from progressive chunk decoding", async () => {

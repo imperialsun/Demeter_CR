@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { UploadCloud, FileAudio, AlertTriangle } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { UploadCloud, FileAudio, AlertTriangle, Info } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import logger from "@/lib/logger";
 import type { AudioMetadata } from "@/lib/audio";
+import { TooltipButton } from "@/components/ui/tooltip-button";
 
 interface AudioUploaderProps {
   onFileSelected: (file: File) => void;
@@ -158,10 +158,23 @@ export function AudioUploader({
   return (
     <Card className="overflow-hidden">
       <CardHeader>
-        <CardTitle>{title ?? "Importer un fichier audio"}</CardTitle>
-        <CardDescription>
-          {description ?? "Glissez-déposez un fichier MP3, WAV ou M4A. Tout est traité localement dans Chrome."}
-        </CardDescription>
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <CardTitle>{title ?? "Importer un fichier audio"}</CardTitle>
+            <CardDescription>
+              {description ?? "Glissez-déposez un fichier MP3, WAV ou M4A. Tout est traité localement dans Chrome."}
+            </CardDescription>
+          </div>
+          <TooltipButton
+            tooltip="Importez un fichier audio ou cliquez pour choisir un fichier. Vous pourrez le remplacer ensuite."
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0 text-muted-foreground"
+            aria-label="Aide import audio"
+          >
+            <Info className="h-4 w-4" />
+          </TooltipButton>
+        </div>
       </CardHeader>
       <CardContent className="space-y-3">
         {showDropZone ? (
@@ -239,9 +252,16 @@ export function AudioUploader({
 
             <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
               <div className="min-w-0 flex-1">{durationWarning}</div>
-              <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={pickFile} disabled={disabled}>
+              <TooltipButton
+                tooltip="Remplacer le fichier courant et repartir sur une nouvelle session."
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2 text-xs"
+                onClick={pickFile}
+                disabled={disabled}
+              >
                 Changer de fichier
-              </Button>
+              </TooltipButton>
             </div>
           </div>
         ) : null}

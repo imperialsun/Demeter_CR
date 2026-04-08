@@ -49,6 +49,8 @@ describe("Sidebar", () => {
     const link = screen.getByRole("link", { name: /llm cloud/i });
     expect(link).toBeInTheDocument();
     expect(link.getAttribute("href")).toBe("/llmapi");
+    expect(screen.getByText("Transcription locale et distante · Chrome uniquement")).toBeInTheDocument();
+    expect(screen.queryByText(/Whisper sur Transformers\.js/i)).toBeNull();
   });
 
   it("preloads lazy routes on hover and focus", async () => {

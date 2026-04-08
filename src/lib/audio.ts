@@ -1,5 +1,5 @@
 import type { ChunkDefinition } from "@/lib/chunking";
-import { getDocumentVisibilitySnapshot } from "@/lib/documentVisibility";
+import { getDocumentVisibilitySnapshot, subscribeDocumentVisibility } from "@/lib/documentVisibility";
 import { TelemetryCollector } from "@/lib/telemetry";
 import logger from "@/lib/logger";
 
@@ -400,6 +400,21 @@ export async function decodeFileSegmentToPcm(
     );
   });
 
+  const unsubscribeVisibility = subscribeDocumentVisibility(() => {
+    if (stopped || decodeError || recorder.state !== "recording") {
+      return;
+    }
+    const visibility = getDocumentVisibilitySnapshot();
+    if (visibility.hidden) {
+      return;
+    }
+    if (requestPending) {
+      clearRequestTimeout();
+      requestPending = false;
+    }
+    scheduleRequestData({ resetRetries: false });
+  });
+
   try {
     recorder.start();
     scheduleRequestData();
@@ -437,6 +452,7 @@ export async function decodeFileSegmentToPcm(
       durationSec: pcm.length / targetSampleRate,
     };
   } finally {
+    unsubscribeVisibility();
     await cleanup();
   }
 }
