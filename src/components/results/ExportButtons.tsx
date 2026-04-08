@@ -31,6 +31,7 @@ interface ExportButtonsProps {
   showTelemetry?: boolean;
   showDocx?: boolean;
   mode?: "upload" | "mic" | "cloud";
+  onSpeakerAssignmentsApplied?: () => void | Promise<void>;
 }
 
 export const ExportButtons = memo(function ExportButtons({
@@ -44,6 +45,7 @@ export const ExportButtons = memo(function ExportButtons({
   showTelemetry,
   showDocx,
   mode = "upload",
+  onSpeakerAssignmentsApplied,
 }: ExportButtonsProps) {
   const [isSpeakerDialogOpen, setSpeakerDialogOpen] = useState(false);
   const [isDocxExporting, setDocxExporting] = useState(false);
@@ -171,9 +173,12 @@ export const ExportButtons = memo(function ExportButtons({
         speakerCount: Object.keys(nextAssignments).length,
       });
       setSpeakerAssignments(mode, nextAssignments);
+      if (onSpeakerAssignmentsApplied) {
+        void onSpeakerAssignmentsApplied();
+      }
       setSpeakerDialogOpen(false);
     },
-    [mode, setSpeakerAssignments]
+    [mode, onSpeakerAssignmentsApplied, setSpeakerAssignments]
   );
 
   return (

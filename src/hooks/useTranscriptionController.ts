@@ -42,6 +42,7 @@ import {
   shouldStopRun,
 } from "@/hooks/useTranscriptionController.steps";
 import { createSessionTranscriptMemoryEntry } from "@/lib/sessionTranscriptMemory";
+import { buildSpeakerAwareTranscriptText } from "@/lib/speakerAssignments";
 import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
 import { trackBackendPerformanceSummary } from "@/lib/backend-performance-sync";
 
@@ -64,12 +65,19 @@ export function setSharedAbortController(controller: AbortController | null) {
 
 function publishUploadTranscriptMemory(segments: TranscriptionSegment[]) {
   const state = useAsrStore.getState();
+  const transcriptText = buildSpeakerAwareTranscriptText(
+    segments,
+    state.speakerAssignments.upload,
+    "upload"
+  );
   state.setSessionTranscriptMemory(
     "upload",
     createSessionTranscriptMemoryEntry({
       mode: "upload",
       provider: "upload",
-      segments,
+      segments: [],
+      transcriptText,
+      segmentCount: segments.length,
       audioSource: state.audioSource,
       audioMetadata: state.audioMetadata,
     })
@@ -126,6 +134,10 @@ export function useTranscriptionController() {
     useAsrStore.getState().setTranscriptionConfidenceSource(source);
     telemetry?.logEvent("PROGRESS_CONFIDENCE", { chunkIndex, overall });
     logger.debug("[transcription][progressive] overall confidence", { chunkIndex, overall, source });
+  }, []);
+
+  const refreshUploadTranscriptMemory = useCallback(() => {
+    publishUploadTranscriptMemory(useAsrStore.getState().segments);
   }, []);
 
   const setProgressThrottled = (value: number, force = false) => {
@@ -1540,6 +1552,7 @@ export function useTranscriptionController() {
     stopTranscription,
     abortTranscription,
     isTranscribing,
+    refreshUploadTranscriptMemory,
   };
 
 

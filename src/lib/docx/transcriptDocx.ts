@@ -98,7 +98,7 @@ export async function buildTranscriptDocx(
         continue;
       }
 
-      const speaker = segment.speaker?.trim();
+      const speaker = segment.speakerLabel?.trim() || segment.speaker?.trim();
       const runs = speaker
         ? [new TextRun({ text: `${speaker}: `, bold: true }), new TextRun({ text })]
         : [new TextRun({ text })];

@@ -46,7 +46,13 @@ function LocalUploadPage() {
   // Read transcription confidence unconditionally to respect Hooks rules
   const transcriptionConfidence = useAsrStore((s) => s.transcriptionConfidence);
   const transcriptionConfidenceSource = useAsrStore((s) => s.transcriptionConfidenceSource);
-  const { startUploadTranscription, stopTranscription, abortTranscription, isTranscribing } = useTranscriptionController();
+  const {
+    startUploadTranscription,
+    stopTranscription,
+    abortTranscription,
+    isTranscribing,
+    refreshUploadTranscriptMemory,
+  } = useTranscriptionController();
   const presetOptions = Object.values(MODEL_PRESETS);
   const blockedPresetSet = new Set(blockedPresets);
   const [privacyNoteOpen, setPrivacyNoteOpen] = useState(false);
@@ -239,6 +245,7 @@ function LocalUploadPage() {
             segments={segments}
             telemetry={telemetrySummary ?? undefined}
             showDocx={status === "ready" && segments.length > 0}
+            onSpeakerAssignmentsApplied={refreshUploadTranscriptMemory}
           />
 
           {showSegments && (

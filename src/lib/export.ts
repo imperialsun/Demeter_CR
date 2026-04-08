@@ -14,6 +14,7 @@ export interface TranscriptionSegment {
   end: number;
   text: string;
   speaker?: string;
+  speakerLabel?: string;
   chunkId: string;
   strategy: "chunks" | "silence";
   confidence?: number;
@@ -75,10 +76,7 @@ export function serializeSegmentsJson(segments: TranscriptionSegment[], header?:
   return JSON.stringify(
     {
       header,
-      segments: segments.map((segment) => ({
-        ...segment,
-        text: segment.text.trim(),
-      })),
+      segments: segments.map(stripSpeakerLabel),
     },
     null,
     2
@@ -127,7 +125,7 @@ function pad(value: number) {
 
 function formatSegmentCueText(segment: TranscriptionSegment) {
   const text = segment.text.trim();
-  const speaker = segment.speaker?.trim();
+  const speaker = segment.speakerLabel?.trim() || segment.speaker?.trim();
   if (!speaker) return text;
   return text ? `${speaker}: ${text}` : `${speaker}:`;
 }
@@ -138,4 +136,13 @@ function formatHeaderBlock(label: string, header: ExportHeader, format: Format |
     return `${label}\nNOTE SETTINGS\n${json}`;
   }
   return `${label}\n${json}`;
+}
+
+function stripSpeakerLabel(segment: TranscriptionSegment) {
+  const { speakerLabel, ...rest } = segment;
+  void speakerLabel;
+  return {
+    ...rest,
+    text: rest.text.trim(),
+  };
 }

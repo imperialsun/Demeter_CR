@@ -37,7 +37,13 @@ import {
   isBackendUnauthorizedError,
 } from "@/lib/backend-api";
 import { resolveChunkingConfig } from "@/hooks/useCloudTranscription.steps";
-import { createSessionTranscriptMemoryEntry, getSessionTranscriptText } from "@/lib/sessionTranscriptMemory";
+import { createSessionTranscriptMemoryEntry } from "@/lib/sessionTranscriptMemory";
+import {
+  buildSpeakerAwareTranscriptText,
+  decorateSegmentsWithSpeakerLabels,
+  resolveSegmentSpeakerDisplay,
+  type SpeakerAssignmentMap,
+} from "@/lib/speakerAssignments";
 import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
 import { trackBackendPerformanceSummary } from "@/lib/backend-performance-sync";
 import { releaseFfmpeg } from "@/lib/ffmpeg-loader";
@@ -47,6 +53,7 @@ import {
   deleteCloudTranscriptSession,
   loadCloudTranscriptChunkSegments,
   loadCloudTranscriptSegmentsForExport,
+  replaceCloudTranscriptChunkSegments,
   updateCloudTranscriptSegment,
 } from "@/lib/cloud/cloudTranscriptCache";
 
@@ -357,7 +364,9 @@ export function useCloudTranscription(
         return;
       }
 
-      const appendedText = getSessionTranscriptText(nextSegments);
+      const speakerAssignments = useAsrStore.getState().speakerAssignments.cloud;
+      const decoratedSegments = decorateSegmentsWithSpeakerLabels(nextSegments, speakerAssignments, "cloud");
+      const appendedText = buildSpeakerAwareTranscriptText(decoratedSegments, speakerAssignments, "cloud");
       if (appendedText) {
         cloudTranscriptTextRef.current = cloudTranscriptTextRef.current
           ? `${cloudTranscriptTextRef.current}\n${appendedText}`
@@ -366,7 +375,7 @@ export function useCloudTranscription(
 
       cloudTranscriptSegmentCountRef.current += nextSegments.length;
 
-      const groupedSegments = groupCloudSegmentsByChunkId(nextSegments);
+      const groupedSegments = groupCloudSegmentsByChunkId(decoratedSegments);
       for (const group of groupedSegments) {
         const currentSummaries = chunkSummariesRef.current;
         const existingSummary = currentSummaries.find((chunk) => chunk.chunkId === group.chunkId);
@@ -382,7 +391,7 @@ export function useCloudTranscription(
       }
       logger.debug("[cloud] transcript segments appended", {
         provider: providerName,
-        appendedCount: nextSegments.length,
+        appendedCount: decoratedSegments.length,
         totalSegments: cloudTranscriptSegmentCountRef.current,
         transcriptChars: cloudTranscriptTextRef.current.length,
       });
@@ -398,7 +407,8 @@ export function useCloudTranscription(
         return;
       }
       const allSegments = await loadCloudTranscriptSegmentsForExport(sessionId);
-      cloudTranscriptTextRef.current = getSessionTranscriptText(allSegments);
+      const speakerAssignments = useAsrStore.getState().speakerAssignments.cloud;
+      cloudTranscriptTextRef.current = buildSpeakerAwareTranscriptText(allSegments, speakerAssignments, "cloud");
       cloudTranscriptSegmentCountRef.current = allSegments.length;
       publishCloudTranscriptMemory(providerName, metadata);
     },
@@ -440,20 +450,36 @@ export function useCloudTranscription(
         logger.warn("[cloud] segment speaker update ignored, missing session", { chunkId, segmentIndex });
         return;
       }
+      const speakerAssignments = useAsrStore.getState().speakerAssignments.cloud;
       const result = await updateCloudTranscriptSegment(sessionId, chunkId, segmentIndex, (segment) => {
         const currentSpeaker = segment.speaker?.trim() ?? "";
         if (currentSpeaker === normalizedSpeaker) {
           return segment;
         }
-        return {
+        const nextSpeakerLabel =
+          normalizedSpeaker.length > 0
+            ? resolveSegmentSpeakerDisplay(
+                {
+                  ...segment,
+                  speaker: normalizedSpeaker,
+                  speakerLabel: undefined,
+                },
+                speakerAssignments,
+                "cloud"
+              ) ?? normalizedSpeaker
+            : undefined;
+        const nextSegment = {
           ...segment,
           speaker: normalizedSpeaker || undefined,
+          speakerLabel: nextSpeakerLabel,
         };
+        return nextSegment;
       });
       if (!result) {
         return;
       }
       upsertCloudChunkSummary(result.summary);
+      await refreshCloudTranscriptMemoryFromCache(activeTranscriptProviderRef.current, audioMetadata);
 
       logger.info("[cloud] segment speaker updated", {
         provider: activeTranscriptProviderRef.current,
@@ -462,7 +488,38 @@ export function useCloudTranscription(
         speakerId: normalizedSpeaker || null,
       });
     },
-    [upsertCloudChunkSummary]
+    [audioMetadata, refreshCloudTranscriptMemoryFromCache, upsertCloudChunkSummary]
+  );
+
+  const applyChunkSpeakerAssignments = useCallback(
+    async (chunkId: string, nextAssignments: SpeakerAssignmentMap) => {
+      const sessionId = cloudSessionIdRef.current;
+      if (!sessionId) {
+        logger.warn("[cloud] chunk speaker assignments ignored, missing session", { chunkId });
+        return;
+      }
+      const currentSegments = await loadCloudTranscriptChunkSegments(sessionId, chunkId);
+      if (!currentSegments.length) {
+        return;
+      }
+      const nextSegments = decorateSegmentsWithSpeakerLabels(currentSegments, nextAssignments, "cloud");
+      const currentChunk = chunkSummariesRef.current.find((chunk) => chunk.chunkId === chunkId);
+      const result = await replaceCloudTranscriptChunkSegments({
+        sessionId,
+        chunkId,
+        chunkIndex: currentChunk?.chunkIndex ?? 0,
+        segments: nextSegments,
+      });
+      upsertCloudChunkSummary(result.summary);
+      await refreshCloudTranscriptMemoryFromCache(activeTranscriptProviderRef.current, audioMetadata);
+
+      logger.info("[cloud] chunk speaker assignments persisted", {
+        provider: activeTranscriptProviderRef.current,
+        chunkId,
+        segmentCount: nextSegments.length,
+      });
+    },
+    [audioMetadata, refreshCloudTranscriptMemoryFromCache, upsertCloudChunkSummary]
   );
 
   const loadChunkSegments = useCallback(async (chunkId: string) => {
@@ -1994,6 +2051,7 @@ export function useCloudTranscription(
     audioMetadata,
     isTranscribing,
     isResettingSession,
+    forceDemeterBackendDirect,
     provider,
     registerTelemetry,
     runDemeterBackendDirectTranscription,
@@ -2031,6 +2089,7 @@ export function useCloudTranscription(
     loadAllSegmentsForExport,
     updateSegmentText,
     updateSegmentSpeaker,
+    applyChunkSpeakerAssignments,
   };
 }
 

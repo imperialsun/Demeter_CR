@@ -2,7 +2,8 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 
-import AssistantPage, { ASSISTANT_JOKES, buildRandomJokeOrder } from "./AssistantPage";
+import AssistantPage from "./AssistantPage";
+import { ASSISTANT_JOKES, buildRandomJokeOrder } from "./assistantPageContent";
 import { renderWithStore } from "../test/utils";
 import { useAsrStore } from "@/store/asr-store";
 import { groupCloudTranscriptionSegments } from "@/lib/cloud/transcriptionChunks";
@@ -233,6 +234,7 @@ describe("AssistantPage", () => {
         end: 4,
         text: "Bonjour",
         speaker: "SPEAKER_00",
+        speakerLabel: "Dupont Alice",
         chunkId: "assistant-1",
         strategy: "chunks",
       },
@@ -242,6 +244,7 @@ describe("AssistantPage", () => {
         end: 8,
         text: "Suite",
         speaker: "SPEAKER_01",
+        speakerLabel: "Martin Jean",
         chunkId: "assistant-1",
         strategy: "chunks",
       },
@@ -251,6 +254,7 @@ describe("AssistantPage", () => {
         end: 12,
         text: "Encore",
         speaker: "SPEAKER_00",
+        speakerLabel: "Dupont Alice",
         chunkId: "assistant-2",
         strategy: "chunks",
       },
@@ -373,7 +377,10 @@ describe("AssistantPage", () => {
     await waitFor(() => {
       expect(pageHooks.cloudState.loadAllSegmentsForExport).toHaveBeenCalledTimes(1);
       expect(transcriptDocxMocks.buildTranscriptDocx).toHaveBeenCalledWith(
-        segments,
+        expect.arrayContaining([
+          expect.objectContaining({ speakerLabel: "Dupont Alice" }),
+          expect.objectContaining({ speakerLabel: "Martin Jean" }),
+        ]),
         expect.objectContaining({
           sourceMode: "cloud",
           sourceLabel: "assistant-session.wav",

@@ -106,6 +106,7 @@ function CloudUploadPage() {
     loadAllSegmentsForExport,
     updateSegmentText,
     updateSegmentSpeaker,
+    applyChunkSpeakerAssignments,
   } = useCloudTranscription(provider);
   const [activeChunkId, setActiveChunkId] = useState<string | null>(null);
   const [autoPlayRequest, setAutoPlayRequest] = useState<{ chunkId: string; requestId: number } | null>(null);
@@ -606,6 +607,9 @@ function CloudUploadPage() {
           }}
           onSegmentSpeakerChange={(segmentIndex, speakerId) => {
             void updateSegmentSpeaker(activeChunk.chunkId, segmentIndex, speakerId);
+          }}
+          onSpeakerAssignmentsApplied={(assignments) => {
+            void applyChunkSpeakerAssignments(activeChunk.chunkId, assignments);
           }}
           onClose={handleCloseChunk}
         />

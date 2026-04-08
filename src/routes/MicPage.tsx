@@ -44,6 +44,7 @@ function MicPage() {
     prepareRecordingWav,
     prepareRecordingMp3,
     calibrateSilenceThreshold,
+    refreshMicTranscriptMemory,
   } = useMicTranscription();
   const segments = useAsrStore((state) => state.segments);
   const telemetrySummary = useAsrStore((state) => state.telemetrySummary);
@@ -378,6 +379,7 @@ function MicPage() {
               showJson={micShowExportJson}
               showTelemetry={micShowExportTelemetry}
               mode="mic"
+              onSpeakerAssignmentsApplied={refreshMicTranscriptMemory}
             />
           ) : null}
         </div>

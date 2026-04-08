@@ -69,6 +69,7 @@ function createHookValue(overrides: HookOverrides = {}) {
     resetTranscriptionSession: vi.fn(),
     updateSegmentText: vi.fn(),
     updateSegmentSpeaker: vi.fn(),
+    applyChunkSpeakerAssignments: vi.fn(),
     loadChunkSegments,
     loadAllSegmentsForExport,
     ...rest,
@@ -517,6 +518,16 @@ describe("CloudUploadPage", () => {
     expect(useAsrStore.getState().speakerAssignments.cloud["mistral-2::SPEAKER_00"]).toEqual({
       firstName: "Jean",
       lastName: "Dupont",
+    });
+    expect(hookValue.applyChunkSpeakerAssignments).toHaveBeenCalledWith("mistral-1", {
+      "mistral-2::SPEAKER_00": {
+        firstName: "Jean",
+        lastName: "Dupont",
+      },
+      "mistral-1::SPEAKER_00": {
+        firstName: "Alice",
+        lastName: "Martin",
+      },
     });
 
   });

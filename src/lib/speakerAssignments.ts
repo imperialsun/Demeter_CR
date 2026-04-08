@@ -102,7 +102,7 @@ export function collectSpeakerIds(segments: TranscriptionSegment[]): string[] {
 }
 
 export function resolveSpeakerAssignment(
-  segment: Pick<TranscriptionSegment, "chunkId" | "speaker">,
+  segment: Pick<TranscriptionSegment, "chunkId" | "speaker" | "speakerLabel">,
   assignmentMap: SpeakerAssignmentMap,
   mode: SpeakerAssignmentMode
 ): SpeakerAssignment | undefined {
@@ -112,11 +112,11 @@ export function resolveSpeakerAssignment(
 }
 
 export function resolveSegmentSpeakerLabel(
-  segment: Pick<TranscriptionSegment, "chunkId" | "speaker">,
+  segment: Pick<TranscriptionSegment, "chunkId" | "speaker" | "speakerLabel">,
   assignmentMap: SpeakerAssignmentMap,
   mode: SpeakerAssignmentMode
 ): string | undefined {
-  return resolveSpeakerLabel(segment.speaker, resolveSpeakerAssignment(segment, assignmentMap, mode));
+  return resolveSegmentSpeakerDisplay(segment, assignmentMap, mode);
 }
 
 export function applySpeakerAssignments(
@@ -125,19 +125,44 @@ export function applySpeakerAssignments(
   mode: SpeakerAssignmentMode
 ): TranscriptionSegment[] {
   return segments.map((segment) => {
-    const rawSpeaker = normalizeSpeakerId(segment.speaker);
-    if (!rawSpeaker) {
-      return {
-        ...segment,
-        speaker: undefined,
-      };
-    }
-
+    const speaker = resolveSegmentSpeakerDisplay(segment, assignmentMap, mode);
     return {
       ...segment,
-      speaker: resolveSpeakerLabel(rawSpeaker, resolveSpeakerAssignment(segment, assignmentMap, mode)),
+      speaker,
+      speakerLabel: speaker,
     };
   });
+}
+
+export function decorateSegmentsWithSpeakerLabels(
+  segments: TranscriptionSegment[],
+  assignmentMap: SpeakerAssignmentMap,
+  mode: SpeakerAssignmentMode
+): TranscriptionSegment[] {
+  return segments.map((segment) => ({
+    ...segment,
+    speakerLabel: resolveSpeakerLabel(
+      segment.speaker,
+      resolveSpeakerAssignment(segment, assignmentMap, mode)
+    ),
+  }));
+}
+
+export function buildSpeakerAwareTranscriptText(
+  segments: Pick<TranscriptionSegment, "chunkId" | "speaker" | "speakerLabel" | "text">[],
+  assignmentMap: SpeakerAssignmentMap,
+  mode: SpeakerAssignmentMode
+): string {
+  return segments
+    .map((segment) => {
+      const text = segment.text.trim();
+      if (!text) return "";
+
+      const speaker = resolveSegmentSpeakerDisplay(segment, assignmentMap, mode);
+      return speaker ? `${speaker}: ${text}` : text;
+    })
+    .filter((line): line is string => Boolean(line))
+    .join("\n");
 }
 
 export function formatAssignedSpeakerName(assignment: SpeakerAssignment): string {
@@ -157,6 +182,17 @@ export function resolveSpeakerLabel(
 
   const assignedLabel = formatAssignedSpeakerName(assignment);
   return assignedLabel || normalizedRawSpeaker;
+}
+
+export function resolveSegmentSpeakerDisplay(
+  segment: Pick<TranscriptionSegment, "chunkId" | "speaker" | "speakerLabel">,
+  assignmentMap: SpeakerAssignmentMap,
+  mode: SpeakerAssignmentMode
+): string | undefined {
+  const cachedLabel = normalizeSpeakerId(segment.speakerLabel);
+  if (cachedLabel) return cachedLabel;
+
+  return resolveSpeakerLabel(segment.speaker, resolveSpeakerAssignment(segment, assignmentMap, mode));
 }
 
 function normalizeSpeakerId(value: string | undefined): string | undefined {

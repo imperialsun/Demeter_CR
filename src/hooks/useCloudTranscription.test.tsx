@@ -85,6 +85,7 @@ const mocks = vi.hoisted(() => ({
       text: "Bonjour",
       chunkId: "whisper-1",
       strategy: "chunks",
+      speaker: "SPEAKER_00",
     },
   ]),
   transcribeWithMistral: vi.fn(async () => ({ text: "ok" })),
@@ -353,6 +354,58 @@ describe("useCloudTranscription", () => {
     });
     const updatedSegments = await api.loadChunkSegments(chunkId ?? "demeter-default-001");
     expect(updatedSegments[0]?.speaker).toBe("SPEAKER_01");
+  });
+
+  it("persists cloud chunk speaker assignments with labels for exports and reports", async () => {
+    useAsrStore.setState({ hfApiToken: "hf_token" } as never);
+
+    let api!: ReturnType<typeof useCloudTranscription>;
+    render(<HookHarness provider="whisper" onReady={(value) => (api = value)} />);
+    const file = new File(["a"], "audio.wav", { type: "audio/wav" });
+
+    await act(async () => {
+      await api.handleFileSelected(file);
+    });
+    await act(async () => {
+      await api.startTranscription();
+    });
+
+    await waitFor(() => {
+      expect(api.status).toBe("done");
+    });
+
+    const exportedSegments = await api.loadAllSegmentsForExport();
+    const chunkId = exportedSegments[0]?.chunkId ?? "whisper-1";
+    const assignmentKey = `${chunkId}::SPEAKER_00`;
+
+    useAsrStore.setState({
+      speakerAssignments: {
+        upload: {},
+        mic: {},
+        cloud: {
+          [assignmentKey]: {
+            firstName: "Alice",
+            lastName: "Dupont",
+          },
+        },
+      },
+    } as never);
+
+    await act(async () => {
+      await api.applyChunkSpeakerAssignments(chunkId, {
+        [assignmentKey]: {
+          firstName: "Alice",
+          lastName: "Dupont",
+        },
+      });
+    });
+
+    await waitFor(async () => {
+      const updatedSegments = await api.loadChunkSegments(chunkId);
+      expect(updatedSegments).toHaveLength(1);
+      expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.transcriptText).toContain("Dupont Alice: Bonjour");
+      expect(useAsrStore.getState().sessionTranscriptMemories.cloud?.segmentCount).toBe(exportedSegments.length);
+    });
   });
 
   it("clears the shared cloud transcript memory on session reset", async () => {

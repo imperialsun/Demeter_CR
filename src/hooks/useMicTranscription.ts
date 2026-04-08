@@ -13,6 +13,7 @@ import { MODEL_PRESETS, resolveLighterPresetForMemoryFallback, resolveModelId, u
 import { getFfmpeg } from "@/lib/ffmpeg-loader";
 import { encodeWavBuffer, resampleMono } from "@/lib/audio";
 import { createSessionTranscriptMemoryEntry } from "@/lib/sessionTranscriptMemory";
+import { buildSpeakerAwareTranscriptText } from "@/lib/speakerAssignments";
 import {
   getSharedRunId,
   nextSharedRunId,
@@ -198,12 +199,15 @@ function buildStreamingSilenceSegments(
 
 function publishMicTranscriptMemory(segments: TranscriptionSegment[]) {
   const state = useAsrStore.getState();
+  const transcriptText = buildSpeakerAwareTranscriptText(segments, state.speakerAssignments.mic, "mic");
   state.setSessionTranscriptMemory(
     "mic",
     createSessionTranscriptMemoryEntry({
       mode: "mic",
       provider: "mic",
-      segments,
+      segments: [],
+      transcriptText,
+      segmentCount: segments.length,
       audioSource: state.audioSource,
       audioMetadata: state.audioMetadata,
     })
@@ -259,6 +263,10 @@ export function useMicTranscription() {
   const nextSegmentIndexRef = useRef(0);
   const lastSegmentRef = useRef<TranscriptionSegment | undefined>(undefined);
   const micAutoTuneParamsRef = useRef<MicAutoTuneParams | null>(null);
+
+  const refreshMicTranscriptMemory = useCallback(() => {
+    publishMicTranscriptMemory(useAsrStore.getState().segments);
+  }, []);
 
   const levelAnimationFrameRef = useRef<number | null>(null);
   const pendingLevelRef = useRef(0);
@@ -1706,6 +1714,7 @@ export function useMicTranscription() {
     prepareRecordingWav,
     prepareRecordingMp3,
     calibrateSilenceThreshold,
+    refreshMicTranscriptMemory,
   };
 }
 

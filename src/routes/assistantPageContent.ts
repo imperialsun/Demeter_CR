@@ -1,0 +1,73 @@
+export const ASSISTANT_JOKES = [
+  "Les bits font une pause café, mais le pipeline reste appliqué.",
+  "Le cloud relit ses notes. Les algorithmes aiment la relecture.",
+  "Demeter aligne les octets avec un calme presque zen.",
+  "Petit moment de calcul. Même les serveurs ont besoin d'une respiration.",
+  "Les chunks prennent leurs marques. L'ordinateur garde le rythme.",
+  "Le code travaille en silence, comme un bon radiologue du clavier.",
+  "La machine ne dort pas, elle médite en binaire.",
+  "Chaque segment cherche sa place, comme un dossier bien nommé.",
+  "Les octets font la queue, très polis aujourd'hui.",
+  "La transcription prend son temps, elle veut bien faire les choses.",
+  "Le modèle ajuste sa cravate invisible.",
+  "Le cloud a lu le manuel. Il hésite encore sur la page 42.",
+  "On laisse les neurones numériques faire leur footing.",
+  "Même les logs prennent un peu de hauteur.",
+  "Les chunks se répartissent sans se marcher sur les pieds.",
+  "Le serveur a dit \"encore un instant\" et il le pensait sincèrement.",
+  "Les pointillés font semblant d'être mystérieux.",
+  "Quand le pipeline respire, tout le monde respire.",
+  "C'est le calme avant le verdict des rapports.",
+  "Les mots attendent leur tour, très disciplinés.",
+  "Le GPU sieste, le CPU raconte une blague.",
+  "Un octet heureux vaut mieux que deux qui paniquent.",
+  "Demeter vérifie ses lacets avant de courir.",
+  "La file d'attente est parfaitement rangée, presque trop.",
+  "La transcription aime les petits pas.",
+  "Les chunks se coordonnent comme une équipe qui s'entend bien.",
+  "Le cloud range ses dossiers par humeur.",
+  "Chaque segment est traité avec respect et un peu de suspense.",
+  "Ici, le bruit devient du texte, lentement mais sûrement.",
+  "Les serveurs aiment les missions claires.",
+  "Une blague par minute, un chunk à la fois.",
+  "Le modèle ne fait pas grève, il affine.",
+  "La magie n'est que de l'ordonnancement bien coiffé.",
+  "Les données ont demandé un café, on a dit oui.",
+  "Le pipeline ne panique jamais, il itère.",
+  "Les fenêtres temporelles restent alignées, par principe.",
+  "Les paquets de données prennent le train sans retard.",
+  "Le moteur cloud tourne en sourdine, mais il a du style.",
+  "On laisse l'algo dérouler son tapis rouge.",
+  "La latence porte une petite écharpe.",
+  "Le texte arrive en bottes de pluie, prêt pour le brouillard.",
+  "Les timestamps sont à l'heure, pour une fois.",
+  "Le moteur prépare la suite comme un chef de rang.",
+  "Les segments se répartissent en silence religieux.",
+  "Le modèle pense, donc il chunk.",
+  "Le pipeline sait attendre sans s'impatienter.",
+  "Les octets sont en file, mais la file est élégante.",
+  "La machine a trouvé son tempo.",
+  "Le cloud a pris sa décision, puis a vérifié deux fois.",
+  "On transforme du son en sens, ce qui demande un peu de patience.",
+  "Les rapports se préparent, la scène est presque prête.",
+  "Le flux avance à pas feutrés.",
+  "Même les métadonnées gardent le sourire.",
+  "Les chunks font leur entrée, chacun à sa mesure.",
+  "Le moteur ne fait pas de bruit, il fait le boulot.",
+  "Les labels sont en répétition générale.",
+  "L'horloge du pipeline avance sans se presser.",
+  "Les segments prennent l'ascenseur, pas l'escalier.",
+  "Le cloud garde le fil, même quand la nuit tombe.",
+  "La fin approche, et elle a l'air plutôt organisée.",
+];
+
+export function buildRandomJokeOrder(length: number, rng: () => number = Math.random) {
+  const order = Array.from({ length }, (_, index) => index);
+
+  for (let index = order.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(rng() * (index + 1));
+    [order[index], order[swapIndex]] = [order[swapIndex]!, order[index]!];
+  }
+
+  return order;
+}

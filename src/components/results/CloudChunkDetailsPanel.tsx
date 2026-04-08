@@ -31,6 +31,7 @@ interface CloudChunkDetailsPanelProps {
   onAutoPlayRequestConsumed?: () => void;
   onSegmentTextChange?: (segmentIndex: number, text: string) => void | Promise<void>;
   onSegmentSpeakerChange?: (segmentIndex: number, speakerId: string) => void | Promise<void>;
+  onSpeakerAssignmentsApplied?: (assignments: SpeakerAssignmentMap) => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -48,6 +49,7 @@ export const CloudChunkDetailsPanel = memo(function CloudChunkDetailsPanel({
   onAutoPlayRequestConsumed,
   onSegmentTextChange,
   onSegmentSpeakerChange,
+  onSpeakerAssignmentsApplied,
   onClose,
 }: CloudChunkDetailsPanelProps) {
   const titleId = useId();
@@ -176,7 +178,7 @@ export const CloudChunkDetailsPanel = memo(function CloudChunkDetailsPanel({
     return [...labels];
   }, [chunk.chunkId, chunk.speakerIds, speakerAssignments]);
 
-  const handleApplySpeakerAssignments = (nextAssignments: SpeakerAssignmentMap) => {
+  const handleApplySpeakerAssignments = async (nextAssignments: SpeakerAssignmentMap) => {
     const mergedAssignments = { ...speakerAssignments };
     for (const key of Object.keys(mergedAssignments)) {
       if (key.startsWith(`${chunk.chunkId}::`)) {
@@ -187,7 +189,16 @@ export const CloudChunkDetailsPanel = memo(function CloudChunkDetailsPanel({
       mergedAssignments[key] = value;
     }
     setSpeakerAssignments("cloud", mergedAssignments);
-    setSpeakerDialogOpen(false);
+    try {
+      await onSpeakerAssignmentsApplied?.(mergedAssignments);
+    } catch (error) {
+      logger.warn("[cloud][ui] failed to persist chunk speaker assignments", {
+        chunkId: chunk.chunkId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setSpeakerDialogOpen(false);
+    }
   };
 
   const handleSegmentTextChange = async (segmentIndex: number, text: string) => {

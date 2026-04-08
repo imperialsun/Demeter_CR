@@ -10,6 +10,7 @@ import {
   loadCloudTranscriptChunkSummary,
   loadCloudTranscriptSegmentsForExport,
   updateCloudTranscriptSegment,
+  replaceCloudTranscriptChunkSegments,
 } from "./cloudTranscriptCache";
 
 beforeEach(async () => {
@@ -121,6 +122,48 @@ describe("cloudTranscriptCache", () => {
     expect(segments[1]?.speaker).toBe("SPEAKER_02");
     expect(summary?.textSample).toContain("suite modifiée");
     expect(summary?.speakerIds).toContain("SPEAKER_02");
+  });
+
+  it("preserves speaker labels when chunk segments are replaced", async () => {
+    const sessionId = "session-2b";
+    const chunkId = "chunk-2b";
+
+    await appendCloudTranscriptChunkSegments({
+      sessionId,
+      chunkId,
+      chunkIndex: 0,
+      segments: [
+        buildSegment({
+          index: 0,
+          start: 0,
+          end: 3,
+          text: "Bonjour",
+          speaker: "SPEAKER_00",
+          speakerLabel: "Dupont Alice",
+          chunkId,
+        }),
+      ],
+    });
+
+    await replaceCloudTranscriptChunkSegments({
+      sessionId,
+      chunkId,
+      chunkIndex: 0,
+      segments: [
+        buildSegment({
+          index: 0,
+          start: 0,
+          end: 3,
+          text: "Bonjour",
+          speaker: "SPEAKER_00",
+          speakerLabel: "Dupont Alice",
+          chunkId,
+        }),
+      ],
+    });
+
+    const segments = await loadCloudTranscriptChunkSegments(sessionId, chunkId);
+    expect(segments[0]?.speakerLabel).toBe("Dupont Alice");
   });
 
   it("exports segments in chunk order and deletes a whole session", async () => {
