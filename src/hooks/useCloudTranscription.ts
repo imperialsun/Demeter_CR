@@ -44,6 +44,7 @@ import {
   resolveSegmentSpeakerDisplay,
   type SpeakerAssignmentMap,
 } from "@/lib/speakerAssignments";
+import { createSecureId } from "@/lib/secure-id";
 import { BACKGROUND_RESUME_MESSAGE } from "@/lib/transcriptionVisibility";
 import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
 import { trackBackendPerformanceSummary } from "@/lib/backend-performance-sync";
@@ -733,7 +734,7 @@ export function useCloudTranscription(
 
     const client = await getWhisperClient(token, telemetry);
     const shouldAbort = () => stopRequestedRef.current || runIdRef.current !== runId;
-    const sessionId = cloudSessionIdRef.current ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const sessionId = cloudSessionIdRef.current ?? createSecureId("cloud-");
     cloudSessionIdRef.current = sessionId;
     setCloudSessionId(sessionId);
 
@@ -897,7 +898,7 @@ export function useCloudTranscription(
     const shouldAbort = () => stopRequestedRef.current || runIdRef.current !== runId;
     let backendDiarizationEffective = diarizationEnabled;
     let backendDiarizationFallbackChunks = 0;
-    const sessionId = cloudSessionIdRef.current ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const sessionId = cloudSessionIdRef.current ?? createSecureId("cloud-");
     cloudSessionIdRef.current = sessionId;
     setCloudSessionId(sessionId);
     const backendRunAbortController = new AbortController();
@@ -1221,7 +1222,7 @@ export function useCloudTranscription(
     let mistralDiarizationEffective = diarizationEnabled;
     let mistralDiarizationFallbackChunks = 0;
     const shouldAbort = () => stopRequestedRef.current || runIdRef.current !== runId;
-    const sessionId = cloudSessionIdRef.current ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const sessionId = cloudSessionIdRef.current ?? createSecureId("cloud-");
     cloudSessionIdRef.current = sessionId;
     setCloudSessionId(sessionId);
     let stagedSegments: CloudStagedSegment[];

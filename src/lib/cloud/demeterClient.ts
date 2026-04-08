@@ -12,6 +12,7 @@ import {
   parseBackendHttpError,
 } from "@/lib/backend-api";
 import { BackendSessionExpiredError, backendRefresh } from "@/lib/backend-auth";
+import { createSecureId } from "@/lib/secure-id";
 
 const DEMETER_TRANSCRIPTIONS_PATH = "/providers/demeter-sante/audio/transcriptions";
 const DEMETER_TRANSCRIPTIONS_BACKEND_PATH = "/providers/demeter-sante/audio/transcriptions/backend";
@@ -126,11 +127,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 function createDemeterUploadId(): string {
-  const crypto = globalThis.crypto;
-  if (crypto && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `demeter-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return createSecureId("demeter-");
 }
 
 function buildDemeterSliceHeaders(params: {

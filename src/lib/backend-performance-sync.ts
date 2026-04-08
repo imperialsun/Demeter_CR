@@ -4,6 +4,7 @@ import { isAuthenticated } from "@/lib/auth";
 import logger from "@/lib/logger";
 import { isBackendMode } from "@/lib/runtime-config";
 import type { TelemetrySummary } from "@/lib/telemetry";
+import { createSecureId } from "@/lib/secure-id";
 
 const PERFORMANCE_QUEUE_KEY = "demeter-backend-performance-queue";
 const RETRY_DELAY_MS = 5_000;
@@ -308,8 +309,5 @@ function currentRoutePath() {
 }
 
 function newEventID(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return createSecureId("perf-");
 }

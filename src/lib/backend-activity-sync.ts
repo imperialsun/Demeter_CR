@@ -3,6 +3,7 @@ import { backendRefresh } from "@/lib/backend-auth";
 import { isAuthenticated } from "@/lib/auth";
 import logger from "@/lib/logger";
 import { isBackendMode } from "@/lib/runtime-config";
+import { createSecureId } from "@/lib/secure-id";
 
 const ACTIVITY_QUEUE_KEY = "demeter-backend-activity-queue";
 const RETRY_DELAY_MS = 5_000;
@@ -209,8 +210,5 @@ function clearRetry() {
 }
 
 function newEventID(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return createSecureId("activity-");
 }
