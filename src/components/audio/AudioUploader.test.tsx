@@ -20,7 +20,7 @@ describe("AudioUploader component", () => {
     const onFileSelected = vi.fn();
     render(<AudioUploader onFileSelected={onFileSelected} />);
 
-    const dropzone = screen.getByRole("button");
+    const dropzone = screen.getByRole("button", { name: /Déposez votre fichier ici/i });
     const file = new File(["x"], "x.wav", { type: "audio/wav" });
     const dataTransfer = { files: [file], items: { add: () => {} } } as unknown as DataTransfer;
 
@@ -34,14 +34,14 @@ describe("AudioUploader component", () => {
     const onFileSelected = vi.fn();
     render(<AudioUploader onFileSelected={onFileSelected} disabled />);
 
-    fireEvent.click(screen.getByRole("button"));
+    fireEvent.click(screen.getByRole("button", { name: /Déposez votre fichier ici/i }));
     expect(onFileSelected).not.toHaveBeenCalled();
   });
 
   it("updates drag style on drag over and leave", () => {
     render(<AudioUploader onFileSelected={() => undefined} />);
 
-    const dropzone = screen.getByRole("button");
+    const dropzone = screen.getByRole("button", { name: /Déposez votre fichier ici/i });
     fireEvent.dragOver(dropzone);
     expect(dropzone.className).toContain("border-primary");
 
@@ -52,7 +52,7 @@ describe("AudioUploader component", () => {
   it("uses main input click path when file input is actionable", () => {
     render(<AudioUploader onFileSelected={() => undefined} />);
 
-    const dropzone = screen.getByRole("button");
+    const dropzone = screen.getByRole("button", { name: /Déposez votre fichier ici/i });
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
 
     Object.defineProperty(fileInput, "offsetParent", {
@@ -72,7 +72,7 @@ describe("AudioUploader component", () => {
     const onFileSelected = vi.fn();
     render(<AudioUploader onFileSelected={onFileSelected} />);
 
-    const dropzone = screen.getByRole("button");
+    const dropzone = screen.getByRole("button", { name: /Déposez votre fichier ici/i });
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
     vi.spyOn(fileInput, "click").mockImplementation(() => {
       throw new Error("native picker blocked");
