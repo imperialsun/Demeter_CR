@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { ChevronDown, ChevronUp, Info } from "lucide-react";
+import { buildReportFormatLabel } from "@/lib/llm/reportPrompts";
 
 type AssistantHelpSectionConfig = {
   id: string;
@@ -20,18 +21,18 @@ const ASSISTANT_HELP_SECTIONS: AssistantHelpSectionConfig[] = [
     points: [
       "Déposez un MP3, WAV ou M4A, ou cliquez pour choisir un fichier.",
       "Vérifiez la durée, le format et la taille affichés sous l’import.",
-      "Quand le fichier est chargé, passez à la diarization si vous voulez les morceaux.",
+      "Quand le fichier est chargé, passez à la diarisation si vous voulez relire les intervenants et les morceaux.",
     ],
   },
   {
     id: "diarization",
     step: "Étape 2",
-    title: "Diarization",
-    summary: "Décider si vous voulez afficher les parties de la réunion détaillées.",
+    title: "Diarisation",
+    summary: "Décider si vous voulez afficher les morceaux audio et suivre les intervenants.",
     points: [
-      "Cette étape vous permet de choisir si vous voulez voir les parties de la réunion avant de générer les rapports.",
-      "Oui, avec parties de la réunion : affiche le détail pour relire qui parle et corriger les speakers si besoin.",
-      "Non, version simple : passe directement à la transcription et aux rapports, sans afficher les parties de la réunion.",
+      "La diarisation détecte automatiquement qui parle pour associer chaque segment à un intervenant.",
+      "Oui, avec morceaux : affiche le détail pour relire la transcription et corriger les intervenants si besoin.",
+      "Non, version simple : passe directement à la transcription et aux comptes rendus, sans afficher les morceaux.",
       "Oui = plus de contrôle. Non = plus rapide.",
     ],
   },
@@ -39,9 +40,9 @@ const ASSISTANT_HELP_SECTIONS: AssistantHelpSectionConfig[] = [
     id: "transcription",
     step: "Étape 3",
     title: "Transcription",
-    summary: "Relire les chunks et corriger les speakers ou le texte si besoin.",
+    summary: "Relire les morceaux audio et corriger le texte ou les intervenants si besoin.",
     points: [
-      "Ouvrez une partie pour lire les segments et ajuster les speakers.",
+      "Ouvrez une partie pour lire les segments et ajuster les intervenants.",
       "Les changements sont enregistrés immédiatement dans la session.",
       "Quand tout est bon, validez la revue pour lancer la génération des rapports.",
     ],
@@ -49,11 +50,11 @@ const ASSISTANT_HELP_SECTIONS: AssistantHelpSectionConfig[] = [
   {
     id: "reports",
     step: "Étape 4",
-    title: "Rapports",
-    summary: "Télécharger la transcription et les trois comptes rendus finaux.",
+    title: "Comptes rendus",
+    summary: "Télécharger la transcription et les trois versions finales.",
     points: [
       "Téléchargez la transcription DOCX pour récupérer le texte final avec les bons noms.",
-      "Téléchargez CRI, CRO et CRS quand les trois boutons sont visibles.",
+      `Téléchargez ${buildReportFormatLabel("CRI")}, ${buildReportFormatLabel("CRO")} et ${buildReportFormatLabel("CRS")} quand les trois boutons sont visibles.`,
       "Si vous repartez de zéro, utilisez « Nouveau fichier » pour relancer le flux.",
     ],
   },

@@ -102,7 +102,7 @@ describe("LLMLocalPage", () => {
   it("triggers local generation from transcription source", async () => {
     renderPage();
 
-    const button = screen.getByRole("button", { name: /generer les 3 formats/i });
+    const button = screen.getByRole("button", { name: /générer les trois comptes rendus/i });
     expect(button).not.toBeDisabled();
 
     fireEvent.click(button);
@@ -123,18 +123,20 @@ describe("LLMLocalPage", () => {
 
   it("shows local privacy notice for llm local mode", () => {
     renderPage();
-    expect(screen.getByText(/traitement 100% local sur ce poste/i)).toBeInTheDocument();
-    expect(screen.getByText(/aucune donnee n'est partagee en dehors de ce poste/i)).toBeInTheDocument();
+    expect(screen.getByText(/traitement 100 ?% local sur ce poste/i)).toBeInTheDocument();
+    expect(screen.getByText(/aucune donnée n'est partagée en dehors de ce poste/i)).toBeInTheDocument();
   });
 
   it("renders local model profile selector", () => {
     renderPage();
-    expect(screen.getByLabelText("Profil modele", { selector: "button#llm-local-profile" })).toBeInTheDocument();
-    expect(screen.queryByLabelText("Max tokens", { selector: "input#llm-local-max-tokens" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Profil modèle", { selector: "button#llm-local-profile" })).toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Nombre max de tokens", { selector: "input#llm-local-max-tokens" })
+    ).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Dtype WebGPU", { selector: "button#llm-local-dtype-webgpu" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Dtype WASM", { selector: "button#llm-local-dtype-wasm" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Temperature", { selector: "input#llm-local-temperature" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /ouvrir parametres llm local/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /ouvrir paramètres llm local/i })).toHaveAttribute(
       "href",
       "/settings?tab=llmlocal"
     );
@@ -147,12 +149,12 @@ describe("LLMLocalPage", () => {
 
     renderPage();
 
-    expect(screen.queryByRole("link", { name: /ouvrir parametres llm local/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: /ouvrir paramètres llm local/i })).toBeNull();
   });
 
   it("resets local llm session via hook", async () => {
     renderPage();
-    await userEvent.click(screen.getByRole("button", { name: /reinitialiser session locale/i }));
+    await userEvent.click(screen.getByRole("button", { name: /réinitialiser la session locale/i }));
     expect(resetSession).toHaveBeenCalledTimes(1);
     expect(emitLlmEventMock).toHaveBeenCalledWith(
       "LLM_LOCAL_RESET_REQUESTED",
@@ -167,7 +169,7 @@ describe("LLMLocalPage", () => {
   it("emits heavy profile telemetry when opening and cancelling confirmation", async () => {
     renderPage();
 
-    const profileSelect = screen.getByLabelText("Profil modele", { selector: "button#llm-local-profile" });
+    const profileSelect = screen.getByLabelText("Profil modèle", { selector: "button#llm-local-profile" });
     fireEvent.click(profileSelect);
     fireEvent.click(await screen.findByText(/Ministral 3 3B/i));
 
@@ -186,14 +188,14 @@ describe("LLMLocalPage", () => {
   it("requires an imported file when source is texte libre", async () => {
     renderPage();
 
-    const sourceSelect = screen.getByLabelText("Mode d'entree", { selector: "button#llm-local-source" });
+    const sourceSelect = screen.getByLabelText("Mode d'entrée", { selector: "button#llm-local-source" });
     fireEvent.click(sourceSelect);
     fireEvent.click(await screen.findByText("Texte libre"));
 
-    const button = screen.getByRole("button", { name: /generer les 3 formats/i });
+    const button = screen.getByRole("button", { name: /générer les trois comptes rendus/i });
     expect(button).toBeDisabled();
     expect(screen.getByRole("button", { name: /choisir un fichier/i })).toBeInTheDocument();
-    expect(screen.getByText(/importez un fichier pour lancer la generation/i)).toBeInTheDocument();
+    expect(screen.getByText(/importez un fichier pour lancer la génération/i)).toBeInTheDocument();
   });
 
   it("emits import telemetry events", async () => {
@@ -205,11 +207,11 @@ describe("LLMLocalPage", () => {
 
     renderPage();
 
-    const sourceSelect = screen.getByLabelText("Mode d'entree", { selector: "button#llm-local-source" });
+    const sourceSelect = screen.getByLabelText("Mode d'entrée", { selector: "button#llm-local-source" });
     fireEvent.click(sourceSelect);
     fireEvent.click(await screen.findByText("Texte libre"));
 
-    const fileInput = screen.getByLabelText("Importer un fichier transcription", {
+    const fileInput = screen.getByLabelText("Importer un fichier de transcription", {
       selector: "input#llm-local-source-file",
     });
     const file = new File(["dummy"], "source.txt", { type: "text/plain" });
@@ -224,9 +226,9 @@ describe("LLMLocalPage", () => {
         expect.objectContaining({ fileName: "source.txt" })
       );
     });
-    expect(screen.getByText(/fichier importe:/i)).toBeInTheDocument();
+    expect(screen.getByText(/fichier importé\s*:/i)).toBeInTheDocument();
     expect(screen.getAllByText("source.txt").length).toBeGreaterThan(0);
-    expect(screen.getByText(/tokens du fichier importe approx/i)).toBeInTheDocument();
+    expect(screen.getByText(/tokens du fichier importé approx/i)).toBeInTheDocument();
   });
 
   it("accepts docx imports in free text mode", async () => {
@@ -238,11 +240,11 @@ describe("LLMLocalPage", () => {
 
     renderPage();
 
-    const sourceSelect = screen.getByLabelText("Mode d'entree", { selector: "button#llm-local-source" });
+    const sourceSelect = screen.getByLabelText("Mode d'entrée", { selector: "button#llm-local-source" });
     fireEvent.click(sourceSelect);
     fireEvent.click(await screen.findByText("Texte libre"));
 
-    const fileInput = screen.getByLabelText("Importer un fichier transcription", {
+    const fileInput = screen.getByLabelText("Importer un fichier de transcription", {
       selector: "input#llm-local-source-file",
     });
     expect(fileInput.getAttribute("accept")).toContain(".docx");
@@ -271,17 +273,17 @@ describe("LLMLocalPage", () => {
 
     renderPage();
 
-    const sourceSelect = screen.getByLabelText("Mode d'entree", { selector: "button#llm-local-source" });
+    const sourceSelect = screen.getByLabelText("Mode d'entrée", { selector: "button#llm-local-source" });
     fireEvent.click(sourceSelect);
     fireEvent.click(await screen.findByText("Texte libre"));
 
-    const fileInput = screen.getByLabelText("Importer un fichier transcription", {
+    const fileInput = screen.getByLabelText("Importer un fichier de transcription", {
       selector: "input#llm-local-source-file",
     });
     const file = new File(["dummy"], "source.txt", { type: "text/plain" });
     fireEvent.change(fileInput, { target: { files: [file] } });
 
-    const generateButton = screen.getByRole("button", { name: /generer les 3 formats/i });
+    const generateButton = screen.getByRole("button", { name: /générer les trois comptes rendus/i });
     await waitFor(() => {
       expect(generateButton).not.toBeDisabled();
     });
@@ -310,7 +312,7 @@ describe("LLMLocalPage", () => {
     } as any;
 
     renderPage();
-    await userEvent.click(screen.getByRole("button", { name: /telecharger cri/i }));
+    await userEvent.click(screen.getByRole("button", { name: /télécharger compte rendu détaillé/i }));
     expect(downloadDocx).toHaveBeenCalledWith("cri");
     expect(emitLlmEventMock).toHaveBeenCalledWith(
       "LLM_LOCAL_DOWNLOAD_REQUESTED",
@@ -325,8 +327,8 @@ describe("LLMLocalPage", () => {
   it("shows and closes llm-local model-size foreground alert", async () => {
     useAsrStore.setState({
       llmLocalModelSizeAlert: {
-        title: "Modele local trop gros",
-        description: "Impossible de charger le modele sur ce poste.",
+        title: "Modèle local trop gros",
+        description: "Impossible de charger le modèle sur ce poste.",
         severity: "error",
         signature: "llmlocal:test:error",
       },
@@ -334,8 +336,8 @@ describe("LLMLocalPage", () => {
 
     renderPage();
 
-    expect(screen.getByRole("dialog", { name: "Modele local trop gros" })).toBeInTheDocument();
-    expect(screen.getByText("Impossible de charger le modele sur ce poste.")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Modèle local trop gros" })).toBeInTheDocument();
+    expect(screen.getByText("Impossible de charger le modèle sur ce poste.")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /compris/i }));
 
@@ -347,7 +349,7 @@ describe("LLMLocalPage", () => {
   it("confirms heavy profile selection and updates store", async () => {
     renderPage();
 
-    const profileSelect = screen.getByLabelText("Profil modele", { selector: "button#llm-local-profile" });
+    const profileSelect = screen.getByLabelText("Profil modèle", { selector: "button#llm-local-profile" });
     fireEvent.click(profileSelect);
     fireEvent.click(await screen.findByText(/Ministral 3 3B/i));
     await userEvent.click(screen.getByRole("button", { name: /confirmer/i }));
@@ -367,7 +369,7 @@ describe("LLMLocalPage", () => {
     renderPage();
 
     expect(screen.getByText(/aucun backend local disponible/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /generer les 3 formats/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /générer les trois comptes rendus/i })).toBeDisabled();
   });
 
   it("handles local download failure with toast and telemetry", async () => {
@@ -391,7 +393,7 @@ describe("LLMLocalPage", () => {
     downloadDocx.mockRejectedValueOnce(new Error("local download fail"));
 
     renderPage();
-    await userEvent.click(screen.getByRole("button", { name: /telecharger cri/i }));
+    await userEvent.click(screen.getByRole("button", { name: /télécharger compte rendu détaillé/i }));
 
     expect(toastMock).toHaveBeenCalledWith("local download fail");
     expect(emitLlmEventMock).toHaveBeenCalledWith(
@@ -404,7 +406,7 @@ describe("LLMLocalPage", () => {
     resetSession.mockRejectedValueOnce(new Error("reset failed"));
     renderPage();
 
-    await userEvent.click(screen.getByRole("button", { name: /reinitialiser session locale/i }));
+    await userEvent.click(screen.getByRole("button", { name: /réinitialiser la session locale/i }));
 
     expect(toastMock).toHaveBeenCalledWith("reset failed");
     expect(emitLlmEventMock).toHaveBeenCalledWith(
@@ -439,11 +441,11 @@ describe("LLMLocalPage", () => {
     } as any);
 
     renderPage();
-    await userEvent.click(screen.getByRole("tab", { name: "CRS" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Compte rendu synthétique" }));
 
     expect(screen.getByText("Resume local")).toBeInTheDocument();
     expect(screen.getByText("Sous titre local")).toBeInTheDocument();
-    expect(screen.getByText("Points cles")).toBeInTheDocument();
+    expect(screen.getByText("Points clés")).toBeInTheDocument();
     expect(screen.getByText("Act1")).toBeInTheDocument();
     expect(screen.getByText("Cv1")).toBeInTheDocument();
     expect(screen.getByText("Paragraphe 1")).toBeInTheDocument();
@@ -453,7 +455,7 @@ describe("LLMLocalPage", () => {
   it("triggers local hidden file picker button", async () => {
     renderPage();
 
-    const sourceSelect = screen.getByLabelText("Mode d'entree", { selector: "button#llm-local-source" });
+    const sourceSelect = screen.getByLabelText("Mode d'entrée", { selector: "button#llm-local-source" });
     fireEvent.click(sourceSelect);
     fireEvent.click(await screen.findByText("Texte libre"));
 
@@ -467,11 +469,11 @@ describe("LLMLocalPage", () => {
     parseTranscriptFileMock.mockRejectedValueOnce(new Error("import local impossible"));
     renderPage();
 
-    const sourceSelect = screen.getByLabelText("Mode d'entree", { selector: "button#llm-local-source" });
+    const sourceSelect = screen.getByLabelText("Mode d'entrée", { selector: "button#llm-local-source" });
     fireEvent.click(sourceSelect);
     fireEvent.click(await screen.findByText("Texte libre"));
 
-    const fileInput = screen.getByLabelText("Importer un fichier transcription", {
+    const fileInput = screen.getByLabelText("Importer un fichier de transcription", {
       selector: "input#llm-local-source-file",
     });
     fireEvent.change(fileInput, { target: { files: [new File(["bad"], "bad.txt", { type: "text/plain" })] } });

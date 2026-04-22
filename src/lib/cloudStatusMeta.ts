@@ -11,7 +11,7 @@ export const CLOUD_STATUS_META: Record<CloudTranscriptionStatus, CloudStatusMeta
   idle: { label: "En attente", variant: "secondary" },
   preprocessing: { label: "Préparation", variant: "warning" },
   uploading: { label: "Envoi cloud", variant: "warning" },
-  transcribing: { label: "Transcription", variant: "default" },
+  transcribing: { label: "Transcription cloud", variant: "default" },
   stopping: { label: "Arrêt", variant: "secondary" },
   done: { label: "Terminé", variant: "success" },
   error: { label: "Erreur", variant: "destructive" },

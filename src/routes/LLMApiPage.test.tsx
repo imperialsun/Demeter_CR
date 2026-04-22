@@ -150,7 +150,7 @@ describe("LLMApiPage", () => {
   it("triggers generation from transcription source", async () => {
     renderPage();
 
-    const button = screen.getByRole("button", { name: /generer les 3 formats/i });
+    const button = screen.getByRole("button", { name: /générer les trois comptes rendus/i });
     expect(button).not.toBeDisabled();
 
     await userEvent.click(button);
@@ -186,11 +186,11 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    expect(screen.getByText(/source active:/i)).toHaveTextContent("Locale · demo.wav");
+    expect(screen.getByText(/source active :/i)).toHaveTextContent("Locale · demo.wav");
     expect(screen.queryByText(/aucune transcription active dans la session/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /generer les 3 formats/i })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: /générer les trois comptes rendus/i })).not.toBeDisabled();
 
-    await userEvent.click(screen.getByRole("button", { name: /generer les 3 formats/i }));
+    await userEvent.click(screen.getByRole("button", { name: /générer les trois comptes rendus/i }));
     expect(generateAll).toHaveBeenCalledWith({ source: "transcription", transcriptMode: "upload" });
   });
 
@@ -204,30 +204,30 @@ describe("LLMApiPage", () => {
 
   it("shows cloud external api note with local equivalent", () => {
     renderPage();
-    expect(screen.getByText(/module utilise une api externe/i)).toBeInTheDocument();
+    expect(screen.getByText(/module utilise une API externe/i)).toBeInTheDocument();
     expect(screen.getByText(/llm local \(\/llmlocal\)/i)).toBeInTheDocument();
   });
 
   it("requires an imported file when source is texte libre", async () => {
     renderPage();
 
-    const sourceSelect = screen.getByLabelText("Mode d'entree", { selector: "button#llm-source" });
+    const sourceSelect = screen.getByLabelText("Mode d'entrée", { selector: "button#llm-source" });
     fireEvent.click(sourceSelect);
     fireEvent.click(await screen.findByText("Texte libre"));
 
-    const button = screen.getByRole("button", { name: /generer les 3 formats/i });
+    const button = screen.getByRole("button", { name: /générer les trois comptes rendus/i });
     expect(button).toBeDisabled();
     expect(screen.getByRole("button", { name: /choisir un fichier/i })).toBeInTheDocument();
-    expect(screen.getByText(/importez un fichier pour lancer la generation/i)).toBeInTheDocument();
+    expect(screen.getByText(/importez un fichier pour lancer la génération/i)).toBeInTheDocument();
   });
 
   it("hides DOCX downloads until a report is generated", () => {
     renderPage();
 
     expect(screen.queryByRole("region", { name: /téléchargements docx/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /telecharger cri/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /telecharger cro/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /telecharger crs/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /télécharger le compte rendu détaillé/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /télécharger le compte rendu opérationnel/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /télécharger le compte rendu synthétique/i })).not.toBeInTheDocument();
   });
 
   it("shows only generated DOCX downloads below the format selector", async () => {
@@ -241,10 +241,10 @@ describe("LLMApiPage", () => {
     const editor = screen.getByTestId("report-editor-cri");
     expect(docxDownloads.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
-    const downloadCri = screen.getByRole("button", { name: /telecharger cri/i });
+    const downloadCri = screen.getByRole("button", { name: /télécharger le compte rendu détaillé/i });
     expect(downloadCri).not.toBeDisabled();
-    expect(screen.queryByRole("button", { name: /telecharger cro/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /telecharger crs/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /télécharger le compte rendu opérationnel/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /télécharger le compte rendu synthétique/i })).not.toBeInTheDocument();
 
     await userEvent.click(downloadCri);
     expect(downloadDocx).toHaveBeenCalledWith("cri");
@@ -259,9 +259,9 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    expect(screen.getByRole("button", { name: /telecharger cri/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /telecharger cro/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /telecharger crs/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /télécharger le compte rendu détaillé/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /télécharger le compte rendu opérationnel/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /télécharger le compte rendu synthétique/i })).toBeInTheDocument();
   });
 
   it("updates the draft after editing a generated report and resets to the cloud version", async () => {
@@ -303,9 +303,9 @@ describe("LLMApiPage", () => {
     await waitFor(() => {
       expect(within(editor).getByDisplayValue("Titre modifie")).toBeInTheDocument();
     });
-    expect(screen.getAllByText("Modifie").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Modifié").length).toBeGreaterThan(0);
 
-    await userEvent.click(within(editor).getByRole("button", { name: /reinitialiser ce format/i }));
+    await userEvent.click(within(editor).getByRole("button", { name: /réinitialiser ce compte rendu/i }));
 
     await waitFor(() => {
       expect(within(editor).getByDisplayValue("Titre initial")).toBeInTheDocument();
@@ -411,7 +411,7 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    expect(screen.getByText(/ne peut pas fonctionner sans cle api hugging face/i)).toBeInTheDocument();
+    expect(screen.getByText(/ne peut pas fonctionner sans clé api hugging face/i)).toBeInTheDocument();
   });
 
   it("shows toast and blocks generation when llm token is missing", async () => {
@@ -419,12 +419,12 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    const button = screen.getByRole("button", { name: /generer les 3 formats/i });
+    const button = screen.getByRole("button", { name: /générer les trois comptes rendus/i });
     expect(button).not.toBeDisabled();
 
     await userEvent.click(button);
 
-    expect(toastMock).toHaveBeenCalledWith("Ce module ne peut pas fonctionner sans cle API Hugging Face.");
+    expect(toastMock).toHaveBeenCalledWith("Ce module ne peut pas fonctionner sans clé API Hugging Face.");
     expect(generateAll).not.toHaveBeenCalled();
     expect(emitLlmEventMock).toHaveBeenCalledWith(
       "LLM_CLOUD_GENERATION_BLOCKED",
@@ -440,9 +440,9 @@ describe("LLMApiPage", () => {
     fireEvent.click(await screen.findByText("Mistral"));
 
     expect(useAsrStore.getState().llmApiProvider).toBe("mistral");
-    expect(screen.getByLabelText("Cle API Mistral", { selector: "input#llm-mistral-api-key" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Clé API Mistral", { selector: "input#llm-mistral-api-key" })).toBeInTheDocument();
     expect(screen.queryByLabelText("URL API Mistral")).not.toBeInTheDocument();
-    expect(screen.getByText(/Model ID:/i)).toBeInTheDocument();
+    expect(screen.getByText(/ID du modèle/i)).toBeInTheDocument();
     expect(screen.getByText("mistral-medium-latest")).toBeInTheDocument();
     expect(emitLlmEventMock).toHaveBeenCalledWith(
       "LLM_CLOUD_PROVIDER_CHANGE",
@@ -462,7 +462,7 @@ describe("LLMApiPage", () => {
     expect(
       screen.getByText((_, element) =>
         element?.tagName === "P" &&
-        (element.textContent ?? "").includes(`Max tokens: ${formatTokenCount(DEMETER_SANTE_MAX_TOKENS)}`)
+        (element.textContent ?? "").includes(`Nombre max de tokens : ${formatTokenCount(DEMETER_SANTE_MAX_TOKENS)}`)
       )
     ).toBeInTheDocument();
   });
@@ -474,7 +474,7 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    expect(screen.queryByRole("link", { name: /ouvrir parametres llm/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: /ouvrir paramètres llm/i })).toBeNull();
   });
 
   it("blocks generation when no llm provider is authorized", () => {
@@ -483,7 +483,7 @@ describe("LLMApiPage", () => {
     renderPage();
 
     expect(screen.getByText(/aucun provider llm cloud autorisé/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /generer les 3 formats/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /générer les trois comptes rendus/i })).toBeDisabled();
   });
 
   it("shows inline alert when mistral token is missing", () => {
@@ -495,7 +495,7 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    expect(screen.getByText(/ne peut pas fonctionner sans cle api mistral/i)).toBeInTheDocument();
+    expect(screen.getByText(/ne peut pas fonctionner sans clé api mistral/i)).toBeInTheDocument();
   });
 
   it("shows toast and blocks generation when mistral token is missing", async () => {
@@ -507,11 +507,11 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    const button = screen.getByRole("button", { name: /generer les 3 formats/i });
+    const button = screen.getByRole("button", { name: /générer les trois comptes rendus/i });
     expect(button).not.toBeDisabled();
 
     await userEvent.click(button);
-    expect(toastMock).toHaveBeenCalledWith("Ce module ne peut pas fonctionner sans cle API Mistral.");
+    expect(toastMock).toHaveBeenCalledWith("Ce module ne peut pas fonctionner sans clé API Mistral.");
     expect(generateAll).not.toHaveBeenCalled();
   });
 
@@ -556,7 +556,7 @@ describe("LLMApiPage", () => {
     fireEvent.click(transcriptSelect);
     fireEvent.click(await screen.findByText("Locale · demo.wav"));
 
-    await userEvent.click(screen.getByRole("button", { name: /generer les 3 formats/i }));
+    await userEvent.click(screen.getByRole("button", { name: /générer les trois comptes rendus/i }));
     expect(generateAll).toHaveBeenCalledWith({ source: "transcription", transcriptMode: "upload" });
   });
 
@@ -569,11 +569,11 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    const sourceSelect = screen.getByLabelText("Mode d'entree", { selector: "button#llm-source" });
+    const sourceSelect = screen.getByLabelText("Mode d'entrée", { selector: "button#llm-source" });
     fireEvent.click(sourceSelect);
     fireEvent.click(await screen.findByText("Texte libre"));
 
-    const fileInput = await screen.findByLabelText("Importer un fichier transcription", {
+    const fileInput = await screen.findByLabelText("Importer un fichier de transcription", {
       selector: "input#llm-source-file",
     });
     const file = new File(["dummy"], "source.txt", { type: "text/plain" });
@@ -582,11 +582,11 @@ describe("LLMApiPage", () => {
     await waitFor(() => {
       expect(screen.getAllByText("source.txt").length).toBeGreaterThan(0);
     });
-    const generateButton = screen.getByRole("button", { name: /generer les 3 formats/i });
+    const generateButton = screen.getByRole("button", { name: /générer les trois comptes rendus/i });
     await waitFor(() => expect(generateButton).not.toBeDisabled());
     expect(parseTranscriptFileMock).toHaveBeenCalled();
-    expect(screen.getByText(/tokens du fichier importe approx/i)).toBeInTheDocument();
-    expect(toastMock).toHaveBeenCalledWith(expect.stringContaining("Fichier importe: source.txt"));
+    expect(screen.getByText(/tokens du fichier importé approx/i)).toBeInTheDocument();
+    expect(toastMock).toHaveBeenCalledWith(expect.stringContaining("Fichier importé: source.txt"));
     expect(emitLlmEventMock).toHaveBeenCalledWith(
       "LLM_CLOUD_IMPORT_START",
       expect.objectContaining({ fileName: "source.txt" })
@@ -607,11 +607,11 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    const sourceSelect = screen.getByLabelText("Mode d'entree", { selector: "button#llm-source" });
+    const sourceSelect = screen.getByLabelText("Mode d'entrée", { selector: "button#llm-source" });
     fireEvent.click(sourceSelect);
     fireEvent.click(await screen.findByText("Texte libre"));
 
-    const fileInput = screen.getByLabelText("Importer un fichier transcription", {
+    const fileInput = screen.getByLabelText("Importer un fichier de transcription", {
       selector: "input#llm-source-file",
     });
     expect(fileInput.getAttribute("accept")).toContain(".docx");
@@ -648,11 +648,11 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    const sourceSelect = screen.getByLabelText("Mode d'entree", { selector: "button#llm-source" });
+    const sourceSelect = screen.getByLabelText("Mode d'entrée", { selector: "button#llm-source" });
     fireEvent.click(sourceSelect);
     fireEvent.click(await screen.findByText("Texte libre"));
 
-    const fileInput = await screen.findByLabelText("Importer un fichier transcription", {
+    const fileInput = await screen.findByLabelText("Importer un fichier de transcription", {
       selector: "input#llm-source-file",
     });
 
@@ -679,11 +679,11 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    const sourceSelect = screen.getByLabelText("Mode d'entree", { selector: "button#llm-source" });
+    const sourceSelect = screen.getByLabelText("Mode d'entrée", { selector: "button#llm-source" });
     fireEvent.click(sourceSelect);
     fireEvent.click(await screen.findByText("Texte libre"));
 
-    const fileInput = await screen.findByLabelText("Importer un fichier transcription", {
+    const fileInput = await screen.findByLabelText("Importer un fichier de transcription", {
       selector: "input#llm-source-file",
     });
     fireEvent.change(fileInput, { target: { files: [new File(["ok"], "source.txt", { type: "text/plain" })] } });
@@ -696,7 +696,7 @@ describe("LLMApiPage", () => {
     await waitFor(() => {
       expect(toastMock).toHaveBeenCalledWith("Fichier non interpretable: aucun texte de transcription detecte.");
     });
-    const generateButton = screen.getByRole("button", { name: /generer les 3 formats/i });
+    const generateButton = screen.getByRole("button", { name: /générer les trois comptes rendus/i });
     expect(generateButton).not.toBeDisabled();
     await userEvent.click(generateButton);
     expect(generateAll).toHaveBeenCalledWith({ source: "text", text: "Texte manuel conserve" });
@@ -707,11 +707,11 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    const sourceSelect = screen.getByLabelText("Mode d'entree", { selector: "button#llm-source" });
+    const sourceSelect = screen.getByLabelText("Mode d'entrée", { selector: "button#llm-source" });
     fireEvent.click(sourceSelect);
     fireEvent.click(await screen.findByText("Texte libre"));
 
-    const fileInput = await screen.findByLabelText("Importer un fichier transcription", {
+    const fileInput = await screen.findByLabelText("Importer un fichier de transcription", {
       selector: "input#llm-source-file",
     });
     fireEvent.change(fileInput, { target: { files: [new File(["x"], "huge.txt", { type: "text/plain" })] } });
@@ -727,12 +727,12 @@ describe("LLMApiPage", () => {
     expect(screen.getByLabelText("Provider LLM", { selector: "button#llm-provider" })).toBeInTheDocument();
     expect(screen.getByLabelText("Token Hugging Face", { selector: "input#llm-api-token" })).toBeInTheDocument();
 
-    expect(screen.queryByLabelText("Model ID")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Temperature")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Max tokens")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("ID du modèle")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Température")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Nombre max de tokens")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("URL API Mistral")).not.toBeInTheDocument();
 
-    const settingsLink = screen.getByRole("link", { name: /ouvrir parametres llm/i });
+    const settingsLink = screen.getByRole("link", { name: /ouvrir paramètres llm/i });
     expect(settingsLink).toHaveAttribute("href", "/settings?tab=llm");
   });
 
@@ -741,10 +741,10 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    expect(screen.getByText(/configuration pipeline incomplete/i)).toBeInTheDocument();
-    expect(screen.getByText(/ne peut pas fonctionner sans model id/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /generer les 3 formats/i })).toBeDisabled();
-    expect(screen.getAllByRole("link", { name: /ouvrir parametres llm/i })[0]).toHaveAttribute(
+    expect(screen.getByText(/configuration du pipeline incomplète/i)).toBeInTheDocument();
+    expect(screen.getByText(/ne peut pas fonctionner sans id du modèle configuré/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /générer les trois comptes rendus/i })).toBeDisabled();
+    expect(screen.getAllByRole("link", { name: /ouvrir paramètres llm/i })[0]).toHaveAttribute(
       "href",
       "/settings?tab=llm"
     );
@@ -771,7 +771,7 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    await userEvent.click(screen.getByRole("button", { name: /reinitialiser session llm/i }));
+    await userEvent.click(screen.getByRole("button", { name: /réinitialiser la session llm/i }));
     expect(emitLlmEventMock).toHaveBeenCalledWith(
       "LLM_CLOUD_RESET_REQUESTED",
       expect.objectContaining({ sourceMode: "transcription" })
@@ -781,7 +781,7 @@ describe("LLMApiPage", () => {
       expect.objectContaining({ sourceMode: "transcription" })
     );
 
-    await userEvent.click(screen.getByRole("button", { name: /telecharger cri/i }));
+    await userEvent.click(screen.getByRole("button", { name: /télécharger le compte rendu détaillé/i }));
     expect(emitLlmEventMock).toHaveBeenCalledWith(
       "LLM_CLOUD_DOWNLOAD_REQUESTED",
       expect.objectContaining({ format: "cri" })
@@ -819,11 +819,11 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    await userEvent.click(screen.getByRole("tab", { name: "CRO" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Compte rendu opérationnel" }));
     const editor = screen.getByTestId("report-editor-cro");
     expect(within(editor).getByDisplayValue("Compte rendu CRO")).toBeInTheDocument();
     expect(within(editor).getByDisplayValue("Sous titre")).toBeInTheDocument();
-    expect(within(editor).getByText("Points cles")).toBeInTheDocument();
+    expect(within(editor).getByText("Points clés")).toBeInTheDocument();
     expect(within(editor).getByDisplayValue("Point 1")).toBeInTheDocument();
     expect(within(editor).getByDisplayValue("Point 2")).toBeInTheDocument();
     expect(within(editor).getByDisplayValue("Action A")).toBeInTheDocument();
@@ -854,7 +854,7 @@ describe("LLMApiPage", () => {
     downloadDocx.mockRejectedValueOnce(new Error("download boom"));
 
     renderPage();
-    await userEvent.click(screen.getByRole("button", { name: /telecharger cri/i }));
+    await userEvent.click(screen.getByRole("button", { name: /télécharger le compte rendu détaillé/i }));
 
     expect(toastMock).toHaveBeenCalledWith("download boom");
     expect(emitLlmEventMock).toHaveBeenCalledWith(
@@ -866,7 +866,7 @@ describe("LLMApiPage", () => {
   it("triggers the hidden file picker button in text source mode", async () => {
     renderPage();
 
-    const sourceSelect = screen.getByLabelText("Mode d'entree", { selector: "button#llm-source" });
+    const sourceSelect = screen.getByLabelText("Mode d'entrée", { selector: "button#llm-source" });
     fireEvent.click(sourceSelect);
     fireEvent.click(await screen.findByText("Texte libre"));
 
@@ -882,7 +882,7 @@ describe("LLMApiPage", () => {
 
     expect(screen.getByText(/session en cours du navigateur/i)).toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Cle API Mistral", { selector: "input#llm-mistral-api-key" }), {
+    fireEvent.change(screen.getByLabelText("Clé API Mistral", { selector: "input#llm-mistral-api-key" }), {
       target: { value: "mistral_token_ui" },
     });
     expect(useAsrStore.getState().mistralApiKey).toBe("mistral_token_ui");

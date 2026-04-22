@@ -45,7 +45,7 @@ export const CloudChunkCard = memo(function CloudChunkCard({
               <Badge variant={isActive ? "default" : "secondary"}>{isActive ? "Ouverte" : "Résumé"}</Badge>
               <Badge variant="outline">{formatCloudChunkTimeRange(chunk.start, chunk.end)}</Badge>
               <Badge variant="outline">{chunk.segmentCount} segments</Badge>
-              <Badge variant="outline">{chunk.speakerIds.length} speakers</Badge>
+              <Badge variant="outline">{chunk.speakerIds.length} intervenants</Badge>
             </div>
             <CardTitle className="text-base">{chunk.label}</CardTitle>
             <CardDescription className="break-words">ID technique: {chunk.chunkId}</CardDescription>
@@ -87,7 +87,7 @@ export const CloudChunkCard = memo(function CloudChunkCard({
             ))}
           </div>
         ) : (
-          <p className="text-xs text-muted-foreground">Aucun speaker détecté sur ce morceau.</p>
+          <p className="text-xs text-muted-foreground">Aucun intervenant détecté sur ce morceau.</p>
         )}
       </CardHeader>
       <CardContent className="space-y-3 pt-0">

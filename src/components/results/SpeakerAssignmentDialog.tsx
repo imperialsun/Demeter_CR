@@ -52,10 +52,10 @@ export function SpeakerAssignmentDialog({
   const applyButtonRef = useRef<HTMLButtonElement | null>(null);
   const groupedEntries = useMemo(() => groupEntriesByChunk(entries), [entries]);
   const isCloudMode = mode === "cloud";
-  const title = isCloudMode ? "Assigner les speakers par chunk" : "Assigner les speakers";
+  const title = isCloudMode ? "Nommer les intervenants par partie" : "Nommer les intervenants";
   const description = isCloudMode
-    ? "Les labels speaker sont locaux à chaque chunk. SPEAKER_00 d’un chunk n’est pas supposé être la même personne dans un autre chunk."
-    : "Renseignez le nom et le prénom pour remplacer les IDs techniques dans les segments et exports.";
+    ? "Les noms attribués ici sont propres à chaque partie. Un identifiant technique peut représenter une autre personne dans une autre partie."
+    : "Renseignez le nom et le prénom pour remplacer les identifiants techniques dans les segments et exports.";
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -214,7 +214,7 @@ export function SpeakerAssignmentDialog({
                 })}
           </div>
         ) : (
-          <p className="mt-4 text-sm text-muted-foreground">Aucun speaker détecté.</p>
+          <p className="mt-4 text-sm text-muted-foreground">Aucun intervenant détecté.</p>
         )}
 
         <div className="mt-6 flex justify-end gap-2">

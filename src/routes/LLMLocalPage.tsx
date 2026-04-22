@@ -12,6 +12,7 @@ import { toast } from "@/components/ui/use-toast";
 import { useAsrStore } from "@/store/asr-store";
 import { useLlmLocalReports } from "@/hooks/useLlmLocalReports";
 import { LLM_API_STATUS_META } from "@/lib/llm/llmStatusMeta";
+import { buildReportFormatDescription, buildReportFormatLabel } from "@/lib/llm/reportPrompts";
 import {
   LOCAL_LLM_MODEL_PROFILES,
   getLocalLlmModelProfile,
@@ -42,6 +43,24 @@ type ImportedFileMeta = {
   charCount: number;
   tokenCount: number;
 };
+
+const FORMAT_PREVIEW_META = [
+  {
+    format: "cri" as const,
+    label: buildReportFormatLabel("CRI"),
+    description: buildReportFormatDescription("CRI"),
+  },
+  {
+    format: "cro" as const,
+    label: buildReportFormatLabel("CRO"),
+    description: buildReportFormatDescription("CRO"),
+  },
+  {
+    format: "crs" as const,
+    label: buildReportFormatLabel("CRS"),
+    description: buildReportFormatDescription("CRS"),
+  },
+];
 
 function LLMLocalPage() {
   useBackendPermissions();
@@ -224,7 +243,7 @@ function LLMLocalPage() {
     });
     try {
       await downloadDocx(format);
-      toast(`DOCX ${format.toUpperCase()} telecharge.`);
+      toast(`DOCX ${FORMAT_PREVIEW_META.find((item) => item.format === format)?.label ?? format.toUpperCase()} téléchargé.`);
       logger.info("[llm-local][ui] download completed", {
         format,
         profile: llmLocalModelProfile,
@@ -236,7 +255,7 @@ function LLMLocalPage() {
         modelId: llmLocalModelId || "unset",
       });
     } catch (error) {
-      toast((error as Error)?.message ?? "Impossible de telecharger le DOCX.");
+      toast((error as Error)?.message ?? "Impossible de télécharger le DOCX.");
       logger.error("[llm-local][ui] download failed", {
         format,
         profile: llmLocalModelProfile,
@@ -306,7 +325,7 @@ function LLMLocalPage() {
         tokenCount,
       });
       toast(
-        `Fichier importe: ${file.name} (${parsed.format.toUpperCase()}, ${formatTokenCount(importedText.length)} caracteres).`
+        `Fichier importé : ${file.name} (${parsed.format.toUpperCase()}, ${formatTokenCount(importedText.length)} caractères).`
       );
       logger.info("[llm-local][ui] source file import success", {
         fileName: file.name,
@@ -382,7 +401,7 @@ function LLMLocalPage() {
         sourceMode: source,
         message: error instanceof Error ? error.message : String(error),
       });
-      toast((error as Error)?.message ?? "Impossible de reinitialiser la session locale.");
+      toast((error as Error)?.message ?? "Impossible de réinitialiser la session locale.");
     }
   };
 
@@ -392,10 +411,10 @@ function LLMLocalPage() {
         <header className="space-y-2">
           <h2 className="text-2xl font-semibold">LLM Local</h2>
           <p className="text-muted-foreground">
-            Generez les 3 formats CRI/CRO/CRS localement dans le navigateur, puis telechargez chaque compte rendu en DOCX.
+            Générez les trois comptes rendus localement dans le navigateur, puis téléchargez chaque version en DOCX.
           </p>
           <p className="text-sm font-medium text-emerald-600">
-            Traitement 100% local sur ce poste: aucune donnee n'est partagee en dehors de ce poste.
+            Traitement 100 % local sur ce poste : aucune donnée n&apos;est partagée en dehors de ce poste.
           </p>
         </header>
 
@@ -405,12 +424,12 @@ function LLMLocalPage() {
               <CardHeader>
                 <CardTitle>Configuration locale</CardTitle>
                 <CardDescription>
-                  Choisissez le profil modele local. Les reglages avances se font dans Parametres &gt; LLM Local.
+                  Choisissez le profil de modèle local. Les réglages avancés se font dans Paramètres &gt; LLM Local.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="space-y-2">
-                  <Label htmlFor="llm-local-profile">Profil modele</Label>
+                  <Label htmlFor="llm-local-profile">Profil modèle</Label>
                   <Select value={llmLocalModelProfile} onValueChange={handleProfileChange}>
                     <SelectTrigger id="llm-local-profile">
                       <SelectValue />
@@ -428,19 +447,19 @@ function LLMLocalPage() {
                 <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground space-y-1">
                   <p className="text-sm font-medium text-foreground">Profil actif</p>
                   <p>
-                    Modele: <span className="font-medium text-foreground">{selectedProfile.modelId}</span>
+                    Modèle : <span className="font-medium text-foreground">{selectedProfile.modelId}</span>
                   </p>
                   <p>
-                    Contexte: <span className="font-medium text-foreground">{formatTokenCount(selectedProfile.contextWindowTokens)}</span>{" "}
+                    Contexte : <span className="font-medium text-foreground">{formatTokenCount(selectedProfile.contextWindowTokens)}</span>{" "}
                     tokens
                   </p>
                   <p>
-                    Backend auto: <span className="font-medium text-foreground">{backendResolution.backend ?? "indisponible"}</span>
+                    Backend détecté : <span className="font-medium text-foreground">{backendResolution.backend ?? "indisponible"}</span>
                   </p>
                   <p>
-                    Ordre backend:{" "}
+                    Ordre de secours :{" "}
                     <span className="font-medium text-foreground">
-                      {backendCandidates.length > 0 ? backendCandidates.map((backend) => backend.toUpperCase()).join(" -> ") : "aucun"}
+                      {backendCandidates.length > 0 ? backendCandidates.map((backend) => backend.toUpperCase()).join(" → ") : "aucun"}
                     </span>
                   </p>
                   {backendResolution.error ? <p className="text-destructive">{backendResolution.error}</p> : null}
@@ -449,7 +468,7 @@ function LLMLocalPage() {
                 {canOpenSettings ? (
                   <div>
                     <Button asChild variant="outline" size="sm">
-                      <a href="/settings?tab=llmlocal">Ouvrir parametres LLM Local</a>
+                      <a href="/settings?tab=llmlocal">Ouvrir paramètres LLM Local</a>
                     </Button>
                   </div>
                 ) : null}
@@ -463,7 +482,7 @@ function LLMLocalPage() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="space-y-2">
-                  <Label htmlFor="llm-local-source">Mode d'entree</Label>
+                  <Label htmlFor="llm-local-source">Mode d&apos;entrée</Label>
                   <Select value={source} onValueChange={handleSourceChange}>
                     <SelectTrigger id="llm-local-source">
                       <SelectValue />
@@ -478,34 +497,34 @@ function LLMLocalPage() {
                 {source === "transcription" ? (
                   <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
                     <p>
-                      Segments disponibles: <span className="font-medium text-foreground">{segments.length}</span>
+                      Segments disponibles : <span className="font-medium text-foreground">{segments.length}</span>
                     </p>
                     <p>
-                      Taille source approx: <span className="font-medium text-foreground">{transcriptionText.length}</span> caracteres.
+                      Taille source approx : <span className="font-medium text-foreground">{transcriptionText.length}</span> caractères.
                     </p>
                     <p>
-                      Tokens source approx:{" "}
+                      Tokens source approx :{" "}
                       <span className="font-medium text-foreground">{formatTokenCount(sourceTokenEstimate)}</span> tokens.
                     </p>
                     {!transcriptionText ? <p className="text-destructive">Aucune transcription active dans la session.</p> : null}
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    <div className="rounded-md border bg-muted/20 p-3">
-                      <p className="text-sm font-medium text-foreground">Import de transcription</p>
-                      <p className="text-xs text-muted-foreground">
-                        Importez un fichier texte ou DOCX pour alimenter la generation des comptes rendus.
-                      </p>
-                      <div className="mt-3 flex flex-wrap items-start gap-2 sm:flex-nowrap">
-                        <Button type="button" onClick={triggerSourceFilePicker} disabled={isImporting || isBusy}>
-                          {isImporting ? "Import en cours..." : "Choisir un fichier"}
-                        </Button>
-                        <span className="min-w-0 flex-1 break-all text-xs text-muted-foreground [overflow-wrap:anywhere]">
-                          {importedFileMeta ? importedFileMeta.name : "Aucun fichier importe"}
-                        </span>
-                      </div>
+                  <div className="rounded-md border bg-muted/20 p-3">
+                    <p className="text-sm font-medium text-foreground">Import de transcription</p>
+                    <p className="text-xs text-muted-foreground">
+                        Importez un fichier texte ou DOCX pour alimenter la génération des comptes rendus.
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-start gap-2 sm:flex-nowrap">
+                      <Button type="button" onClick={triggerSourceFilePicker} disabled={isImporting || isBusy}>
+                        {isImporting ? "Import en cours..." : "Choisir un fichier"}
+                      </Button>
+                      <span className="min-w-0 flex-1 break-all text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                          {importedFileMeta ? importedFileMeta.name : "Aucun fichier importé"}
+                      </span>
+                    </div>
                       <Label htmlFor="llm-local-source-file" className="sr-only">
-                        Importer un fichier transcription
+                        Importer un fichier de transcription
                       </Label>
                       <input
                         ref={sourceFileInputRef}
@@ -517,65 +536,65 @@ function LLMLocalPage() {
                         className="sr-only"
                       />
                       <p className="mt-2 text-xs text-muted-foreground">
-                        Formats acceptes: {TRANSCRIPT_IMPORT_LABEL}. Taille max: 50 Mo.
+                        Formats acceptés : {TRANSCRIPT_IMPORT_LABEL}. Taille max : 50 Mo.
                       </p>
-                    </div>
-                    {!manualText.trim() ? (
-                      <p className="text-xs text-destructive">Importez un fichier pour lancer la generation.</p>
-                    ) : null}
-                    {importedFileMeta ? (
-                      <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
-                        <p className="min-w-0">
-                          Fichier importe:{" "}
+                  </div>
+                  {!manualText.trim() ? (
+                      <p className="text-xs text-destructive">Importez un fichier pour lancer la génération.</p>
+                  ) : null}
+                  {importedFileMeta ? (
+                    <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
+                      <p className="min-w-0">
+                          Fichier importé :{" "}
                           <span className="mt-1 block break-all font-medium text-foreground [overflow-wrap:anywhere]">
                             {importedFileMeta.name}
                           </span>
-                        </p>
-                        <p>
-                          Format detecte:{" "}
+                      </p>
+                      <p>
+                          Format détecté :{" "}
                           <span className="font-medium text-foreground">{importedFileMeta.format.toUpperCase()}</span>
-                        </p>
-                        <p>
-                          Taille texte importee:{" "}
+                      </p>
+                      <p>
+                          Taille du texte importé :{" "}
                           <span className="font-medium text-foreground">
                             {formatTokenCount(importedFileMeta.charCount)}
                           </span>{" "}
-                          caracteres.
-                        </p>
-                        <p>
-                          Tokens du fichier importe approx:{" "}
+                          caractères.
+                      </p>
+                      <p>
+                          Tokens du fichier importé approx. :{" "}
                           <span className="font-medium text-foreground">
                             {formatTokenCount(importedFileMeta.tokenCount)}
                           </span>{" "}
                           tokens.
-                        </p>
-                        {typeof importedFileMeta.segmentCount === "number" ? (
+                      </p>
+                      {typeof importedFileMeta.segmentCount === "number" ? (
                           <p>
-                            Segments extraits:{" "}
+                            Segments extraits :{" "}
                             <span className="font-medium text-foreground">
                               {formatTokenCount(importedFileMeta.segmentCount)}
                             </span>
                             .
                           </p>
-                        ) : null}
-                        <p>
-                          Methode d'extraction:{" "}
+                      ) : null}
+                      <p>
+                          Méthode d&apos;extraction :{" "}
                           <span className="font-medium text-foreground">{importedFileMeta.extraction}</span>.
-                        </p>
-                      </div>
-                    ) : null}
-                  </div>
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
                 )}
 
                 {!sourceFitsModelContext ? (
                   <p className="text-xs text-destructive">
-                    Source trop longue pour ce profil local. Raccourcissez la source ou passez a un profil avec plus de contexte.
+                    Source trop longue pour ce profil local. Raccourcissez la source ou passez à un profil avec plus de contexte.
                   </p>
                 ) : null}
 
                 <div className="flex flex-wrap gap-2">
                   <Button onClick={runGeneration} disabled={!canGenerate}>
-                    {isBusy ? "Generation en cours..." : "Generer les 3 formats"}
+                    {isBusy ? "Génération en cours..." : "Générer les trois comptes rendus"}
                   </Button>
                   <Button
                     variant="outline"
@@ -584,7 +603,7 @@ function LLMLocalPage() {
                     }}
                     disabled={isResettingSession}
                   >
-                    {isResettingSession ? "Réinitialisation..." : "Reinitialiser session locale"}
+                    {isResettingSession ? "Réinitialisation..." : "Réinitialiser la session locale"}
                   </Button>
                 </div>
               </CardContent>
@@ -595,7 +614,7 @@ function LLMLocalPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Progression</CardTitle>
-                <CardDescription>Pipeline local (preparation + generation CRI/CRO/CRS).</CardDescription>
+                <CardDescription>Pipeline local : préparation, génération et mise en forme des trois comptes rendus.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -611,21 +630,27 @@ function LLMLocalPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Apercu des formats</CardTitle>
-                <CardDescription>Chaque format est present dans son bloc pour une lecture plus claire.</CardDescription>
+                <CardTitle>Aperçu des formats</CardTitle>
+                <CardDescription>Chaque format est présenté dans son bloc pour une lecture plus claire.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid gap-3 md:grid-cols-3">
-                  <FormatIntro format="CRI" description="CRI = restitution narrative fidele, tres detaillee, avec une redaction textuelle longue et complete." />
-                  <FormatIntro format="CRO" description="CRO = compte rendu operationnel, axe decisions, actions, priorites et points a executer." />
-                  <FormatIntro format="CRS" description="CRS = synthese ultra concise, uniquement l'essentiel critique en format tres court." />
+                  {FORMAT_PREVIEW_META.map((item) => (
+                    <FormatIntro key={item.format} label={item.label} description={item.description} />
+                  ))}
                 </div>
 
                 <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "cri" | "cro" | "crs")}>
-                  <TabsList className="grid w-full grid-cols-3">
-                    <TabsTrigger value="cri">CRI</TabsTrigger>
-                    <TabsTrigger value="cro">CRO</TabsTrigger>
-                    <TabsTrigger value="crs">CRS</TabsTrigger>
+                  <TabsList className="grid h-auto w-full grid-cols-1 gap-1 sm:grid-cols-3">
+                    <TabsTrigger value="cri" className="min-w-0 whitespace-normal px-3 py-2 text-center leading-tight">
+                      {FORMAT_PREVIEW_META[0]!.label}
+                    </TabsTrigger>
+                    <TabsTrigger value="cro" className="min-w-0 whitespace-normal px-3 py-2 text-center leading-tight">
+                      {FORMAT_PREVIEW_META[1]!.label}
+                    </TabsTrigger>
+                    <TabsTrigger value="crs" className="min-w-0 whitespace-normal px-3 py-2 text-center leading-tight">
+                      {FORMAT_PREVIEW_META[2]!.label}
+                    </TabsTrigger>
                   </TabsList>
                   <TabsContent value="cri" className="mt-4">
                     <FormatPreview format="cri" />
@@ -640,13 +665,13 @@ function LLMLocalPage() {
 
                 <div className="grid gap-2 md:grid-cols-3">
                   <Button variant="outline" onClick={() => runDownload("cri")} disabled={!results.cri || isBusy}>
-                    Telecharger CRI (.docx)
+                    Télécharger {FORMAT_PREVIEW_META[0]!.label} (.docx)
                   </Button>
                   <Button variant="outline" onClick={() => runDownload("cro")} disabled={!results.cro || isBusy}>
-                    Telecharger CRO (.docx)
+                    Télécharger {FORMAT_PREVIEW_META[1]!.label} (.docx)
                   </Button>
                   <Button variant="outline" onClick={() => runDownload("crs")} disabled={!results.crs || isBusy}>
-                    Telecharger CRS (.docx)
+                    Télécharger {FORMAT_PREVIEW_META[2]!.label} (.docx)
                   </Button>
                 </div>
               </CardContent>
@@ -658,7 +683,7 @@ function LLMLocalPage() {
       <ConfirmDialog
         open={pendingHeavyProfile !== null}
         title="Activer Ministral 3 3B ?"
-        description="Ce profil est lourd (telechargement + memoire). En cas d'erreur de memoire, l'application basculera automatiquement vers Qwen 1.7B."
+        description="Ce profil est lourd (téléchargement + mémoire). En cas d&apos;erreur de mémoire, l&apos;application basculera automatiquement vers Qwen 1.7B."
         onCancel={() => {
           logger.info("[llm-local][ui] heavy profile confirmation cancelled", {
             previousProfile: llmLocalModelProfile,
@@ -687,7 +712,7 @@ function LLMLocalPage() {
       />
       <ForegroundAlertDialog
         open={Boolean(llmLocalModelSizeAlert)}
-        title={llmLocalModelSizeAlert?.title ?? "Alerte modele local"}
+        title={llmLocalModelSizeAlert?.title ?? "Alerte modèle local"}
         description={llmLocalModelSizeAlert?.description ?? ""}
         severity={llmLocalModelSizeAlert?.severity ?? "warning"}
         onClose={clearLlmLocalModelSizeAlert}
@@ -696,10 +721,10 @@ function LLMLocalPage() {
   );
 }
 
-function FormatIntro({ format, description }: { format: string; description: string }) {
+function FormatIntro({ label, description }: { label: string; description: string }) {
   return (
     <div className="rounded-md border bg-muted/20 p-3">
-      <p className="text-sm font-semibold">{format}</p>
+      <p className="text-sm font-semibold">{label}</p>
       <p className="mt-1 text-xs text-muted-foreground">{description}</p>
     </div>
   );
@@ -707,11 +732,12 @@ function FormatIntro({ format, description }: { format: string; description: str
 
 function FormatPreview({ format }: { format: ReportResultKey }) {
   const result = useAsrStore((state) => state.llmLocalResults[format]);
+  const formatMeta = FORMAT_PREVIEW_META.find((item) => item.format === format);
 
   if (!result) {
     return (
       <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground">
-        Aucun resultat {format.toUpperCase()} pour le moment.
+        Aucun résultat {formatMeta?.label ?? format.toUpperCase()} pour le moment.
       </div>
     );
   }
@@ -721,7 +747,7 @@ function FormatPreview({ format }: { format: ReportResultKey }) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge variant="secondary">{report.format}</Badge>
+        <Badge variant="secondary">{formatMeta?.label ?? report.format}</Badge>
         <Badge variant="outline">{result.modelId}</Badge>
         <Badge variant="outline">{result.strategy}</Badge>
         <Badge variant="outline">passes {result.pipelinePasses}</Badge>
@@ -745,7 +771,7 @@ function FormatPreview({ format }: { format: ReportResultKey }) {
         </div>
       ))}
 
-      <OptionalList title="Points cles" values={report.key_points} />
+      <OptionalList title="Points clés" values={report.key_points} />
       <OptionalList title="Actions" values={report.action_items} />
       <OptionalList title="Points de vigilance" values={report.caveats} />
     </div>

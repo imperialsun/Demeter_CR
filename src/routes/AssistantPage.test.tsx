@@ -121,8 +121,9 @@ function createCloudHookValue(overrides: Partial<CloudHookValue> & { segments?: 
     ...rest
   } = overrides;
   const chunkSummaries = providedChunkSummaries ?? groupCloudTranscriptionSegments(segments);
-    const loadChunkSegments =
-    providedLoadChunkSegments ?? vi.fn(async (chunkId: string) => segments.filter((segment) => segment.chunkId === chunkId));
+  const loadChunkSegments =
+    providedLoadChunkSegments ??
+    vi.fn(async (chunkId: string) => segments.filter((segment) => segment.chunkId === chunkId));
   const loadAllSegmentsForExport =
     overrides.loadAllSegmentsForExport ?? vi.fn(async () => segments);
 
@@ -190,10 +191,15 @@ describe("AssistantPage", () => {
 
     const statusHeading = screen.getByRole("heading", { name: "Statut" });
     const importHeading = screen.getByRole("heading", { name: "Import" });
-    expect(statusHeading.compareDocumentPosition(importHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(importHeading.compareDocumentPosition(statusHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
-    for (const label of ["Fichier", "Diarization", "Transcription", "Rapports"]) {
-      const labelNode = screen.getByText(label, { selector: "span" });
+    for (const label of ["Fichier audio", "Diarisation", "Transcription", "Comptes rendus"]) {
+      const labelNode = screen
+        .getAllByText(label, { selector: "span" })
+        .find((node) => node.parentElement?.classList.contains("items-start"));
+      if (!labelNode) {
+        throw new Error(`Missing workflow label: ${label}`);
+      }
       expect(labelNode).toHaveClass("whitespace-normal", "break-normal");
       expect(labelNode).not.toHaveClass("truncate", "wrap-break-word");
       expect(labelNode.parentElement).toHaveClass("items-start");
@@ -227,6 +233,31 @@ describe("AssistantPage", () => {
     expect(screen.queryByText("En attente d'un fichier")).toBeNull();
   });
 
+  it("keeps the reset CTAs hidden before the workflow is complete", () => {
+    Object.assign(
+      pageHooks.cloudState,
+      createCloudHookValue({
+        selectedFile: new File(["audio"], "assistant-session.wav", { type: "audio/wav" }),
+        audioMetadata: {
+          name: "assistant-session.wav",
+          durationSec: 12,
+          sizeBytes: 1024,
+          mimeType: "audio/wav",
+          sampleRate: 16000,
+        },
+        status: "done",
+        statusDetail: "Transcription terminée",
+      })
+    );
+    Object.assign(pageHooks.llmState, createLlmHookValue());
+
+    renderWithStore(<AssistantPage />);
+
+    expect(screen.queryByRole("button", { name: "Nouvelle transcription" })).toBeNull();
+    expect(screen.queryByTestId("assistant-reset-workflow-top")).toBeNull();
+    expect(screen.queryByTestId("assistant-reset-workflow-bottom")).toBeNull();
+  });
+
   it("opens and closes the guided help sections", async () => {
     Object.assign(pageHooks.cloudState, createCloudHookValue());
     Object.assign(pageHooks.llmState, createLlmHookValue());
@@ -234,11 +265,15 @@ describe("AssistantPage", () => {
     const user = userEvent.setup();
     renderWithStore(<AssistantPage />);
 
+    const panel = screen.getByTestId("assistant-help-panel");
+    expect(panel).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Masquer l’aide" }));
     expect(screen.queryByTestId("assistant-help-panel")).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Aide" }));
+    await user.click(screen.getByRole("button", { name: "Afficher l’aide" }));
 
-    const panel = screen.getByTestId("assistant-help-panel");
+    const reopenedPanel = screen.getByTestId("assistant-help-panel");
     const fileSection = screen.getByTestId("assistant-help-section-file");
     const fileSectionButton = within(fileSection).getByRole("button", { name: /Fichier/i });
     const fileSectionContent = document.getElementById("assistant-help-section-file-content");
@@ -246,7 +281,7 @@ describe("AssistantPage", () => {
       throw new Error("Missing file help section content");
     }
 
-    expect(panel).toBeInTheDocument();
+    expect(reopenedPanel).toBeInTheDocument();
     expect(fileSectionButton).toHaveAttribute("aria-expanded", "false");
     expect(fileSectionContent).toHaveClass("hidden");
 
@@ -257,7 +292,7 @@ describe("AssistantPage", () => {
     expect(fileSectionContent).toHaveTextContent(/Déposez un MP3, WAV ou M4A/i);
 
     const diarizationSection = screen.getByTestId("assistant-help-section-diarization");
-    const diarizationSectionButton = within(diarizationSection).getByRole("button", { name: /Diarization/i });
+    const diarizationSectionButton = within(diarizationSection).getByRole("button", { name: /Diarisation/i });
     const diarizationSectionContent = document.getElementById("assistant-help-section-diarization-content");
     if (!diarizationSectionContent) {
       throw new Error("Missing diarization help section content");
@@ -267,7 +302,7 @@ describe("AssistantPage", () => {
 
     expect(diarizationSectionButton).toHaveAttribute("aria-expanded", "true");
     expect(diarizationSectionContent).not.toHaveClass("hidden");
-    expect(diarizationSectionContent).toHaveTextContent(/parties de la réunion/i);
+    expect(diarizationSectionContent).toHaveTextContent(/associer chaque segment à un intervenant/i);
 
     await user.click(fileSectionButton);
 
@@ -348,6 +383,9 @@ describe("AssistantPage", () => {
           pageHooks.cloudState.status = "idle";
           pageHooks.cloudState.statusDetail = null;
           pageHooks.cloudState.isTranscribing = false;
+          pageHooks.llmState.status = "idle";
+          pageHooks.llmState.progress = 0;
+          pageHooks.llmState.results = {};
         }),
         loadAllSegmentsForExport: vi.fn(async () => segments),
       } satisfies Partial<CloudHookValue>
@@ -373,7 +411,7 @@ describe("AssistantPage", () => {
 
     rerender(<AssistantPage />);
 
-    expect(screen.getByRole("heading", { name: "Diarization" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Diarisation" })).toBeInTheDocument();
     expect(screen.queryByTestId("assistant-status-body")).toBeNull();
     expect(screen.queryByRole("button", { name: "Importer" })).toBeNull();
     expect(screen.getByRole("button", { name: "Changer de fichier" })).toBeInTheDocument();
@@ -399,12 +437,12 @@ describe("AssistantPage", () => {
     expect(pageHooks.llmState.generateAll).not.toHaveBeenCalled();
 
     const user = userEvent.setup();
-    await user.hover(screen.getByRole("button", { name: "Aide morceaux audio" }));
+    await user.hover(screen.getByRole("button", { name: "Aide relecture des morceaux" }));
     expect(await screen.findByRole("tooltip")).toHaveTextContent(
-      /Chaque carte correspond à un morceau audio\. Ouvrez-la pour éditer les segments et les speakers\./i
+      /Chaque carte correspond à une partie de l’audio\. Ouvrez-la pour relire les segments et les intervenants\./i
     );
 
-    const reviewButton = screen.getByRole("button", { name: "La transcription est ok continuer" });
+    const reviewButton = screen.getByRole("button", { name: "Valider la transcription" });
     fireEvent.click(reviewButton);
 
     await waitFor(() => {
@@ -415,7 +453,7 @@ describe("AssistantPage", () => {
 
     const processingBody = screen.getByTestId("assistant-status-body");
     expect(processingBody).toHaveTextContent(ASSISTANT_JOKES[expectedJokeOrder[0] ?? 0]);
-    expect(within(processingBody).queryByRole("button", { name: "La transcription est ok continuer" })).toBeNull();
+    expect(within(processingBody).queryByRole("button", { name: "Valider la transcription" })).toBeNull();
     expect(screen.queryByTestId("assistant-chunk-list")).toBeNull();
 
     pageHooks.llmState.status = "done";
@@ -427,7 +465,11 @@ describe("AssistantPage", () => {
     };
     rerender(<AssistantPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: /Télécharger la transcription/i }));
+    fireEvent.click(
+      within(screen.getByTestId("assistant-status-body")).getByRole("button", {
+        name: /^Télécharger la transcription \(\.docx\)$/i,
+      })
+    );
 
     await waitFor(() => {
       expect(pageHooks.cloudState.loadAllSegmentsForExport).toHaveBeenCalledTimes(1);
@@ -448,14 +490,47 @@ describe("AssistantPage", () => {
 
     const readyBody = screen.getByTestId("assistant-status-body");
     expect(within(readyBody).getByRole("button", { name: /Télécharger la transcription/i })).toBeInTheDocument();
-    expect(within(readyBody).getByRole("button", { name: /Télécharger CRI/i })).toBeInTheDocument();
-    expect(within(readyBody).getByRole("button", { name: /Télécharger CRO/i })).toBeInTheDocument();
-    expect(within(readyBody).getByRole("button", { name: /Télécharger CRS/i })).toBeInTheDocument();
-    expect(within(readyBody).queryByRole("button", { name: /La transcription est ok continuer/i })).toBeNull();
+    expect(within(readyBody).getByRole("button", { name: /Télécharger le Compte rendu détaillé/i })).toBeInTheDocument();
+    expect(within(readyBody).getByRole("button", { name: /Télécharger le Compte rendu opérationnel/i })).toBeInTheDocument();
+    expect(within(readyBody).getByRole("button", { name: /Télécharger le Compte rendu synthétique/i })).toBeInTheDocument();
+    expect(within(readyBody).queryByRole("button", { name: /Valider la transcription/i })).toBeNull();
 
-    const importFooterActions = screen.getByTestId("assistant-import-footer-actions");
-    expect(within(importFooterActions).queryByRole("button", { name: /Télécharger la transcription/i })).toBeNull();
-    expect(within(importFooterActions).getByRole("button", { name: /Nouveau fichier/i })).toBeInTheDocument();
+    expect(screen.getByTestId("assistant-reset-workflow-top")).toBeInTheDocument();
+    expect(screen.getByTestId("assistant-reset-workflow-bottom")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("assistant-reset-workflow-top"));
+
+    const resetDialog = screen.getByRole("dialog", { name: /remettre l'assistant à zéro/i });
+    expect(within(resetDialog).getByText(/vous êtes sur le point de lancer une nouvelle transcription/i)).toBeInTheDocument();
+    expect(within(resetDialog).getByRole("button", { name: "Annuler" })).toBeInTheDocument();
+    expect(within(resetDialog).getByRole("button", { name: "OK" })).toBeInTheDocument();
+
+    await user.click(within(resetDialog).getByRole("button", { name: "Annuler" }));
+    expect(pageHooks.cloudState.resetTranscriptionSession).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: /remettre l'assistant à zéro/i })).toBeNull();
+    expect(screen.getByTestId("assistant-reset-workflow-top")).toBeInTheDocument();
+    expect(screen.getByTestId("assistant-reset-workflow-bottom")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("assistant-reset-workflow-bottom"));
+    const confirmDialog = screen.getByRole("dialog", { name: /remettre l'assistant à zéro/i });
+    await user.click(within(confirmDialog).getByRole("button", { name: "OK" }));
+
+    await waitFor(() => {
+      expect(pageHooks.cloudState.resetTranscriptionSession).toHaveBeenCalledTimes(1);
+    });
+
+    pageHooks.cloudState.selectedFile = null;
+    pageHooks.cloudState.audioMetadata = null;
+    pageHooks.cloudState.chunkSummaries = [];
+    pageHooks.cloudState.status = "idle";
+    pageHooks.cloudState.statusDetail = null;
+    pageHooks.cloudState.isTranscribing = false;
+    rerender(<AssistantPage />);
+
+    expect(screen.queryByRole("dialog", { name: /remettre l'assistant à zéro/i })).toBeNull();
+    expect(screen.queryByTestId("assistant-reset-workflow-top")).toBeNull();
+    expect(screen.queryByTestId("assistant-reset-workflow-bottom")).toBeNull();
+    expect(screen.getByRole("button", { name: "Importer" })).toBeInTheDocument();
     expect(screen.getByText(/Assistant cloud Demeter/i)).toBeInTheDocument();
   });
 
@@ -557,10 +632,11 @@ describe("AssistantPage", () => {
 
     const readyBody = screen.getByTestId("assistant-status-body");
     expect(within(readyBody).getByRole("button", { name: /Télécharger la transcription/i })).toBeInTheDocument();
-    expect(within(readyBody).getByRole("button", { name: /Télécharger CRI/i })).toBeInTheDocument();
-    expect(within(readyBody).getByRole("button", { name: /Télécharger CRO/i })).toBeInTheDocument();
-    expect(within(readyBody).getByRole("button", { name: /Télécharger CRS/i })).toBeInTheDocument();
-    expect(within(screen.getByTestId("assistant-import-footer-actions")).queryByRole("button", { name: /Télécharger la transcription/i })).toBeNull();
+    expect(within(readyBody).getByRole("button", { name: /Télécharger le Compte rendu détaillé/i })).toBeInTheDocument();
+    expect(within(readyBody).getByRole("button", { name: /Télécharger le Compte rendu opérationnel/i })).toBeInTheDocument();
+    expect(within(readyBody).getByRole("button", { name: /Télécharger le Compte rendu synthétique/i })).toBeInTheDocument();
+    expect(screen.getByTestId("assistant-reset-workflow-top")).toBeInTheDocument();
+    expect(screen.getByTestId("assistant-reset-workflow-bottom")).toBeInTheDocument();
     expect(screen.queryByTestId("assistant-chunk-list")).toBeNull();
   });
 });

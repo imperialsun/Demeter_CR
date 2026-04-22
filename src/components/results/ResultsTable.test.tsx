@@ -109,7 +109,7 @@ describe("ResultsTable", () => {
 
   it("auto-shows speaker column when speaker data exists", () => {
     render(<ResultsTable segments={sampleWithSpeaker as any} mode="cloud" />);
-    expect(screen.getByRole("columnheader", { name: /speaker/i })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /intervenant/i })).toBeInTheDocument();
     expect(screen.getByText("SPEAKER_00")).toBeInTheDocument();
   });
 
@@ -219,8 +219,8 @@ describe("ResultsTable", () => {
 
     render(<SpeakerHarness />);
 
-    const firstSpeakerSelect = screen.getByRole("combobox", { name: /speaker du segment 1/i });
-    const secondSpeakerSelect = screen.getByRole("combobox", { name: /speaker du segment 2/i });
+    const firstSpeakerSelect = screen.getByRole("combobox", { name: /intervenant du segment 1/i });
+    const secondSpeakerSelect = screen.getByRole("combobox", { name: /intervenant du segment 2/i });
 
     expect(firstSpeakerSelect).toHaveTextContent("Dupont Alice · SPEAKER_00");
     expect(secondSpeakerSelect).toHaveTextContent("Dupont Alice · SPEAKER_00");
@@ -229,10 +229,10 @@ describe("ResultsTable", () => {
     fireEvent.click(screen.getByRole("option", { name: "Martin Bob · SPEAKER_01" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("combobox", { name: /speaker du segment 1/i })).toHaveTextContent(
+      expect(screen.getByRole("combobox", { name: /intervenant du segment 1/i })).toHaveTextContent(
         "Martin Bob · SPEAKER_01"
       );
-      expect(screen.getByRole("combobox", { name: /speaker du segment 2/i })).toHaveTextContent(
+      expect(screen.getByRole("combobox", { name: /intervenant du segment 2/i })).toHaveTextContent(
         "Dupont Alice · SPEAKER_00"
       );
     });

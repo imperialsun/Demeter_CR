@@ -363,7 +363,7 @@ describe("useLlmReports telemetry", () => {
     const { result } = renderHook(() => useLlmReports());
 
     await act(async () => {
-      await expect(result.current.downloadDocx("cri")).rejects.toThrow("Aucun resultat disponible");
+      await expect(result.current.downloadDocx("cri")).rejects.toThrow("Aucun résultat disponible pour ce format.");
     });
   });
 

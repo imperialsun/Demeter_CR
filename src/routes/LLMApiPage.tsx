@@ -21,7 +21,7 @@ import { toast } from "@/components/ui/use-toast";
 import { useAsrStore, type LlmApiProvider } from "@/store/asr-store";
 import { useLlmReports } from "@/hooks/useLlmReports";
 import { moveArrayItem } from "@/lib/arrayMove";
-import { buildReportFormatDescription } from "@/lib/llm/reportPrompts";
+import { buildReportFormatDescription, buildReportFormatLabel } from "@/lib/llm/reportPrompts";
 import { LLM_API_STATUS_META } from "@/lib/llm/llmStatusMeta";
 import { areReportJsonsEqual, cloneReportJson, type ReportJson, type ReportResultKey } from "@/lib/llm/reportSchema";
 import {
@@ -51,16 +51,31 @@ import { isBackendMode } from "@/lib/runtime-config";
 import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
 
 const FORMAT_PREVIEW_META = [
-  { format: "CRI" as const, description: buildReportFormatDescription("CRI") },
-  { format: "CRO" as const, description: buildReportFormatDescription("CRO") },
-  { format: "CRS" as const, description: buildReportFormatDescription("CRS") },
+  {
+    format: "cri" as const,
+    code: "CRI" as const,
+    label: buildReportFormatLabel("CRI"),
+    description: buildReportFormatDescription("CRI"),
+  },
+  {
+    format: "cro" as const,
+    code: "CRO" as const,
+    label: buildReportFormatLabel("CRO"),
+    description: buildReportFormatDescription("CRO"),
+  },
+  {
+    format: "crs" as const,
+    code: "CRS" as const,
+    label: buildReportFormatLabel("CRS"),
+    description: buildReportFormatDescription("CRS"),
+  },
 ];
 
-const LLM_HF_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans cle API Hugging Face.";
-const LLM_MISTRAL_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans cle API Mistral.";
+const LLM_HF_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans clé API Hugging Face.";
+const LLM_MISTRAL_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans clé API Mistral.";
 const LLM_PROVIDER_FORBIDDEN_MESSAGE = "Accès refusé par vos permissions backend.";
 const LLM_PIPELINE_CONFIG_REQUIRED_MESSAGE =
-  "Configuration pipeline incomplete: renseignez le Model ID dans Parametres > LLM Cloud.";
+  "Configuration du pipeline incomplète : renseignez l'ID du modèle dans Paramètres > LLM Cloud.";
 type ImportedFileMeta = {
   name: string;
   format: ParsedTranscriptFile["format"];
@@ -252,11 +267,11 @@ function LLMApiPage() {
 
   const docxDownloads = useMemo(
     () =>
-      [
-        results.cri ? { key: "cri" as const, label: "CRI" } : null,
-        results.cro ? { key: "cro" as const, label: "CRO" } : null,
-        results.crs ? { key: "crs" as const, label: "CRS" } : null,
-      ].filter((item): item is { key: ReportResultKey; label: string } => Boolean(item)),
+      FORMAT_PREVIEW_META.filter((item) => results[item.format]).map((item) => ({
+        key: item.format,
+        label: item.label,
+        description: item.description,
+      })),
     [results],
   );
 
@@ -374,6 +389,7 @@ function LLMApiPage() {
   };
 
   const runDownload = async (format: ReportResultKey) => {
+    const formatMeta = FORMAT_PREVIEW_META.find((item) => item.format === format);
     logger.info("[llm-api][ui] download requested", { format });
     emitLlmEvent("LLM_CLOUD_DOWNLOAD_REQUESTED", {
       format,
@@ -382,7 +398,7 @@ function LLMApiPage() {
     });
     try {
       await downloadDocx(format);
-      toast(`DOCX ${format.toUpperCase()} telecharge.`);
+      toast(`DOCX ${formatMeta?.label ?? format.toUpperCase()} téléchargé.`);
       logger.info("[llm-api][ui] download completed", { format });
       emitLlmEvent("LLM_CLOUD_DOWNLOAD_DONE", {
         format,
@@ -390,7 +406,7 @@ function LLMApiPage() {
         modelId: activePipelineConfig.modelId || "unset",
       });
     } catch (error) {
-      toast((error as Error)?.message ?? "Impossible de telecharger le DOCX.");
+      toast((error as Error)?.message ?? "Impossible de télécharger le DOCX.");
       logger.error("[llm-api][ui] download failed", {
         format,
         message: error instanceof Error ? error.message : String(error),
@@ -454,7 +470,7 @@ function LLMApiPage() {
         tokenCount,
       });
       toast(
-        `Fichier importe: ${file.name} (${parsed.format.toUpperCase()}, ${formatTokenCount(importedText.length)} caracteres).`
+        `Fichier importé: ${file.name} (${parsed.format.toUpperCase()}, ${formatTokenCount(importedText.length)} caractères).`
       );
       logger.info("[llm-api][ui] source file import success", {
         fileName: file.name,
@@ -523,10 +539,10 @@ function LLMApiPage() {
       <header className="space-y-2">
         <h2 className="text-2xl font-semibold">LLM Cloud</h2>
         <p className="text-muted-foreground">
-          Generez les 3 formats CRI/CRO/CRS via provider LLM cloud, puis telechargez chaque compte rendu en DOCX.
+          Générez les trois comptes rendus via le provider LLM cloud, puis téléchargez chaque version en DOCX.
         </p>
         <p className="text-sm font-medium text-amber-700">
-          Note: ce module utilise une API externe du provider selectionne. Pour un equivalent local, utilisez LLM
+          Note : ce module utilise une API externe du provider sélectionné. Pour un équivalent local, utilisez LLM
           Local (/llmlocal).
         </p>
       </header>
@@ -536,7 +552,7 @@ function LLMApiPage() {
           <Card>
             <CardHeader>
               <CardTitle>Configuration API</CardTitle>
-              <CardDescription>Provider et tokens d'acces. Le pipeline LLM se regle dans Parametres.</CardDescription>
+              <CardDescription>Provider et jetons d&apos;accès. Le pipeline LLM se règle dans Paramètres.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {hasAllowedProvider ? (
@@ -588,7 +604,7 @@ function LLMApiPage() {
                 </div>
               ) : activeProvider === "mistral" ? (
                 <div className="space-y-2">
-                  <Label htmlFor="llm-mistral-api-key">Cle API Mistral</Label>
+                  <Label htmlFor="llm-mistral-api-key">Clé API Mistral</Label>
                   <Input
                     id="llm-mistral-api-key"
                     type="password"
@@ -597,7 +613,7 @@ function LLMApiPage() {
                     placeholder="mistral_..."
                     autoComplete="off"
                   />
-                  <p className="text-xs text-muted-foreground">Cle partagee avec la page /cloudupload.</p>
+                  <p className="text-xs text-muted-foreground">Clé partagée avec la page /cloudupload.</p>
                   <p className="text-xs text-muted-foreground">{SESSION_ONLY_SECRET_NOTICE}</p>
                   {isLlmTokenMissing ? <p className="text-xs text-destructive">{tokenRequiredMessage}</p> : null}
                 </div>
@@ -610,9 +626,9 @@ function LLMApiPage() {
 
               {hasAllowedProvider ? (
                 <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
-                  <p className="text-sm font-medium text-foreground">Configuration pipeline</p>
+                  <p className="text-sm font-medium text-foreground">Configuration du pipeline</p>
                   <p className="mt-1">
-                    Provider:{" "}
+                    Fournisseur :{" "}
                     <span className="font-medium text-foreground">
                       {llmApiProvider === "mistral"
                         ? "Mistral"
@@ -622,20 +638,20 @@ function LLMApiPage() {
                     </span>
                   </p>
                   <p>
-                    Model ID:{" "}
-                    <span className="font-medium text-foreground">{activePipelineConfig.modelId.trim() || "non defini"}</span>
+                    ID du modèle :{" "}
+                    <span className="font-medium text-foreground">{activePipelineConfig.modelId.trim() || "non défini"}</span>
                   </p>
                   <p>
-                    Temperature: <span className="font-medium text-foreground">{activePipelineConfig.temperature}</span>
+                    Température : <span className="font-medium text-foreground">{activePipelineConfig.temperature}</span>
                   </p>
                   <p>
-                    Max tokens:{" "}
+                    Nombre max de tokens :{" "}
                     <span className="font-medium text-foreground">{formatTokenCount(activePipelineConfig.maxTokens)}</span>
                   </p>
                   {canOpenSettings ? (
                     <div className="mt-3">
                       <Button asChild variant="outline" size="sm">
-                        <a href="/settings?tab=llm">Ouvrir parametres LLM</a>
+                        <a href="/settings?tab=llm">Ouvrir paramètres LLM</a>
                       </Button>
                     </div>
                   ) : null}
@@ -648,12 +664,12 @@ function LLMApiPage() {
 
               {!pipelineConfigValid && hasAllowedProvider ? (
                 <div className="rounded-md border border-destructive/60 bg-destructive/10 p-3 text-xs text-destructive">
-                  <p className="font-medium">Configuration pipeline incomplete</p>
-                  <p className="mt-1">Le module /llmapi ne peut pas fonctionner sans Model ID configure.</p>
+                  <p className="font-medium">Configuration du pipeline incomplète</p>
+                  <p className="mt-1">Le module /llmapi ne peut pas fonctionner sans ID du modèle configuré.</p>
                   {canOpenSettings ? (
                     <div className="mt-3">
                       <Button asChild variant="outline" size="sm">
-                        <a href="/settings?tab=llm">Ouvrir parametres LLM</a>
+                        <a href="/settings?tab=llm">Ouvrir paramètres LLM</a>
                       </Button>
                     </div>
                   ) : null}
@@ -669,7 +685,7 @@ function LLMApiPage() {
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-2">
-                <Label htmlFor="llm-source">Mode d'entree</Label>
+                <Label htmlFor="llm-source">Mode d&apos;entrée</Label>
                 <Select value={source} onValueChange={handleSourceChange}>
                   <SelectTrigger id="llm-source">
                     <SelectValue />
@@ -708,19 +724,19 @@ function LLMApiPage() {
                     {activeTranscript ? (
                       <>
                         <p>
-                          Source active: <span className="font-medium text-foreground">{activeTranscript.label}</span>
+                          Source active : <span className="font-medium text-foreground">{activeTranscript.label}</span>
                         </p>
                         <p>
-                          Segments disponibles:{" "}
+                          Segments disponibles :{" "}
                           <span className="font-medium text-foreground">{activeTranscript.segmentCount}</span>
                         </p>
                         <p>
-                          Taille source approx:{" "}
+                          Taille source approx. :{" "}
                           <span className="font-medium text-foreground">{formatTokenCount(activeTranscript.charCount)}</span>{" "}
-                          caracteres.
+                          caractères.
                         </p>
                         <p>
-                          Tokens source approx:{" "}
+                          Tokens source approx. :{" "}
                           <span className="font-medium text-foreground">{formatTokenCount(activeTranscript.tokenCount)}</span>{" "}
                           tokens.
                         </p>
@@ -736,18 +752,18 @@ function LLMApiPage() {
                   <div className="rounded-md border bg-muted/20 p-3">
                     <p className="text-sm font-medium text-foreground">Import de transcription</p>
                     <p className="text-xs text-muted-foreground">
-                      Importez un fichier texte ou DOCX pour alimenter la generation des comptes rendus.
+                      Importez un fichier texte ou DOCX pour alimenter la génération des comptes rendus.
                     </p>
                     <div className="mt-3 flex flex-wrap items-start gap-2 sm:flex-nowrap">
                       <Button type="button" onClick={triggerSourceFilePicker} disabled={isImporting || isBusy}>
                         {isImporting ? "Import en cours..." : "Choisir un fichier"}
                       </Button>
                       <span className="min-w-0 flex-1 break-all text-xs text-muted-foreground [overflow-wrap:anywhere]">
-                        {importedFileMeta ? importedFileMeta.name : "Aucun fichier importe"}
+                        {importedFileMeta ? importedFileMeta.name : "Aucun fichier importé"}
                       </span>
                     </div>
                     <Label htmlFor="llm-source-file" className="sr-only">
-                      Importer un fichier transcription
+                      Importer un fichier de transcription
                     </Label>
                     <input
                       ref={sourceFileInputRef}
@@ -759,33 +775,33 @@ function LLMApiPage() {
                       className="sr-only"
                     />
                     <p className="mt-2 text-xs text-muted-foreground">
-                      Formats acceptes: {TRANSCRIPT_IMPORT_LABEL}. Taille max: 50 Mo.
+                      Formats acceptés : {TRANSCRIPT_IMPORT_LABEL}. Taille max : 50 Mo.
                     </p>
                   </div>
                   {!manualText.trim() ? (
-                    <p className="text-xs text-destructive">Importez un fichier pour lancer la generation.</p>
+                    <p className="text-xs text-destructive">Importez un fichier pour lancer la génération.</p>
                   ) : null}
                   {importedFileMeta ? (
                     <div className="rounded-md border bg-muted/20 p-3 text-xs text-muted-foreground">
                       <p className="min-w-0">
-                        Fichier importe:{" "}
+                        Fichier importé :{" "}
                         <span className="mt-1 block break-all font-medium text-foreground [overflow-wrap:anywhere]">
                           {importedFileMeta.name}
                         </span>
                       </p>
                       <p>
-                        Format detecte:{" "}
+                        Format détecté :{" "}
                         <span className="font-medium text-foreground">{importedFileMeta.format.toUpperCase()}</span>
                       </p>
                       <p>
-                        Taille texte importee:{" "}
+                        Taille du texte importé :{" "}
                         <span className="font-medium text-foreground">
                           {formatTokenCount(importedFileMeta.charCount)}
                         </span>{" "}
-                        caracteres.
+                        caractères.
                       </p>
                       <p>
-                        Tokens du fichier importe approx:{" "}
+                        Tokens du fichier importé approx. :{" "}
                         <span className="font-medium text-foreground">
                           {formatTokenCount(importedFileMeta.tokenCount)}
                         </span>{" "}
@@ -793,7 +809,7 @@ function LLMApiPage() {
                       </p>
                       {typeof importedFileMeta.segmentCount === "number" ? (
                         <p>
-                          Segments extraits:{" "}
+                          Segments extraits :{" "}
                           <span className="font-medium text-foreground">
                             {formatTokenCount(importedFileMeta.segmentCount)}
                           </span>
@@ -801,7 +817,7 @@ function LLMApiPage() {
                         </p>
                       ) : null}
                       <p>
-                        Methode d'extraction:{" "}
+                        Méthode d&apos;extraction :{" "}
                         <span className="font-medium text-foreground">{importedFileMeta.extraction}</span>.
                       </p>
                     </div>
@@ -811,7 +827,7 @@ function LLMApiPage() {
 
               {!sourceFitsModelContext ? (
                 <p className="text-xs text-destructive">
-                  Source trop longue pour ce modele. Ajustez le pipeline dans Parametres &gt; LLM Cloud.
+                  Source trop longue pour ce modèle. Ajustez le pipeline dans Paramètres &gt; LLM Cloud.
                 </p>
               ) : null}
               {!hasAllowedProvider ? (
@@ -825,10 +841,10 @@ function LLMApiPage() {
 
               <div className="flex flex-wrap items-center gap-2">
                 <Button onClick={runGeneration} disabled={!canGenerate}>
-                  Generer les 3 formats
+                  Générer les trois comptes rendus
                 </Button>
                 <Button variant="outline" onClick={handleResetSession} disabled={isBusy}>
-                  Reinitialiser session LLM
+                  Réinitialiser la session LLM
                 </Button>
               </div>
             </CardContent>
@@ -839,7 +855,7 @@ function LLMApiPage() {
           <Card>
             <CardHeader>
               <CardTitle>Progression</CardTitle>
-              <CardDescription>Pipeline long input + generation CRI/CRO/CRS.</CardDescription>
+              <CardDescription>Pipeline cloud: préparation, génération et mise en forme des trois comptes rendus.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex items-center gap-2">
@@ -853,30 +869,36 @@ function LLMApiPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Edition des formats</CardTitle>
+              <CardTitle>Édition des formats</CardTitle>
               <CardDescription>
-                Chaque format peut etre relu et modifie apres generation. L'export DOCX suit la version editee de
+                Chaque format peut être relu et modifié après génération. L&apos;export DOCX suit la version éditée de
                 cette session.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-2 md:grid-cols-3">
-                {FORMAT_PREVIEW_META.map((item) => (
-                  <div key={item.format} className="rounded-md border bg-muted/20 p-3">
-                    <p className="text-xs font-semibold tracking-wide text-foreground">{item.format}</p>
-                    <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
-                      {item.description}
-                    </p>
+                  <div className="grid gap-2 md:grid-cols-3">
+                    {FORMAT_PREVIEW_META.map((item) => (
+                      <div key={item.format} className="rounded-md border bg-muted/20 p-3">
+                        <p className="text-sm font-semibold text-foreground">{item.label}</p>
+                        <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+                          {item.description}
+                        </p>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
 
-              <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "cri" | "cro" | "crs")}>
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="cri">CRI</TabsTrigger>
-                  <TabsTrigger value="cro">CRO</TabsTrigger>
-                  <TabsTrigger value="crs">CRS</TabsTrigger>
-                </TabsList>
+                <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "cri" | "cro" | "crs")}>
+                  <TabsList className="grid h-auto w-full grid-cols-1 gap-1 sm:grid-cols-3">
+                    <TabsTrigger value="cri" className="min-w-0 whitespace-normal px-3 py-2 text-center leading-tight">
+                      {FORMAT_PREVIEW_META[0]!.label}
+                    </TabsTrigger>
+                    <TabsTrigger value="cro" className="min-w-0 whitespace-normal px-3 py-2 text-center leading-tight">
+                      {FORMAT_PREVIEW_META[1]!.label}
+                    </TabsTrigger>
+                    <TabsTrigger value="crs" className="min-w-0 whitespace-normal px-3 py-2 text-center leading-tight">
+                      {FORMAT_PREVIEW_META[2]!.label}
+                    </TabsTrigger>
+                  </TabsList>
 
                 {docxDownloads.length > 0 ? (
                   <section
@@ -897,14 +919,14 @@ function LLMApiPage() {
                     <div className="mt-4 flex flex-col gap-3 sm:flex-row">
                       {docxDownloads.map((item) => (
                         <Button
-                          className="w-full sm:flex-1"
+                          className="w-full whitespace-normal sm:flex-1"
                           disabled={isBusy}
                           key={item.key}
                           onClick={() => runDownload(item.key)}
                           size="lg"
                           variant="default"
                         >
-                          Telecharger {item.label} (.docx)
+                          Télécharger le {item.label} (.docx)
                         </Button>
                       ))}
                     </div>
@@ -930,6 +952,7 @@ function LLMApiPage() {
 }
 
 function ReportFormatEditor({ format, description }: { format: ReportResultKey; description: string }) {
+  const formatMeta = FORMAT_PREVIEW_META.find((item) => item.format === format);
   const result = useAsrStore((state) => state.llmApiResults[format]);
   const draft = useAsrStore((state) => state.llmApiReportDrafts[format]);
   const llmApiStatus = useAsrStore((state) => state.llmApiStatus);
@@ -1081,7 +1104,7 @@ function ReportFormatEditor({ format, description }: { format: ReportResultKey; 
         data-testid={`report-editor-${format}`}
         className="rounded-md border border-dashed bg-muted/20 p-4 text-sm text-muted-foreground"
       >
-        Aucun resultat {format.toUpperCase()} pour le moment.
+        Aucun compte rendu {formatMeta?.label ?? format.toUpperCase()} pour le moment.
       </div>
     );
   }
@@ -1091,7 +1114,7 @@ function ReportFormatEditor({ format, description }: { format: ReportResultKey; 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="secondary">{format.toUpperCase()}</Badge>
+            <Badge variant="secondary">{formatMeta?.label ?? format.toUpperCase()}</Badge>
             {result ? (
               <>
                 <Badge variant="outline">{result.modelId}</Badge>
@@ -1099,13 +1122,13 @@ function ReportFormatEditor({ format, description }: { format: ReportResultKey; 
                 <Badge variant="outline">passes {result.pipelinePasses}</Badge>
               </>
             ) : null}
-            <Badge variant={isDirty ? "warning" : "outline"}>{isDirty ? "Modifie" : "Version cloud"}</Badge>
+            <Badge variant={isDirty ? "warning" : "outline"}>{isDirty ? "Modifié" : "Version cloud"}</Badge>
           </div>
           <p className="max-w-3xl text-xs leading-relaxed text-muted-foreground">{description}</p>
         </div>
 
         <Button variant="outline" size="sm" onClick={() => resetLlmApiReportDraft(format)} disabled={!draft || isBusy}>
-          Reinitialiser ce format
+          Réinitialiser ce compte rendu
         </Button>
       </div>
 
@@ -1147,7 +1170,7 @@ function ReportFormatEditor({ format, description }: { format: ReportResultKey; 
 
         <ReorderableTextListEditor
           fieldKey={`${format}-key-points`}
-          title="Points cles"
+          title="Points clés"
           description="Ajustez les points essentiels du compte rendu."
           values={currentReport.key_points}
           disabled={isBusy}

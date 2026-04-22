@@ -7,7 +7,11 @@ import {
   type ReportResultKey,
   type ReportResult,
 } from "@/lib/llm/reportSchema";
-import { buildLongInputChunkPrompt, buildLongInputConsolidationPrompt } from "@/lib/llm/reportPrompts";
+import {
+  buildLongInputChunkPrompt,
+  buildLongInputConsolidationPrompt,
+  buildReportFormatLabel,
+} from "@/lib/llm/reportPrompts";
 import { generateReportDetailed } from "@/lib/llm/reportService";
 import { getLlmHfClient, generateWithChatThenFallbackText } from "@/lib/llm/hfClient";
 import { generateWithMistralChat } from "@/lib/llm/mistralChatClient";
@@ -204,7 +208,7 @@ export function useLlmReports() {
           chunkOverlapTokens: chunkingProfile.chunkOverlapTokens,
         });
 
-        setLlmApiStatus("preparing", "Preparation de la source");
+        setLlmApiStatus("preparing", "Préparation de la source");
         setLlmApiProgress(0.02);
         markStage("prepare_long_input_start");
 
@@ -298,7 +302,7 @@ export function useLlmReports() {
         });
         if (tokenBudget.blockedByContext) {
           throw new Error(
-            `Source trop longue pour ${modelId}. Contexte max: ${formatTokenCount(
+            `Source trop longue pour ${modelId}. Contexte max : ${formatTokenCount(
               tokenBudget.contextWindowTokens ?? 0
             )} tokens.`
           );
@@ -314,10 +318,10 @@ export function useLlmReports() {
             ? Math.min(requestedMaxTokens, tokenBudget.effectiveMaxGenerationTokens)
             : requestedMaxTokens;
         if (effectiveGenerationMaxTokens < requestedMaxTokens) {
-          setLlmApiStatus("preparing", `Max tokens ajuste a ${effectiveGenerationMaxTokens} selon le modele`);
+          setLlmApiStatus("preparing", `Max tokens ajustés à ${effectiveGenerationMaxTokens} selon le modèle`);
         }
 
-        setLlmApiStatus("generating", "Generation des 3 formats");
+        setLlmApiStatus("generating", "Génération des trois comptes rendus");
         setLlmApiProgress(0.5);
 
         const generationTasks = FORMAT_ORDER.map(async (item, index) => {
@@ -389,7 +393,7 @@ export function useLlmReports() {
           });
         }
 
-        setLlmApiStatus("done", "Generation terminee");
+        setLlmApiStatus("done", "Génération terminée");
         setLlmApiProgress(1);
         telemetry.logEvent("LLM_RUN_DONE", {
           provider,
@@ -444,7 +448,7 @@ export function useLlmReports() {
             ? formatBackendErrorMessage(error)
             : error instanceof Error
               ? error.message
-              : "Erreur inconnue lors de la generation";
+              : "Erreur inconnue lors de la génération";
         if (unauthorized || forbidden) {
           telemetry.stopTimer("llm_cloud_total");
         }
@@ -509,7 +513,7 @@ export function useLlmReports() {
     async (format: ReportResultKey) => {
       const result = results[format];
       if (!result) {
-        throw new Error("Aucun resultat disponible pour ce format.");
+        throw new Error("Aucun résultat disponible pour ce format.");
       }
       const report = reportDrafts[format] ?? result.report;
       const telemetry = useAsrStore.getState().telemetryCollector;
@@ -523,7 +527,7 @@ export function useLlmReports() {
         status: "start",
       });
 
-      setLlmApiStatus("formatting", `Preparation DOCX ${result.format}`);
+      setLlmApiStatus("formatting", `Préparation DOCX ${buildReportFormatLabel(result.format)}`);
       setLlmApiProgress(0.97);
       try {
         const blob = await buildReportDocx(report, {
@@ -536,7 +540,7 @@ export function useLlmReports() {
         const filename = formatReportDocxFilename(format, new Date(result.generatedAt));
         downloadDocxBlob(blob, filename);
 
-        setLlmApiStatus("done", "DOCX telecharge");
+        setLlmApiStatus("done", "DOCX téléchargé");
         setLlmApiProgress(1);
         logger.info("[llm-api] docx download done", {
           format: result.format,

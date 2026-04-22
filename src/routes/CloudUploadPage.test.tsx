@@ -288,8 +288,8 @@ describe("CloudUploadPage", () => {
     expect(document.body.style.overflow).toBe("hidden");
     await waitFor(() => {
       expect(within(detailsPanel).getByRole("button", { name: /Lecture/i })).toBeInTheDocument();
-      expect(within(detailsPanel).getByRole("button", { name: /Assigner les speakers de la partie/i })).toBeInTheDocument();
-      expect(within(detailsPanel).getByRole("columnheader", { name: /speaker/i })).toBeInTheDocument();
+      expect(within(detailsPanel).getByRole("button", { name: /Nommer les intervenants de la partie/i })).toBeInTheDocument();
+      expect(within(detailsPanel).getByRole("columnheader", { name: /Intervenant/i })).toBeInTheDocument();
     });
     expect(within(detailsPanel).getByTestId("results-table-scroll")).toHaveClass("overflow-auto");
     expect(Array.from(container.querySelectorAll('[data-testid^="cloud-chunk-card-"]')).map((node) => node.getAttribute("data-testid"))).toEqual([
@@ -462,14 +462,14 @@ describe("CloudUploadPage", () => {
 
     renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
 
-    expect(screen.queryByRole("button", { name: /^Assigner speakers$/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Nommer les intervenants$/i })).toBeNull();
     const firstChunkCard = screen.getByTestId("cloud-chunk-card-mistral-1");
-    expect(within(firstChunkCard).queryByRole("button", { name: /Assigner les speakers de la partie/i })).toBeNull();
+    expect(within(firstChunkCard).queryByRole("button", { name: /Nommer les intervenants de la partie/i })).toBeNull();
     fireEvent.click(within(firstChunkCard).getByRole("button", { name: /Ouvrir/i }));
     await waitFor(() => {
       expect(hookValue.loadChunkSegments).toHaveBeenCalledWith("mistral-1");
     });
-    expect(screen.getByRole("button", { name: /Assigner les speakers de la partie/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Nommer les intervenants de la partie/i })).toBeInTheDocument();
   });
 
   it("updates only the local chunk speaker assignments from a chunk card", async () => {
@@ -523,11 +523,11 @@ describe("CloudUploadPage", () => {
     fireEvent.click(within(firstChunkCard).getByRole("button", { name: /Ouvrir/i }));
     const detailsPanel = screen.getByTestId("cloud-chunk-details-mistral-1");
     await waitFor(() => {
-      expect(within(detailsPanel).getByRole("columnheader", { name: /speaker/i })).toBeInTheDocument();
+      expect(within(detailsPanel).getByRole("columnheader", { name: /Intervenant/i })).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByRole("button", { name: /Assigner les speakers de la partie/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Nommer les intervenants de la partie/i }));
 
-    const dialog = screen.getByRole("dialog", { name: /assigner les speakers par chunk/i });
+    const dialog = screen.getByRole("dialog", { name: /nommer les intervenants par partie/i });
     fireEvent.change(within(dialog).getByLabelText("Nom Partie 1 SPEAKER_00"), {
       target: { value: "Martin" },
     });
@@ -624,8 +624,8 @@ describe("CloudUploadPage", () => {
     await waitFor(() => {
       expect(within(detailsPanel).getByRole("button", { name: /modifier le segment 1/i })).toBeInTheDocument();
     });
-    const firstSpeakerSelect = within(detailsPanel).getByRole("combobox", { name: /speaker du segment 1/i });
-    const secondSpeakerSelect = within(detailsPanel).getByRole("combobox", { name: /speaker du segment 2/i });
+    const firstSpeakerSelect = within(detailsPanel).getByRole("combobox", { name: /Intervenant du segment 1/i });
+    const secondSpeakerSelect = within(detailsPanel).getByRole("combobox", { name: /Intervenant du segment 2/i });
 
     expect(firstSpeakerSelect).toHaveTextContent("Dupont Alice · SPEAKER_00");
     expect(secondSpeakerSelect).toHaveTextContent("Dupont Alice · SPEAKER_00");
@@ -634,10 +634,10 @@ describe("CloudUploadPage", () => {
     fireEvent.click(screen.getByRole("option", { name: "Martin Bob · SPEAKER_01" }));
 
     await waitFor(() => {
-      expect(within(detailsPanel).getByRole("combobox", { name: /speaker du segment 1/i })).toHaveTextContent(
+      expect(within(detailsPanel).getByRole("combobox", { name: /Intervenant du segment 1/i })).toHaveTextContent(
         "Martin Bob · SPEAKER_01"
       );
-      expect(within(detailsPanel).getByRole("combobox", { name: /speaker du segment 2/i })).toHaveTextContent(
+      expect(within(detailsPanel).getByRole("combobox", { name: /Intervenant du segment 2/i })).toHaveTextContent(
         "Dupont Alice · SPEAKER_00"
       );
     });

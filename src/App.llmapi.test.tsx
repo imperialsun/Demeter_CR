@@ -7,7 +7,7 @@ const isAuthenticatedMock = vi.fn(() => true);
 const runtimeModeMock = vi.fn(() => false);
 const backendPermissionMocks = vi.hoisted(() => ({
   canAccessFeature: vi.fn(() => true),
-  getFirstAuthorizedRoute: vi.fn(() => "/localupload"),
+  getFirstAuthorizedRoute: vi.fn(() => "/assistant"),
 }));
 
 vi.mock("@/lib/auth", () => ({
@@ -47,7 +47,7 @@ describe("App routing", () => {
     backendPermissionMocks.canAccessFeature.mockReset();
     backendPermissionMocks.canAccessFeature.mockReturnValue(true);
     backendPermissionMocks.getFirstAuthorizedRoute.mockReset();
-    backendPermissionMocks.getFirstAuthorizedRoute.mockReturnValue("/localupload");
+    backendPermissionMocks.getFirstAuthorizedRoute.mockReturnValue("/assistant");
   });
 
   it("registers /llmapi route", async () => {
@@ -84,6 +84,19 @@ describe("App routing", () => {
     );
 
     expect(await screen.findByText("LLMLocalStub")).toBeInTheDocument();
+  });
+
+  it("redirects / to assistant in backend mode", async () => {
+    runtimeModeMock.mockReturnValue(true);
+    isAuthenticatedMock.mockReturnValue(true);
+
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <App />
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText("AssistantStub")).toBeInTheDocument();
   });
 
   it("redirects unauthenticated users to /login", async () => {

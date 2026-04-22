@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ExportButtons } from "./ExportButtons";
 import * as exportLib from "@/lib/export";
 import { useAsrStore } from "@/store/asr-store";
@@ -114,12 +115,12 @@ describe("ExportButtons", () => {
     render(<ExportButtons segments={segments} showDocx mode="upload" />);
 
     const docxButton = screen.getByRole("button", { name: /^Télécharger en DOCX$/i });
-    fireEvent.click(docxButton);
+    await userEvent.click(docxButton);
 
     await waitFor(() => {
       expect(transcriptDocxMocks.buildTranscriptDocx).toHaveBeenCalledTimes(1);
       expect(transcriptDocxMocks.downloadDocxBlob).toHaveBeenCalledTimes(1);
-    });
+    }, { timeout: 3000 });
 
     expect(transcriptDocxMocks.buildTranscriptDocx).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ text: "Bonjour", speaker: "Alice" })]),
@@ -226,10 +227,10 @@ describe("ExportButtons", () => {
     const withoutSpeaker: any[] = [{ index: 0, start: 0, end: 1, text: "a", chunkId: "chunk-1", strategy: "chunks" }];
 
     const { rerender } = render(<ExportButtons segments={withSpeaker} />);
-    expect(screen.getByRole("button", { name: /Assigner speakers/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Nommer les intervenants/i })).toBeInTheDocument();
 
     rerender(<ExportButtons segments={withoutSpeaker} />);
-    expect(screen.queryByRole("button", { name: /Assigner speakers/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Nommer les intervenants/i })).toBeNull();
   });
 
   it("hides the assign speakers button in cloud mode", () => {
@@ -247,7 +248,7 @@ describe("ExportButtons", () => {
 
     render(<ExportButtons segments={segments} mode="cloud" />);
 
-    expect(screen.queryByRole("button", { name: /Assigner speakers/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Nommer les intervenants/i })).toBeNull();
   });
 
   it("applies speaker assignments before exporting json in cloud mode", async () => {

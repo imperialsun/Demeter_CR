@@ -179,7 +179,7 @@ describe("backend settings integration", () => {
       await authModule.backendLogin(user.email, user.password);
 
       expect(permissionsModule.canAccessFeature("feature.settings")).toBe(false);
-      expect(permissionsModule.getFirstAuthorizedRoute()).toBe("/localupload");
+      expect(permissionsModule.getFirstAuthorizedRoute()).toBe("/assistant");
       await expect(settingsModule.pullBackendSettings()).resolves.toEqual({
         version: 1,
         schemaVersion: 1,

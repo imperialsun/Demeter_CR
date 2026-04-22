@@ -186,7 +186,7 @@ export const ExportButtons = memo(function ExportButtons({
       <div className="flex flex-wrap gap-2">
         {showExportDocx ? (
           <TooltipButton
-            tooltip="Télécharge la transcription complète au format DOCX avec les speakers résolus."
+            tooltip="Télécharge la transcription complète au format DOCX avec les intervenants résolus."
             className="gap-2"
             disabled={isDocxExporting}
             onClick={() => {
@@ -202,7 +202,7 @@ export const ExportButtons = memo(function ExportButtons({
 
         {speakerEntries.length ? (
           <TooltipButton
-            tooltip="Ouvre la fenêtre de renommage global des speakers pour cette session."
+            tooltip="Ouvre la fenêtre de renommage global des intervenants pour cette session."
             variant="outline"
             size="sm"
             className="gap-2"
@@ -214,7 +214,7 @@ export const ExportButtons = memo(function ExportButtons({
               setSpeakerDialogOpen(true);
             }}
           >
-            <Users className="h-4 w-4" /> Assigner speakers
+            <Users className="h-4 w-4" /> Nommer les intervenants
           </TooltipButton>
         ) : null}
 

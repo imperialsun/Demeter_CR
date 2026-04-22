@@ -246,7 +246,7 @@ export const CloudChunkDetailsPanel = memo(function CloudChunkDetailsPanel({
               <Badge variant="default">{chunk.label}</Badge>
               <Badge variant="outline">{formatCloudChunkTimeRange(chunk.start, chunk.end)}</Badge>
               <Badge variant="outline">{chunk.segmentCount} segments</Badge>
-              <Badge variant="outline">{chunk.speakerIds.length} speakers</Badge>
+              <Badge variant="outline">{chunk.speakerIds.length} intervenants</Badge>
             </div>
             <h3 id={titleId} className="text-lg font-semibold">
               Détails de la partie
@@ -273,7 +273,7 @@ export const CloudChunkDetailsPanel = memo(function CloudChunkDetailsPanel({
               ))}
             </div>
           ) : (
-            <p className="text-xs text-muted-foreground">Aucun speaker détecté sur cette partie.</p>
+            <p className="text-xs text-muted-foreground">Aucun intervenant détecté sur cette partie.</p>
           )}
 
           <AudioPlayer
@@ -293,7 +293,7 @@ export const CloudChunkDetailsPanel = memo(function CloudChunkDetailsPanel({
           {chunk.speakerIds.length ? (
             <div className="flex flex-wrap gap-2">
               <TooltipButton
-                tooltip="Ouvrir la fenêtre de renommage global pour cette partie."
+                tooltip="Ouvrir la fenêtre de renommage des intervenants pour cette partie."
                 type="button"
                 variant="outline"
                 size="sm"
@@ -302,7 +302,7 @@ export const CloudChunkDetailsPanel = memo(function CloudChunkDetailsPanel({
                 disabled={isLoadingSegments}
               >
                 <Users className="h-4 w-4" />
-                Assigner les speakers de la partie
+                Nommer les intervenants de la partie
               </TooltipButton>
             </div>
           ) : null}
@@ -310,7 +310,7 @@ export const CloudChunkDetailsPanel = memo(function CloudChunkDetailsPanel({
           <div className="min-h-0 flex-1">
             {isLoadingSegments ? (
               <div className="flex h-full items-center justify-center rounded-md border border-dashed bg-background/60 px-4 py-6 text-sm text-muted-foreground">
-                Chargement des segments détaillés...
+                Chargement des détails de la partie...
               </div>
             ) : localSegments.length ? (
               <ResultsTable

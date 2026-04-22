@@ -7,6 +7,7 @@ import { CloudChunkDetailsPanel } from "@/components/results/CloudChunkDetailsPa
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Progress } from "@/components/ui/progress";
 import { TooltipButton } from "@/components/ui/tooltip-button";
 import { usePageScrollContainer } from "@/components/layout/page-scroll-container";
@@ -18,6 +19,7 @@ import { getCloudStatusMeta } from "@/lib/cloudStatusMeta";
 import { buildTranscriptDocx, downloadDocxBlob, formatTranscriptDocxFilename } from "@/lib/docx/transcriptDocx";
 import { isBackendMode } from "@/lib/runtime-config";
 import { LLM_API_STATUS_META } from "@/lib/llm/llmStatusMeta";
+import { buildReportFormatDescription, buildReportFormatLabel } from "@/lib/llm/reportPrompts";
 import { useAsrStore } from "@/store/asr-store";
 import logger from "@/lib/logger";
 import { cn } from "@/lib/utils";
@@ -25,10 +27,50 @@ import { Cloud, Download, FileAudio2, Info, Loader2, RotateCcw, Sparkles, WandSp
 import { ASSISTANT_JOKES, buildRandomJokeOrder } from "@/routes/assistantPageContent";
 
 const REPORT_FORMATS = [
-  { key: "cri" as const, label: "CRI" },
-  { key: "cro" as const, label: "CRO" },
-  { key: "crs" as const, label: "CRS" },
+  {
+    key: "cri" as const,
+    format: "CRI" as const,
+    label: buildReportFormatLabel("CRI"),
+    description: buildReportFormatDescription("CRI"),
+  },
+  {
+    key: "cro" as const,
+    format: "CRO" as const,
+    label: buildReportFormatLabel("CRO"),
+    description: buildReportFormatDescription("CRO"),
+  },
+  {
+    key: "crs" as const,
+    format: "CRS" as const,
+    label: buildReportFormatLabel("CRS"),
+    description: buildReportFormatDescription("CRS"),
+  },
 ];
+
+function WorkflowResetButton({
+  position,
+  onClick,
+  disabled,
+}: {
+  position: "top" | "bottom";
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Button
+      type="button"
+      data-testid={`assistant-reset-workflow-${position}`}
+      variant="destructive"
+      size="sm"
+      className="gap-2"
+      onClick={onClick}
+      disabled={disabled}
+    >
+      <RotateCcw className="h-4 w-4" />
+      Nouvelle transcription
+    </Button>
+  );
+}
 
 function AssistantPage() {
   useBackendPermissions();
@@ -75,12 +117,13 @@ function AssistantPage() {
   } = useLlmReports();
 
   const [diarizationChoice, setDiarizationChoice] = useState<boolean | null>(null);
-  const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(true);
   const [activeChunkId, setActiveChunkId] = useState<string | null>(null);
   const [autoPlayRequest, setAutoPlayRequest] = useState<{ chunkId: string; requestId: number } | null>(null);
   const [waitingJokeOrder, setWaitingJokeOrder] = useState<number[]>([]);
   const [waitingJokeIndex, setWaitingJokeIndex] = useState(0);
   const [isResettingWorkflow, setIsResettingWorkflow] = useState(false);
+  const [isResetConfirmationOpen, setIsResetConfirmationOpen] = useState(false);
   const [isTranscriptExporting, setIsTranscriptExporting] = useState(false);
   const [hasConfirmedDiarizationReview, setHasConfirmedDiarizationReview] = useState(false);
   const autoPlayRequestCounterRef = useRef(0);
@@ -312,17 +355,17 @@ function AssistantPage() {
     : hasError
       ? "Erreur"
       : reportsReady
-        ? "Rapports prêts"
+        ? "Comptes rendus prêts"
         : isDiarizationReviewPending
-          ? "Validation requise"
+          ? "Relecture des morceaux"
         : llmBusy
           ? llmStatusMeta.label
-          : isWaitingForReports
-            ? "Génération"
+        : isWaitingForReports
+            ? "Préparation des comptes rendus"
           : cloudBusy || hasTriggeredTranscriptionRef.current
             ? cloudStatusMeta.label
             : isWaitingForChoice
-              ? "Question"
+              ? "Choix de la diarisation"
               : "En attente";
   const statusVariant = hasError
     ? "destructive"
@@ -334,28 +377,29 @@ function AssistantPage() {
         ? llmStatusMeta.variant
         : cloudStatusMeta.variant;
   const statusDescription = !selectedFile
-    ? "Déposez un fichier audio. Demeter s'occupe du reste."
+    ? "Déposez un fichier audio pour démarrer."
     : hasError
-      ? cloudStatusDetail || llmApiStatusDetail || "Une erreur a interrompu le flux."
+      ? cloudStatusDetail || llmApiStatusDetail || "Le traitement a rencontré une erreur."
       : reportsReady
-        ? "La transcription brute et les trois comptes rendus sont prêts au téléchargement."
+        ? "La transcription complète et les trois comptes rendus sont prêts au téléchargement."
         : isDiarizationReviewPending
-          ? "La transcription est prête. Vérifiez et modifiez les morceaux ci-dessous, puis cliquez pour continuer."
+          ? "La transcription est prête. Vérifiez les morceaux ci-dessous, puis validez pour lancer les comptes rendus."
         : llmBusy
-        ? llmApiStatusDetail || "Génération des rapports en cours."
+        ? llmApiStatusDetail || "Les comptes rendus sont en cours de génération."
         : isWaitingForReports
-          ? "Demeter prépare les trois rapports."
+          ? "La transcription est terminée. Demeter prépare les trois comptes rendus."
         : cloudBusy || hasTriggeredTranscriptionRef.current
-          ? cloudStatusDetail || "Transcription cloud en cours."
+          ? cloudStatusDetail || "La transcription cloud est en cours."
           : isWaitingForChoice
-            ? "Choisissez si vous voulez afficher les morceaux audio détaillés."
-            : "Préparation du flux assistant.";
+            ? "Choisissez si vous voulez voir les morceaux audio et relire les intervenants."
+            : "L'assistant est prêt.";
   const currentJokeIndex =
     waitingJokeOrder.length > 0 ? waitingJokeOrder[waitingJokeIndex % waitingJokeOrder.length] ?? 0 : 0;
   const currentJoke = ASSISTANT_JOKES[currentJokeIndex] ?? ASSISTANT_JOKES[0];
-  const canResetWorkflow = Boolean(selectedFile) && !isProcessing && !isResettingWorkflow;
+  const showResetWorkflowAction = reportsReady && !isResettingWorkflow;
   const hasReportDownloads = reportsReady;
   const showChunkReviewCard = isDiarizationReviewPending;
+  const isImportCollapsed = Boolean(selectedFile) && (isProcessing || isDiarizationReviewPending || reportsReady);
 
   const handleOpenChunk = useCallback((chunkId: string) => {
     setActiveChunkId(chunkId);
@@ -446,19 +490,58 @@ function AssistantPage() {
     }
   }, [isProcessing, isResettingWorkflow, resetLlmApiSession, resetTranscriptionSession, selectedFile]);
 
+  const handleOpenResetConfirmation = useCallback(() => {
+    if (!showResetWorkflowAction) {
+      return;
+    }
+    logger.info("[assistant][ui] workflow reset confirmation opened");
+    setIsResetConfirmationOpen(true);
+  }, [showResetWorkflowAction]);
+
+  const handleConfirmResetWorkflow = useCallback(() => {
+    if (!showResetWorkflowAction || isResettingWorkflow) {
+      return;
+    }
+
+    logger.info("[assistant][ui] workflow reset confirmed");
+    setIsResetConfirmationOpen(false);
+    void (async () => {
+      try {
+        await handleResetWorkflow();
+        const scrollContainer = pageScrollContainerRef?.current;
+        if (scrollContainer) {
+          scrollContainer.scrollTop = 0;
+        }
+      } catch (error) {
+        logger.error("[assistant][ui] workflow reset failed", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    })();
+  }, [handleResetWorkflow, isResettingWorkflow, pageScrollContainerRef, showResetWorkflowAction]);
+
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
       <header className="space-y-3">
-        <Badge variant="outline" className="gap-2 rounded-full px-3 py-1 text-xs font-medium">
-          <WandSparkles className="h-3.5 w-3.5" />
-          Assistant cloud Demeter
-        </Badge>
-        <div className="space-y-2">
-          <h1 className="text-3xl font-semibold tracking-tight">Assistant</h1>
-          <p className="max-w-3xl text-sm text-muted-foreground sm:text-base">
-            Déposez un fichier audio, choisissez la diarization, puis laissez Demeter transcrire et générer les trois
-            rapports. Le flux reste cloud-only, simple et sans détour.
-          </p>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-3">
+            <Badge variant="outline" className="gap-2 rounded-full px-3 py-1 text-xs font-medium">
+              <WandSparkles className="h-3.5 w-3.5" />
+              Assistant cloud Demeter
+            </Badge>
+            <div className="space-y-2">
+              <h1 className="text-3xl font-semibold tracking-tight">Assistant</h1>
+              <p className="max-w-3xl text-sm text-muted-foreground sm:text-base">
+                Déposez un fichier audio, choisissez la diarisation, puis laissez Demeter transcrire et générer les
+                trois comptes rendus. Le flux reste cloud-only, simple et sans détour.
+              </p>
+            </div>
+          </div>
+          {showResetWorkflowAction ? (
+            <div className="flex sm:pt-1">
+              <WorkflowResetButton position="top" onClick={handleOpenResetConfirmation} />
+            </div>
+          ) : null}
         </div>
       </header>
 
@@ -467,119 +550,136 @@ function AssistantPage() {
           <CardHeader className="space-y-3">
             <div className="flex items-start justify-between gap-4">
               <div className="space-y-1">
-                <CardTitle className="text-xl">Statut</CardTitle>
-                <CardDescription>{statusDescription}</CardDescription>
+                <CardTitle className="text-xl">Aide</CardTitle>
+                <CardDescription>Les étapes sont expliquées avant le lancement pour éviter le jargon.</CardDescription>
               </div>
-              <div className="flex items-center gap-2">
-                <Badge variant={statusVariant}>{statusLabel}</Badge>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="gap-2 text-muted-foreground"
-                  aria-expanded={isHelpOpen}
-                  aria-controls="assistant-help-panel"
-                  onClick={() => setIsHelpOpen((value) => !value)}
-                >
-                  <Info className="h-4 w-4" />
-                  Aide
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-2 xl:grid-cols-4">
-              <WorkflowStep
-                label="Fichier"
-                done={Boolean(selectedFile)}
-                active={!selectedFile}
-              />
-              <WorkflowStep
-                label="Diarization"
-                done={diarizationChoice !== null}
-                active={isWaitingForChoice}
-              />
-              <WorkflowStep
-                label="Transcription"
-                done={cloudStatus === "done"}
-                active={Boolean(selectedFile) && diarizationChoice !== null && !cloudBusy && !reportsReady && !hasError}
-              />
-              <WorkflowStep
-                label="Rapports"
-                done={reportsReady}
-                active={llmBusy || (cloudStatus === "done" && hasTriggeredTranscriptionRef.current && !hasReportDownloads)}
-              />
-            </div>
-
-            <Progress value={progressValue * 100} className="h-2" />
-          </CardHeader>
-
-          <CardContent className="space-y-4">
-            {isHelpOpen ? <AssistantHelpPanel /> : null}
-
-            {isDiarizationReviewPending ? (
-              <div data-testid="assistant-status-body" className="space-y-4 rounded-[1.5rem] border bg-background/70 p-5">
-                <p className="text-sm text-muted-foreground">
-                  Relisez les morceaux ci-dessous. Les modifications sont sauvegardées automatiquement.
-                </p>
-                <div className="flex justify-center">
-                  <TooltipButton
-                    tooltip="Validez la revue pour lancer les rapports avec les derniers noms de speakers et les dernières corrections."
-                    type="button"
-                    className="gap-2"
-                    onClick={() => void handleContinueAfterTranscriptReview()}
-                  >
-                    La transcription est ok continuer
-                  </TooltipButton>
-                </div>
-              </div>
-            ) : isProcessing ? (
-              <div data-testid="assistant-status-body" className="space-y-5 rounded-[1.5rem] border bg-background/70 p-5">
-                <div className="flex items-center justify-center gap-2">
-                  {[0, 1, 2, 3].map((index) => (
-                    <span
-                      key={index}
-                      className="h-3 w-3 rounded-full bg-primary/80 animate-pulse"
-                      style={{
-                        animationDelay: `${index * 120}ms`,
-                      }}
-                    />
-                  ))}
-                </div>
-                <p className="text-center text-sm text-muted-foreground">{currentJoke}</p>
-              </div>
-            ) : reportsReady ? (
-              <div
-                data-testid="assistant-status-body"
-                className="flex flex-wrap items-center justify-center gap-2 rounded-[1.5rem] border bg-background/70 p-4"
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="gap-2 text-muted-foreground"
+                aria-expanded={isHelpOpen}
+                aria-controls="assistant-help-panel"
+                onClick={() => setIsHelpOpen((value) => !value)}
               >
-                <TooltipButton
-                  tooltip="Télécharge la transcription complète au format DOCX avec les speakers déjà appliqués."
-                  type="button"
-                  className="gap-2"
-                  variant="default"
-                  onClick={() => {
-                    void handleTranscriptDownload();
-                  }}
-                  disabled={isTranscriptExporting}
-                >
-                  {isTranscriptExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                  Télécharger la transcription (.docx)
-                </TooltipButton>
-                {REPORT_FORMATS.map((format) => (
+                <Info className="h-4 w-4" />
+                {isHelpOpen ? "Masquer l’aide" : "Afficher l’aide"}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>{isHelpOpen ? <AssistantHelpPanel /> : <HelpCollapsedState />}</CardContent>
+        </Card>
+
+        <Card className="overflow-hidden rounded-[2rem] border bg-card/80 shadow-sm backdrop-blur">
+          <CardHeader className="space-y-3">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <CardTitle className="flex items-center gap-2 text-xl">
+                  <FileAudio2 className="h-5 w-5 text-primary" />
+                  Import
+                </CardTitle>
+                <CardDescription>
+                  Le fichier audio se charge ici. La diarisation reste optionnelle et l’import se replie
+                  automatiquement dès que le traitement démarre.
+                </CardDescription>
+              </div>
+              <Badge variant={selectedFile ? (isImportCollapsed ? "success" : "secondary") : "outline"}>
+                {selectedFile ? (isImportCollapsed ? "Replié" : "En attente") : "À faire"}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <AudioUploader
+              onFileSelected={handleAssistantFileSelected}
+              metadata={audioMetadata}
+              disabled={isImportCollapsed || isProcessing || isResettingWorkflow}
+              hideDropZoneWhenMetadata={Boolean(audioMetadata)}
+              title={isImportCollapsed ? "Fichier en cours" : "Déposez votre audio"}
+              description={
+                isImportCollapsed
+                  ? "La transcription a démarré. Ce résumé compact reste visible pendant le traitement."
+                  : "Demeter gère toute la chaîne cloud. Vous choisissez seulement si vous voulez la diarisation."
+              }
+              formatsHint="Formats supportés : mp3, wav, m4a, ogg, webm."
+            />
+
+            {selectedFile && !isImportCollapsed ? (
+              <div className="rounded-[1.5rem] border bg-background/70 p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-sm font-semibold">Diarisation</h2>
+                      <TooltipButton
+                        tooltip="La diarisation sépare automatiquement les personnes qui parlent. Activez-la si vous voulez relire les morceaux audio avant les comptes rendus."
+                        tooltipSide="top"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground"
+                        aria-label="Aide diarisation"
+                      >
+                        <Info className="h-4 w-4" />
+                      </TooltipButton>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Voulez-vous afficher les morceaux audio pour relire les intervenants et corriger le texte avant
+                      la suite ?
+                    </p>
+                  </div>
+                  <Badge variant={diarizationChoice === null ? "secondary" : diarizationChoice ? "success" : "outline"}>
+                    {diarizationChoice === null ? "En attente" : diarizationChoice ? "Oui, avec morceaux" : "Non, version simple"}
+                  </Badge>
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <TooltipButton
-                    key={format.key}
+                    tooltip="Affiche les morceaux audio détaillés pour relire les segments et corriger les intervenants avant les comptes rendus."
                     type="button"
-                    className="gap-2"
-                    variant="default"
-                    tooltip={`Télécharge le rapport ${format.label} généré à partir de la transcription la plus récente.`}
+                    size="lg"
+                    className={cn(
+                      "h-auto justify-start rounded-2xl px-4 py-4 text-left",
+                      diarizationChoice === true ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""
+                    )}
                     onClick={() => {
-                      void downloadDocx(format.key);
+                      handleDiarizationChoice(true);
                     }}
+                    disabled={isProcessing || isResettingWorkflow || diarizationChoice !== null}
                   >
-                    <Download className="h-4 w-4" />
-                    Télécharger {format.label}
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Cloud className="h-4 w-4" />
+                        <span className="font-medium">Oui, avec morceaux</span>
+                      </div>
+                      <p className="text-xs font-normal text-primary-foreground/80">
+                        J’affiche les morceaux audio et le détail plein écran.
+                      </p>
+                    </div>
                   </TooltipButton>
-                ))}
+
+                  <TooltipButton
+                    tooltip="Passe directement à la transcription simple et aux comptes rendus, sans affichage des morceaux audio."
+                    type="button"
+                    variant="secondary"
+                    size="lg"
+                    className={cn(
+                      "h-auto justify-start rounded-2xl px-4 py-4 text-left",
+                      diarizationChoice === false ? "ring-2 ring-border ring-offset-2 ring-offset-background" : ""
+                    )}
+                    onClick={() => {
+                      handleDiarizationChoice(false);
+                    }}
+                    disabled={isProcessing || isResettingWorkflow || diarizationChoice !== null}
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="h-4 w-4" />
+                        <span className="font-medium">Non, version simple</span>
+                      </div>
+                      <p className="text-xs font-normal text-muted-foreground">
+                        J’avance plus vite, sans affichage détaillé des morceaux.
+                      </p>
+                    </div>
+                  </TooltipButton>
+                </div>
               </div>
             ) : null}
           </CardContent>
@@ -590,22 +690,22 @@ function AssistantPage() {
             <CardHeader className="space-y-2">
               <div className="flex items-start justify-between gap-4">
                 <div className="space-y-1">
-                  <CardTitle className="text-xl">Morceaux audio</CardTitle>
+                  <CardTitle className="text-xl">Relecture des morceaux</CardTitle>
                   <CardDescription>
-                    Modifiez les morceaux autant que nécessaire. Les comptes rendus démarrent après validation.
+                    Ajustez les intervenants ou les segments si besoin. Les comptes rendus s’appuient sur cette version.
                   </CardDescription>
                 </div>
 
-                <TooltipButton
-                  tooltip="Chaque carte correspond à un morceau audio. Ouvrez-la pour éditer les segments et les speakers."
-                  tooltipSide="left"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 text-muted-foreground"
-                  aria-label="Aide morceaux audio"
-                >
-                  <Info className="h-4 w-4" />
-                </TooltipButton>
+                  <TooltipButton
+                    tooltip="Chaque carte correspond à une partie de l’audio. Ouvrez-la pour relire les segments et les intervenants."
+                    tooltipSide="left"
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 text-muted-foreground"
+                    aria-label="Aide relecture des morceaux"
+                  >
+                    <Info className="h-4 w-4" />
+                  </TooltipButton>
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -644,7 +744,7 @@ function AssistantPage() {
                 </div>
               ) : (
                 <div className="rounded-[1.5rem] border border-dashed bg-background/60 px-6 py-10 text-sm text-muted-foreground">
-                  Les morceaux audio apparaîtront ici dès que Demeter aura terminé la transcription avec diarization.
+                  Les morceaux audio apparaîtront ici dès que Demeter aura terminé la transcription avec diarisation.
                 </div>
               )}
             </CardContent>
@@ -653,123 +753,118 @@ function AssistantPage() {
 
         <Card className="overflow-hidden rounded-[2rem] border bg-card/80 shadow-sm backdrop-blur">
           <CardHeader className="space-y-2">
-            <CardTitle className="flex items-center gap-2 text-xl">
-              <FileAudio2 className="h-5 w-5 text-primary" />
-              Import
-            </CardTitle>
-            <CardDescription>
-              Un seul fichier, une seule voie cloud. Rien de local, rien à choisir côté moteur.
-            </CardDescription>
+            <CardTitle className="text-xl">Statut</CardTitle>
+            <CardDescription>{statusDescription}</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6">
-            <AudioUploader
-              onFileSelected={handleAssistantFileSelected}
-              metadata={audioMetadata}
-              disabled={isProcessing || isResettingWorkflow}
-              hideDropZoneWhenMetadata={Boolean(audioMetadata)}
-              title="Déposez votre audio"
-              description="Demeter gère toute la chaîne cloud. Vous choisissez seulement si vous voulez la diarization."
-              formatsHint="Formats supportés : mp3, wav, m4a, ogg, webm."
-            />
+          <CardContent className="space-y-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={statusVariant}>{statusLabel}</Badge>
+              <Badge variant="outline">{Math.round(progressValue * 100)}%</Badge>
+              {selectedFile ? <Badge variant="outline">{selectedFile.name}</Badge> : null}
+            </div>
 
-            {selectedFile ? (
-              <div className="rounded-[1.5rem] border bg-background/70 p-4 shadow-sm">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-sm font-semibold">Diarization</h2>
-                      <TooltipButton
-                        tooltip="Activez la diarization si vous voulez voir les morceaux audio en pleine page, comme dans /cloudupload."
-                        tooltipSide="top"
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground"
-                        aria-label="Aide diarization"
-                      >
-                        <Info className="h-4 w-4" />
-                      </TooltipButton>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      Voulez-vous afficher les morceaux audio avec le détail complet des segments ?
-                    </p>
-                  </div>
-                  <Badge variant={diarizationChoice === null ? "secondary" : diarizationChoice ? "success" : "outline"}>
-                    {diarizationChoice === null ? "En attente" : diarizationChoice ? "Oui" : "Non"}
-                  </Badge>
-                </div>
+            <div className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-2 xl:grid-cols-4">
+              <WorkflowStep label="Fichier audio" done={Boolean(selectedFile)} active={!selectedFile} />
+              <WorkflowStep label="Diarisation" done={diarizationChoice !== null} active={isWaitingForChoice} />
+              <WorkflowStep
+                label="Transcription"
+                done={cloudStatus === "done"}
+                active={Boolean(selectedFile) && diarizationChoice !== null && !cloudBusy && !reportsReady && !hasError}
+              />
+              <WorkflowStep
+                label="Comptes rendus"
+                done={reportsReady}
+                active={llmBusy || (cloudStatus === "done" && hasTriggeredTranscriptionRef.current && !hasReportDownloads)}
+              />
+            </div>
 
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <Progress value={progressValue * 100} className="h-2" />
+
+            {isDiarizationReviewPending ? (
+              <div data-testid="assistant-status-body" className="space-y-4 rounded-[1.5rem] border bg-background/70 p-5">
+                <p className="text-sm text-muted-foreground">
+                  Relisez les morceaux ci-dessous. Les modifications sont sauvegardées automatiquement.
+                </p>
+                <div className="flex justify-center">
                   <TooltipButton
-                    tooltip="Affiche les morceaux audio détaillés pour relire les segments et corriger les speakers avant les rapports."
+                    tooltip="Validez la relecture pour lancer les comptes rendus avec les derniers intervenants et les dernières corrections."
                     type="button"
-                    size="lg"
-                    className={cn(
-                      "h-auto justify-start rounded-2xl px-4 py-4 text-left",
-                      diarizationChoice === true ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""
-                    )}
-                    onClick={() => {
-                      handleDiarizationChoice(true);
-                    }}
-                    disabled={isProcessing || isResettingWorkflow || diarizationChoice !== null}
+                    className="gap-2"
+                    onClick={() => void handleContinueAfterTranscriptReview()}
                   >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <Cloud className="h-4 w-4" />
-                        <span className="font-medium">Oui, avec morceaux</span>
-                      </div>
-                      <p className="text-xs font-normal text-primary-foreground/80">
-                        J'affiche les morceaux audio et le détail plein écran.
-                      </p>
-                    </div>
-                  </TooltipButton>
-
-                  <TooltipButton
-                    tooltip="Passe directement à la transcription simple et aux rapports, sans affichage des chunks."
-                    type="button"
-                    variant="secondary"
-                    size="lg"
-                    className={cn(
-                      "h-auto justify-start rounded-2xl px-4 py-4 text-left",
-                      diarizationChoice === false ? "ring-2 ring-border ring-offset-2 ring-offset-background" : ""
-                    )}
-                    onClick={() => {
-                      handleDiarizationChoice(false);
-                    }}
-                    disabled={isProcessing || isResettingWorkflow || diarizationChoice !== null}
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <Sparkles className="h-4 w-4" />
-                        <span className="font-medium">Non, version simple</span>
-                      </div>
-                      <p className="text-xs font-normal text-muted-foreground">
-                        Je veux aller droit au but, sans affichage de chunks.
-                      </p>
-                    </div>
+                    Valider la transcription
                   </TooltipButton>
                 </div>
               </div>
-            ) : null}
-
-            {selectedFile ? (
-              <div data-testid="assistant-import-footer-actions" className="flex flex-wrap justify-end gap-2 pt-2">
+            ) : isProcessing ? (
+              <div data-testid="assistant-status-body" className="space-y-5 rounded-[1.5rem] border bg-background/70 p-5">
+                <div className="flex items-center justify-center gap-2">
+                  {[0, 1, 2, 3].map((index) => (
+                    <span
+                      key={index}
+                      className="h-3 w-3 rounded-full bg-primary/80 animate-pulse"
+                      style={{
+                        animationDelay: `${index * 120}ms`,
+                      }}
+                    />
+                  ))}
+                </div>
+                <p className="text-center text-sm text-muted-foreground">{currentJoke}</p>
+              </div>
+            ) : reportsReady ? (
+              <div
+                data-testid="assistant-status-body"
+                className="flex flex-wrap items-center justify-center gap-2 rounded-[1.5rem] border bg-background/70 p-4"
+              >
                 <TooltipButton
-                  tooltip="Réinitialise la session courante et vous permet de repartir avec un autre fichier."
+                  tooltip="Télécharge la transcription complète au format DOCX avec les intervenants déjà appliqués."
                   type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="gap-2 text-muted-foreground"
-                  onClick={() => void handleResetWorkflow()}
-                  disabled={!canResetWorkflow}
+                  className="gap-2"
+                  variant="default"
+                  onClick={() => {
+                    void handleTranscriptDownload();
+                  }}
+                  disabled={isTranscriptExporting}
                 >
-                  <RotateCcw className="h-4 w-4" />
-                  Nouveau fichier
+                  {isTranscriptExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  Télécharger la transcription (.docx)
                 </TooltipButton>
+                {REPORT_FORMATS.map((format) => (
+                  <TooltipButton
+                    key={format.key}
+                    type="button"
+                    className="gap-2"
+                    variant="default"
+                    tooltip={`${format.description} Télécharge le ${format.label} généré à partir de la transcription la plus récente.`}
+                    onClick={() => {
+                      void downloadDocx(format.key);
+                    }}
+                  >
+                    <Download className="h-4 w-4" />
+                    Télécharger le {format.label}
+                  </TooltipButton>
+                ))}
               </div>
             ) : null}
           </CardContent>
         </Card>
+
+        {showResetWorkflowAction ? (
+          <div className="flex justify-end">
+            <WorkflowResetButton position="bottom" onClick={handleOpenResetConfirmation} />
+          </div>
+        ) : null}
       </div>
+
+      <ConfirmDialog
+        open={isResetConfirmationOpen}
+        title="Remettre l'assistant à zéro ?"
+        description="Vous êtes sur le point de lancer une nouvelle transcription. Le travail en cours sera perdu et vous ne pourrez pas revenir en arrière."
+        cancelLabel="Annuler"
+        confirmLabel="OK"
+        onCancel={() => setIsResetConfirmationOpen(false)}
+        onConfirm={handleConfirmResetWorkflow}
+      />
 
       {activeChunk ? (
         <CloudChunkDetailsPanel
@@ -796,6 +891,15 @@ function AssistantPage() {
           onClose={handleCloseChunk}
         />
       ) : null}
+    </div>
+  );
+}
+
+function HelpCollapsedState() {
+  return (
+    <div className="rounded-[1.5rem] border border-dashed bg-background/60 p-4 text-sm text-muted-foreground">
+      L’aide est masquée. Rouvrez-la si vous avez besoin d’un rappel sur l’import, la diarisation ou les comptes
+      rendus.
     </div>
   );
 }

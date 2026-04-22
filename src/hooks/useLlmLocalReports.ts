@@ -18,6 +18,7 @@ import { prepareLongInputForReports } from "@/lib/llm/longInputPipeline";
 import { buildReportDocx, downloadDocxBlob, formatReportDocxFilename } from "@/lib/docx/reportDocx";
 import { estimateTokenCount } from "@/lib/tokens";
 import { formatTokenCount, resolveLongInputChunkingProfile, resolveModelTokenBudget } from "@/lib/llm/modelCatalog";
+import { buildReportFormatLabel } from "@/lib/llm/reportPrompts";
 import { emitLlmEvent } from "@/lib/llm/telemetrySession";
 import logger from "@/lib/logger";
 import { trackBackendActivityEvent } from "@/lib/backend-activity-sync";
@@ -280,7 +281,7 @@ export function useLlmLocalReports() {
               chunkOverlapTokens: chunkingProfile.chunkOverlapTokens,
             });
 
-            setStatusSafe("preparing", "Preparation de la source locale");
+            setStatusSafe("preparing", "Préparation de la source locale");
             setProgressSafe(0.02);
             markStage("prepare_long_input_start", {
               profileId: profile.id,
@@ -362,7 +363,7 @@ export function useLlmLocalReports() {
 
             for (let index = 0; index < FORMAT_ORDER.length; index += 1) {
               const item = FORMAT_ORDER[index]!;
-              setStatusSafe("generating", `Generation ${item.format} (${index + 1}/3)`);
+              setStatusSafe("generating", `Génération ${buildReportFormatLabel(item.format)} (${index + 1}/3)`);
               setProgressSafe(0.5 + (index / FORMAT_ORDER.length) * 0.4);
               markStage("format_generation_start", {
                 profileId: profile.id,
@@ -413,7 +414,7 @@ export function useLlmLocalReports() {
               });
             }
 
-            setStatusSafe("done", "Generation locale terminee");
+            setStatusSafe("done", "Génération locale terminée");
             setProgressSafe(1);
             markStage("run_done", {
               profileId: profile.id,
@@ -496,12 +497,12 @@ export function useLlmLocalReports() {
           });
           setModelProfileSafe(fallbackProfile);
           setModelIdSafe(fallbackModelId);
-          setStatusSafe("preparing", "Erreur modele lourd, bascule vers Qwen 1.7B");
+          setStatusSafe("preparing", "Erreur modèle lourd, bascule vers Qwen 1.7B");
           setModelSizeAlertForRun({
             severity: "warning",
-            title: "Modele local trop gros, bascule automatique",
+            title: "Modèle local trop gros, bascule automatique",
             description:
-              "Le profil local lourd a manque de memoire. L'application a bascule automatiquement vers Qwen 1.7B.",
+              "Le profil local lourd a manqué de mémoire. L'application a basculé automatiquement vers Qwen 1.7B.",
           });
 
           try {
@@ -667,7 +668,7 @@ export function useLlmLocalReports() {
     async (format: ReportResultKey) => {
       const result = results[format];
       if (!result) {
-        throw new Error("Aucun resultat disponible pour ce format.");
+        throw new Error("Aucun résultat disponible pour ce format.");
       }
       const telemetry = useAsrStore.getState().telemetryCollector;
       logger.info("[llm-local] docx download start", {
@@ -681,7 +682,7 @@ export function useLlmLocalReports() {
         status: "start",
       });
 
-      setLlmLocalStatus("formatting", `Preparation DOCX ${result.format}`);
+      setLlmLocalStatus("formatting", `Préparation DOCX ${buildReportFormatLabel(result.format)}`);
       setLlmLocalProgress(0.97);
       try {
         const blob = await buildReportDocx(result.report, {
@@ -695,7 +696,7 @@ export function useLlmLocalReports() {
         const filename = formatReportDocxFilename(format, new Date(result.generatedAt));
         downloadDocxBlob(blob, filename);
 
-        setLlmLocalStatus("done", "DOCX telecharge");
+        setLlmLocalStatus("done", "DOCX téléchargé");
         setLlmLocalProgress(1);
         logger.info("[llm-local] docx download done", {
           format: result.format,

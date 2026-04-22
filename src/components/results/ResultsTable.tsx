@@ -213,7 +213,7 @@ export const ResultsTable = memo(function ResultsTable({
             </div>
             {resolvedShowSpeaker ? (
               <div role="columnheader" className="px-3 py-2">
-                Speaker
+                Intervenant
               </div>
             ) : null}
             {resolvedShowSegmentConfidence ? (
@@ -271,15 +271,15 @@ export const ResultsTable = memo(function ResultsTable({
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <SelectTrigger
-                                  aria-label={`Speaker du segment ${segment.index + 1}`}
+                                  aria-label={`Intervenant du segment ${segment.index + 1}`}
                                   className="h-8 w-full text-xs"
                                   disabled={!canEditSpeaker}
                                 >
-                                  <SelectValue placeholder="Speaker" />
+                                  <SelectValue placeholder="Intervenant" />
                                 </SelectTrigger>
                               </TooltipTrigger>
                               <TooltipContent side="top" className="max-w-72 text-balance">
-                                Changer le speaker de ce segment. La modification est enregistrée immédiatement.
+                                Changer l&apos;intervenant de ce segment. La modification est enregistrée immédiatement.
                               </TooltipContent>
                             </Tooltip>
                             <SelectContent>

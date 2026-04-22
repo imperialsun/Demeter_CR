@@ -36,6 +36,26 @@ vi.mock("@/store/asr-store", () => {
   return { useAsrStore };
 });
 
+vi.mock("@/lib/backend-settings-sync", () => ({
+  pullBackendSettings: vi.fn(async () => ({ settings: {} })),
+}));
+
+vi.mock("@/lib/backend-activity-sync", () => ({
+  flushBackendActivityQueueNow: vi.fn(async () => undefined),
+}));
+
+vi.mock("@/lib/backend-performance-sync", () => ({
+  flushBackendPerformanceQueueNow: vi.fn(async () => undefined),
+}));
+
+vi.mock("@/lib/storage", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/storage")>("@/lib/storage");
+  return {
+    ...actual,
+    replaceSettingsCacheFromBackend: vi.fn(),
+  };
+});
+
 describe("LoginPage backend integration", () => {
   beforeEach(() => {
     resetBrowserState();
@@ -58,6 +78,7 @@ describe("LoginPage backend integration", () => {
         <MemoryRouter initialEntries={["/login"]}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/assistant" element={<div>Assistant page</div>} />
             <Route path="/localupload" element={<div>Local upload page</div>} />
             <Route path="/forbidden" element={<div>Forbidden page</div>} />
           </Routes>
@@ -73,7 +94,7 @@ describe("LoginPage backend integration", () => {
       fireEvent.click(screen.getByRole("button", { name: "Se connecter" }));
 
       await waitFor(() => {
-        expect(screen.getByText("Local upload page")).toBeInTheDocument();
+        expect(screen.getByText("Assistant page")).toBeInTheDocument();
       });
 
       expect(smokeMocks.toast).toHaveBeenCalledWith("Connexion réussie.");

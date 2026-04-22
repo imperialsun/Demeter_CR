@@ -10,10 +10,25 @@ const COMMON_RULES = [
   "Conserve la langue francaise.",
 ] as const;
 
-const FORMAT_GUIDELINES: Record<ReportFormat, string> = {
-  CRI: "CRI = restitution narrative fidele, tres detaillee, avec une redaction textuelle longue et complete.",
-  CRO: "CRO = compte rendu operationnel, axe decisions, actions, priorites et points a executer.",
-  CRS: "CRS = synthese ultra concise, uniquement l'essentiel critique en format tres court.",
+const REPORT_FORMAT_DISPLAY_META: Record<ReportFormat, { label: string; description: string }> = {
+  CRI: {
+    label: "Compte rendu détaillé",
+    description: "Version la plus complète, narrative et fidèle à la transcription.",
+  },
+  CRO: {
+    label: "Compte rendu opérationnel",
+    description: "Version orientée décisions, actions, priorités et suivi.",
+  },
+  CRS: {
+    label: "Compte rendu synthétique",
+    description: "Version courte, centrée sur l'essentiel et la lecture rapide.",
+  },
+};
+
+const FORMAT_PROMPT_GUIDELINES: Record<ReportFormat, string> = {
+  CRI: "CRI = restitution narrative fidèle, très détaillée, avec une rédaction textuelle longue et complète.",
+  CRO: "CRO = compte rendu opérationnel, axé décisions, actions, priorités et points à exécuter.",
+  CRS: "CRS = synthèse ultra concise, uniquement l'essentiel critique en format très court.",
 };
 
 const FORMAT_STYLE_RULES: Record<ReportFormat, readonly string[]> = {
@@ -52,7 +67,7 @@ export function buildReportSystemPrompt(): string {
 export function buildReportUserPrompt(format: ReportFormat, sourceText: string): string {
   return [
     `Format cible: ${format}.`,
-    FORMAT_GUIDELINES[format],
+    FORMAT_PROMPT_GUIDELINES[format],
     "",
     "Retourne uniquement un JSON valide avec cette structure:",
     `{
@@ -127,5 +142,9 @@ export function buildLongInputConsolidationPrompt(chunkSummaries: string[]): {
 }
 
 export function buildReportFormatDescription(format: ReportFormat): string {
-  return FORMAT_GUIDELINES[format];
+  return REPORT_FORMAT_DISPLAY_META[format].description;
+}
+
+export function buildReportFormatLabel(format: ReportFormat): string {
+  return REPORT_FORMAT_DISPLAY_META[format].label;
 }

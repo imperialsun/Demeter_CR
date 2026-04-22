@@ -565,14 +565,14 @@ describe('Topbar', () => {
 
     expect(screen.queryByText('Backend')).toBeNull();
     expect(screen.getAllByText('Cloud').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Transcription').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Transcription cloud').length).toBeGreaterThan(0);
   });
 
   it('shows llm badges and llm status on /llmapi', () => {
     vi.spyOn(rr, 'useLocation').mockReturnValue({ pathname: '/llmapi', search: '', state: null, hash: '', key: '' } as any);
     useAsrStore.setState({
       llmApiStatus: 'generating',
-      llmApiStatusDetail: 'Generation CRI (1/3)',
+      llmApiStatusDetail: 'Génération Compte rendu détaillé (1/3)',
       llmApiProvider: 'huggingface',
       llmApiHfModelId: 'openai/gpt-oss-20b',
       llmApiHfMaxTokens: 131072,
@@ -585,8 +585,8 @@ describe('Topbar', () => {
     expect(screen.getByText('HF API')).toBeInTheDocument();
     expect(screen.getByText('OpenAI OSS 20B')).toBeInTheDocument();
     expect(screen.getByText(/Max 131/)).toBeInTheDocument();
-    expect(screen.getAllByText('Generation').length).toBeGreaterThan(0);
-    expect(screen.getByText('Generation CRI (1/3)')).toBeInTheDocument();
+    expect(screen.getAllByText('Génération').length).toBeGreaterThan(0);
+    expect(screen.getByText('Génération Compte rendu détaillé (1/3)')).toBeInTheDocument();
   });
 
   it('shows mistral provider badge on /llmapi when provider is mistral', () => {

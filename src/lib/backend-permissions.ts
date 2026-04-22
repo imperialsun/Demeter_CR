@@ -1,6 +1,7 @@
 import { type LlmApiProvider } from "@/store/asr-store";
 import { hasBackendPermission, isBackendAuthenticated } from "@/lib/backend-session";
 import { isBackendMode } from "@/lib/runtime-config";
+import { AUTHORIZED_ROUTE_ORDER, type AuthorizedRoute } from "@/lib/authorized-route-order";
 
 export type FeaturePermission =
   | "feature.localupload"
@@ -11,40 +12,23 @@ export type FeaturePermission =
   | "feature.settings"
   | "feature.telemetry";
 
-export type AppRoute =
-  | "/localupload"
-  | "/cloudupload"
-  | "/assistant"
-  | "/llmlocal"
-  | "/llmapi"
-  | "/settings"
-  | "/telemetry"
-  | "/forbidden";
+export type AppRoute = AuthorizedRoute | "/forbidden";
 
 export type CloudProviderId = "whisper" | "mistral" | "demeter_sante";
 
 export type SettingsTabId = "local" | "cloud" | "llmlocal" | "llm";
 
-const FEATURE_ROUTE_ORDER: Array<{ route: Exclude<AppRoute, "/forbidden">; feature: FeaturePermission }> = [
-  { route: "/localupload", feature: "feature.localupload" },
-  { route: "/cloudupload", feature: "feature.cloudupload" },
-  { route: "/assistant", feature: "feature.assistant" },
-  { route: "/llmlocal", feature: "feature.llmlocal" },
-  { route: "/llmapi", feature: "feature.llmapi" },
-  { route: "/settings", feature: "feature.settings" },
-  { route: "/telemetry", feature: "feature.telemetry" },
-];
-
-const ROUTE_FEATURE_MAP: Record<string, FeaturePermission> = FEATURE_ROUTE_ORDER.reduce<Record<string, FeaturePermission>>(
-  (acc, item) => {
-    acc[item.route] = item.feature;
-    return acc;
-  },
-  {
-    "/upload": "feature.localupload",
-    "/mic": "feature.localupload",
-  }
-);
+const ROUTE_FEATURE_MAP: Record<string, FeaturePermission> = {
+  "/assistant": "feature.assistant",
+  "/localupload": "feature.localupload",
+  "/cloudupload": "feature.cloudupload",
+  "/llmlocal": "feature.llmlocal",
+  "/llmapi": "feature.llmapi",
+  "/settings": "feature.settings",
+  "/telemetry": "feature.telemetry",
+  "/upload": "feature.localupload",
+  "/mic": "feature.localupload",
+};
 
 const CLOUD_PROVIDER_PERMISSION_MAP: Record<CloudProviderId, string> = {
   whisper: "provider.cloud.whisper",
@@ -88,9 +72,9 @@ export function canUseLlmProvider(provider: LlmApiProvider): boolean {
 
 export function getFirstAuthorizedRoute(): AppRoute {
   if (!isBackendMode()) return "/localupload";
-  for (const item of FEATURE_ROUTE_ORDER) {
-    if (canAccessFeature(item.feature)) {
-      return item.route;
+  for (const route of AUTHORIZED_ROUTE_ORDER) {
+    if (canAccessRoutePath(route)) {
+      return route;
     }
   }
   return "/forbidden";

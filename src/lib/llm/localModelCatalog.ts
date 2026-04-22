@@ -51,7 +51,7 @@ const MODELS: LocalLlmModelProfile[] = [
     id: "qwen_0_6b",
     label: "Qwen 3 0.6B",
     modelId: "onnx-community/Qwen3-0.6B-ONNX",
-    description: "Profil leger local. Empreinte memoire reduite pour les postes contraints.",
+    description: "Profil léger local. Empreinte mémoire réduite pour les postes contraints.",
     contextWindowTokens: 40_960,
     maxGenerationTokens: 4_096,
     recommendedDtype: {
@@ -66,7 +66,7 @@ const MODELS: LocalLlmModelProfile[] = [
     id: "qwen_1_7b",
     label: "Qwen 3 1.7B",
     modelId: "onnx-community/Qwen3-1.7B-ONNX",
-    description: "Profil standard local. Bon compromis qualite/latence pour CRI/CRO/CRS.",
+    description: "Profil standard local. Bon compromis qualité/latence pour les trois comptes rendus.",
     contextWindowTokens: 40_960,
     maxGenerationTokens: 4_096,
     recommendedDtype: {
@@ -81,7 +81,7 @@ const MODELS: LocalLlmModelProfile[] = [
     id: "ministral_3_3b",
     label: "Ministral 3 3B Instruct",
     modelId: "mistralai/Ministral-3-3B-Instruct-2512-ONNX",
-    description: "Profil qualite elevee local. Plus lourd; fonctionne en WebGPU et en WASM (plus lent en WASM).",
+    description: "Profil qualité élevée local. Plus lourd; fonctionne en WebGPU et en WASM (plus lent en WASM).",
     contextWindowTokens: 131_072,
     maxGenerationTokens: 8_192,
     recommendedDtype: {
@@ -91,7 +91,7 @@ const MODELS: LocalLlmModelProfile[] = [
     allowedBackends: ["webgpu", "wasm"],
     heavy: true,
     heavyWarning:
-      "Ce modele est volumineux. Sur WASM, le temps de generation peut etre significativement plus long.",
+      "Ce modèle est volumineux. Sur WASM, le temps de génération peut être significativement plus long.",
   },
 ];
 
@@ -147,12 +147,12 @@ export function resolveLocalLlmBackend(params: ResolveLocalLlmBackendParams): Re
   if (!params.webGpuSupported && !params.wasmAvailable) {
     return {
       error:
-        "Aucun backend local disponible (WebGPU indisponible et WASM non detecte). Verifiez la plateforme et les assets /onnx/.",
+        "Aucun backend local disponible (WebGPU indisponible et WASM non détecté). Vérifiez la plateforme et les assets /onnx/.",
     };
   }
 
   return {
-    error: "Aucun backend compatible disponible pour le modele local selectionne.",
+    error: "Aucun backend compatible disponible pour le modèle local sélectionné.",
   };
 }
 

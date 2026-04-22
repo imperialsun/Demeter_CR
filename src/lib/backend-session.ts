@@ -1,3 +1,4 @@
+import { AUTHORIZED_ROUTE_ORDER } from "@/lib/authorized-route-order";
 import { isBackendMode } from "@/lib/runtime-config";
 import logger from "@/lib/logger";
 
@@ -184,9 +185,9 @@ export function hasBackendPermission(code: string): boolean {
 
 export function getDefaultAuthorizedRoute(): string {
   if (!isBackendMode()) return "/localupload";
-  for (const item of ROUTE_PERMISSION_MAP) {
-    if (hasBackendPermission(item.permission)) {
-      return item.path;
+  for (const route of AUTHORIZED_ROUTE_ORDER) {
+    if (canAccessRoute(route)) {
+      return route;
     }
   }
   return "/forbidden";

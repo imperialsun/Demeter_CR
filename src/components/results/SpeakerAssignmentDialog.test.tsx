@@ -33,7 +33,7 @@ describe("SpeakerAssignmentDialog", () => {
       />
     );
 
-    expect(screen.getByText("Assigner les speakers par chunk")).toBeInTheDocument();
+    expect(screen.getByText("Nommer les intervenants par partie")).toBeInTheDocument();
     expect(screen.getByText("Chunk 1")).toBeInTheDocument();
     expect(screen.getByText("Chunk 2")).toBeInTheDocument();
     expect(screen.getByText("ID technique: mistral-1")).toBeInTheDocument();
