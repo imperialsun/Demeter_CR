@@ -1,6 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { createBackendUser } from "./adminClient";
 import { createAppCookieJar, configureBackendRuntime, resetBrowserState } from "./runtime";
 
@@ -72,6 +70,8 @@ describe("LoginPage backend integration", () => {
     const restoreFetch = jar.installGlobally();
 
     try {
+      const { fireEvent, render, screen, waitFor } = await import("@testing-library/react");
+      const { MemoryRouter, Route, Routes } = await import("react-router-dom");
       const { default: LoginPage } = await import("@/routes/LoginPage");
 
       render(

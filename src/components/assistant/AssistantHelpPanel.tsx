@@ -54,6 +54,8 @@ const ASSISTANT_HELP_SECTIONS: AssistantHelpSectionConfig[] = [
     summary: "Télécharger la transcription et les trois versions finales.",
     points: [
       "Téléchargez la transcription DOCX pour récupérer le texte final avec les bons noms.",
+      "Réglez le niveau de détail des CRI, CRO et CRS avec les curseurs avant la génération.",
+      "Si des interlocuteurs sont nommés, leurs noms et leur avis ou position sont cités dans les comptes rendus.",
       `Téléchargez ${buildReportFormatLabel("CRI")}, ${buildReportFormatLabel("CRO")} et ${buildReportFormatLabel("CRS")} quand les trois boutons sont visibles.`,
       "Si vous repartez de zéro, utilisez « Nouveau fichier » pour relancer le flux.",
     ],

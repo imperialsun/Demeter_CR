@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
+import { ReportDetailLevelsSection } from "@/components/llm/ReportDetailLevelsSection";
 import { useAsrStore, type LlmApiProvider } from "@/store/asr-store";
 import { useLlmReports } from "@/hooks/useLlmReports";
 import { moveArrayItem } from "@/lib/arrayMove";
@@ -111,6 +112,7 @@ function LLMApiPage() {
   const llmApiMistralModelId = useAsrStore((state) => state.llmApiMistralModelId);
   const llmApiMistralTemperature = useAsrStore((state) => state.llmApiMistralTemperature);
   const llmApiMistralMaxTokens = useAsrStore((state) => state.llmApiMistralMaxTokens);
+  const llmApiReportDetailLevels = useAsrStore((state) => state.llmApiReportDetailLevels);
   const llmApiStatusDetail = useAsrStore((state) => state.llmApiStatusDetail);
   const mistralApiKey = useAsrStore((state) => state.mistralApiKey);
 
@@ -119,6 +121,7 @@ function LLMApiPage() {
   const setLlmApiStatus = useAsrStore((state) => state.setLlmApiStatus);
   const resetLlmApiSession = useAsrStore((state) => state.resetLlmApiSession);
   const setMistralApiKey = useAsrStore((state) => state.setMistralApiKey);
+  const setLlmApiReportDetailLevel = useAsrStore((state) => state.setLlmApiReportDetailLevel);
 
   const { status, progress, results, generateAll, downloadDocx } = useLlmReports();
 
@@ -677,6 +680,11 @@ function LLMApiPage() {
               ) : null}
             </CardContent>
           </Card>
+
+          <ReportDetailLevelsSection
+            values={llmApiReportDetailLevels}
+            onChange={setLlmApiReportDetailLevel}
+          />
 
           <Card>
             <CardHeader>

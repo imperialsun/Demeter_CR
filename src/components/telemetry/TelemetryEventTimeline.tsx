@@ -3,7 +3,12 @@ import { useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { TelemetryLiveMode, TelemetryViewEvent } from "@/lib/telemetryView";
-import { formatEventTimestamp, telemetryDomainLabel } from "@/lib/telemetryView";
+import {
+  formatEventTimestamp,
+  resolveTelemetryEventLabel,
+  resolveTelemetryEventSummary,
+  telemetryDomainLabel,
+} from "@/lib/telemetryView";
 import { useVirtualizedList } from "@/hooks/useVirtualizedList";
 
 interface TelemetryEventTimelineProps {
@@ -67,7 +72,8 @@ export function TelemetryEventTimeline({
                 if (!entry) {
                   return null;
                 }
-                const preview = entry.event.data ? JSON.stringify(entry.event.data).slice(0, compact ? 100 : 180) : null;
+                const preview = resolveTelemetryEventSummary(entry.event);
+                const label = resolveTelemetryEventLabel(entry.event);
                 const isSelected = selectedEventKey === entry.key;
                 return (
                   <button
@@ -82,7 +88,10 @@ export function TelemetryEventTimeline({
                     onClick={() => onSelectEvent(entry.key)}
                   >
                     <div className="flex flex-wrap items-center gap-1">
-                      <span className="text-xs font-semibold text-foreground">{entry.event.type}</span>
+                      <span className="text-xs font-semibold text-foreground">{label}</span>
+                      {label !== entry.event.type ? (
+                        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{entry.event.type}</span>
+                      ) : null}
                       <Badge variant={domainBadgeVariant(entry.domain)}>{telemetryDomainLabel(entry.domain)}</Badge>
                       <Badge variant={severityBadgeVariant(entry.severity)}>{entry.severity}</Badge>
                       <span className="ml-auto text-[11px] text-muted-foreground">

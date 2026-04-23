@@ -5,10 +5,13 @@ import {
   computeTelemetryKpis,
   enrichTelemetryEvents,
   filterTelemetryEvents,
+  formatCloudPassLabel,
   normalizeTelemetryLiveMode,
   normalizeTelemetryScope,
   normalizeTelemetrySeverity,
   normalizeTelemetryTab,
+  resolveTelemetryEventLabel,
+  resolveTelemetryEventSummary,
   resolveAlertDomain,
 } from "@/lib/telemetryView";
 import type { TelemetryEvent } from "@/lib/telemetry";
@@ -39,6 +42,33 @@ describe("telemetryView", () => {
       "llm_cloud",
       "unknown",
     ]);
+  });
+
+  it("formats cloud workflow stage labels with a global pass counter", () => {
+    const event = makeEvent("LLM_RUN_STAGE", 10, {
+      stage: "workflow_part_extract_start",
+      stageLabel: "Passe 2/6 · Partie 1/5 · Extraction",
+      globalPassIndex: 2,
+      globalPassTotal: 6,
+      partIndex: 1,
+      partTotal: 5,
+    });
+
+    expect(formatCloudPassLabel(2, 6)).toBe("Passe 2/6");
+    expect(resolveTelemetryEventLabel(event)).toBe("Passe 2/6 · Partie 1/5 · Extraction");
+  });
+
+  it("builds readable summaries for workflow stage events", () => {
+    const event = makeEvent("LLM_RUN_STAGE", 12, {
+      stage: "workflow_expansion_analysis_done",
+      globalPassIndex: 2,
+      globalPassTotal: 6,
+      targetCount: 2,
+      needs_more: true,
+    });
+
+    expect(resolveTelemetryEventSummary(event)).toContain("2 cibles");
+    expect(resolveTelemetryEventLabel(event)).toContain("CR trop court · Analyse terminée");
   });
 
   it("filters by scope, severity and search", () => {

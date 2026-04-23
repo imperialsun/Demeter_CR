@@ -1,4 +1,9 @@
 import type { TelemetryEvent } from "@/lib/telemetry";
+import {
+  formatCloudPassLabel,
+  resolveCloudRunStageLabel,
+  resolveCloudRunStageSummary,
+} from "@/lib/llm/reportTrace";
 
 export type TelemetryScope = "all" | "local" | "cloud" | "llm_local" | "llm_cloud";
 export type TelemetryDomain = Exclude<TelemetryScope, "all"> | "unknown";
@@ -311,6 +316,71 @@ export function telemetryScopeLabel(scope: TelemetryScope): string {
   return telemetryDomainLabel(scope);
 }
 
+export function resolveTelemetryEventLabel(event: TelemetryEvent): string {
+  const data = event.data ?? {};
+
+  if (event.type === "LLM_RUN_STAGE") {
+    const stage = typeof data.stage === "string" ? data.stage : event.type;
+    if (typeof data.stageLabel === "string" && data.stageLabel.trim()) {
+      return data.stageLabel.trim();
+    }
+    return resolveCloudRunStageLabel(stage, data, extractCloudStageContext(data));
+  }
+
+  if (event.type === "LLM_RUN_ERROR") {
+    const stageLabel = typeof data.stageLabel === "string" ? data.stageLabel.trim() : "";
+    return stageLabel ? `Erreur · ${stageLabel}` : "Erreur LLM";
+  }
+
+  if (event.type === "LLM_RUN_DONE") {
+    return "Génération LLM terminée";
+  }
+
+  if (event.type === "LLM_RUN_START") {
+    return "Démarrage du run LLM";
+  }
+
+  if (event.type.startsWith("LOG_")) {
+    const message = typeof data.message === "string" ? data.message.trim() : "";
+    if (message) {
+      return message;
+    }
+  }
+
+  return event.type;
+}
+
+export function resolveTelemetryEventSummary(event: TelemetryEvent): string | null {
+  const data = event.data ?? {};
+
+  if (event.type === "LLM_RUN_STAGE") {
+    const stage = typeof data.stage === "string" ? data.stage : event.type;
+    const explicitSummary = typeof data.summary === "string" && data.summary.trim() ? data.summary.trim() : null;
+    const resolved = resolveCloudRunStageSummary(stage, data, extractCloudStageContext(data));
+    return explicitSummary ?? resolved;
+  }
+
+  if (event.type.startsWith("LOG_")) {
+    const preview = typeof data.messagePreview === "string" && data.messagePreview.trim() ? data.messagePreview.trim() : null;
+    if (preview) {
+      return preview;
+    }
+  }
+
+  if (!event.data) {
+    return null;
+  }
+
+  try {
+    const json = JSON.stringify(event.data);
+    if (!json) return null;
+    if (json.length <= 180) return json;
+    return `${json.slice(0, 100)}...[${json.length - 180} chars omitted]...${json.slice(-80)}`;
+  } catch {
+    return null;
+  }
+}
+
 export function formatEventTimestamp(timestamp: number | null): string {
   if (timestamp === null || !Number.isFinite(timestamp)) return "—";
   if (timestamp < 1000) return `${Math.round(timestamp)} ms`;
@@ -331,3 +401,18 @@ export function resolveAlertDomain(alertKey: string): TelemetryDomain {
   }
   return "unknown";
 }
+
+function extractCloudStageContext(data: Record<string, unknown>) {
+  return {
+    provider: typeof data.provider === "string" ? data.provider : "cloud",
+    modelId: typeof data.modelId === "string" ? data.modelId : "unset",
+    sourceMode: typeof data.sourceMode === "string" ? data.sourceMode : "unknown",
+    format: typeof data.format === "string" ? data.format : undefined,
+    detailLevel: typeof data.detailLevel === "string" ? data.detailLevel : undefined,
+    generationMode: typeof data.generationMode === "string" ? data.generationMode : undefined,
+    sequenceIndex: typeof data.sequenceIndex === "number" ? data.sequenceIndex : undefined,
+    sequenceTotal: typeof data.sequenceTotal === "number" ? data.sequenceTotal : undefined,
+  };
+}
+
+export { formatCloudPassLabel };

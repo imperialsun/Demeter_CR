@@ -118,6 +118,11 @@ describe("LLMApiPage", () => {
       llmApiMistralModelId: "mistral-medium-latest",
       llmApiMistralTemperature: 0.2,
       llmApiMistralMaxTokens: 8192,
+      llmApiReportDetailLevels: {
+        CRI: "standard",
+        CRO: "standard",
+        CRS: "standard",
+      },
       llmApiStatusDetail: undefined,
       llmApiResults: {},
       llmApiReportDrafts: {},
@@ -206,6 +211,18 @@ describe("LLMApiPage", () => {
     renderPage();
     expect(screen.getByText(/module utilise une API externe/i)).toBeInTheDocument();
     expect(screen.getByText(/llm local \(\/llmlocal\)/i)).toBeInTheDocument();
+  });
+
+  it("renders report detail sliders and updates the store", () => {
+    renderPage();
+
+    expect(screen.getByRole("heading", { name: "Niveau de detail des comptes rendus" })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Compte rendu détaillé", { selector: "input#report-detail-cri" }), {
+      target: { value: "1" },
+    });
+
+    expect(useAsrStore.getState().llmApiReportDetailLevels.CRI).toBe("verbose");
   });
 
   it("requires an imported file when source is texte libre", async () => {
@@ -726,6 +743,7 @@ describe("LLMApiPage", () => {
 
     expect(screen.getByLabelText("Provider LLM", { selector: "button#llm-provider" })).toBeInTheDocument();
     expect(screen.getByLabelText("Token Hugging Face", { selector: "input#llm-api-token" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Niveau de detail des comptes rendus" })).toBeInTheDocument();
 
     expect(screen.queryByLabelText("ID du modèle")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Température")).not.toBeInTheDocument();

@@ -61,6 +61,10 @@ describe("useLlmLocalReports", () => {
       llmLocalDtypeWebgpu: defaults.qwen_1_7b.dtypeWebgpu,
       llmLocalDtypeWasm: defaults.qwen_1_7b.dtypeWasm,
       llmLocalSettingsByProfile: defaults,
+      llmApiReportChunkRatio: 0.5,
+      llmApiReportGenerationMode: "mono_pass",
+      llmApiReportMonoPassMaxTokens: 16384,
+      llmApiReportWorkflowTextMaxTokens: 8192,
       llmLocalStatus: "idle",
       llmLocalProgress: 0,
       llmLocalResults: {},
@@ -109,6 +113,24 @@ describe("useLlmLocalReports", () => {
     const events = summary?.events.map((event) => event.type) ?? [];
     expect(events).toContain("LLM_RUN_STAGE");
     expect(events).toContain("LLM_RUN_DONE");
+  });
+
+  it("caps mono-pass local report max tokens with the mono-pass setting", async () => {
+    useAsrStore.setState({
+      llmApiReportMonoPassMaxTokens: 1024,
+      llmApiReportWorkflowTextMaxTokens: 32768,
+    } as any);
+
+    const { result } = renderHook(() => useLlmLocalReports());
+
+    await act(async () => {
+      await result.current.generateAll({ source: "transcription" });
+    });
+
+    const calledMaxTokens = mocks.generateLocalReportDetailedMock.mock.calls.map(
+      ([params]) => (params as { maxTokens: number }).maxTokens
+    );
+    expect(calledMaxTokens).toEqual([1024, 1024, 1024]);
   });
 
   it("falls back from webgpu to wasm automatically for qwen profile", async () => {

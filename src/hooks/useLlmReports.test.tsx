@@ -6,6 +6,7 @@ import { useLlmReports } from "@/hooks/useLlmReports";
 
 const mocks = vi.hoisted(() => ({
   generateReportDetailedMock: vi.fn(),
+  generateCloudMultiPassReportMock: vi.fn(),
   prepareLongInputForReportsMock: vi.fn(),
   getLlmHfClientMock: vi.fn(),
   generateWithChatThenFallbackTextMock: vi.fn(),
@@ -15,6 +16,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/llm/reportService", () => ({
   generateReportDetailed: mocks.generateReportDetailedMock,
+}));
+
+vi.mock("@/lib/llm/reportWorkflow", () => ({
+  generateCloudMultiPassReport: mocks.generateCloudMultiPassReportMock,
 }));
 
 vi.mock("@/lib/llm/longInputPipeline", () => ({
@@ -32,9 +37,20 @@ vi.mock("@/lib/docx/reportDocx", () => ({
   formatReportDocxFilename: () => "report.docx",
 }));
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("useLlmReports telemetry", () => {
   beforeEach(() => {
     mocks.generateReportDetailedMock.mockReset();
+    mocks.generateCloudMultiPassReportMock.mockReset();
     mocks.prepareLongInputForReportsMock.mockReset();
     mocks.getLlmHfClientMock.mockReset();
     mocks.generateWithChatThenFallbackTextMock.mockReset();
@@ -50,6 +66,16 @@ describe("useLlmReports telemetry", () => {
       llmApiMistralModelId: "mistral-medium-latest",
       llmApiMistralTemperature: 0.2,
       llmApiMistralMaxTokens: 8192,
+      llmApiReportDetailLevels: {
+        CRI: "standard",
+        CRO: "standard",
+        CRS: "standard",
+      },
+      llmApiReportGenerationMode: "mono_pass",
+      llmApiReportChunkRatio: 0.5,
+      llmApiReportMaxSubpartsPerPart: 4,
+      llmApiReportMonoPassMaxTokens: 16384,
+      llmApiReportWorkflowTextMaxTokens: 8192,
       llmApiStatus: "idle",
       llmApiStatusDetail: undefined,
       llmApiProgress: 0,
@@ -75,6 +101,20 @@ describe("useLlmReports telemetry", () => {
     } as any);
 
     mocks.getLlmHfClientMock.mockResolvedValue({});
+    mocks.generateCloudMultiPassReportMock.mockImplementation(async (params: { format: string }) => ({
+      report: {
+        format: params.format,
+        title: "Workflow title",
+        sections: [{ heading: "Workflow", paragraphs: ["Contenu workflow"] }],
+      },
+      rawResponse: JSON.stringify({
+        format: params.format,
+        title: "Workflow title",
+        sections: [{ heading: "Workflow", paragraphs: ["Contenu workflow"] }],
+      }),
+      strategy: "chatCompletion",
+      pipelinePasses: 4,
+    }));
     mocks.prepareLongInputForReportsMock.mockResolvedValue({
       text: "Source preparee",
       sourceTokenCount: 16,
@@ -107,7 +147,216 @@ describe("useLlmReports telemetry", () => {
     expect(eventTypes).toContain("LLM_RUN_START");
     expect(eventTypes).toContain("LLM_RUN_STAGE");
     expect(eventTypes).toContain("LLM_RUN_DONE");
+    expect(
+      summary?.events.some(
+        (event) => event.type === "LLM_RUN_STAGE" && event.data?.generationMode === "mono_pass"
+      )
+    ).toBe(true);
     expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("generates reports sequentially, one format after another", async () => {
+    const { result } = renderHook(() => useLlmReports());
+
+    const first = createDeferred<{
+      report: { format: string; title: string; sections: Array<{ heading: string; paragraphs: string[] }> };
+      rawResponse: string;
+      strategy: "chatCompletion";
+    }>();
+    const second = createDeferred<{
+      report: { format: string; title: string; sections: Array<{ heading: string; paragraphs: string[] }> };
+      rawResponse: string;
+      strategy: "chatCompletion";
+    }>();
+    const third = createDeferred<{
+      report: { format: string; title: string; sections: Array<{ heading: string; paragraphs: string[] }> };
+      rawResponse: string;
+      strategy: "chatCompletion";
+    }>();
+
+    mocks.generateReportDetailedMock
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+      .mockReturnValueOnce(third.promise);
+
+    let runPromise!: Promise<void>;
+    await act(async () => {
+      runPromise = result.current.generateAll({ source: "transcription", transcriptMode: "upload" });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(1));
+    expect(mocks.generateCloudMultiPassReportMock).not.toHaveBeenCalled();
+    expect(mocks.generateReportDetailedMock.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({ format: "CRI" })
+    );
+
+    await act(async () => {
+      first.resolve({
+        report: {
+          format: "CRI",
+          title: "CRI title",
+          sections: [{ heading: "CRI", paragraphs: ["Paragraphe"] }],
+        },
+        rawResponse: "cri",
+        strategy: "chatCompletion",
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(2));
+    expect(mocks.generateReportDetailedMock.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({ format: "CRO" })
+    );
+    expect(mocks.generateCloudMultiPassReportMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      second.resolve({
+        report: {
+          format: "CRO",
+          title: "CRO title",
+          sections: [{ heading: "CRO", paragraphs: ["Paragraphe"] }],
+        },
+        rawResponse: "cro",
+        strategy: "chatCompletion",
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(3));
+    expect(mocks.generateReportDetailedMock.mock.calls[2]?.[0]).toEqual(
+      expect.objectContaining({ format: "CRS" })
+    );
+
+    await act(async () => {
+      third.resolve({
+        report: {
+          format: "CRS",
+          title: "CRS title",
+          sections: [{ heading: "CRS", paragraphs: ["Paragraphe"] }],
+        },
+        rawResponse: "crs",
+        strategy: "chatCompletion",
+      });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await runPromise;
+    });
+
+    expect(useAsrStore.getState().llmApiStatus).toBe("done");
+    expect(useAsrStore.getState().llmApiResults).toHaveProperty("cri");
+    expect(useAsrStore.getState().llmApiResults).toHaveProperty("cro");
+    expect(useAsrStore.getState().llmApiResults).toHaveProperty("crs");
+  });
+
+  it("routes detailed reports through mono-pass by default", async () => {
+    useAsrStore.setState({
+      llmApiReportDetailLevels: {
+        CRI: "verbose",
+        CRO: "exhaustive",
+        CRS: "standard",
+      },
+    } as any);
+
+    const { result } = renderHook(() => useLlmReports());
+
+    await act(async () => {
+      await result.current.generateAll({ source: "transcription", transcriptMode: "upload" });
+    });
+
+    expect(mocks.generateReportDetailedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ format: "CRI", detailLevel: "verbose" })
+    );
+    expect(mocks.generateReportDetailedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ format: "CRO", detailLevel: "exhaustive" })
+    );
+    expect(mocks.generateReportDetailedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ format: "CRS", detailLevel: "standard" })
+    );
+    expect(mocks.generateCloudMultiPassReportMock).not.toHaveBeenCalled();
+  });
+
+  it("routes detailed reports through multi-pass when requested", async () => {
+    useAsrStore.setState({
+      llmApiReportGenerationMode: "multi_pass",
+      llmApiReportDetailLevels: {
+        CRI: "verbose",
+        CRO: "exhaustive",
+        CRS: "standard",
+      },
+      llmApiReportMonoPassMaxTokens: 8192,
+      llmApiReportWorkflowTextMaxTokens: 2048,
+    } as any);
+
+    const { result } = renderHook(() => useLlmReports());
+
+    await act(async () => {
+      await result.current.generateAll({ source: "transcription", transcriptMode: "upload" });
+    });
+
+    expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(1);
+    expect(mocks.generateReportDetailedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ format: "CRS", detailLevel: "standard", maxTokens: 8192 })
+    );
+    expect(mocks.generateCloudMultiPassReportMock).toHaveBeenCalledTimes(2);
+    expect(mocks.generateCloudMultiPassReportMock).toHaveBeenCalledWith(
+      expect.objectContaining({ format: "CRI", detailLevel: "verbose", maxTokens: 2048 })
+    );
+    expect(mocks.generateCloudMultiPassReportMock).toHaveBeenCalledWith(
+      expect.objectContaining({ format: "CRO", detailLevel: "exhaustive", maxTokens: 2048 })
+    );
+  });
+
+  it("caps mono-pass cloud report max tokens with the mono-pass setting", async () => {
+    useAsrStore.setState({
+      llmApiReportGenerationMode: "mono_pass",
+      llmApiReportMonoPassMaxTokens: 2048,
+      llmApiReportWorkflowTextMaxTokens: 32768,
+      llmApiReportDetailLevels: {
+        CRI: "verbose",
+        CRO: "exhaustive",
+        CRS: "standard",
+      },
+    } as any);
+
+    const { result } = renderHook(() => useLlmReports());
+
+    await act(async () => {
+      await result.current.generateAll({ source: "transcription", transcriptMode: "upload" });
+    });
+
+    const calledMaxTokens = mocks.generateReportDetailedMock.mock.calls.map(
+      ([params]) => (params as { maxTokens: number }).maxTokens
+    );
+    expect(calledMaxTokens).toEqual([2048, 2048, 2048]);
+    expect(mocks.generateCloudMultiPassReportMock).not.toHaveBeenCalled();
+  });
+
+  it("emits readable stage labels and global pass counters for cloud stages", async () => {
+    useAsrStore.setState({
+      llmApiReportGenerationMode: "multi_pass",
+      llmApiReportDetailLevels: {
+        CRI: "verbose",
+        CRO: "exhaustive",
+        CRS: "standard",
+      },
+    } as any);
+
+    const { result } = renderHook(() => useLlmReports());
+
+    await act(async () => {
+      await result.current.generateAll({ source: "transcription", transcriptMode: "upload" });
+    });
+
+    const summary = useAsrStore.getState().telemetrySummary;
+    const stageEvents = summary?.events.filter((event) => event.type === "LLM_RUN_STAGE") ?? [];
+
+    expect(stageEvents.some((event) => typeof event.data?.stageLabel === "string" && String(event.data.stageLabel).includes("Passe 1/6"))).toBe(true);
+    expect(stageEvents.some((event) => event.data?.globalPassTotal === 6)).toBe(true);
+    expect(stageEvents.some((event) => event.data?.stageLabel === "Séquence des formats")).toBe(true);
+    expect(stageEvents.some((event) => event.data?.generationMode === "multi_pass")).toBe(true);
   });
 
   it("emits LLM_RUN_ERROR telemetry event when generation fails", async () => {
@@ -242,121 +491,66 @@ describe("useLlmReports telemetry", () => {
     expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(3);
   });
 
-  it("launches the three cloud report generations in parallel and keeps the format mapping stable", async () => {
-    const pending = new Map<
-      string,
-      {
-        resolve: (value: unknown) => void;
-        reject: (reason?: unknown) => void;
-      }
-    >();
-
-    mocks.generateReportDetailedMock.mockImplementation(
-      async (params: { format: string; modelId: string }) =>
-        new Promise((resolve, reject) => {
-          pending.set(params.format, { resolve, reject });
-        })
-    );
-
-    const { result } = renderHook(() => useLlmReports());
-
-    const runPromise = act(async () => {
-      await result.current.generateAll({ source: "transcription", transcriptMode: "upload" });
-    });
-
-    await waitFor(() => {
-      expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(3);
-    });
-
-    expect(Array.from(pending.keys()).sort()).toEqual(["CRI", "CRO", "CRS"]);
-
-    pending.get("CRS")?.resolve({
-      report: {
-        format: "CRS",
-        title: "CRS title",
-        sections: [{ heading: "Section CRS", paragraphs: ["Paragraphe CRS"] }],
-      },
-      rawResponse: "crs raw",
-      strategy: "chatCompletion",
-    });
-    pending.get("CRI")?.resolve({
-      report: {
-        format: "CRI",
-        title: "CRI title",
-        sections: [{ heading: "Section CRI", paragraphs: ["Paragraphe CRI"] }],
-      },
-      rawResponse: "cri raw",
-      strategy: "chatCompletion",
-    });
-    pending.get("CRO")?.resolve({
-      report: {
-        format: "CRO",
-        title: "CRO title",
-        sections: [{ heading: "Section CRO", paragraphs: ["Paragraphe CRO"] }],
-      },
-      rawResponse: "cro raw",
-      strategy: "chatCompletion",
-    });
-
-    await runPromise;
-
-    const state = useAsrStore.getState();
-    expect(state.llmApiStatus).toBe("done");
-    expect(state.llmApiResults.cri?.report.title).toBe("CRI title");
-    expect(state.llmApiResults.cro?.report.title).toBe("CRO title");
-    expect(state.llmApiResults.crs?.report.title).toBe("CRS title");
-  });
-
   it("fails the whole cloud batch when one format generation fails", async () => {
-    const pending = new Map<
-      string,
-      {
-        resolve: (value: unknown) => void;
-        reject: (reason?: unknown) => void;
-      }
-    >();
-
-    mocks.generateReportDetailedMock.mockImplementation(
-      async (params: { format: string; modelId: string }) =>
-        new Promise((resolve, reject) => {
-          pending.set(params.format, { resolve, reject });
-        })
-    );
-
     const { result } = renderHook(() => useLlmReports());
 
-    const runPromise = act(async () => {
-      await result.current.generateAll({ source: "transcription", transcriptMode: "upload" });
+    const first = createDeferred<{
+      report: { format: string; title: string; sections: Array<{ heading: string; paragraphs: string[] }> };
+      rawResponse: string;
+      strategy: "chatCompletion";
+    }>();
+    const second = createDeferred<{
+      report: { format: string; title: string; sections: Array<{ heading: string; paragraphs: string[] }> };
+      rawResponse: string;
+      strategy: "chatCompletion";
+    }>();
+    const third = createDeferred<{
+      report: { format: string; title: string; sections: Array<{ heading: string; paragraphs: string[] }> };
+      rawResponse: string;
+      strategy: "chatCompletion";
+    }>();
+
+    mocks.generateReportDetailedMock
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+      .mockReturnValueOnce(third.promise);
+
+    let runPromise!: Promise<void>;
+    await act(async () => {
+      runPromise = result.current.generateAll({ source: "transcription", transcriptMode: "upload" });
+      await Promise.resolve();
     });
 
-    await waitFor(() => {
-      expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(3);
+    await waitFor(() => expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      first.resolve({
+        report: {
+          format: "CRI",
+          title: "CRI title",
+          sections: [{ heading: "Section CRI", paragraphs: ["Paragraphe CRI"] }],
+        },
+        rawResponse: "cri raw",
+        strategy: "chatCompletion",
+      });
+      await Promise.resolve();
     });
 
-    pending.get("CRI")?.resolve({
-      report: {
-        format: "CRI",
-        title: "CRI title",
-        sections: [{ heading: "Section CRI", paragraphs: ["Paragraphe CRI"] }],
-      },
-      rawResponse: "cri raw",
-      strategy: "chatCompletion",
-    });
-    pending.get("CRS")?.resolve({
-      report: {
-        format: "CRS",
-        title: "CRS title",
-        sections: [{ heading: "Section CRS", paragraphs: ["Paragraphe CRS"] }],
-      },
-      rawResponse: "crs raw",
-      strategy: "chatCompletion",
-    });
-    pending.get("CRO")?.reject(new Error("CRO failed"));
+    await waitFor(() => expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(2));
 
-    await runPromise;
+    await act(async () => {
+      second.reject(new Error("CRO failed"));
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await runPromise;
+    });
 
     expect(useAsrStore.getState().llmApiStatus).toBe("error");
-    expect(useAsrStore.getState().llmApiResults).toEqual({});
+    expect(useAsrStore.getState().llmApiResults.cri).toBeTruthy();
+    expect(useAsrStore.getState().llmApiResults.cro).toBeUndefined();
+    expect(useAsrStore.getState().llmApiResults.crs).toBeUndefined();
   });
 
   it("fails when downloadDocx is called without generated result", async () => {

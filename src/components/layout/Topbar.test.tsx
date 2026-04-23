@@ -89,6 +89,7 @@ vi.mock('@/lib/logger', () => ({
     warn: vi.fn(),
     error: vi.fn(),
   },
+  exportLogEntries: vi.fn(() => []),
   exportDiagnosticLogBundle: vi.fn((context: { session: Record<string, unknown>; settings: Record<string, unknown>; telemetry: unknown }) => ({
     schemaVersion: 1,
     exportedAt: '2026-03-19T12:34:56.000Z',
@@ -197,6 +198,8 @@ describe('Topbar', () => {
     backendAuthMocks.backendChangePassword.mockResolvedValue(undefined);
     runtimeConfigMocks.isBackendMode.mockReset();
     runtimeConfigMocks.isBackendMode.mockReturnValue(false);
+    vi.mocked(logger.exportLogEntries).mockReset();
+    vi.mocked(logger.exportLogEntries).mockReturnValue([]);
     window.localStorage.removeItem(BACKEND_AUTH_KEY);
     window.localStorage.removeItem(BACKEND_SESSION_KEY);
     // reset store defaults used by Topbar
@@ -406,6 +409,58 @@ describe('Topbar', () => {
     expect(screen.getByLabelText("Actions de logs")).toBeInTheDocument();
     expect(screen.queryByLabelText("Niveau de logs")).toBeNull();
     expect(screen.queryByText("Télécharger logs")).toBeNull();
+  });
+
+  it("shows the telemetry console toggle when telemetry access is granted", () => {
+    render(<Topbar />);
+
+    expect(screen.getByLabelText("Afficher les logs console")).toBeInTheDocument();
+    expect(screen.queryByTestId("topbar-console-logs-panel")).toBeNull();
+  });
+
+  it("hides the telemetry console toggle when telemetry access is denied", () => {
+    backendPermissionMocks.canAccessFeature.mockImplementation((permission: string) =>
+      permission === "feature.telemetry" ? false : true
+    );
+
+    render(<Topbar />);
+
+    expect(screen.queryByLabelText("Afficher les logs console")).toBeNull();
+    expect(screen.queryByTestId("topbar-console-logs-panel")).toBeNull();
+  });
+
+  it("opens the telemetry console panel and renders buffered logs", async () => {
+    const user = userEvent.setup();
+    const entries = [
+      {
+        timestamp: "2026-04-22T08:15:30.123Z",
+        level: "info" as const,
+        origin: "logger" as const,
+        scopes: ["app-shell"],
+        message: "shell ready",
+        context: { route: "/localupload" },
+        rawArgs: ["[app-shell] shell ready", { route: "/localupload" }],
+      },
+      {
+        timestamp: "2026-04-22T08:15:31.456Z",
+        level: "warn" as const,
+        origin: "console" as const,
+        scopes: [],
+        message: "Deprecated API call",
+        rawArgs: ["Deprecated API call"],
+      },
+    ];
+    vi.mocked(logger.exportLogEntries).mockReturnValue(entries);
+
+    render(<Topbar />);
+
+    await user.click(screen.getByLabelText("Afficher les logs console"));
+
+    expect(await screen.findByRole("region", { name: "Logs console" })).toBeInTheDocument();
+    expect(screen.getByText("shell ready")).toBeInTheDocument();
+    expect(screen.getByText("Deprecated API call")).toBeInTheDocument();
+    expect(screen.getByText("Logger")).toBeInTheDocument();
+    expect(screen.getByText("Console")).toBeInTheDocument();
   });
 
   it("opens the logs menu and reflects the selected level", async () => {

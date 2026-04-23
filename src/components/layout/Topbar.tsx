@@ -10,6 +10,7 @@ import { toast } from "@/components/ui/use-toast";
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ChangePasswordDialog } from "@/components/layout/ChangePasswordDialog";
+import { TopbarConsoleLogsPanel } from "@/components/layout/TopbarConsoleLogsPanel";
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { useTranscriptionController } from "@/hooks/useTranscriptionController";
 import { canAccessFeature, getFirstAuthorizedRoute } from "@/lib/backend-permissions";
@@ -41,6 +42,7 @@ import {
   KeyRound,
   Loader2,
   LogOut,
+  Monitor,
   RotateCw,
 } from "lucide-react";
 
@@ -223,6 +225,7 @@ export function Topbar() {
   const { abortTranscription } = useTranscriptionController();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [consoleLogsOpen, setConsoleLogsOpen] = useState(false);
 
   const logLevel = useAsrStore((s) => s.logLevel);
   const setLogLevel = useAsrStore((s) => s.setLogLevel);
@@ -250,6 +253,7 @@ export function Topbar() {
   const backendMode = isBackendMode();
   const connectedEmail = backendMode ? (getBackendSession()?.user.email ?? "").trim() : "";
   const showAccountMenu = backendMode && connectedEmail.length > 0;
+  const canOpenConsoleLogs = canAccessFeature("feature.telemetry");
   const normalizedPathname = location.pathname.replace(/\/+$/, "") || "/";
   const isLocalUploadRoute = normalizedPathname === "/localupload";
   const canOpenSettings = canAccessFeature("feature.settings");
@@ -311,6 +315,14 @@ export function Topbar() {
       Arrière-plan
     </Badge>
   ) : null;
+
+  useEffect(() => {
+    if (canOpenConsoleLogs || !consoleLogsOpen) {
+      return;
+    }
+
+    setConsoleLogsOpen(false);
+  }, [canOpenConsoleLogs, consoleLogsOpen]);
 
   useEffect(() => {
     logger.debug("[topbar] debug controls visibility", { showDebugActions, mode: getEnvMode() });
@@ -466,199 +478,226 @@ export function Topbar() {
 
   return (
     <>
-    <header className="flex min-h-16 items-center justify-between border-b px-4 py-3">
-      {isCloudRoute ? (
-        <div className="space-y-1">
-          <p className="text-sm font-medium text-muted-foreground">Cloud</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={cloudStatusMeta.variant}>{cloudStatusMeta.label}</Badge>
-            {backgroundBadge}
-            <Badge variant="outline" className="gap-1">
-              <Cloud className="h-3 w-3" /> Cloud
-            </Badge>
-          </div>
-        </div>
-      ) : isLlmRoute ? (
-        <div className="space-y-1">
-          <p className="text-sm font-medium text-muted-foreground">LLM Cloud</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={llmStatusMeta.variant}>{llmStatusMeta.label}</Badge>
-            {backgroundBadge}
-            <Badge variant="outline" className="gap-1">
-              <Cloud className="h-3 w-3" /> {llmProviderLabel}
-            </Badge>
-            <Badge variant="secondary">{llmModelLabel}</Badge>
-            <Badge variant="outline">{`Max ${formatTokenCount(activeLlmPipelineConfig.maxTokens)}`}</Badge>
-          </div>
-        </div>
-      ) : isLlmLocalRoute ? (
-        <div className="space-y-1">
-          <p className="text-sm font-medium text-muted-foreground">Backend</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={backendBadgeVariant}>{backendBadgeLabel}</Badge>
-            {backgroundBadge}
-            {showPreferenceBadge ? (
-              <Badge variant="outline" className="capitalize">
-                {`Préférence : ${backendPreference}`}
-              </Badge>
+      <div className="border-b">
+        <header className="flex min-h-16 items-center justify-between px-4 py-3">
+          {isCloudRoute ? (
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-muted-foreground">Cloud</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={cloudStatusMeta.variant}>{cloudStatusMeta.label}</Badge>
+                {backgroundBadge}
+                <Badge variant="outline" className="gap-1">
+                  <Cloud className="h-3 w-3" /> Cloud
+                </Badge>
+              </div>
+            </div>
+          ) : isLlmRoute ? (
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-muted-foreground">LLM Cloud</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={llmStatusMeta.variant}>{llmStatusMeta.label}</Badge>
+                {backgroundBadge}
+                <Badge variant="outline" className="gap-1">
+                  <Cloud className="h-3 w-3" /> {llmProviderLabel}
+                </Badge>
+                <Badge variant="secondary">{llmModelLabel}</Badge>
+                <Badge variant="outline">{`Max ${formatTokenCount(activeLlmPipelineConfig.maxTokens)}`}</Badge>
+              </div>
+            </div>
+          ) : isLlmLocalRoute ? (
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-muted-foreground">Backend</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={backendBadgeVariant}>{backendBadgeLabel}</Badge>
+                {backgroundBadge}
+                {showPreferenceBadge ? (
+                  <Badge variant="outline" className="capitalize">
+                    {`Préférence : ${backendPreference}`}
+                  </Badge>
+                ) : null}
+                {backendDisplay === "wasm" ? (
+                  <Badge variant={wasmThreads && wasmThreads > 1 ? "success" : "warning"}>
+                    {wasmThreads && wasmThreads > 1 ? `multithread (${wasmThreads})` : "single-thread"}
+                  </Badge>
+                ) : null}
+                <Badge variant="outline" className="gap-1">
+                  <Bot className="h-3 w-3" /> Local navigateur
+                </Badge>
+                <Badge variant="secondary">{llmLocalProfile.label}</Badge>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-muted-foreground">Backend</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={backendBadgeVariant}>{backendBadgeLabel}</Badge>
+                {backgroundBadge}
+                {showPreferenceBadge ? (
+                  <Badge variant="outline" className="capitalize">
+                    {`Préférence : ${backendPreference}`}
+                  </Badge>
+                ) : null}
+                {/* Multithread indicator for WASM */}
+                {backendDisplay === "wasm" ? (
+                  <Badge variant={wasmThreads && wasmThreads > 1 ? "success" : "warning"}>
+                    {wasmThreads && wasmThreads > 1 ? `multithread (${wasmThreads})` : "single-thread"}
+                  </Badge>
+                ) : null}
+                {/* Preprocessing mode badge */}
+                <Badge variant={preprocessingMode === "full" ? "success" : "warning"} className="capitalize">
+                  {preprocessingMode === "full" ? "Complet" : "Rapide"}
+                </Badge>
+                <Badge variant="secondary">{presetLabel}</Badge>
+                {/* model badge removed per request */}
+              </div>
+            </div>
+          )}
+          <div className="flex items-center gap-3">
+            <div className={cn("flex flex-col text-right")}>
+              <span className="text-sm font-medium leading-tight">{statusLabel}</span>
+              {statusDetailLabel ? <span className="text-xs text-muted-foreground">{statusDetailLabel}</span> : null}
+            </div>
+            {showAccountMenu ? (
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <Button
+                    className="max-w-52 justify-between gap-2 sm:max-w-64"
+                    size="sm"
+                    title={connectedEmail}
+                    variant="outline"
+                  >
+                    <span className="overflow-hidden text-ellipsis whitespace-nowrap">{connectedEmail}</span>
+                    <ChevronDown className="h-4 w-4 shrink-0" />
+                  </Button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    align="end"
+                    sideOffset={8}
+                    className="z-[65] min-w-64 rounded-md border bg-popover p-1 text-popover-foreground shadow-lg outline-none"
+                  >
+                    <DropdownMenu.Label className="px-2 py-1.5 text-xs text-muted-foreground">
+                      {connectedEmail}
+                    </DropdownMenu.Label>
+                    <DropdownMenu.Separator className="my-1 h-px bg-border" />
+                    <DropdownMenu.Item
+                      className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none transition hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                      onSelect={() => {
+                        setChangePasswordOpen(true);
+                      }}
+                    >
+                      <KeyRound className="h-4 w-4" />
+                      Changer le mot de passe
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item
+                      className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none transition hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                      onSelect={() => {
+                        void handleLogout();
+                      }}
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Déconnexion
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
             ) : null}
-            {backendDisplay === "wasm" ? (
-              <Badge variant={wasmThreads && wasmThreads > 1 ? "success" : "warning"}>
-                {wasmThreads && wasmThreads > 1 ? `multithread (${wasmThreads})` : "single-thread"}
-              </Badge>
-            ) : null}
-            <Badge variant="outline" className="gap-1">
-              <Bot className="h-3 w-3" /> Local navigateur
-            </Badge>
-            <Badge variant="secondary">{llmLocalProfile.label}</Badge>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-1">
-          <p className="text-sm font-medium text-muted-foreground">Backend</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={backendBadgeVariant}>
-              {backendBadgeLabel}
-            </Badge>
-            {backgroundBadge}
-            {showPreferenceBadge ? (
-              <Badge variant="outline" className="capitalize">
-                {`Préférence : ${backendPreference}`}
-              </Badge>
-            ) : null}
-            {/* Multithread indicator for WASM */}
-            {backendDisplay === "wasm" ? (
-              <Badge variant={wasmThreads && wasmThreads > 1 ? 'success' : 'warning'}>
-                {wasmThreads && wasmThreads > 1 ? `multithread (${wasmThreads})` : 'single-thread'}
-              </Badge>
-            ) : null}
-            {/* Preprocessing mode badge */}
-            <Badge variant={preprocessingMode === 'full' ? 'success' : 'warning'} className="capitalize">
-              {preprocessingMode === 'full' ? 'Complet' : 'Rapide'}
-            </Badge>
-            <Badge variant="secondary">{presetLabel}</Badge>
-            {/* model badge removed per request */}
-          </div>
-        </div>
-      )}
-      <div className="flex items-center gap-3">
-        <div className={cn("flex flex-col text-right")}> 
-          <span className="text-sm font-medium leading-tight">
-            {statusLabel}
-          </span>
-          {statusDetailLabel ? (
-            <span className="text-xs text-muted-foreground">{statusDetailLabel}</span>
-          ) : null}
-        </div>
-        {showAccountMenu ? (
-          <DropdownMenu.Root>
-            <DropdownMenu.Trigger asChild>
+            {canOpenSettings ? (
               <Button
-                className="max-w-52 justify-between gap-2 sm:max-w-64"
-                size="sm"
-                title={connectedEmail}
-                variant="outline"
+                variant="ghost"
+                size="icon"
+                aria-label="Aller aux paramètres"
+                onClick={() => navigate(location.pathname === "/settings" ? getFirstAuthorizedRoute() : "/settings")}
               >
-                <span className="overflow-hidden text-ellipsis whitespace-nowrap">{connectedEmail}</span>
-                <ChevronDown className="h-4 w-4 shrink-0" />
+                {location.pathname === "/settings" ? (
+                  <ActivitySquare className="h-4 w-4" />
+                ) : (
+                  <Cog className="h-4 w-4" />
+                )}
               </Button>
-            </DropdownMenu.Trigger>
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content
-                align="end"
-                sideOffset={8}
-                className="z-[65] min-w-64 rounded-md border bg-popover p-1 text-popover-foreground shadow-lg outline-none"
-              >
-                <DropdownMenu.Label className="px-2 py-1.5 text-xs text-muted-foreground">
-                  {connectedEmail}
-                </DropdownMenu.Label>
-                <DropdownMenu.Separator className="my-1 h-px bg-border" />
-                <DropdownMenu.Item
-                  className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none transition hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
-                  onSelect={() => {
-                    setChangePasswordOpen(true);
-                  }}
-                >
-                  <KeyRound className="h-4 w-4" />
-                  Changer le mot de passe
-                </DropdownMenu.Item>
-                <DropdownMenu.Item
-                  className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none transition hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
-                  onSelect={() => {
-                    void handleLogout();
-                  }}
-                >
-                  <LogOut className="h-4 w-4" />
-                  Déconnexion
-                </DropdownMenu.Item>
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
-          </DropdownMenu.Root>
-        ) : null}
-        {canOpenSettings ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Aller aux paramètres"
-            onClick={() => navigate(location.pathname === "/settings" ? getFirstAuthorizedRoute() : "/settings")}
-          >
-            {location.pathname === "/settings" ? (
-              <ActivitySquare className="h-4 w-4" />
-            ) : (
-              <Cog className="h-4 w-4" />
-            )}
-          </Button>
-        ) : null}
-        <>
-          {showDebugActions ? (
-            <TopbarLogsMenu
-              logLevel={logLevel}
-              onLogLevelChange={handleLogLevelChange}
-              onExportLogs={handleExportLogs}
-            />
-          ) : null}
-          {isLocalUploadRoute ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              onClick={() => {
-                logger.info("[topbar] model compatibility test requested");
-                runTest();
-              }}
-              disabled={modelTestState.running}
-            >
-              {modelTestState.running ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+            ) : null}
+            {canOpenConsoleLogs ? (
+              <TooltipProvider delayDuration={150}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={consoleLogsOpen ? "secondary" : "ghost"}
+                      size="icon"
+                      className={cn(
+                        "shrink-0",
+                        consoleLogsOpen ? "text-foreground" : "text-muted-foreground hover:text-foreground"
+                      )}
+                      aria-label="Afficher les logs console"
+                      aria-controls="topbar-console-logs-panel"
+                      aria-expanded={consoleLogsOpen}
+                      onClick={() => {
+                        setConsoleLogsOpen((value) => !value);
+                      }}
+                    >
+                      <Monitor className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Logs console</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : null}
+            <>
+              {showDebugActions ? (
+                <TopbarLogsMenu
+                  logLevel={logLevel}
+                  onLogLevelChange={handleLogLevelChange}
+                  onExportLogs={handleExportLogs}
+                />
               ) : null}
-              Tester les modèles
-            </Button>
-          ) : null}
-          <Button
-            variant="destructive"
-            size="sm"
-            className="gap-2"
-            onClick={() => {
-              logger.warn("[topbar] app reset requested");
-              setConfirmOpen(true);
+              {isLocalUploadRoute ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => {
+                    logger.info("[topbar] model compatibility test requested");
+                    runTest();
+                  }}
+                  disabled={modelTestState.running}
+                >
+                  {modelTestState.running ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Tester les modèles
+                </Button>
+              ) : null}
+              <Button
+                variant="destructive"
+                size="sm"
+                className="gap-2"
+                onClick={() => {
+                  logger.warn("[topbar] app reset requested");
+                  setConfirmOpen(true);
+                }}
+              >
+                <RotateCw className="h-4 w-4" />
+                Réinitialiser
+              </Button>
+              <ConfirmDialog
+                open={confirmOpen}
+                title="Réinitialiser l'application"
+                description="Êtes-vous sûr ? Cette action réinitialisera l'application aux paramètres par défaut et supprimera la session en cours."
+                onCancel={() => {
+                  logger.debug("[topbar] app reset cancelled");
+                  setConfirmOpen(false);
+                }}
+                onConfirm={handleResetApp}
+              />
+            </>
+          </div>
+        </header>
+        {canOpenConsoleLogs && consoleLogsOpen ? (
+          <TopbarConsoleLogsPanel
+            open={consoleLogsOpen}
+            onClose={() => {
+              setConsoleLogsOpen(false);
             }}
-          >
-            <RotateCw className="h-4 w-4" />
-            Réinitialiser
-          </Button>
-          <ConfirmDialog
-            open={confirmOpen}
-            title="Réinitialiser l'application"
-            description="Êtes-vous sûr ? Cette action réinitialisera l'application aux paramètres par défaut et supprimera la session en cours."
-            onCancel={() => {
-              logger.debug("[topbar] app reset cancelled");
-              setConfirmOpen(false);
-            }}
-            onConfirm={handleResetApp}
           />
-        </>
+        ) : null}
       </div>
-    </header>
       <ChangePasswordDialog
         open={changePasswordOpen}
         onClose={() => {

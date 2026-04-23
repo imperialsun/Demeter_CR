@@ -1,3 +1,5 @@
+import type { ReportDetailLevel } from "@/lib/llm/reportDetail";
+
 export type ReportFormat = "CRI" | "CRO" | "CRS";
 export type ReportResultKey = "cri" | "cro" | "crs";
 
@@ -19,8 +21,9 @@ export interface ReportResult {
   generatedAt: string;
   sourceMode: "transcription" | "text";
   sourceTokenCount: number;
-  pipelinePasses: 1 | 2;
+  pipelinePasses: number;
   strategy: "chatCompletion" | "textGeneration" | "localTextGeneration";
+  detailLevel?: ReportDetailLevel;
 }
 
 const FORMAT_SET = new Set<ReportFormat>(["CRI", "CRO", "CRS"]);

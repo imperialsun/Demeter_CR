@@ -11,6 +11,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Progress } from "@/components/ui/progress";
 import { TooltipButton } from "@/components/ui/tooltip-button";
 import { usePageScrollContainer } from "@/components/layout/page-scroll-container";
+import { ReportDetailLevelsSection } from "@/components/llm/ReportDetailLevelsSection";
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { useCloudTranscription } from "@/hooks/useCloudTranscription";
 import { useLlmReports } from "@/hooks/useLlmReports";
@@ -78,6 +79,8 @@ function AssistantPage() {
 
   const llmApiProvider = useAsrStore((state) => state.llmApiProvider);
   const setLlmApiProvider = useAsrStore((state) => state.setLlmApiProvider);
+  const llmApiReportDetailLevels = useAsrStore((state) => state.llmApiReportDetailLevels);
+  const setLlmApiReportDetailLevel = useAsrStore((state) => state.setLlmApiReportDetailLevel);
   const cloudDemeterDiarizationEnabled = useAsrStore((state) => state.cloudDemeterDiarizationEnabled);
   const setCloudDemeterDiarizationEnabled = useAsrStore((state) => state.setCloudDemeterDiarizationEnabled);
   const cloudEnableWordTimestamps = useAsrStore((state) => state.cloudEnableWordTimestamps);
@@ -603,84 +606,92 @@ function AssistantPage() {
               formatsHint="Formats supportés : mp3, wav, m4a, ogg, webm."
             />
 
+            <ReportDetailLevelsSection
+              values={llmApiReportDetailLevels}
+              onChange={setLlmApiReportDetailLevel}
+              className="mt-2"
+            />
+
             {selectedFile && !isImportCollapsed ? (
-              <div className="rounded-[1.5rem] border bg-background/70 p-4 shadow-sm">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-sm font-semibold">Diarisation</h2>
-                      <TooltipButton
-                        tooltip="La diarisation sépare automatiquement les personnes qui parlent. Activez-la si vous voulez relire les morceaux audio avant les comptes rendus."
-                        tooltipSide="top"
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground"
-                        aria-label="Aide diarisation"
-                      >
-                        <Info className="h-4 w-4" />
-                      </TooltipButton>
+              <>
+                <div className="rounded-[1.5rem] border bg-background/70 p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-sm font-semibold">Diarisation</h2>
+                        <TooltipButton
+                          tooltip="La diarisation sépare automatiquement les personnes qui parlent. Activez-la si vous voulez relire les morceaux audio avant les comptes rendus."
+                          tooltipSide="top"
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-muted-foreground"
+                          aria-label="Aide diarisation"
+                        >
+                          <Info className="h-4 w-4" />
+                        </TooltipButton>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Voulez-vous afficher les morceaux audio pour relire les intervenants et corriger le texte avant
+                        la suite ?
+                      </p>
                     </div>
-                    <p className="text-sm text-muted-foreground">
-                      Voulez-vous afficher les morceaux audio pour relire les intervenants et corriger le texte avant
-                      la suite ?
-                    </p>
+                    <Badge variant={diarizationChoice === null ? "secondary" : diarizationChoice ? "success" : "outline"}>
+                      {diarizationChoice === null ? "En attente" : diarizationChoice ? "Oui, avec morceaux" : "Non, version simple"}
+                    </Badge>
                   </div>
-                  <Badge variant={diarizationChoice === null ? "secondary" : diarizationChoice ? "success" : "outline"}>
-                    {diarizationChoice === null ? "En attente" : diarizationChoice ? "Oui, avec morceaux" : "Non, version simple"}
-                  </Badge>
-                </div>
 
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <TooltipButton
-                    tooltip="Affiche les morceaux audio détaillés pour relire les segments et corriger les intervenants avant les comptes rendus."
-                    type="button"
-                    size="lg"
-                    className={cn(
-                      "h-auto justify-start rounded-2xl px-4 py-4 text-left",
-                      diarizationChoice === true ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""
-                    )}
-                    onClick={() => {
-                      handleDiarizationChoice(true);
-                    }}
-                    disabled={isProcessing || isResettingWorkflow || diarizationChoice !== null}
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <Cloud className="h-4 w-4" />
-                        <span className="font-medium">Oui, avec morceaux</span>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <TooltipButton
+                      tooltip="Affiche les morceaux audio détaillés pour relire les segments et corriger les intervenants avant les comptes rendus."
+                      type="button"
+                      size="lg"
+                      className={cn(
+                        "h-auto justify-start rounded-2xl px-4 py-4 text-left",
+                        diarizationChoice === true ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""
+                      )}
+                      onClick={() => {
+                        handleDiarizationChoice(true);
+                      }}
+                      disabled={isProcessing || isResettingWorkflow || diarizationChoice !== null}
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <Cloud className="h-4 w-4" />
+                          <span className="font-medium">Oui, avec morceaux</span>
+                        </div>
+                        <p className="text-xs font-normal text-primary-foreground/80">
+                          J’affiche les morceaux audio et le détail plein écran.
+                        </p>
                       </div>
-                      <p className="text-xs font-normal text-primary-foreground/80">
-                        J’affiche les morceaux audio et le détail plein écran.
-                      </p>
-                    </div>
-                  </TooltipButton>
+                    </TooltipButton>
 
-                  <TooltipButton
-                    tooltip="Passe directement à la transcription simple et aux comptes rendus, sans affichage des morceaux audio."
-                    type="button"
-                    variant="secondary"
-                    size="lg"
-                    className={cn(
-                      "h-auto justify-start rounded-2xl px-4 py-4 text-left",
-                      diarizationChoice === false ? "ring-2 ring-border ring-offset-2 ring-offset-background" : ""
-                    )}
-                    onClick={() => {
-                      handleDiarizationChoice(false);
-                    }}
-                    disabled={isProcessing || isResettingWorkflow || diarizationChoice !== null}
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <Sparkles className="h-4 w-4" />
-                        <span className="font-medium">Non, version simple</span>
+                    <TooltipButton
+                      tooltip="Passe directement à la transcription simple et aux comptes rendus, sans affichage des morceaux audio."
+                      type="button"
+                      variant="secondary"
+                      size="lg"
+                      className={cn(
+                        "h-auto justify-start rounded-2xl px-4 py-4 text-left",
+                        diarizationChoice === false ? "ring-2 ring-border ring-offset-2 ring-offset-background" : ""
+                      )}
+                      onClick={() => {
+                        handleDiarizationChoice(false);
+                      }}
+                      disabled={isProcessing || isResettingWorkflow || diarizationChoice !== null}
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <Sparkles className="h-4 w-4" />
+                          <span className="font-medium">Non, version simple</span>
+                        </div>
+                        <p className="text-xs font-normal text-muted-foreground">
+                          J’avance plus vite, sans affichage détaillé des morceaux.
+                        </p>
                       </div>
-                      <p className="text-xs font-normal text-muted-foreground">
-                        J’avance plus vite, sans affichage détaillé des morceaux.
-                      </p>
-                    </div>
-                  </TooltipButton>
+                    </TooltipButton>
+                  </div>
                 </div>
-              </div>
+              </>
             ) : null}
           </CardContent>
         </Card>

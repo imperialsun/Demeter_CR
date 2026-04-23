@@ -206,6 +206,71 @@ describe("llm provider config hydration", () => {
     expect(state.micPreprocessVadThresholdDb).toBe(DEFAULT_SETTINGS.micPreprocessVadThresholdDb);
   });
 
+  it("hydrates llm report detail levels and normalizes invalid entries", () => {
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        ...DEFAULT_SETTINGS,
+        llmApiReportDetailLevels: {
+          CRI: "verbose",
+          CRO: "invalid",
+          CRS: "exhaustive",
+        },
+      })
+    );
+
+    useAsrStore.getState().hydrateFromStorage();
+
+    const state = useAsrStore.getState();
+    expect(state.llmApiReportDetailLevels).toEqual({
+      CRI: "verbose",
+      CRO: "standard",
+      CRS: "exhaustive",
+    });
+  });
+
+  it("hydrates llm report chunk controls from persisted settings", () => {
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        ...DEFAULT_SETTINGS,
+        llmApiReportGenerationMode: "multi_pass",
+        llmApiReportChunkRatio: 0.75,
+        llmApiReportMaxSubpartsPerPart: 6,
+        llmApiReportMonoPassMaxTokens: 7168,
+        llmApiReportWorkflowTextMaxTokens: 6144,
+      })
+    );
+
+    useAsrStore.getState().hydrateFromStorage();
+
+    const state = useAsrStore.getState();
+    expect(state.llmApiReportGenerationMode).toBe("multi_pass");
+    expect(state.llmApiReportChunkRatio).toBe(0.75);
+    expect(state.llmApiReportMaxSubpartsPerPart).toBe(6);
+    expect(state.llmApiReportMonoPassMaxTokens).toBe(7168);
+    expect(state.llmApiReportWorkflowTextMaxTokens).toBe(6144);
+  });
+
+  it("migrates legacy workflow max tokens into the mono-pass ceiling during hydration", () => {
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        ...DEFAULT_SETTINGS,
+        llmApiReportGenerationMode: undefined,
+        llmApiReportMonoPassMaxTokens: undefined,
+        llmApiReportWorkflowTextMaxTokens: 2048,
+      })
+    );
+
+    useAsrStore.getState().hydrateFromStorage();
+
+    const state = useAsrStore.getState();
+    expect(state.llmApiReportGenerationMode).toBe("mono_pass");
+    expect(state.llmApiReportMonoPassMaxTokens).toBe(2048);
+    expect(state.llmApiReportWorkflowTextMaxTokens).toBe(2048);
+  });
+
   it("migrates legacy llm fields into mistral config when provider is mistral", () => {
     const payload = {
       ...DEFAULT_SETTINGS,

@@ -74,4 +74,37 @@ describe("TelemetryEventTimeline", () => {
     fireEvent.click(screen.getByRole("button", { name: /LOCAL_UPLOAD_PAGE_VIEW/i }));
     expect(onSelect).toHaveBeenCalledWith("evt-1");
   });
+
+  it("renders readable labels for cloud LLM stage events", () => {
+    const onSelect = vi.fn();
+    render(
+      <TelemetryEventTimeline
+        events={[
+          {
+            key: "stage-1",
+            index: 1,
+            domain: "llm_cloud",
+            severity: "info",
+            event: {
+              type: "LLM_RUN_STAGE",
+              timestamp: 20,
+              data: {
+                stage: "workflow_expansion_target_start",
+                stageLabel: "Passe 2/6 · Expansion partie 1/3",
+                globalPassIndex: 2,
+                globalPassTotal: 6,
+                targetIndex: 1,
+                targetTotal: 3,
+              },
+            },
+          },
+        ]}
+        selectedEventKey={null}
+        liveMode="off"
+        onSelectEvent={onSelect}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: /Passe 2\/6 · Expansion partie 1\/3/i })).toBeInTheDocument();
+  });
 });

@@ -392,6 +392,8 @@ describe("asr-store mutation guards", () => {
     state.setLlmApiMistralModelId("mistral-small-latest");
     state.setLlmApiMistralTemperature(-5);
     state.setLlmApiMistralMaxTokens(91);
+    state.setLlmApiReportDetailLevel("CRI", "verbose");
+    state.setLlmApiReportDetailLevels({ CRO: "exhaustive" });
     state.setLlmApiStatus("generating");
     state.setLlmApiProgress(2);
     state.setLlmApiResult("cri", { text: "x" });
@@ -480,6 +482,11 @@ describe("asr-store mutation guards", () => {
     expect(afterAppReset.llmApiHfMaxTokens).toBe(131072);
     expect(afterAppReset.llmApiMistralTemperature).toBe(0.2);
     expect(afterAppReset.llmApiMistralMaxTokens).toBe(8192);
+    expect(afterAppReset.llmApiReportDetailLevels).toEqual({
+      CRI: "standard",
+      CRO: "standard",
+      CRS: "standard",
+    });
     expect(afterAppReset.llmLocalTemperature).toBe(0.2);
     expect(afterAppReset.llmLocalMaxTokens).toBe(4096);
     expect(afterAppReset.llmLocalModelId).toContain("Qwen3-1.7B");

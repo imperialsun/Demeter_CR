@@ -1,5 +1,6 @@
 import { buildReportSystemPrompt, buildReportUserPrompt } from "@/lib/llm/reportPrompts";
 import { parseReportJson, type ReportFormat, type ReportJson } from "@/lib/llm/reportSchema";
+import type { ReportDetailLevel } from "@/lib/llm/reportDetail";
 import {
   generateWithChatThenFallbackText,
   getLlmHfClient,
@@ -15,6 +16,7 @@ interface GenerateReportBaseParams {
   sourceText: string;
   temperature: number;
   maxTokens: number;
+  detailLevel?: ReportDetailLevel;
 }
 
 export interface GenerateReportHuggingFaceParams extends GenerateReportBaseParams {
@@ -60,10 +62,11 @@ export async function generateReportDetailed(
   if (!sourceText) {
     throw new Error("Source vide pour la generation du compte rendu.");
   }
-  logger.info("[llm-api][report-service] generation start", {
+  logger.info("[llm-api][report-service] Génération standard · démarrage", {
     provider: params.provider,
     format: params.format,
     modelId,
+    detailLevel: params.detailLevel ?? "standard",
     sourceLength: sourceText.length,
   });
 
@@ -78,8 +81,8 @@ export async function generateReportDetailed(
     generation = await generateWithChatThenFallbackText({
       client,
       modelId,
-      systemPrompt: buildReportSystemPrompt(),
-      userPrompt: buildReportUserPrompt(params.format, sourceText),
+      systemPrompt: buildReportSystemPrompt(params.detailLevel),
+      userPrompt: buildReportUserPrompt(params.format, sourceText, params.detailLevel),
       temperature: params.temperature,
       maxTokens: params.maxTokens,
       responseMode: "json",
@@ -93,8 +96,8 @@ export async function generateReportDetailed(
       apiUrl: params.mistralApiUrl,
       apiKey,
       modelId,
-      systemPrompt: buildReportSystemPrompt(),
-      userPrompt: buildReportUserPrompt(params.format, sourceText),
+      systemPrompt: buildReportSystemPrompt(params.detailLevel),
+      userPrompt: buildReportUserPrompt(params.format, sourceText, params.detailLevel),
       temperature: params.temperature,
       maxTokens: params.maxTokens,
       responseMode: "json",
@@ -102,17 +105,18 @@ export async function generateReportDetailed(
   } else {
     generation = await generateWithDemeterChat({
       modelId,
-      systemPrompt: buildReportSystemPrompt(),
-      userPrompt: buildReportUserPrompt(params.format, sourceText),
+      systemPrompt: buildReportSystemPrompt(params.detailLevel),
+      userPrompt: buildReportUserPrompt(params.format, sourceText, params.detailLevel),
       temperature: params.temperature,
       maxTokens: params.maxTokens,
       responseMode: "json",
     });
   }
-  logger.info("[llm-api][report-service] generation response received", {
+  logger.info("[llm-api][report-service] Génération standard · réponse reçue", {
     provider: params.provider,
     format: params.format,
     modelId,
+    detailLevel: params.detailLevel ?? "standard",
     strategy: generation.strategy,
     responseLength: generation.text.length,
   });
@@ -121,10 +125,11 @@ export async function generateReportDetailed(
   try {
     report = parseReportJson(generation.text, params.format);
   } catch (error) {
-    logger.warn("[llm-api][report-service] invalid report json", {
+    logger.warn("[llm-api][report-service] JSON de rapport invalide", {
       provider: params.provider,
       format: params.format,
       modelId,
+      detailLevel: params.detailLevel ?? "standard",
       strategy: generation.strategy,
       responseLength: generation.text.length,
       responsePreview: buildTextPreview(generation.text),
@@ -132,10 +137,11 @@ export async function generateReportDetailed(
     });
     throw error;
   }
-  logger.info("[llm-api][report-service] generation parsed", {
+  logger.info("[llm-api][report-service] Rapport parsé", {
     provider: params.provider,
     format: report.format,
     modelId,
+    detailLevel: params.detailLevel ?? "standard",
     strategy: generation.strategy,
     sectionCount: report.sections.length,
   });

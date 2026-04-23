@@ -46,6 +46,8 @@ export function useLlmLocalReports() {
   const llmLocalDtypeWebgpuLegacy = useAsrStore((state) => state.llmLocalDtypeWebgpu);
   const llmLocalDtypeWasmLegacy = useAsrStore((state) => state.llmLocalDtypeWasm);
   const llmLocalSettingsByProfile = useAsrStore((state) => state.llmLocalSettingsByProfile);
+  const llmApiReportChunkRatio = useAsrStore((state) => state.llmApiReportChunkRatio);
+  const llmApiReportMonoPassMaxTokens = useAsrStore((state) => state.llmApiReportMonoPassMaxTokens);
 
   const status = useAsrStore((state) => state.llmLocalStatus);
   const progress = useAsrStore((state) => state.llmLocalProgress);
@@ -294,6 +296,7 @@ export function useLlmLocalReports() {
               thresholdTokens: chunkingProfile.thresholdTokens,
               chunkTokens: chunkingProfile.chunkTokens,
               chunkOverlapTokens: chunkingProfile.chunkOverlapTokens,
+              chunkRatio: llmApiReportChunkRatio,
               onProgress: (p, detail) => {
                 setStatusSafe("preparing", detail);
                 setProgressSafe(Math.min(0.45, 0.04 + p * 0.5));
@@ -354,12 +357,14 @@ export function useLlmLocalReports() {
               backend,
               contextWindowTokens: tokenBudget.contextWindowTokens ?? null,
               effectiveMaxGenerationTokens: tokenBudget.effectiveMaxGenerationTokens ?? null,
+              monoPassMaxTokens: llmApiReportMonoPassMaxTokens,
             });
 
             const effectiveGenerationMaxTokens =
               typeof tokenBudget.effectiveMaxGenerationTokens === "number"
                 ? Math.min(configuredMaxTokens, tokenBudget.effectiveMaxGenerationTokens)
                 : configuredMaxTokens;
+            const reportMaxTokens = Math.min(effectiveGenerationMaxTokens, llmApiReportMonoPassMaxTokens);
 
             for (let index = 0; index < FORMAT_ORDER.length; index += 1) {
               const item = FORMAT_ORDER[index]!;
@@ -382,7 +387,7 @@ export function useLlmLocalReports() {
                 backend,
                 dtype,
                 temperature,
-                maxTokens: effectiveGenerationMaxTokens,
+                maxTokens: reportMaxTokens,
                 appendNoThinkDirective,
                 onLoadProgress: () => {
                   // Model download progress is tracked at pipeline level by logger/events.
@@ -607,6 +612,8 @@ export function useLlmLocalReports() {
       llmLocalModelIdLegacy,
       llmLocalModelProfile,
       llmLocalSettingsByProfile,
+      llmApiReportChunkRatio,
+      llmApiReportMonoPassMaxTokens,
       llmLocalTemperatureLegacy,
       registerTelemetry,
       segments,
@@ -691,9 +698,10 @@ export function useLlmLocalReports() {
           generatedAt: result.generatedAt,
           sourceMode: result.sourceMode,
           sourceTokenCount: result.sourceTokenCount,
+          detailLevel: result.detailLevel,
         });
 
-        const filename = formatReportDocxFilename(format, new Date(result.generatedAt));
+        const filename = formatReportDocxFilename(format, new Date(result.generatedAt), result.detailLevel);
         downloadDocxBlob(blob, filename);
 
         setLlmLocalStatus("done", "DOCX téléchargé");

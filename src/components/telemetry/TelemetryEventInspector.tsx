@@ -1,13 +1,60 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { TelemetryViewEvent } from "@/lib/telemetryView";
-import { formatEventTimestamp, telemetryDomainLabel } from "@/lib/telemetryView";
+import {
+  formatCloudPassLabel,
+  formatEventTimestamp,
+  resolveTelemetryEventLabel,
+  resolveTelemetryEventSummary,
+  telemetryDomainLabel,
+} from "@/lib/telemetryView";
 
 interface TelemetryEventInspectorProps {
   event: TelemetryViewEvent | null;
 }
 
-const CONTEXT_KEYS = ["provider", "stage", "modelId", "sourceMode", "format", "reason", "backend", "dtype"];
+const CONTEXT_KEYS = [
+  "provider",
+  "stage",
+  "stageLabel",
+  "stepKind",
+  "stepStatus",
+  "globalPassIndex",
+  "globalPassTotal",
+  "modelId",
+  "sourceMode",
+  "format",
+  "detailLevel",
+  "generationMode",
+  "sequenceIndex",
+  "sequenceTotal",
+  "totalFormats",
+  "partIndex",
+  "partTotal",
+  "partCount",
+  "subpartIndex",
+  "subpartTotal",
+  "chunkIndex",
+  "chunkTotal",
+  "chunkCount",
+  "targetIndex",
+  "targetTotal",
+  "targetCount",
+  "expansionPass",
+  "draftWordCount",
+  "sourceWordCount",
+  "chunkWordCount",
+  "reportWordCount",
+  "sectionCount",
+  "outputLength",
+  "keyPointCount",
+  "actionItemCount",
+  "caveatCount",
+  "pipelinePasses",
+  "reason",
+  "backend",
+  "dtype",
+];
 
 export function TelemetryEventInspector({ event }: TelemetryEventInspectorProps) {
   if (!event) {
@@ -26,11 +73,16 @@ export function TelemetryEventInspector({ event }: TelemetryEventInspectorProps)
 
   const dataEntries = event.event.data ? Object.entries(event.event.data) : [];
   const contextEntries = dataEntries.filter(([key]) => CONTEXT_KEYS.includes(key));
+  const label = resolveTelemetryEventLabel(event.event);
+  const summary = resolveTelemetryEventSummary(event.event);
+  const globalPassIndex = typeof event.event.data?.globalPassIndex === "number" ? event.event.data.globalPassIndex : undefined;
+  const globalPassTotal = typeof event.event.data?.globalPassTotal === "number" ? event.event.data.globalPassTotal : undefined;
+  const passLabel = formatCloudPassLabel(globalPassIndex, globalPassTotal);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="break-all text-base">{event.event.type}</CardTitle>
+        <CardTitle className="break-all text-base">{label}</CardTitle>
         <CardDescription>Détails techniques de l’événement sélectionné.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -38,7 +90,16 @@ export function TelemetryEventInspector({ event }: TelemetryEventInspectorProps)
           <Badge variant={domainBadgeVariant(event.domain)}>{telemetryDomainLabel(event.domain)}</Badge>
           <Badge variant={severityBadgeVariant(event.severity)}>{event.severity}</Badge>
           <Badge variant="outline">{formatEventTimestamp(event.event.timestamp)}</Badge>
+          {passLabel ? <Badge variant="secondary">{passLabel}</Badge> : null}
         </div>
+
+        {event.event.type === "LLM_RUN_STAGE" ? (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-500/80">Étape cloud</p>
+            <p className="mt-1 text-sm font-medium">{label}</p>
+            {summary ? <p className="mt-1 text-xs text-muted-foreground">{summary}</p> : null}
+          </div>
+        ) : null}
 
         {contextEntries.length ? (
           <div className="rounded-md border bg-muted/20 p-2">

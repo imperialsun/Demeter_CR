@@ -1,4 +1,9 @@
 import type { ReportFormat } from "@/lib/llm/reportSchema";
+import {
+  buildReportDetailLevelLabel,
+  buildReportDetailPromptRules,
+  type ReportDetailLevel,
+} from "@/lib/llm/reportDetail";
 
 const COMMON_RULES = [
   "N'invente jamais d'informations absentes de la source.",
@@ -56,19 +61,41 @@ const FORMAT_STYLE_RULES: Record<ReportFormat, readonly string[]> = {
   ],
 };
 
-export function buildReportSystemPrompt(): string {
+export function buildReportSystemPrompt(detailLevel?: ReportDetailLevel): string {
+  const detailPriorityRules = detailLevel
+    ? [
+        `Niveau de detail actif: ${buildReportDetailLevelLabel(detailLevel)}.`,
+        "La contrainte de longueur associee est prioritaire: considere-la comme une base minimale, un minimum obligatoire, pas comme une moyenne ni un plafond.",
+        "Respecte cette contrainte avant toute recherche de concision.",
+      ]
+    : [];
+
   return [
     "Tu es un redacteur expert des comptes rendus professionnels.",
     "Ta mission: transformer une transcription brute en compte rendu structure selon le format demande.",
     ...COMMON_RULES,
+    ...detailPriorityRules,
   ].join("\n");
 }
 
-export function buildReportUserPrompt(format: ReportFormat, sourceText: string): string {
+export function buildReportUserPrompt(
+  format: ReportFormat,
+  sourceText: string,
+  detailLevel?: ReportDetailLevel
+): string {
+  const detailRules = detailLevel ? buildReportDetailPromptRules(format, detailLevel, sourceText) : [];
+
   return [
     `Format cible: ${format}.`,
     FORMAT_PROMPT_GUIDELINES[format],
     "",
+    ...(detailRules.length
+      ? [
+          "Consigne prioritaire de longueur:",
+          ...detailRules.map((rule) => `- ${rule}`),
+          "",
+        ]
+      : []),
     "Retourne uniquement un JSON valide avec cette structure:",
     `{
   "format": "${format}",

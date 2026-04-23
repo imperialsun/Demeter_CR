@@ -15,11 +15,43 @@ describe("reportPrompts", () => {
     expect(prompt).toContain("Corrige uniquement les erreurs manifestes");
   });
 
+  it("adds a prioritized system note when a detail level is provided", () => {
+    const prompt = buildReportSystemPrompt("exhaustive");
+    expect(prompt).toContain("Niveau de detail actif: Exhaustif");
+    expect(prompt).toContain("base minimale");
+    expect(prompt).toContain("minimum obligatoire");
+    expect(prompt).toContain("pas comme une moyenne ni un plafond");
+    expect(prompt).toContain("Respecte cette contrainte");
+  });
+
   it("builds format-specific user prompt", () => {
     const prompt = buildReportUserPrompt("CRI", "Texte source");
     expect(prompt).toContain("Format cible: CRI");
     expect(prompt).toContain('"format": "CRI"');
     expect(prompt).toContain("SOURCE:");
+  });
+
+  it("keeps the default prompt free of detail-level constraints", () => {
+    const prompt = buildReportUserPrompt("CRI", "Texte source");
+    expect(prompt).not.toContain("Consigne prioritaire de longueur");
+    expect(prompt).not.toContain("longueur minimale obligatoire");
+    expect(prompt).not.toContain("interlocuteurs sont nommes");
+  });
+
+  it("injects the report detail level and named-speaker rule", () => {
+    const prompt = buildReportUserPrompt("CRO", "un texte source de test", "exhaustive");
+    expect(prompt).toContain("Consigne prioritaire de longueur");
+    expect(prompt).toContain("longueur minimale obligatoire");
+    expect(prompt).toContain("au moins");
+    expect(prompt).toContain("minimum, pas un plafond");
+    expect(prompt).toContain("tu peux depasser");
+    expect(prompt).toContain("le plus long et le plus detaille");
+    expect(prompt).toContain("interlocuteurs sont nommes");
+    expect(prompt).not.toContain("workflow multi-pass");
+    expect(prompt).not.toContain("sous-parties");
+    expect(prompt.indexOf("Consigne prioritaire de longueur")).toBeLessThan(
+      prompt.indexOf("Retourne uniquement un JSON valide")
+    );
   });
 
   it("applies specific style rules for CRI/CRO/CRS", () => {

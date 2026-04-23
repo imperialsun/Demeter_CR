@@ -7,6 +7,12 @@ import {
   type PersistedSettingsInput,
   DEFAULT_SETTINGS,
   clampDemeterChunkDurationSec,
+  normalizeLlmReportGenerationMode,
+  normalizeLlmReportChunkRatio,
+  normalizeLlmReportMaxSubpartsPerPart,
+  normalizeLlmReportMonoPassMaxTokens,
+  normalizeLlmReportWorkflowTextMaxTokens,
+  type LlmReportGenerationMode,
 } from "@/lib/storage";
 import {
   clearSecureTokens,
@@ -31,7 +37,19 @@ import {
 } from "@/lib/sessionTranscriptMemory";
 import type { SpeakerAssignment, SpeakerAssignmentMap } from "@/lib/speakerAssignments";
 import type { TelemetryCollector, ChunkTelemetry, TelemetrySummary } from "@/lib/telemetry";
-import { cloneReportJson, type ReportJson, type ReportResult, type ReportResultKey } from "@/lib/llm/reportSchema";
+import {
+  cloneReportJson,
+  type ReportFormat,
+  type ReportJson,
+  type ReportResult,
+  type ReportResultKey,
+} from "@/lib/llm/reportSchema";
+import {
+  DEFAULT_REPORT_DETAIL_LEVELS,
+  normalizeReportDetailLevel,
+  normalizeReportDetailLevels,
+  type ReportDetailLevel,
+} from "@/lib/llm/reportDetail";
 import {
   canonicalizeLocalLlmModelId,
   createDefaultLocalModelSettings,
@@ -536,6 +554,12 @@ interface AsrConfigState {
   llmApiMistralModelId: string;
   llmApiMistralTemperature: number;
   llmApiMistralMaxTokens: number;
+  llmApiReportDetailLevels: Record<ReportFormat, ReportDetailLevel>;
+  llmApiReportGenerationMode: LlmReportGenerationMode;
+  llmApiReportChunkRatio: number;
+  llmApiReportMaxSubpartsPerPart: number;
+  llmApiReportMonoPassMaxTokens: number;
+  llmApiReportWorkflowTextMaxTokens: number;
   llmApiStatus: LlmApiStatus;
   llmApiStatusDetail?: string;
   llmApiProgress: number;
@@ -757,6 +781,13 @@ interface AsrConfigActions {
   setLlmApiMistralModelId: (value: string) => void;
   setLlmApiMistralTemperature: (value: number) => void;
   setLlmApiMistralMaxTokens: (value: number) => void;
+  setLlmApiReportDetailLevel: (format: ReportFormat, value: ReportDetailLevel) => void;
+  setLlmApiReportDetailLevels: (value: Partial<Record<ReportFormat, ReportDetailLevel>>) => void;
+  setLlmApiReportGenerationMode: (value: LlmReportGenerationMode) => void;
+  setLlmApiReportChunkRatio: (value: number) => void;
+  setLlmApiReportMaxSubpartsPerPart: (value: number) => void;
+  setLlmApiReportMonoPassMaxTokens: (value: number) => void;
+  setLlmApiReportWorkflowTextMaxTokens: (value: number) => void;
   setLlmApiStatus: (status: LlmApiStatus, detail?: string) => void;
   setLlmApiProgress: (value: number) => void;
   setLlmApiResult: (format: ReportResultKey, value: ReportResult) => void;
@@ -971,6 +1002,12 @@ export function serializePersistedSettings(state: AsrConfigState): PersistedSett
     llmApiMistralModelId: state.llmApiMistralModelId,
     llmApiMistralTemperature: state.llmApiMistralTemperature,
     llmApiMistralMaxTokens: state.llmApiMistralMaxTokens,
+    llmApiReportDetailLevels: state.llmApiReportDetailLevels,
+    llmApiReportGenerationMode: state.llmApiReportGenerationMode,
+    llmApiReportChunkRatio: state.llmApiReportChunkRatio,
+    llmApiReportMaxSubpartsPerPart: state.llmApiReportMaxSubpartsPerPart,
+    llmApiReportMonoPassMaxTokens: state.llmApiReportMonoPassMaxTokens,
+    llmApiReportWorkflowTextMaxTokens: state.llmApiReportWorkflowTextMaxTokens,
     llmLocalModelProfile: state.llmLocalModelProfile,
     llmLocalModelId: state.llmLocalModelId,
     llmLocalTemperature: state.llmLocalTemperature,
@@ -1129,6 +1166,12 @@ const initialState: AsrConfigState = {
   llmApiMistralModelId: DEFAULT_SETTINGS.llmApiMistralModelId,
   llmApiMistralTemperature: DEFAULT_SETTINGS.llmApiMistralTemperature,
   llmApiMistralMaxTokens: DEFAULT_SETTINGS.llmApiMistralMaxTokens,
+  llmApiReportDetailLevels: { ...DEFAULT_REPORT_DETAIL_LEVELS },
+  llmApiReportGenerationMode: DEFAULT_SETTINGS.llmApiReportGenerationMode,
+  llmApiReportChunkRatio: DEFAULT_SETTINGS.llmApiReportChunkRatio,
+  llmApiReportMaxSubpartsPerPart: DEFAULT_SETTINGS.llmApiReportMaxSubpartsPerPart,
+  llmApiReportMonoPassMaxTokens: DEFAULT_SETTINGS.llmApiReportMonoPassMaxTokens,
+  llmApiReportWorkflowTextMaxTokens: DEFAULT_SETTINGS.llmApiReportWorkflowTextMaxTokens,
   llmApiStatus: "idle",
   llmApiStatusDetail: undefined,
   llmApiProgress: 0,
@@ -1399,6 +1442,30 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         settings.llmApiMistralMaxTokens ??
           (persistedLlmProvider === "mistral" ? legacyLlmMaxTokens : undefined),
         fallbackSettings.llmApiMistralMaxTokens
+      );
+      const llmApiReportDetailLevels = normalizeReportDetailLevels(
+        settings.llmApiReportDetailLevels,
+        fallbackSettings.llmApiReportDetailLevels
+      );
+      const llmApiReportGenerationMode = normalizeLlmReportGenerationMode(
+        settings.llmApiReportGenerationMode,
+        fallbackSettings.llmApiReportGenerationMode
+      );
+      const llmApiReportChunkRatio = normalizeLlmReportChunkRatio(
+        settings.llmApiReportChunkRatio,
+        fallbackSettings.llmApiReportChunkRatio
+      );
+      const llmApiReportMaxSubpartsPerPart = normalizeLlmReportMaxSubpartsPerPart(
+        settings.llmApiReportMaxSubpartsPerPart,
+        fallbackSettings.llmApiReportMaxSubpartsPerPart
+      );
+      const llmApiReportMonoPassMaxTokens = normalizeLlmReportMonoPassMaxTokens(
+        settings.llmApiReportMonoPassMaxTokens ?? settings.llmApiReportWorkflowTextMaxTokens,
+        fallbackSettings.llmApiReportMonoPassMaxTokens
+      );
+      const llmApiReportWorkflowTextMaxTokens = normalizeLlmReportWorkflowTextMaxTokens(
+        settings.llmApiReportWorkflowTextMaxTokens ?? settings.llmApiReportMonoPassMaxTokens,
+        fallbackSettings.llmApiReportWorkflowTextMaxTokens
       );
 
       const llmLocalModelProfile = normalizeLlmLocalModelProfile(
@@ -1835,6 +1902,12 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       llmApiMistralModelId,
       llmApiMistralTemperature,
       llmApiMistralMaxTokens,
+      llmApiReportDetailLevels,
+      llmApiReportGenerationMode,
+      llmApiReportChunkRatio,
+      llmApiReportMaxSubpartsPerPart,
+      llmApiReportMonoPassMaxTokens,
+      llmApiReportWorkflowTextMaxTokens,
       llmLocalSettingsByProfile,
       llmLocalModelProfile,
       llmLocalModelId,
@@ -2141,6 +2214,53 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
     set(() => ({ llmApiMistralTemperature: normalizeLlmTemperature(value, DEFAULT_LLM_MISTRAL_TEMPERATURE) })),
   setLlmApiMistralMaxTokens: (value) =>
     set(() => ({ llmApiMistralMaxTokens: normalizeLlmMaxTokens(value, DEFAULT_LLM_MISTRAL_MAX_TOKENS) })),
+  setLlmApiReportDetailLevel: (format, value) =>
+    set((state) => ({
+      llmApiReportDetailLevels: {
+        ...state.llmApiReportDetailLevels,
+        [format]: value,
+      },
+    })),
+  setLlmApiReportDetailLevels: (value) =>
+    set((state) => ({
+      llmApiReportDetailLevels: {
+        CRI: normalizeReportDetailLevel(value.CRI, state.llmApiReportDetailLevels.CRI),
+        CRO: normalizeReportDetailLevel(value.CRO, state.llmApiReportDetailLevels.CRO),
+        CRS: normalizeReportDetailLevel(value.CRS, state.llmApiReportDetailLevels.CRS),
+      },
+    })),
+  setLlmApiReportGenerationMode: (value) =>
+    set(() => ({
+      llmApiReportGenerationMode: normalizeLlmReportGenerationMode(
+        value,
+        DEFAULT_SETTINGS.llmApiReportGenerationMode
+      ),
+    })),
+  setLlmApiReportChunkRatio: (value) =>
+    set(() => ({
+      llmApiReportChunkRatio: normalizeLlmReportChunkRatio(value, DEFAULT_SETTINGS.llmApiReportChunkRatio),
+    })),
+  setLlmApiReportMaxSubpartsPerPart: (value) =>
+    set(() => ({
+      llmApiReportMaxSubpartsPerPart: normalizeLlmReportMaxSubpartsPerPart(
+        value,
+        DEFAULT_SETTINGS.llmApiReportMaxSubpartsPerPart
+      ),
+    })),
+  setLlmApiReportMonoPassMaxTokens: (value) =>
+    set(() => ({
+      llmApiReportMonoPassMaxTokens: normalizeLlmReportMonoPassMaxTokens(
+        value,
+        DEFAULT_SETTINGS.llmApiReportMonoPassMaxTokens
+      ),
+    })),
+  setLlmApiReportWorkflowTextMaxTokens: (value) =>
+    set(() => ({
+      llmApiReportWorkflowTextMaxTokens: normalizeLlmReportWorkflowTextMaxTokens(
+        value,
+        DEFAULT_SETTINGS.llmApiReportWorkflowTextMaxTokens
+      ),
+    })),
   setLlmApiStatus: (status, detail) => set(() => ({ llmApiStatus: status, llmApiStatusDetail: detail ?? undefined })),
   setLlmApiProgress: (value) =>
     set(() => ({ llmApiProgress: Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0 })),

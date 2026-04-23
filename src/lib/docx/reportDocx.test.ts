@@ -17,13 +17,14 @@ describe("reportDocx", () => {
       generatedAt: new Date().toISOString(),
       sourceMode: "text",
       sourceTokenCount: 42,
+      detailLevel: "verbose",
     });
 
     expect(blob.size).toBeGreaterThan(0);
   });
 
   it("formats docx filename", () => {
-    const file = formatReportDocxFilename("cro", new Date("2026-02-16T09:05:00Z"));
-    expect(file).toMatch(/^rapport-cro-\d{4}-\d{2}-\d{2}-\d{4}\.docx$/);
+    const file = formatReportDocxFilename("cro", new Date("2026-02-16T09:05:00Z"), "exhaustive");
+    expect(file).toMatch(/^rapport-cro-exhaustive-\d{4}-\d{2}-\d{2}-\d{4}\.docx$/);
   });
 });

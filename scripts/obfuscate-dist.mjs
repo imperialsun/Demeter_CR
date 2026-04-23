@@ -126,7 +126,7 @@ async function main() {
         stringArray: true,
         stringArrayThreshold: 0.5,
         identifierNamesGenerator: "hexadecimal",
-        disableConsoleOutput: true,
+        disableConsoleOutput: false,
       })
       .getObfuscatedCode();
 

@@ -5,6 +5,9 @@ import {
   LEGACY_PERSISTED_SETTINGS_KEYS,
   loadSettings,
   PERSISTED_SETTINGS_KEYS,
+  normalizeLlmReportGenerationMode,
+  normalizeLlmReportMonoPassMaxTokens,
+  normalizeLlmReportWorkflowTextMaxTokens,
   saveSettings,
 } from './storage';
 import logger from '@/lib/logger';
@@ -78,6 +81,21 @@ describe('storage', () => {
     expect(loaded?.cloudDemeterDiarizationEnabled).toBe(false);
   });
 
+  it('migrates legacy workflow max tokens into the mono-pass ceiling when the new key is absent', () => {
+    const payload = {
+      ...DEFAULT_SETTINGS,
+      llmApiReportGenerationMode: undefined,
+      llmApiReportMonoPassMaxTokens: undefined,
+      llmApiReportWorkflowTextMaxTokens: 6144,
+    };
+    window.localStorage.setItem(storageKey, JSON.stringify(payload));
+
+    const loaded = loadSettings();
+    expect(loaded?.llmApiReportGenerationMode).toBe("mono_pass");
+    expect(loaded?.llmApiReportMonoPassMaxTokens).toBe(6144);
+    expect(loaded?.llmApiReportWorkflowTextMaxTokens).toBe(6144);
+  });
+
   it('logs and returns null on invalid JSON', () => {
     window.localStorage.setItem(storageKey, '{bad-json');
     const loaded = loadSettings();
@@ -146,6 +164,31 @@ describe('storage', () => {
     expect(DEFAULT_SETTINGS.llmApiHfMaxTokens).toBeGreaterThan(0);
     expect(DEFAULT_SETTINGS.llmApiMistralModelId).toBeTruthy();
     expect(DEFAULT_SETTINGS.llmApiMistralMaxTokens).toBeGreaterThan(0);
+    expect(DEFAULT_SETTINGS.llmApiReportDetailLevels).toEqual({
+      CRI: "standard",
+      CRO: "standard",
+      CRS: "standard",
+    });
+    expect(DEFAULT_SETTINGS.llmApiReportGenerationMode).toBe("mono_pass");
+    expect(DEFAULT_SETTINGS.llmApiReportChunkRatio).toBe(0.5);
+    expect(DEFAULT_SETTINGS.llmApiReportMaxSubpartsPerPart).toBe(4);
+    expect(DEFAULT_SETTINGS.llmApiReportMonoPassMaxTokens).toBe(16384);
+    expect(DEFAULT_SETTINGS.llmApiReportWorkflowTextMaxTokens).toBe(8192);
+  });
+
+  it('clamps mono-pass max tokens at 32768', () => {
+    expect(normalizeLlmReportMonoPassMaxTokens(50000)).toBe(32768);
+    expect(normalizeLlmReportMonoPassMaxTokens(32768)).toBe(32768);
+  });
+
+  it('clamps workflow text max tokens at 32768', () => {
+    expect(normalizeLlmReportWorkflowTextMaxTokens(50000)).toBe(32768);
+    expect(normalizeLlmReportWorkflowTextMaxTokens(32768)).toBe(32768);
+  });
+
+  it('normalizes the detailed report generation mode', () => {
+    expect(normalizeLlmReportGenerationMode("multi_pass")).toBe("multi_pass");
+    expect(normalizeLlmReportGenerationMode("invalid" as unknown)).toBe("mono_pass");
   });
 
   it("defines defaults for every canonical persisted setting and excludes legacy-only keys", () => {

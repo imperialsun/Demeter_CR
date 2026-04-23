@@ -204,6 +204,8 @@ describe("AssistantPage", () => {
       expect(labelNode).not.toHaveClass("truncate", "wrap-break-word");
       expect(labelNode.parentElement).toHaveClass("items-start");
     }
+
+    expect(screen.getByRole("heading", { name: "Niveau de detail des comptes rendus" })).toBeInTheDocument();
   });
 
   it("forces Demeter backend direct mode from the Assistant page", () => {
@@ -412,9 +414,15 @@ describe("AssistantPage", () => {
     rerender(<AssistantPage />);
 
     expect(screen.getByRole("heading", { name: "Diarisation" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Niveau de detail des comptes rendus" })).toBeInTheDocument();
     expect(screen.queryByTestId("assistant-status-body")).toBeNull();
     expect(screen.queryByRole("button", { name: "Importer" })).toBeNull();
     expect(screen.getByRole("button", { name: "Changer de fichier" })).toBeInTheDocument();
+    fireEvent.change(
+      screen.getByLabelText("Compte rendu détaillé", { selector: "input#report-detail-cri" }),
+      { target: { value: "2" } }
+    );
+    expect(useAsrStore.getState().llmApiReportDetailLevels.CRI).toBe("exhaustive");
     fireEvent.click(screen.getByRole("button", { name: /Oui, avec morceaux/i }));
 
     await waitFor(() => {

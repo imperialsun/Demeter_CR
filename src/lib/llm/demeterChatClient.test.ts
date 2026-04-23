@@ -78,7 +78,7 @@ describe("demeterChatClient", () => {
     expect(backendApiMocks.handleBackendUnauthorized).not.toHaveBeenCalled();
   });
 
-  it("retries the chat completion request after a transient backend outage", async () => {
+  it("surfaces backend transport errors without local retry", async () => {
     backendApiMocks.backendFetch
       .mockRejectedValueOnce(new Error(BACKEND_NETWORK_ERROR_MESSAGE))
       .mockResolvedValueOnce(
@@ -96,20 +96,20 @@ describe("demeterChatClient", () => {
         )
       );
 
-    const result = await generateWithDemeterChat({
-      modelId: "mistral-medium-latest",
-      systemPrompt: "system",
-      userPrompt: "user",
-      temperature: 0.2,
-      maxTokens: 2048,
-      initialBackoffMs: 1,
-    });
+    await expect(
+      generateWithDemeterChat({
+        modelId: "mistral-medium-latest",
+        systemPrompt: "system",
+        userPrompt: "user",
+        temperature: 0.2,
+        maxTokens: 2048,
+      })
+    ).rejects.toThrow(BACKEND_NETWORK_ERROR_MESSAGE);
 
-    expect(result.text).toBe("rapport ok");
-    expect(backendApiMocks.backendFetch).toHaveBeenCalledTimes(2);
+    expect(backendApiMocks.backendFetch).toHaveBeenCalledTimes(1);
   });
 
-  it("retries the chat completion request after a transient 404", async () => {
+  it("surfaces backend HTTP errors without local retry", async () => {
     backendApiMocks.backendFetch
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: "not found" }), { status: 404 }))
       .mockResolvedValueOnce(
@@ -136,16 +136,17 @@ describe("demeterChatClient", () => {
       })
     );
 
-    const result = await generateWithDemeterChat({
-      modelId: "mistral-medium-latest",
-      systemPrompt: "system",
-      userPrompt: "user",
-      temperature: 0.2,
-      maxTokens: 2048,
-      initialBackoffMs: 1,
-    });
+    await expect(
+      generateWithDemeterChat({
+        modelId: "mistral-medium-latest",
+        systemPrompt: "system",
+        userPrompt: "user",
+        temperature: 0.2,
+        maxTokens: 2048,
+      })
+    ).rejects.toThrow("not found");
 
-    expect(result.text).toBe("rapport ok");
-    expect(backendApiMocks.backendFetch).toHaveBeenCalledTimes(2);
+    expect(backendApiMocks.backendFetch).toHaveBeenCalledTimes(1);
   });
+
 });

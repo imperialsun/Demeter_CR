@@ -2,7 +2,6 @@ import logger from "@/lib/logger";
 import {
   backendFetch,
   handleBackendUnauthorized,
-  isBackendRetryableTransportError,
   parseBackendHttpError,
 } from "@/lib/backend-api";
 import { BackendSessionExpiredError, backendRefresh } from "@/lib/backend-auth";
@@ -40,8 +39,6 @@ export async function generateWithDemeterChat(
 
   const temperature = sanitizeTemperature(params.temperature);
   const responseMode = params.responseMode ?? "json";
-  const maxRetries = params.maxRetries ?? 2;
-  const initialBackoffMs = params.initialBackoffMs ?? 700;
   const maxContextRetries = Math.max(0, params.maxContextRetries ?? 3);
 
   let currentMaxTokens = sanitizeMaxTokens(params.maxTokens);
@@ -49,19 +46,14 @@ export async function generateWithDemeterChat(
 
   while (true) {
     try {
-      const payload = await withRetry(
-        async () =>
-          requestDemeterChat({
-            modelId,
-            systemPrompt: params.systemPrompt,
-            userPrompt: buildUserPrompt(params.userPrompt, responseMode),
-            temperature,
-            maxTokens: currentMaxTokens,
-            responseMode,
-          }),
-        maxRetries,
-        initialBackoffMs
-      );
+      const payload = await requestDemeterChat({
+        modelId,
+        systemPrompt: params.systemPrompt,
+        userPrompt: buildUserPrompt(params.userPrompt, responseMode),
+        temperature,
+        maxTokens: currentMaxTokens,
+        responseMode,
+      });
 
       const content = extractChatContent(payload);
       if (!content) {
@@ -87,6 +79,13 @@ export async function generateWithDemeterChat(
           throw error;
         }
         contextRetryCount += 1;
+        logger.warn("[llm-api][demeter] retry with reduced max_tokens after context error", {
+          modelId,
+          attempt: contextRetryCount,
+          maxTokens: currentMaxTokens,
+          retryMaxTokens: nextTokens,
+          reason: toErrorMessage(error),
+        });
         currentMaxTokens = nextTokens;
         continue;
       }
@@ -103,6 +102,7 @@ async function requestDemeterChat(params: {
   maxTokens: number;
   responseMode: "json" | "text";
 }): Promise<unknown> {
+  const responseMode = params.responseMode;
   const body: Record<string, unknown> = {
     model: params.modelId,
     messages: [
@@ -126,6 +126,13 @@ async function requestDemeterChat(params: {
       timeoutMs: DEMETER_CHAT_REQUEST_TIMEOUT_MS,
     });
 
+  logger.info("[llm-api][demeter] chat request start", {
+    modelId: params.modelId,
+    responseMode,
+    temperature: params.temperature,
+    maxTokens: params.maxTokens,
+    retryPolicy: "backend",
+  });
   let response = await request();
   if (!response.ok && response.status === 401) {
     logger.info("[llm-api][demeter] unauthorized, attempting refresh before retry");
@@ -148,32 +155,13 @@ async function requestDemeterChat(params: {
     throw error;
   }
 
-  return response.json();
-}
-
-async function withRetry<T>(
-  operation: () => Promise<T>,
-  maxRetries: number,
-  initialBackoffMs: number
-): Promise<T> {
-  let attempt = 0;
-  while (true) {
-    try {
-      return await operation();
-    } catch (error) {
-      if (!isRetryableError(error) || attempt >= maxRetries) {
-        throw error;
-      }
-      const delayMs = initialBackoffMs * 2 ** attempt;
-      attempt += 1;
-      logger.warn("[llm-api][demeter] retrying request", {
-        attempt,
-        delayMs,
-        reason: toErrorMessage(error),
-      });
-      await sleep(delayMs);
-    }
-  }
+  const payload = await response.json();
+  logger.info("[llm-api][demeter] chat request success", {
+    modelId: params.modelId,
+    responseMode,
+    status: response.status,
+  });
+  return payload;
 }
 
 function extractChatContent(response: unknown): string {
@@ -231,27 +219,6 @@ function sanitizeMaxTokens(value: number): number {
   return Math.max(MIN_CONTEXT_RETRY_TOKENS, Math.min(131072, Math.round(value)));
 }
 
-function isRetryableError(error: unknown): boolean {
-  if (isBackendRetryableTransportError(error)) {
-    return true;
-  }
-
-  const status = extractStatus(error);
-  if (status === 404 || status === 408 || status === 429 || status === 502 || status === 503 || status === 504) return true;
-
-  const message = toErrorMessage(error).toLowerCase();
-  return (
-    message.includes("429") ||
-    message.includes("404") ||
-    message.includes("408") ||
-    message.includes("502") ||
-    message.includes("503") ||
-    message.includes("504") ||
-    message.includes("rate limit") ||
-    message.includes("temporarily unavailable")
-  );
-}
-
 function isContextLimitError(error: unknown): boolean {
   const message = toErrorMessage(error).toLowerCase();
   return (
@@ -264,11 +231,6 @@ function isContextLimitError(error: unknown): boolean {
   );
 }
 
-function extractStatus(error: unknown): number | undefined {
-  if (typeof error !== "object" || !error) return undefined;
-  return (error as ErrorWithStatus).status;
-}
-
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
@@ -279,8 +241,4 @@ function buildUserPrompt(userPrompt: string, responseMode: "json" | "text"): str
     return `${userPrompt}\n\nRéponds uniquement avec un objet JSON valide.`;
   }
   return userPrompt;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

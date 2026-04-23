@@ -7,6 +7,8 @@ import type {
   ModelDtype,
   PresetKey,
 } from "@/store/asr-store";
+import type { ReportFormat } from "@/lib/llm/reportSchema";
+import { DEFAULT_REPORT_DETAIL_LEVELS, type ReportDetailLevel } from "@/lib/llm/reportDetail";
 import {
   createDefaultLocalModelSettingsByProfile,
   DEFAULT_LLM_LOCAL_MAX_TOKENS,
@@ -32,6 +34,16 @@ const LEGACY_SETTING_KEYS = ["cloudApiUrl", "cloudContextPreset"] as const;
 export const DEMETER_CHUNK_DURATION_MIN_SEC = 10 * 60;
 export const DEMETER_CHUNK_DURATION_MAX_SEC = 28 * 60;
 export const DEMETER_CHUNK_DURATION_DEFAULT_SEC = 25 * 60;
+export const LLM_REPORT_CHUNK_RATIO_DEFAULT = 0.5;
+export const LLM_REPORT_MAX_SUBPARTS_PER_PART_DEFAULT = 4;
+export type LlmReportGenerationMode = "mono_pass" | "multi_pass";
+export const LLM_REPORT_GENERATION_MODE_DEFAULT: LlmReportGenerationMode = "mono_pass";
+export const LLM_REPORT_MONO_PASS_MAX_TOKENS_DEFAULT = 16384;
+export const LLM_REPORT_MONO_PASS_MAX_TOKENS_MIN = 1024;
+export const LLM_REPORT_MONO_PASS_MAX_TOKENS_MAX = 32768;
+export const LLM_REPORT_WORKFLOW_TEXT_MAX_TOKENS_DEFAULT = 8192;
+export const LLM_REPORT_WORKFLOW_TEXT_MAX_TOKENS_MIN = 1024;
+export const LLM_REPORT_WORKFLOW_TEXT_MAX_TOKENS_MAX = 32768;
 
 export function clampDemeterChunkDurationSec(value: number): number {
   if (!Number.isFinite(value)) {
@@ -39,6 +51,66 @@ export function clampDemeterChunkDurationSec(value: number): number {
   }
   const rounded = Math.round(value);
   return Math.max(DEMETER_CHUNK_DURATION_MIN_SEC, Math.min(DEMETER_CHUNK_DURATION_MAX_SEC, rounded));
+}
+
+export function normalizeLlmReportChunkRatio(value: unknown, fallback = LLM_REPORT_CHUNK_RATIO_DEFAULT): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.max(0.1, Math.min(1, value));
+}
+
+export function normalizeLlmReportMaxSubpartsPerPart(
+  value: unknown,
+  fallback = LLM_REPORT_MAX_SUBPARTS_PER_PART_DEFAULT
+): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.max(0, Math.min(8, Math.round(value)));
+}
+
+function normalizeLlmReportTokenLimit(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number
+): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+export function normalizeLlmReportGenerationMode(
+  value: unknown,
+  fallback: LlmReportGenerationMode = LLM_REPORT_GENERATION_MODE_DEFAULT
+): LlmReportGenerationMode {
+  return value === "mono_pass" || value === "multi_pass" ? value : fallback;
+}
+
+export function normalizeLlmReportMonoPassMaxTokens(
+  value: unknown,
+  fallback = LLM_REPORT_MONO_PASS_MAX_TOKENS_DEFAULT
+): number {
+  return normalizeLlmReportTokenLimit(
+    value,
+    fallback,
+    LLM_REPORT_MONO_PASS_MAX_TOKENS_MIN,
+    LLM_REPORT_MONO_PASS_MAX_TOKENS_MAX
+  );
+}
+
+export function normalizeLlmReportWorkflowTextMaxTokens(
+  value: unknown,
+  fallback = LLM_REPORT_WORKFLOW_TEXT_MAX_TOKENS_DEFAULT
+): number {
+  return normalizeLlmReportTokenLimit(
+    value,
+    fallback,
+    LLM_REPORT_WORKFLOW_TEXT_MAX_TOKENS_MIN,
+    LLM_REPORT_WORKFLOW_TEXT_MAX_TOKENS_MAX
+  );
 }
 
 export interface PersistedSettings {
@@ -179,6 +251,12 @@ export interface PersistedSettings {
   llmApiMistralModelId: string;
   llmApiMistralTemperature: number;
   llmApiMistralMaxTokens: number;
+  llmApiReportDetailLevels: Record<ReportFormat, ReportDetailLevel>;
+  llmApiReportGenerationMode: LlmReportGenerationMode;
+  llmApiReportChunkRatio: number;
+  llmApiReportMaxSubpartsPerPart: number;
+  llmApiReportMonoPassMaxTokens: number;
+  llmApiReportWorkflowTextMaxTokens: number;
   // LLM local settings
   llmLocalModelProfile: LlmLocalModelProfile;
   llmLocalModelId: string;
@@ -223,6 +301,40 @@ function hasLegacySettings(settings: object) {
   return LEGACY_SETTING_KEYS.some((key) => key in settings);
 }
 
+function migratePersistedReportSettings(settings: PersistedSettingsInput): PersistedSettingsInput {
+  const hasReportSettings =
+    "llmApiReportGenerationMode" in settings ||
+    "llmApiReportMonoPassMaxTokens" in settings ||
+    "llmApiReportWorkflowTextMaxTokens" in settings;
+  if (!hasReportSettings) {
+    return settings;
+  }
+
+  let migrated: PersistedSettingsInput = settings;
+  const ensureCopy = () => {
+    if (migrated === settings) {
+      migrated = { ...settings };
+    }
+  };
+  if (!("llmApiReportGenerationMode" in migrated)) {
+    ensureCopy();
+    migrated.llmApiReportGenerationMode = DEFAULT_SETTINGS.llmApiReportGenerationMode;
+  }
+
+  const workflowTextMaxTokens = migrated.llmApiReportWorkflowTextMaxTokens;
+  const monoPassMaxTokens = migrated.llmApiReportMonoPassMaxTokens;
+  if (typeof monoPassMaxTokens !== "number" && typeof workflowTextMaxTokens === "number") {
+    ensureCopy();
+    migrated.llmApiReportMonoPassMaxTokens = workflowTextMaxTokens;
+  }
+  if (typeof workflowTextMaxTokens !== "number" && typeof migrated.llmApiReportMonoPassMaxTokens === "number") {
+    ensureCopy();
+    migrated.llmApiReportWorkflowTextMaxTokens = migrated.llmApiReportMonoPassMaxTokens;
+  }
+
+  return migrated;
+}
+
 function parseStoredSettings(): PersistedSettingsInput | null {
   if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -243,19 +355,21 @@ export function loadSettings(): PersistedSettingsInput | null {
       return null;
     }
     const sanitized = stripSensitiveSettings(parsed);
+    const migrated = migratePersistedReportSettings(sanitized);
     // Backward compatibility: purge sensitive values from existing persisted blobs.
-    if (hasSensitiveSettings(parsed) || hasLegacySettings(parsed)) {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+    if (hasSensitiveSettings(parsed) || hasLegacySettings(parsed) || migrated !== sanitized) {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
       logger.info("[settings][storage] sanitized persisted settings blob", {
         removedSensitiveKeys: hasSensitiveSettings(parsed),
         removedLegacyKeys: hasLegacySettings(parsed),
+        migratedReportSettings: migrated !== sanitized,
       });
     }
     logger.debug("[settings][storage] loaded settings", {
-      keyCount: Object.keys(sanitized).length,
-      logLevel: sanitized.logLevel ?? DEFAULT_SETTINGS.logLevel,
+      keyCount: Object.keys(migrated).length,
+      logLevel: migrated.logLevel ?? DEFAULT_SETTINGS.logLevel,
     });
-    return sanitized;
+    return migrated;
   } catch (error) {
     logger.warn("Impossible de charger les paramètres depuis le stockage local", error);
     return null;
@@ -433,6 +547,12 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   llmApiMistralModelId: "mistral-medium-latest",
   llmApiMistralTemperature: 0.2,
   llmApiMistralMaxTokens: 8192,
+  llmApiReportDetailLevels: { ...DEFAULT_REPORT_DETAIL_LEVELS },
+  llmApiReportChunkRatio: LLM_REPORT_CHUNK_RATIO_DEFAULT,
+  llmApiReportMaxSubpartsPerPart: LLM_REPORT_MAX_SUBPARTS_PER_PART_DEFAULT,
+  llmApiReportGenerationMode: LLM_REPORT_GENERATION_MODE_DEFAULT,
+  llmApiReportMonoPassMaxTokens: LLM_REPORT_MONO_PASS_MAX_TOKENS_DEFAULT,
+  llmApiReportWorkflowTextMaxTokens: LLM_REPORT_WORKFLOW_TEXT_MAX_TOKENS_DEFAULT,
   // llm local defaults
   llmLocalModelProfile: DEFAULT_LLM_LOCAL_PROFILE,
   llmLocalModelId: DEFAULT_LLM_LOCAL_MODEL_ID,

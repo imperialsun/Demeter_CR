@@ -10,6 +10,7 @@ import {
   TextRun,
 } from "docx";
 import type { ReportFormat, ReportJson, ReportResultKey } from "@/lib/llm/reportSchema";
+import type { ReportDetailLevel } from "@/lib/llm/reportDetail";
 import logger from "@/lib/logger";
 
 export interface ReportDocxMetadata {
@@ -18,6 +19,7 @@ export interface ReportDocxMetadata {
   generatedAt: string;
   sourceMode: "transcription" | "text";
   sourceTokenCount: number;
+  detailLevel?: ReportDetailLevel;
 }
 
 export async function buildReportDocx(report: ReportJson, metadata: ReportDocxMetadata): Promise<Blob> {
@@ -90,6 +92,7 @@ export async function buildReportDocx(report: ReportJson, metadata: ReportDocxMe
         new TextRun({ text: `Mode source: ${metadata.sourceMode}` }),
         new TextRun({ text: `  |  Modele: ${metadata.modelId}` }),
         new TextRun({ text: `  |  Tokens source: ${metadata.sourceTokenCount}` }),
+        ...(metadata.detailLevel ? [new TextRun({ text: `  |  Niveau de detail: ${metadata.detailLevel}` })] : []),
       ],
       spacing: { after: 280 },
     })
@@ -142,13 +145,18 @@ export async function buildReportDocx(report: ReportJson, metadata: ReportDocxMe
   return blob;
 }
 
-export function formatReportDocxFilename(formatKey: ReportResultKey, date = new Date()): string {
+export function formatReportDocxFilename(
+  formatKey: ReportResultKey,
+  date = new Date(),
+  detailLevel?: ReportDetailLevel
+): string {
   const yyyy = date.getFullYear();
   const mm = `${date.getMonth() + 1}`.padStart(2, "0");
   const dd = `${date.getDate()}`.padStart(2, "0");
   const hh = `${date.getHours()}`.padStart(2, "0");
   const min = `${date.getMinutes()}`.padStart(2, "0");
-  return `rapport-${formatKey}-${yyyy}-${mm}-${dd}-${hh}${min}.docx`;
+  const detailSuffix = detailLevel ? `-${detailLevel}` : "";
+  return `rapport-${formatKey}${detailSuffix}-${yyyy}-${mm}-${dd}-${hh}${min}.docx`;
 }
 
 export function downloadDocxBlob(blob: Blob, filename: string) {

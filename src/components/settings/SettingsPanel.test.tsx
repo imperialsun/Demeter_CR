@@ -96,6 +96,11 @@ describe('SettingsPanel', () => {
       llmApiMistralModelId: "mistral-medium-latest",
       llmApiMistralTemperature: 0.2,
       llmApiMistralMaxTokens: 8192,
+      llmApiReportDetailLevels: {
+        CRI: "standard",
+        CRO: "standard",
+        CRS: "standard",
+      },
       setShowSegmentConfidence: (v: boolean) => useAsrStore.setState({ showSegmentConfidence: v }),
       setEnableWordTimestamps: (v: boolean) => useAsrStore.setState({ enableWordTimestamps: v }),
     } as any);
@@ -438,6 +443,20 @@ describe('SettingsPanel', () => {
     fireEvent.change(input, { target: { value: "https://mistral.example.com" } });
 
     expect(useAsrStore.getState().cloudMistralApiUrl).toBe("https://mistral.example.com");
+  });
+
+  it("updates report detail levels from llm settings tab", () => {
+    render(
+      <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">
+        <SettingsPanel initialTab="llm" />
+      </ThemeProvider>
+    );
+
+    fireEvent.change(screen.getByLabelText("Compte rendu détaillé", { selector: "input#report-detail-cri" }), {
+      target: { value: "2" },
+    });
+
+    expect(useAsrStore.getState().llmApiReportDetailLevels.CRI).toBe("exhaustive");
   });
 
   it("updates hf model id, temperature and max tokens from llm tab", () => {

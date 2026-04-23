@@ -69,11 +69,23 @@ describe("reportService", () => {
       sourceText: "source",
       temperature: 0,
       maxTokens: 1024,
+      detailLevel: "verbose",
     });
 
     expect(result.strategy).toBe("textGeneration");
     expect(result.rawResponse).toContain("\"title\"");
     expect(result.report.format).toBe("CRO");
+    expect(generateWithChatThenFallbackTextMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        systemPrompt: expect.stringContaining("Niveau de detail actif: Verbeux"),
+        userPrompt: expect.stringContaining("longueur minimale obligatoire"),
+      })
+    );
+    expect(generateWithChatThenFallbackTextMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userPrompt: expect.stringContaining("tu peux depasser"),
+      })
+    );
   });
 
   it("throws when source text is empty", async () => {
@@ -109,6 +121,7 @@ describe("reportService", () => {
       sourceText: "source",
       temperature: 0.2,
       maxTokens: 2048,
+      detailLevel: "exhaustive",
     });
 
     expect(result.report.format).toBe("CRI");
@@ -116,6 +129,13 @@ describe("reportService", () => {
       expect.objectContaining({
         apiKey: "mistral_secret",
         apiUrl: "https://api.mistral.ai",
+        systemPrompt: expect.stringContaining("Niveau de detail actif: Exhaustif"),
+        userPrompt: expect.stringContaining("longueur minimale obligatoire"),
+      })
+    );
+    expect(generateWithMistralChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userPrompt: expect.stringContaining("le plus long et le plus detaille"),
       })
     );
     expect(generateWithChatThenFallbackTextMock).not.toHaveBeenCalled();
