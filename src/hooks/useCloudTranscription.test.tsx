@@ -1,6 +1,6 @@
-import { act, render, waitFor } from "@testing-library/react";
+import { act, render, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useEffect } from "react";
+import { useLayoutEffect } from "react";
 import { IDBKeyRange, indexedDB as fakeIndexedDB } from "fake-indexeddb";
 
 import { useAsrStore } from "@/store/asr-store";
@@ -128,6 +128,7 @@ const mocks = vi.hoisted(() => ({
   sendFrontendAudioErrorReport: vi.fn(async () => true),
   trackBackendActivityEvent: vi.fn(),
   releaseFfmpeg: vi.fn(async () => {}),
+  backendRefresh: vi.fn(async () => "failed" as const),
 }));
 
 vi.mock("@/components/ui/use-toast", () => ({
@@ -199,6 +200,14 @@ vi.mock("@/lib/backend-activity-sync", () => ({
   trackBackendActivityEvent: mocks.trackBackendActivityEvent,
 }));
 
+vi.mock("@/lib/backend-auth", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/backend-auth")>("@/lib/backend-auth");
+  return {
+    ...actual,
+    backendRefresh: mocks.backendRefresh,
+  };
+});
+
 vi.mock("@/lib/ffmpeg-loader", () => ({
   releaseFfmpeg: mocks.releaseFfmpeg,
 }));
@@ -213,7 +222,7 @@ function HookHarness({
   options?: Parameters<typeof useCloudTranscription>[1];
 }) {
   const api = useCloudTranscription(provider, options);
-  useEffect(() => {
+  useLayoutEffect(() => {
     onReady(api);
   }, [api, onReady]);
   return null;
@@ -250,6 +259,16 @@ function installVisibilityState(state: "visible" | "hidden") {
   };
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("useCloudTranscription", () => {
   beforeEach(async () => {
     (globalThis as unknown as { indexedDB: IDBFactory }).indexedDB = fakeIndexedDB;
@@ -267,6 +286,7 @@ describe("useCloudTranscription", () => {
     await clearAllCloudTranscriptCache();
     mocks.stagedSegments.clear();
     vi.clearAllMocks();
+    mocks.backendRefresh.mockResolvedValue("failed");
   });
 
   it("shows toast when transcription starts without selected file", async () => {
@@ -556,6 +576,130 @@ describe("useCloudTranscription", () => {
     });
 
     expect(useAsrStore.getState().sessionTranscriptMemories.cloud).toBeNull();
+  });
+
+  it("keeps the shared cloud session alive across unmount and remount", async () => {
+    useAsrStore.setState({ mistralApiKey: "mistral_secret" } as never);
+
+    const transcriptionDeferred = createDeferred<{ text: string }>();
+    mocks.transcribeWithMistral.mockImplementationOnce((request: { signal?: AbortSignal }) => {
+      return new Promise<{ text: string }>((resolve, reject) => {
+        const abortHandler = () => reject(new DOMException("Aborted", "AbortError"));
+        request.signal?.addEventListener("abort", abortHandler, { once: true });
+        transcriptionDeferred.promise.then(resolve, reject).finally(() => {
+          request.signal?.removeEventListener("abort", abortHandler);
+        });
+      }) as never;
+    });
+
+    const first = renderHook(() => useCloudTranscription("mistral"));
+    const file = new File(["a"], "audio.wav", { type: "audio/wav" });
+
+    await act(async () => {
+      await first.result.current.handleFileSelected(file);
+    });
+
+    let runPromise!: Promise<void>;
+    await act(async () => {
+      runPromise = first.result.current.startTranscription();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(useAsrStore.getState().cloudTranscriptionSession.isTranscribing).toBe(true);
+    });
+    expect(useAsrStore.getState().cloudTranscriptionSession.selectedFile?.name).toBe("audio.wav");
+    expect(useAsrStore.getState().cloudTranscriptionSession.progress).toBeGreaterThan(0);
+    expect(useAsrStore.getState().cloudTranscriptionSession.preparedUpload).toEqual(
+      expect.objectContaining({ provider: "mistral" })
+    );
+
+    first.unmount();
+
+    const second = renderHook(() => useCloudTranscription("mistral"));
+    expect(second.result.current.selectedFile?.name).toBe("audio.wav");
+    expect(second.result.current.isTranscribing).toBe(true);
+    expect(second.result.current.progress).toBeGreaterThan(0);
+    expect(second.result.current.status).toBe("transcribing");
+
+    await act(async () => {
+      transcriptionDeferred.resolve({ text: "Bonjour" });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await runPromise;
+    });
+
+    await waitFor(() => {
+      expect(second.result.current.status).toBe("done");
+      expect(second.result.current.chunkSummaries).toHaveLength(1);
+    });
+
+    const exportedSegments = await second.result.current.loadAllSegmentsForExport();
+    expect(exportedSegments).toHaveLength(1);
+    expect(useAsrStore.getState().cloudTranscriptionSession.chunkSummaries).toHaveLength(1);
+
+    await act(async () => {
+      await second.result.current.resetTranscriptionSession();
+    });
+
+    expect(useAsrStore.getState().cloudTranscriptionSession.selectedFile).toBeNull();
+    expect(useAsrStore.getState().cloudTranscriptionSession.chunkSummaries).toEqual([]);
+  });
+
+  it("can stop an active cloud run after remounting the hook", async () => {
+    useAsrStore.setState({ mistralApiKey: "mistral_secret" } as never);
+
+    const transcriptionDeferred = createDeferred<{ text: string }>();
+    mocks.transcribeWithMistral.mockImplementationOnce((request: { signal?: AbortSignal }) => {
+      return new Promise<{ text: string }>((resolve, reject) => {
+        const abortHandler = () => reject(new DOMException("Aborted", "AbortError"));
+        request.signal?.addEventListener("abort", abortHandler, { once: true });
+        transcriptionDeferred.promise.then(resolve, reject).finally(() => {
+          request.signal?.removeEventListener("abort", abortHandler);
+        });
+      }) as never;
+    });
+
+    const first = renderHook(() => useCloudTranscription("mistral"));
+    const file = new File(["a"], "audio.wav", { type: "audio/wav" });
+
+    await act(async () => {
+      await first.result.current.handleFileSelected(file);
+    });
+
+    let runPromise!: Promise<void>;
+    await act(async () => {
+      runPromise = first.result.current.startTranscription();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(useAsrStore.getState().cloudTranscriptionSession.isTranscribing).toBe(true);
+    });
+
+    first.unmount();
+
+    const second = renderHook(() => useCloudTranscription("mistral"));
+    await act(async () => {
+      await second.result.current.stopTranscription();
+    });
+
+    await act(async () => {
+      transcriptionDeferred.resolve({ text: "Bonjour" });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await runPromise;
+    });
+
+    await waitFor(() => {
+      expect(second.result.current.status).toBe("idle");
+      expect(useAsrStore.getState().cloudTranscriptionSession.isTranscribing).toBe(false);
+      expect(useAsrStore.getState().cloudTranscriptionSession.stopRequested).toBe(false);
+    });
   });
 
   it("fails whisper run when token is missing", async () => {

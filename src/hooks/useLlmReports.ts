@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { useAsrStore } from "@/store/asr-store";
+import { useAsrStore, type LlmApiProvider } from "@/store/asr-store";
 import { TelemetryCollector } from "@/lib/telemetry";
 import {
   reportFormatToKey,
@@ -64,7 +64,11 @@ type GenerateInput =
 
 type GenerateReportOutput = GenerateReportDetailedResult | GenerateCloudMultiPassReportResult;
 
-export function useLlmReports() {
+type UseLlmReportsOptions = {
+  providerOverride?: LlmApiProvider;
+};
+
+export function useLlmReports(options: UseLlmReportsOptions = {}) {
   const sessionTranscriptMemories = useAsrStore((state) => state.sessionTranscriptMemories);
 
   const hfApiToken = useAsrStore((state) => state.hfApiToken);
@@ -96,6 +100,7 @@ export function useLlmReports() {
   const resetLlmApiReportDrafts = useAsrStore((state) => state.resetLlmApiReportDrafts);
   const registerTelemetry = useAsrStore((state) => state.registerTelemetry);
   const setTelemetrySummary = useAsrStore((state) => state.setTelemetrySummary);
+  const effectiveProvider = options.providerOverride ?? llmApiProvider;
 
   const generateAll = useCallback(
     async (input: GenerateInput) => {
@@ -108,7 +113,7 @@ export function useLlmReports() {
           llmApiMistralTemperature,
           llmApiMistralMaxTokens,
         },
-        llmApiProvider
+        effectiveProvider
       );
       const telemetry = new TelemetryCollector();
       registerTelemetry(telemetry);
@@ -123,7 +128,7 @@ export function useLlmReports() {
             sequenceIndex: number;
           }
         | null = null;
-      const provider = llmApiProvider;
+      const provider = effectiveProvider;
       const sourceMode = input.source;
       const activeModelId = activePipelineConfig.modelId.trim() || "unset";
       const formatOrder = FORMAT_ORDER.map((item) => item.format);
@@ -608,7 +613,7 @@ export function useLlmReports() {
     [
       mistralApiKey,
       cloudMistralApiUrl,
-      llmApiProvider,
+      effectiveProvider,
       hfApiToken,
       llmApiHfModelId,
       llmApiHfTemperature,

@@ -278,6 +278,30 @@ describe("useLlmReports telemetry", () => {
     expect(mocks.generateCloudMultiPassReportMock).not.toHaveBeenCalled();
   });
 
+  it("uses the provider override without mutating the global provider", async () => {
+    useAsrStore.setState({ llmApiProvider: "huggingface" } as any);
+
+    const { result } = renderHook(() => useLlmReports({ providerOverride: "demeter_sante" }));
+
+    await act(async () => {
+      await result.current.generateAll({ source: "transcription", transcriptMode: "upload" });
+    });
+
+    expect(useAsrStore.getState().llmApiProvider).toBe("huggingface");
+    expect(mocks.generateReportDetailedMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ provider: "demeter_sante", format: "CRI" })
+    );
+    expect(mocks.generateReportDetailedMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ provider: "demeter_sante", format: "CRO" })
+    );
+    expect(mocks.generateReportDetailedMock).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ provider: "demeter_sante", format: "CRS" })
+    );
+  });
+
   it("routes detailed reports through multi-pass when requested", async () => {
     useAsrStore.setState({
       llmApiReportGenerationMode: "multi_pass",

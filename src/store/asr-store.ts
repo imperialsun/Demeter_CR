@@ -38,6 +38,12 @@ import {
 import type { SpeakerAssignment, SpeakerAssignmentMap } from "@/lib/speakerAssignments";
 import type { TelemetryCollector, ChunkTelemetry, TelemetrySummary } from "@/lib/telemetry";
 import {
+  createDefaultAssistantWorkflowRuntime,
+  createDefaultCloudTranscriptionSessionRuntime,
+  type AssistantWorkflowRuntime,
+  type CloudTranscriptionSessionRuntime,
+} from "@/lib/cloud/transcriptionSession";
+import {
   cloneReportJson,
   type ReportFormat,
   type ReportJson,
@@ -606,6 +612,8 @@ interface AsrConfigState {
   audioMetadata: AudioMetadata | null;
   audioSource: SessionSource | null;
   sessionTranscriptMemories: Record<SessionTranscriptMode, SessionTranscriptMemoryEntry | null>;
+  cloudTranscriptionSession: CloudTranscriptionSessionRuntime;
+  assistantWorkflow: AssistantWorkflowRuntime;
   // Persist the uploaded file in-memory so UI like pre-listen survives navigation
   uploadedFile: File | null;
   previewUrl: string | null;
@@ -837,6 +845,10 @@ interface AsrConfigActions {
   setSessionTranscriptMemory: (mode: SessionTranscriptMode, entry: SessionTranscriptMemoryEntry | null) => void;
   clearSessionTranscriptMemory: (mode: SessionTranscriptMode) => void;
   clearAllSessionTranscriptMemories: () => void;
+  setCloudTranscriptionSession: (patch: Partial<CloudTranscriptionSessionRuntime>) => void;
+  resetCloudTranscriptionSession: () => void;
+  setAssistantWorkflow: (patch: Partial<AssistantWorkflowRuntime>) => void;
+  resetAssistantWorkflow: () => void;
   setChunkPlan: (plan: ChunkDefinition[]) => void;
   setSegments: (segments: TranscriptionSegment[]) => void;
   appendSegments: (segments: TranscriptionSegment[]) => void;
@@ -1204,6 +1216,8 @@ const initialState: AsrConfigState = {
   audioMetadata: null,
   audioSource: null,
   sessionTranscriptMemories: createEmptySessionTranscriptMemories(),
+  cloudTranscriptionSession: createDefaultCloudTranscriptionSessionRuntime(),
+  assistantWorkflow: createDefaultAssistantWorkflowRuntime(),
   // Persist uploaded file in-memory so pre-listen survives navigation
   uploadedFile: null,
   previewUrl: null,
@@ -1987,6 +2001,26 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         sessionTranscriptMemories: nextSessionTranscriptMemories,
       };
     }),
+  setCloudTranscriptionSession: (patch) =>
+    set((state) => ({
+      cloudTranscriptionSession: {
+        ...state.cloudTranscriptionSession,
+        ...patch,
+      },
+    })),
+  resetCloudTranscriptionSession: () => set(() => ({
+    cloudTranscriptionSession: createDefaultCloudTranscriptionSessionRuntime(),
+  })),
+  setAssistantWorkflow: (patch) =>
+    set((state) => ({
+      assistantWorkflow: {
+        ...state.assistantWorkflow,
+        ...patch,
+      },
+    })),
+  resetAssistantWorkflow: () => set(() => ({
+    assistantWorkflow: createDefaultAssistantWorkflowRuntime(),
+  })),
   setChunkPlan: (plan) => set(() => ({ chunkPlan: plan })),
   setSegments: (segments) => set(() => ({ segments })),
   appendSegments: (segments) =>
@@ -2565,6 +2599,8 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         llmLocalResults: {},
         localUploadModelSizeAlert: null,
         llmLocalModelSizeAlert: null,
+        cloudTranscriptionSession: createDefaultCloudTranscriptionSessionRuntime(),
+        assistantWorkflow: createDefaultAssistantWorkflowRuntime(),
         previewUrl: state.previewUrl,
       };
     }),
@@ -2604,6 +2640,8 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         audioSource: null,
         telemetrySummary: null,
         speakerAssignments: createEmptySpeakerAssignmentsByMode(),
+        cloudTranscriptionSession: createDefaultCloudTranscriptionSessionRuntime(),
+        assistantWorkflow: createDefaultAssistantWorkflowRuntime(),
         transcriptionConfidence: null,
         transcriptionConfidenceSource: null,
         isTranscribing: false,

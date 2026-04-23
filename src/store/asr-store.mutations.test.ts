@@ -462,6 +462,38 @@ describe("asr-store mutation guards", () => {
     state.setWasmAvailable(false);
     state.setEnableWordTimestamps(true);
     state.setShowSegmentConfidence(true);
+    state.setCloudTranscriptionSession({
+      selectedFile: file,
+      previewUrl: "blob:cloud-preview",
+      audioMetadata: {
+        name: "sample.txt",
+        durationSec: 42,
+        sizeBytes: file.size,
+        mimeType: file.type,
+        sampleRate: 16000,
+      },
+      preparedUpload: {
+        provider: "mistral",
+        fileName: "chunk.wav",
+        mimeType: "audio/wav",
+        sizeBytes: 321,
+        chunkIndex: 1,
+        totalChunks: 2,
+      },
+      chunkSummaries: [] as never,
+      progress: 0.4,
+      isTranscribing: true,
+      isResettingSession: true,
+      stopRequested: true,
+      sessionId: "cloud-session-1",
+    } as never);
+    state.setAssistantWorkflow({
+      diarizationChoice: true,
+      hasTriggeredTranscription: true,
+      hasTriggeredGeneration: true,
+      hasConfirmedDiarizationReview: true,
+      activeChunkId: "cloud-chunk-1",
+    });
 
     state.resetSession();
     const afterSessionReset = useAsrStore.getState();
@@ -470,6 +502,25 @@ describe("asr-store mutation guards", () => {
     expect(afterSessionReset.status).toBe("idle");
     expect(afterSessionReset.llmApiStatus).toBe("idle");
     expect(afterSessionReset.llmLocalStatus).toBe("idle");
+    expect(afterSessionReset.cloudTranscriptionSession).toEqual({
+      selectedFile: null,
+      previewUrl: null,
+      audioMetadata: null,
+      preparedUpload: null,
+      chunkSummaries: [],
+      progress: 0,
+      isTranscribing: false,
+      isResettingSession: false,
+      stopRequested: false,
+      sessionId: null,
+    });
+    expect(afterSessionReset.assistantWorkflow).toEqual({
+      diarizationChoice: null,
+      hasTriggeredTranscription: false,
+      hasTriggeredGeneration: false,
+      hasConfirmedDiarizationReview: false,
+      activeChunkId: null,
+    });
 
     useAsrStore.getState().resetApp();
     const afterAppReset = useAsrStore.getState();
@@ -490,6 +541,25 @@ describe("asr-store mutation guards", () => {
     expect(afterAppReset.llmLocalTemperature).toBe(0.2);
     expect(afterAppReset.llmLocalMaxTokens).toBe(4096);
     expect(afterAppReset.llmLocalModelId).toContain("Qwen3-1.7B");
+    expect(afterAppReset.cloudTranscriptionSession).toEqual({
+      selectedFile: null,
+      previewUrl: null,
+      audioMetadata: null,
+      preparedUpload: null,
+      chunkSummaries: [],
+      progress: 0,
+      isTranscribing: false,
+      isResettingSession: false,
+      stopRequested: false,
+      sessionId: null,
+    });
+    expect(afterAppReset.assistantWorkflow).toEqual({
+      diarizationChoice: null,
+      hasTriggeredTranscription: false,
+      hasTriggeredGeneration: false,
+      hasConfirmedDiarizationReview: false,
+      activeChunkId: null,
+    });
   });
 
   it("handles speaker assignments as session-only state", () => {

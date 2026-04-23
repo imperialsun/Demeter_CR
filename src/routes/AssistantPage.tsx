@@ -77,19 +77,16 @@ function AssistantPage() {
   useBackendPermissions();
   const pageScrollContainerRef = usePageScrollContainer();
 
-  const llmApiProvider = useAsrStore((state) => state.llmApiProvider);
-  const setLlmApiProvider = useAsrStore((state) => state.setLlmApiProvider);
   const llmApiReportDetailLevels = useAsrStore((state) => state.llmApiReportDetailLevels);
   const setLlmApiReportDetailLevel = useAsrStore((state) => state.setLlmApiReportDetailLevel);
-  const cloudDemeterDiarizationEnabled = useAsrStore((state) => state.cloudDemeterDiarizationEnabled);
   const setCloudDemeterDiarizationEnabled = useAsrStore((state) => state.setCloudDemeterDiarizationEnabled);
   const cloudEnableWordTimestamps = useAsrStore((state) => state.cloudEnableWordTimestamps);
   const cloudShowSegmentConfidence = useAsrStore((state) => state.cloudShowSegmentConfidence);
   const resetLlmApiSession = useAsrStore((state) => state.resetLlmApiSession);
   const llmApiStatusDetail = useAsrStore((state) => state.llmApiStatusDetail);
-
-  const originalProviderRef = useRef(llmApiProvider);
-  const originalDiarizationRef = useRef(cloudDemeterDiarizationEnabled);
+  const assistantWorkflow = useAsrStore((state) => state.assistantWorkflow);
+  const setAssistantWorkflow = useAsrStore((state) => state.setAssistantWorkflow);
+  const resetAssistantWorkflow = useAsrStore((state) => state.resetAssistantWorkflow);
 
   const {
     selectedFile,
@@ -117,21 +114,18 @@ function AssistantPage() {
     results,
     generateAll,
     downloadDocx,
-  } = useLlmReports();
+  } = useLlmReports({ providerOverride: "demeter_sante" });
 
-  const [diarizationChoice, setDiarizationChoice] = useState<boolean | null>(null);
+  const { diarizationChoice, activeChunkId, hasTriggeredTranscription, hasTriggeredGeneration, hasConfirmedDiarizationReview } =
+    assistantWorkflow;
   const [isHelpOpen, setIsHelpOpen] = useState(true);
-  const [activeChunkId, setActiveChunkId] = useState<string | null>(null);
   const [autoPlayRequest, setAutoPlayRequest] = useState<{ chunkId: string; requestId: number } | null>(null);
   const [waitingJokeOrder, setWaitingJokeOrder] = useState<number[]>([]);
   const [waitingJokeIndex, setWaitingJokeIndex] = useState(0);
   const [isResettingWorkflow, setIsResettingWorkflow] = useState(false);
   const [isResetConfirmationOpen, setIsResetConfirmationOpen] = useState(false);
   const [isTranscriptExporting, setIsTranscriptExporting] = useState(false);
-  const [hasConfirmedDiarizationReview, setHasConfirmedDiarizationReview] = useState(false);
   const autoPlayRequestCounterRef = useRef(0);
-  const hasTriggeredTranscriptionRef = useRef(false);
-  const hasTriggeredGenerationRef = useRef(false);
 
   useEffect(() => {
     logger.info("[assistant][ui] page view", {
@@ -158,31 +152,6 @@ function AssistantPage() {
     };
   }, []);
 
-  useEffect(() => {
-    const originalProvider = originalProviderRef.current;
-    const originalDiarization = originalDiarizationRef.current;
-
-    setLlmApiProvider("demeter_sante");
-    return () => {
-      setLlmApiProvider(originalProvider);
-      setCloudDemeterDiarizationEnabled(originalDiarization);
-    };
-  }, [setCloudDemeterDiarizationEnabled, setLlmApiProvider]);
-
-  useEffect(() => {
-    hasTriggeredTranscriptionRef.current = false;
-    hasTriggeredGenerationRef.current = false;
-    setActiveChunkId(null);
-    setAutoPlayRequest(null);
-    setWaitingJokeIndex(0);
-    setDiarizationChoice(null);
-    setHasConfirmedDiarizationReview(false);
-    setCloudDemeterDiarizationEnabled(originalDiarizationRef.current);
-    if (!selectedFile) {
-      setWaitingJokeOrder([]);
-    }
-  }, [selectedFile, setCloudDemeterDiarizationEnabled]);
-
   const handleAssistantFileSelected = useCallback(
     (file: File) => {
       logger.info("[assistant][ui] file selected", {
@@ -191,37 +160,33 @@ function AssistantPage() {
         type: file.type,
       });
       resetLlmApiSession();
-      hasTriggeredTranscriptionRef.current = false;
-      hasTriggeredGenerationRef.current = false;
-      setActiveChunkId(null);
+      resetAssistantWorkflow();
       setAutoPlayRequest(null);
       setWaitingJokeOrder(buildRandomJokeOrder(ASSISTANT_JOKES.length));
-      setDiarizationChoice(null);
       setWaitingJokeIndex(0);
-      setHasConfirmedDiarizationReview(false);
       void handleCloudFileSelected(file);
     },
-    [handleCloudFileSelected, resetLlmApiSession]
+    [handleCloudFileSelected, resetAssistantWorkflow, resetLlmApiSession]
   );
 
   const handleDiarizationChoice = useCallback(
     (enabled: boolean) => {
       logger.info("[assistant][ui] diarization choice", { enabled });
-      setDiarizationChoice(enabled);
+      setAssistantWorkflow({ diarizationChoice: enabled });
       setCloudDemeterDiarizationEnabled(enabled);
     },
-    [setCloudDemeterDiarizationEnabled]
+    [setAssistantWorkflow, setCloudDemeterDiarizationEnabled]
   );
 
   const maybeStartTranscription = useCallback(() => {
     if (!selectedFile || !audioMetadata || diarizationChoice === null) {
       return;
     }
-    if (hasTriggeredTranscriptionRef.current || cloudStatus !== "idle" || isTranscribing || isResettingSession) {
+    if (hasTriggeredTranscription || cloudStatus !== "idle" || isTranscribing || isResettingSession) {
       return;
     }
 
-    hasTriggeredTranscriptionRef.current = true;
+    setAssistantWorkflow({ hasTriggeredTranscription: true });
     logger.info("[assistant][ui] auto transcription start", {
       fileName: selectedFile.name,
       diarization: diarizationChoice,
@@ -234,6 +199,8 @@ function AssistantPage() {
     isResettingSession,
     isTranscribing,
     selectedFile,
+    hasTriggeredTranscription,
+    setAssistantWorkflow,
     startTranscription,
   ]);
 
@@ -248,20 +215,20 @@ function AssistantPage() {
     if (diarizationChoice === true) {
       return;
     }
-    if (!hasTriggeredTranscriptionRef.current || cloudStatus !== "done" || hasTriggeredGenerationRef.current) {
+    if (!hasTriggeredTranscription || cloudStatus !== "done" || hasTriggeredGeneration) {
       return;
     }
     if (llmStatus !== "idle") {
       return;
     }
 
-    hasTriggeredGenerationRef.current = true;
+    setAssistantWorkflow({ hasTriggeredGeneration: true });
     logger.info("[assistant][ui] auto report generation start", {
       fileName: selectedFile.name,
       diarization: diarizationChoice,
     });
     void generateAll({ source: "transcription", transcriptMode: "cloud" });
-  }, [cloudStatus, diarizationChoice, generateAll, llmStatus, selectedFile]);
+  }, [cloudStatus, diarizationChoice, generateAll, hasTriggeredGeneration, hasTriggeredTranscription, llmStatus, selectedFile, setAssistantWorkflow]);
 
   useEffect(() => {
     maybeStartGeneration();
@@ -288,10 +255,10 @@ function AssistantPage() {
       return;
     }
     if (!chunkSummaries.some((chunk) => chunk.chunkId === activeChunkId)) {
-      setActiveChunkId(null);
+      setAssistantWorkflow({ activeChunkId: null });
       setAutoPlayRequest(null);
     }
-  }, [activeChunkId, chunkSummaries]);
+  }, [activeChunkId, chunkSummaries, setAssistantWorkflow]);
 
   const activeChunk = useMemo(
     () => chunkSummaries.find((chunk) => chunk.chunkId === activeChunkId) ?? null,
@@ -319,7 +286,7 @@ function AssistantPage() {
   const cloudStatusMeta = getCloudStatusMeta(cloudStatus);
   const llmStatusMeta = LLM_API_STATUS_META[llmStatus];
   const reportsReady =
-    hasTriggeredGenerationRef.current &&
+    hasTriggeredGeneration &&
     llmStatus === "done" &&
     Boolean(results.cri && results.cro && results.crs);
   const cloudBusy = cloudStatus === "preprocessing" || cloudStatus === "uploading" || cloudStatus === "transcribing";
@@ -339,7 +306,7 @@ function AssistantPage() {
     !reportsReady &&
     !hasError &&
     !isDiarizationReviewPending &&
-    (cloudBusy || llmBusy || isTranscribing || hasTriggeredTranscriptionRef.current || hasTriggeredGenerationRef.current);
+    (cloudBusy || llmBusy || isTranscribing || hasTriggeredTranscription || hasTriggeredGeneration);
   const progressValue = reportsReady
     ? 1
     : isDiarizationReviewPending
@@ -365,7 +332,7 @@ function AssistantPage() {
           ? llmStatusMeta.label
         : isWaitingForReports
             ? "Préparation des comptes rendus"
-          : cloudBusy || hasTriggeredTranscriptionRef.current
+          : cloudBusy || hasTriggeredTranscription
             ? cloudStatusMeta.label
             : isWaitingForChoice
               ? "Choix de la diarisation"
@@ -391,7 +358,7 @@ function AssistantPage() {
         ? llmApiStatusDetail || "Les comptes rendus sont en cours de génération."
         : isWaitingForReports
           ? "La transcription est terminée. Demeter prépare les trois comptes rendus."
-        : cloudBusy || hasTriggeredTranscriptionRef.current
+        : cloudBusy || hasTriggeredTranscription
           ? cloudStatusDetail || "La transcription cloud est en cours."
           : isWaitingForChoice
             ? "Choisissez si vous voulez voir les morceaux audio et relire les intervenants."
@@ -405,40 +372,42 @@ function AssistantPage() {
   const isImportCollapsed = Boolean(selectedFile) && (isProcessing || isDiarizationReviewPending || reportsReady);
 
   const handleOpenChunk = useCallback((chunkId: string) => {
-    setActiveChunkId(chunkId);
+    setAssistantWorkflow({ activeChunkId: chunkId });
     setAutoPlayRequest(null);
-  }, []);
+  }, [setAssistantWorkflow]);
 
   const handlePlayChunk = useCallback((chunkId: string) => {
     autoPlayRequestCounterRef.current += 1;
-    setActiveChunkId(chunkId);
+    setAssistantWorkflow({ activeChunkId: chunkId });
     setAutoPlayRequest({ chunkId, requestId: autoPlayRequestCounterRef.current });
-  }, []);
+  }, [setAssistantWorkflow]);
 
   const handleCloseChunk = useCallback(() => {
-    setActiveChunkId(null);
+    setAssistantWorkflow({ activeChunkId: null });
     setAutoPlayRequest(null);
-  }, []);
+  }, [setAssistantWorkflow]);
 
   const handleAutoPlayRequestConsumed = useCallback(() => {
     setAutoPlayRequest(null);
   }, []);
 
   const handleContinueAfterTranscriptReview = useCallback(() => {
-    if (!selectedFile || diarizationChoice !== true || !isDiarizationReviewPending || hasTriggeredGenerationRef.current) {
+    if (!selectedFile || diarizationChoice !== true || !isDiarizationReviewPending || hasTriggeredGeneration) {
       return;
     }
 
     logger.info("[assistant][ui] transcript review confirmed, starting report generation", {
       fileName: selectedFile.name,
     });
-    setHasConfirmedDiarizationReview(true);
-    setActiveChunkId(null);
+    setAssistantWorkflow({
+      hasConfirmedDiarizationReview: true,
+      activeChunkId: null,
+      hasTriggeredGeneration: true,
+    });
     setAutoPlayRequest(null);
     setWaitingJokeIndex(0);
-    hasTriggeredGenerationRef.current = true;
     void generateAll({ source: "transcription", transcriptMode: "cloud" });
-  }, [diarizationChoice, generateAll, isDiarizationReviewPending, selectedFile]);
+  }, [diarizationChoice, generateAll, hasTriggeredGeneration, isDiarizationReviewPending, selectedFile, setAssistantWorkflow]);
 
   const handleTranscriptDownload = useCallback(async () => {
     if (!selectedFile || isTranscriptExporting) {
@@ -476,14 +445,10 @@ function AssistantPage() {
 
     logger.info("[assistant][ui] workflow reset requested");
     setIsResettingWorkflow(true);
-    hasTriggeredTranscriptionRef.current = false;
-    hasTriggeredGenerationRef.current = false;
-    setActiveChunkId(null);
+    resetAssistantWorkflow();
     setAutoPlayRequest(null);
-    setDiarizationChoice(null);
     setWaitingJokeOrder([]);
     setWaitingJokeIndex(0);
-    setHasConfirmedDiarizationReview(false);
     resetLlmApiSession();
 
     try {
@@ -491,7 +456,7 @@ function AssistantPage() {
     } finally {
       setIsResettingWorkflow(false);
     }
-  }, [isProcessing, isResettingWorkflow, resetLlmApiSession, resetTranscriptionSession, selectedFile]);
+  }, [isProcessing, isResettingWorkflow, resetAssistantWorkflow, resetLlmApiSession, resetTranscriptionSession, selectedFile]);
 
   const handleOpenResetConfirmation = useCallback(() => {
     if (!showResetWorkflowAction) {
@@ -785,7 +750,7 @@ function AssistantPage() {
               <WorkflowStep
                 label="Comptes rendus"
                 done={reportsReady}
-                active={llmBusy || (cloudStatus === "done" && hasTriggeredTranscriptionRef.current && !hasReportDownloads)}
+                active={llmBusy || (cloudStatus === "done" && hasTriggeredTranscription && !hasReportDownloads)}
               />
             </div>
 

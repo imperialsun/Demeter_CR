@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 
 import AssistantPage from "./AssistantPage";
 import { ASSISTANT_JOKES, buildRandomJokeOrder } from "./assistantPageContent";
@@ -26,6 +27,9 @@ const pageHooks = vi.hoisted(() => ({
       forceDemeterBackendDirect?: boolean;
     } | undefined
   ]>,
+  llmHookCalls: [] as Array<{
+    providerOverride?: "huggingface" | "mistral" | "demeter_sante";
+  } | undefined>,
 }));
 
 vi.mock("@/components/audio/AudioUploader", () => ({
@@ -71,7 +75,12 @@ vi.mock("@/hooks/useCloudTranscription", () => ({
 }));
 
 vi.mock("@/hooks/useLlmReports", () => ({
-  useLlmReports: () => pageHooks.llmState,
+  useLlmReports: (options?: {
+    providerOverride?: "huggingface" | "mistral" | "demeter_sante";
+  }) => {
+    pageHooks.llmHookCalls.push(options);
+    return pageHooks.llmState;
+  },
 }));
 
 vi.mock("@/lib/docx/transcriptDocx", () => ({
@@ -167,12 +176,34 @@ function resetMutableObject(target: Record<string, unknown>) {
   }
 }
 
+function NavigationHarness() {
+  const navigate = useNavigate();
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2">
+        <button type="button" onClick={() => navigate("/assistant")}>
+          Assistant
+        </button>
+        <button type="button" onClick={() => navigate("/settings")}>
+          Réglages
+        </button>
+      </div>
+      <Routes>
+        <Route path="/assistant" element={<AssistantPage />} />
+        <Route path="/settings" element={<div data-testid="settings-page">Settings</div>} />
+      </Routes>
+    </div>
+  );
+}
+
 describe("AssistantPage", () => {
   beforeEach(() => {
     useAsrStore.getState().resetApp();
     resetMutableObject(pageHooks.cloudState);
     resetMutableObject(pageHooks.llmState);
     pageHooks.cloudHookCalls.length = 0;
+    pageHooks.llmHookCalls.length = 0;
     transcriptDocxMocks.buildTranscriptDocx.mockClear();
     transcriptDocxMocks.downloadDocxBlob.mockClear();
     transcriptDocxMocks.formatTranscriptDocxFilename.mockClear();
@@ -217,6 +248,125 @@ describe("AssistantPage", () => {
     const [provider, options] = pageHooks.cloudHookCalls[0] ?? [];
     expect(provider).toBe("demeter_sante");
     expect(options).toEqual(expect.objectContaining({ forceDemeterBackendDirect: true }));
+    expect(pageHooks.llmHookCalls[0]).toEqual(expect.objectContaining({ providerOverride: "demeter_sante" }));
+  });
+
+  it("preserves the assistant workflow and open chunk panel across settings navigation", async () => {
+    const segments: TranscriptionSegment[] = [
+      {
+        index: 0,
+        start: 0,
+        end: 4,
+        text: "Bonjour",
+        speaker: "SPEAKER_00",
+        speakerLabel: "Dupont Alice",
+        chunkId: "assistant-1",
+        strategy: "chunks",
+      },
+      {
+        index: 1,
+        start: 4,
+        end: 8,
+        text: "Suite",
+        speaker: "SPEAKER_01",
+        speakerLabel: "Martin Jean",
+        chunkId: "assistant-1",
+        strategy: "chunks",
+      },
+    ];
+    const chunkSummaries = groupCloudTranscriptionSegments(segments);
+    const loadChunkSegments = vi.fn(async (chunkId: string) => segments.filter((segment) => segment.chunkId === chunkId));
+
+    Object.assign(
+      pageHooks.cloudState,
+      createCloudHookValue({
+        segments,
+        loadChunkSegments,
+        handleFileSelected: vi.fn(async (file: File) => {
+          pageHooks.cloudState.selectedFile = file;
+          pageHooks.cloudState.audioMetadata = {
+            name: file.name,
+            durationSec: 8,
+            sizeBytes: file.size,
+            mimeType: file.type,
+            sampleRate: 16000,
+          } satisfies AudioMetadata;
+          pageHooks.cloudState.status = "idle";
+          pageHooks.cloudState.statusDetail = "Fichier chargé, prêt à lancer";
+        }),
+        startTranscription: vi.fn(async () => {
+          pageHooks.cloudState.isTranscribing = true;
+          pageHooks.cloudState.status = "transcribing";
+          pageHooks.cloudState.statusDetail = "Transcription cloud";
+        }),
+        resetTranscriptionSession: vi.fn(),
+      })
+    );
+    Object.assign(
+      pageHooks.llmState,
+      createLlmHookValue({
+        status: "idle",
+        progress: 0,
+      })
+    );
+    useAsrStore.setState({
+      assistantWorkflow: {
+        diarizationChoice: null,
+        hasTriggeredTranscription: false,
+        hasTriggeredGeneration: false,
+        hasConfirmedDiarizationReview: false,
+        activeChunkId: null,
+      },
+    } as never);
+
+    const user = userEvent.setup();
+    renderWithStore(
+      <MemoryRouter initialEntries={["/assistant"]}>
+        <NavigationHarness />
+      </MemoryRouter>
+    );
+
+    await user.click(screen.getByRole("button", { name: "Importer" }));
+    await waitFor(() => {
+      expect(pageHooks.cloudState.handleFileSelected).toHaveBeenCalledTimes(1);
+    });
+
+    await user.click(screen.getByRole("button", { name: /Oui, avec morceaux/i }));
+    await waitFor(() => {
+      expect(pageHooks.cloudState.startTranscription).toHaveBeenCalledTimes(1);
+    });
+
+    useAsrStore.setState({
+      assistantWorkflow: {
+        diarizationChoice: true,
+        hasTriggeredTranscription: true,
+        hasTriggeredGeneration: false,
+        hasConfirmedDiarizationReview: false,
+        activeChunkId: "assistant-1",
+      },
+    } as never);
+    pageHooks.cloudState.status = "done";
+    pageHooks.cloudState.statusDetail = "Transcription terminée";
+    pageHooks.cloudState.isTranscribing = false;
+    pageHooks.cloudState.progress = 1;
+    pageHooks.cloudState.chunkSummaries = chunkSummaries;
+
+    await waitFor(() => {
+      expect(screen.getByTestId("assistant-chunk-list")).toBeInTheDocument();
+      expect(screen.getByTestId("cloud-chunk-details-assistant-1")).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: "Réglages" }));
+    expect(screen.getByTestId("settings-page")).toBeInTheDocument();
+    expect(pageHooks.cloudState.resetTranscriptionSession).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Assistant" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("assistant-chunk-list")).toBeInTheDocument();
+      expect(screen.getByTestId("cloud-chunk-details-assistant-1")).toBeInTheDocument();
+    });
+    expect(useAsrStore.getState().assistantWorkflow.activeChunkId).toBe("assistant-1");
   });
 
   it("builds a shuffled joke order from an injected RNG", () => {
