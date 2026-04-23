@@ -76,7 +76,6 @@ export type DemeterBackendTranscriptionOperationResponse = {
   chunkIndex?: number;
   chunkCount?: number;
   progress?: number;
-  partialText?: string;
   lastError?: string;
   updatedAt?: string;
   finishedAt?: string;
