@@ -872,6 +872,52 @@ describe("useCloudTranscription", () => {
     );
   });
 
+  it("builds a transcript memory from backend direct demeter text responses without chunks", async () => {
+    mocks.transcribeWithDemeterSante.mockResolvedValueOnce({
+      text: "Compte rendu source sans diarisation",
+      duration: 14,
+      chunks: [],
+    });
+
+    let api!: ReturnType<typeof useCloudTranscription>;
+    render(
+      <HookHarness
+        provider="demeter_sante"
+        options={{ forceDemeterBackendDirect: true }}
+        onReady={(value) => (api = value)}
+      />
+    );
+    const file = new File(["a"], "assistant-simple.wav", { type: "audio/wav" });
+
+    await act(async () => {
+      await api.handleFileSelected(file);
+    });
+    await act(async () => {
+      await api.startTranscription();
+    });
+
+    await waitFor(() => {
+      expect(api.status).toBe("done");
+    });
+
+    const exportedSegments = await api.loadAllSegmentsForExport();
+    expect(exportedSegments).toEqual([
+      expect.objectContaining({
+        index: 0,
+        start: 0,
+        end: 14,
+        text: "Compte rendu source sans diarisation",
+        chunkId: "demeter-backend-direct",
+      }),
+    ]);
+    expect(useAsrStore.getState().sessionTranscriptMemories.cloud).toEqual(
+      expect.objectContaining({
+        transcriptText: "Compte rendu source sans diarisation",
+        segmentCount: 1,
+      })
+    );
+  });
+
   it("routes long demeter audio directly to the backend without local staging", async () => {
     mocks.probeAudioMetadata.mockResolvedValueOnce({ durationSec: 7201, sampleRate: 16000 });
 

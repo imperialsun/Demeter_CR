@@ -264,6 +264,23 @@ describe("logger", () => {
     });
   });
 
+  it("clears in-memory and cached log entries", async () => {
+    const { info, exportLogEntries, clearLogEntries, setLogLevelProvider } = await import("./logger");
+    setLogLevelProvider(() => "error");
+
+    for (let i = 0; i < 2005; i += 1) {
+      info(`log ${i}`);
+    }
+
+    expect(exportLogEntries()).toHaveLength(2005);
+    expect(localStorage.getItem(LOG_CACHE_KEY)).not.toBeNull();
+
+    clearLogEntries();
+
+    expect(exportLogEntries()).toEqual([]);
+    expect(localStorage.getItem(LOG_CACHE_KEY)).toBeNull();
+  });
+
   it("builds a telemetry summary from buffered logs", async () => {
     const { debug, exportLogsAsTelemetrySummary, setLogLevelProvider } = await import("./logger");
     setLogLevelProvider(() => "debug");

@@ -84,7 +84,7 @@ function logSnapshot(next: DocumentVisibilitySnapshot) {
   }
 
   if (next.hidden) {
-    logger.warn("[visibility] hidden", payload);
+    logger.info("[visibility] hidden", payload);
     return;
   }
 

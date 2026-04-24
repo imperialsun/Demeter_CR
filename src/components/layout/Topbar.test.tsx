@@ -110,6 +110,7 @@ vi.mock('@/lib/logger', () => ({
       persistenceStatus: 'complete',
     },
   })),
+  clearLogEntries: vi.fn(),
 }));
 
 vi.mock('@/lib/env', () => ({
@@ -200,6 +201,7 @@ describe('Topbar', () => {
     runtimeConfigMocks.isBackendMode.mockReturnValue(false);
     vi.mocked(logger.exportLogEntries).mockReset();
     vi.mocked(logger.exportLogEntries).mockReturnValue([]);
+    vi.mocked(logger.clearLogEntries).mockReset();
     window.localStorage.removeItem(BACKEND_AUTH_KEY);
     window.localStorage.removeItem(BACKEND_SESSION_KEY);
     // reset store defaults used by Topbar
@@ -461,6 +463,122 @@ describe('Topbar', () => {
     expect(screen.getByText("Deprecated API call")).toBeInTheDocument();
     expect(screen.getByText("Logger")).toBeInTheDocument();
     expect(screen.getByText("Console")).toBeInTheDocument();
+  });
+
+  it("filters telemetry console logs by the selected topbar level", async () => {
+    const user = userEvent.setup();
+    const entries = [
+      {
+        timestamp: "2026-04-22T08:15:30.123Z",
+        level: "error" as const,
+        origin: "logger" as const,
+        scopes: [],
+        message: "visible error",
+        rawArgs: ["visible error"],
+      },
+      {
+        timestamp: "2026-04-22T08:15:31.456Z",
+        level: "warn" as const,
+        origin: "console" as const,
+        scopes: [],
+        message: "visible warning",
+        rawArgs: ["visible warning"],
+      },
+      {
+        timestamp: "2026-04-22T08:15:32.789Z",
+        level: "info" as const,
+        origin: "logger" as const,
+        scopes: [],
+        message: "hidden info",
+        rawArgs: ["hidden info"],
+      },
+      {
+        timestamp: "2026-04-22T08:15:33.000Z",
+        level: "debug" as const,
+        origin: "logger" as const,
+        scopes: [],
+        message: "hidden debug",
+        rawArgs: ["hidden debug"],
+      },
+    ];
+    useAsrStore.setState({ logLevel: "warn" } as any);
+    vi.mocked(logger.exportLogEntries).mockReturnValue(entries);
+
+    render(<Topbar />);
+
+    await user.click(screen.getByLabelText("Afficher les logs console"));
+
+    expect(await screen.findByText("visible error")).toBeInTheDocument();
+    expect(screen.getByText("visible warning")).toBeInTheDocument();
+    expect(screen.queryByText("hidden info")).toBeNull();
+    expect(screen.queryByText("hidden debug")).toBeNull();
+    expect(screen.getByText("2 logs")).toBeInTheDocument();
+  });
+
+  it("updates telemetry console filtering when the topbar log level changes", async () => {
+    const user = userEvent.setup();
+    const entries = [
+      {
+        timestamp: "2026-04-22T08:15:30.123Z",
+        level: "warn" as const,
+        origin: "logger" as const,
+        scopes: [],
+        message: "visible warning",
+        rawArgs: ["visible warning"],
+      },
+      {
+        timestamp: "2026-04-22T08:15:31.456Z",
+        level: "debug" as const,
+        origin: "logger" as const,
+        scopes: [],
+        message: "debug after selection",
+        rawArgs: ["debug after selection"],
+      },
+    ];
+    useAsrStore.setState({ logLevel: "warn" } as any);
+    vi.mocked(logger.exportLogEntries).mockReturnValue(entries);
+
+    render(<Topbar />);
+
+    await user.click(screen.getByLabelText("Afficher les logs console"));
+    expect(await screen.findByText("visible warning")).toBeInTheDocument();
+    expect(screen.queryByText("debug after selection")).toBeNull();
+
+    await user.click(screen.getByLabelText("Actions de logs"));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Debug" }));
+
+    expect(await screen.findByText("debug after selection")).toBeInTheDocument();
+    expect(screen.getByText("2 logs")).toBeInTheDocument();
+  });
+
+  it("resets the telemetry console buffer from the panel", async () => {
+    const user = userEvent.setup();
+    const entries = [
+      {
+        timestamp: "2026-04-22T08:15:30.123Z",
+        level: "info" as const,
+        origin: "logger" as const,
+        scopes: [],
+        message: "log before reset",
+        rawArgs: ["log before reset"],
+      },
+    ];
+    vi.mocked(logger.exportLogEntries).mockReturnValue(entries);
+    vi.mocked(logger.clearLogEntries).mockImplementation(() => {
+      vi.mocked(logger.exportLogEntries).mockReturnValue([]);
+    });
+
+    render(<Topbar />);
+
+    await user.click(screen.getByLabelText("Afficher les logs console"));
+    expect(await screen.findByText("log before reset")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Réinitialiser les logs console" }));
+
+    expect(logger.clearLogEntries).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("log before reset")).toBeNull();
+    expect(screen.getByText("Aucun log capturé pour le moment.")).toBeInTheDocument();
+    expect(screen.getByText("0 logs")).toBeInTheDocument();
   });
 
   it("opens the logs menu and reflects the selected level", async () => {

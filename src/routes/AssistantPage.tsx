@@ -21,6 +21,8 @@ import { buildTranscriptDocx, downloadDocxBlob, formatTranscriptDocxFilename } f
 import { isBackendMode } from "@/lib/runtime-config";
 import { LLM_API_STATUS_META } from "@/lib/llm/llmStatusMeta";
 import { buildReportFormatDescription, buildReportFormatLabel } from "@/lib/llm/reportPrompts";
+import { getSessionTranscriptText } from "@/lib/sessionTranscriptMemory";
+import { buildSpeakerAwareTranscriptText } from "@/lib/speakerAssignments";
 import { useAsrStore } from "@/store/asr-store";
 import logger from "@/lib/logger";
 import { cn } from "@/lib/utils";
@@ -47,6 +49,13 @@ const REPORT_FORMATS = [
     description: buildReportFormatDescription("CRS"),
   },
 ];
+
+const REPORT_INPUT_RETRY_COUNT = 20;
+const REPORT_INPUT_RETRY_DELAY_MS = 250;
+
+function waitForReportInputRetry() {
+  return new Promise((resolve) => window.setTimeout(resolve, REPORT_INPUT_RETRY_DELAY_MS));
+}
 
 function WorkflowResetButton({
   position,
@@ -87,6 +96,7 @@ function AssistantPage() {
   const assistantWorkflow = useAsrStore((state) => state.assistantWorkflow);
   const setAssistantWorkflow = useAsrStore((state) => state.setAssistantWorkflow);
   const resetAssistantWorkflow = useAsrStore((state) => state.resetAssistantWorkflow);
+  const cloudSpeakerAssignments = useAsrStore((state) => state.speakerAssignments.cloud);
 
   const {
     selectedFile,
@@ -208,6 +218,31 @@ function AssistantPage() {
     maybeStartTranscription();
   }, [maybeStartTranscription]);
 
+  const buildAssistantReportInput = useCallback(async () => {
+    for (let attempt = 0; attempt <= REPORT_INPUT_RETRY_COUNT; attempt += 1) {
+      const segments = await loadAllSegmentsForExport();
+      const transcriptText = buildSpeakerAwareTranscriptText(segments, cloudSpeakerAssignments, "cloud").trim();
+      if (transcriptText) {
+        return { source: "text" as const, text: transcriptText };
+      }
+
+      const memoryText = getSessionTranscriptText(useAsrStore.getState().sessionTranscriptMemories.cloud).trim();
+      if (memoryText) {
+        logger.warn("[assistant][ui] no exportable transcript segments before report generation, using session memory text", {
+          attempt,
+          textLength: memoryText.length,
+        });
+        return { source: "text" as const, text: memoryText };
+      }
+
+      if (attempt < REPORT_INPUT_RETRY_COUNT) {
+        await waitForReportInputRetry();
+      }
+    }
+
+    throw new Error("La transcription n'est pas encore disponible pour générer les comptes rendus.");
+  }, [cloudSpeakerAssignments, loadAllSegmentsForExport]);
+
   const maybeStartGeneration = useCallback(() => {
     if (!selectedFile || diarizationChoice === null) {
       return;
@@ -227,8 +262,31 @@ function AssistantPage() {
       fileName: selectedFile.name,
       diarization: diarizationChoice,
     });
-    void generateAll({ source: "transcription", transcriptMode: "cloud" });
-  }, [cloudStatus, diarizationChoice, generateAll, hasTriggeredGeneration, hasTriggeredTranscription, llmStatus, selectedFile, setAssistantWorkflow]);
+    void (async () => {
+      try {
+        const input = await buildAssistantReportInput();
+        await generateAll(input);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error("[assistant][ui] auto report generation failed before LLM run", {
+          fileName: selectedFile.name,
+          message,
+        });
+        useAsrStore.getState().setLlmApiStatus("error", message);
+        setAssistantWorkflow({ hasTriggeredGeneration: false });
+      }
+    })();
+  }, [
+    buildAssistantReportInput,
+    cloudStatus,
+    diarizationChoice,
+    generateAll,
+    hasTriggeredGeneration,
+    hasTriggeredTranscription,
+    llmStatus,
+    selectedFile,
+    setAssistantWorkflow,
+  ]);
 
   useEffect(() => {
     maybeStartGeneration();
@@ -410,8 +468,29 @@ function AssistantPage() {
     });
     setAutoPlayRequest(null);
     setWaitingJokeIndex(0);
-    void generateAll({ source: "transcription", transcriptMode: "cloud" });
-  }, [diarizationChoice, generateAll, hasTriggeredGeneration, isDiarizationReviewPending, selectedFile, setAssistantWorkflow]);
+    void (async () => {
+      try {
+        const input = await buildAssistantReportInput();
+        await generateAll(input);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error("[assistant][ui] reviewed report generation failed before LLM run", {
+          fileName: selectedFile.name,
+          message,
+        });
+        useAsrStore.getState().setLlmApiStatus("error", message);
+        setAssistantWorkflow({ hasTriggeredGeneration: false });
+      }
+    })();
+  }, [
+    buildAssistantReportInput,
+    diarizationChoice,
+    generateAll,
+    hasTriggeredGeneration,
+    isDiarizationReviewPending,
+    selectedFile,
+    setAssistantWorkflow,
+  ]);
 
   const handleTranscriptDownload = useCallback(async () => {
     if (!selectedFile || isTranscriptExporting) {

@@ -693,6 +693,7 @@ export function Topbar() {
         {canOpenConsoleLogs && consoleLogsOpen ? (
           <TopbarConsoleLogsPanel
             open={consoleLogsOpen}
+            logLevel={logLevel}
             onClose={() => {
               setConsoleLogsOpen(false);
             }}

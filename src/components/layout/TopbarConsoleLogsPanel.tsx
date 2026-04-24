@@ -3,8 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { exportLogEntries, type LogEntry } from "@/lib/logger";
-import { Monitor, X } from "lucide-react";
+import { clearLogEntries, exportLogEntries, type LogEntry, type LogLevel } from "@/lib/logger";
+import { Monitor, RotateCcw, X } from "lucide-react";
 
 const REFRESH_INTERVAL_MS = 500;
 const MAX_VISIBLE_LOGS = 80;
@@ -24,8 +24,16 @@ const ORIGIN_LABELS: Record<LogEntry["origin"], string> = {
   unhandledrejection: "Rejet non géré",
 };
 
+const LOG_LEVEL_ORDER: Record<LogLevel, number> = {
+  error: 0,
+  warn: 1,
+  info: 2,
+  debug: 3,
+};
+
 interface TopbarConsoleLogsPanelProps {
   open: boolean;
+  logLevel: LogLevel;
   onClose: () => void;
 }
 
@@ -53,7 +61,11 @@ function sameEntries(previous: LogEntry[], next: LogEntry[]) {
   return previous.every((entry, index) => entry === next[index]);
 }
 
-export function TopbarConsoleLogsPanel({ open, onClose }: TopbarConsoleLogsPanelProps) {
+function isEntryVisibleAtLevel(entry: LogEntry, logLevel: LogLevel) {
+  return LOG_LEVEL_ORDER[entry.level] <= LOG_LEVEL_ORDER[logLevel];
+}
+
+export function TopbarConsoleLogsPanel({ open, logLevel, onClose }: TopbarConsoleLogsPanelProps) {
   const [entries, setEntries] = useState<LogEntry[]>(() => exportLogEntries());
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const followBottomRef = useRef(true);
@@ -90,11 +102,18 @@ export function TopbarConsoleLogsPanel({ open, onClose }: TopbarConsoleLogsPanel
     viewport.scrollTop = viewport.scrollHeight;
   }, [entries, open]);
 
+  const handleReset = () => {
+    clearLogEntries();
+    followBottomRef.current = true;
+    setEntries(exportLogEntries());
+  };
+
   if (!open) {
     return null;
   }
 
-  const visibleEntries = entries.slice(-MAX_VISIBLE_LOGS);
+  const filteredEntries = entries.filter((entry) => isEntryVisibleAtLevel(entry, logLevel));
+  const visibleEntries = filteredEntries.slice(-MAX_VISIBLE_LOGS);
 
   return (
     <section
@@ -112,10 +131,10 @@ export function TopbarConsoleLogsPanel({ open, onClose }: TopbarConsoleLogsPanel
               Logs console
             </Badge>
             <Badge variant="secondary" className="text-xs">
-              {entries.length} logs
+              {filteredEntries.length} logs
             </Badge>
             <Badge variant="outline" className="border-border/60 bg-background/70 text-xs text-foreground">
-              Derniers {Math.min(entries.length, MAX_VISIBLE_LOGS)}
+              Derniers {Math.min(filteredEntries.length, MAX_VISIBLE_LOGS)}
             </Badge>
           </div>
           <p className="text-xs text-muted-foreground">
@@ -123,10 +142,16 @@ export function TopbarConsoleLogsPanel({ open, onClose }: TopbarConsoleLogsPanel
           </p>
         </div>
 
-        <Button variant="ghost" size="sm" className="gap-2" onClick={onClose} aria-label="Masquer les logs console">
-          <X className="h-4 w-4" />
-          Fermer
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" className="gap-2" onClick={handleReset} aria-label="Réinitialiser les logs console">
+            <RotateCcw className="h-4 w-4" />
+            Reset
+          </Button>
+          <Button variant="ghost" size="sm" className="gap-2" onClick={onClose} aria-label="Masquer les logs console">
+            <X className="h-4 w-4" />
+            Fermer
+          </Button>
+        </div>
       </div>
 
       <div

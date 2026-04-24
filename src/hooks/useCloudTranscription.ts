@@ -2431,6 +2431,32 @@ function buildDemeterBackendChunkBatch(
 ): DemeterBackendChunkBatch {
   const rawChunks = Array.isArray(response?.chunks) ? response?.chunks : [];
   if (!rawChunks.length) {
+    const fallbackText = normalizeChunkText(response?.text);
+    if (fallbackText) {
+      const chunkId = normalizeChunkId(options.fallbackChunkId) ?? "demeter-backend-direct";
+      const duration = toFiniteNumber(response?.duration) ?? 0;
+      const words = options.includeWordTimestamps ? buildDemeterBackendWordSegments(response?.words) : undefined;
+      return {
+        groups: [
+          {
+            chunkId,
+            segments: [
+              {
+                index: options.startSegmentIndex,
+                start: 0,
+                end: Math.max(0, duration),
+                text: fallbackText,
+                chunkId,
+                strategy: "chunks",
+                words,
+              },
+            ],
+          },
+        ],
+        nextSegmentIndex: options.startSegmentIndex + 1,
+      };
+    }
+
     return {
       groups: [],
       nextSegmentIndex: options.startSegmentIndex,

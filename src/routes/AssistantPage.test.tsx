@@ -118,7 +118,9 @@ type LlmHookValue = {
     cro?: unknown;
     crs?: unknown;
   };
-  generateAll: (input: { source: "transcription"; transcriptMode: "cloud" }) => Promise<void>;
+  generateAll: (
+    input: { source: "transcription"; transcriptMode: "cloud" } | { source: "text"; text: string }
+  ) => Promise<void>;
   downloadDocx: (format: "cri" | "cro" | "crs") => Promise<void>;
 };
 
@@ -606,6 +608,10 @@ describe("AssistantPage", () => {
     await waitFor(() => {
       expect(pageHooks.llmState.generateAll).toHaveBeenCalledTimes(1);
     });
+    expect(pageHooks.llmState.generateAll).toHaveBeenCalledWith({
+      source: "text",
+      text: "Dupont Alice: Bonjour\nMartin Jean: Suite\nDupont Alice: Encore",
+    });
 
     rerender(<AssistantPage />);
 
@@ -630,7 +636,7 @@ describe("AssistantPage", () => {
     );
 
     await waitFor(() => {
-      expect(pageHooks.cloudState.loadAllSegmentsForExport).toHaveBeenCalledTimes(1);
+      expect(pageHooks.cloudState.loadAllSegmentsForExport).toHaveBeenCalledTimes(2);
       expect(transcriptDocxMocks.buildTranscriptDocx).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({ speakerLabel: "Dupont Alice" }),
@@ -778,6 +784,10 @@ describe("AssistantPage", () => {
     await waitFor(() => {
       expect(pageHooks.llmState.generateAll).toHaveBeenCalledTimes(1);
     });
+    expect(pageHooks.llmState.generateAll).toHaveBeenCalledWith({
+      source: "text",
+      text: "SPEAKER_00: Bonjour",
+    });
 
     pageHooks.llmState.status = "done";
     pageHooks.llmState.progress = 1;
@@ -796,5 +806,69 @@ describe("AssistantPage", () => {
     expect(screen.getByTestId("assistant-reset-workflow-top")).toBeInTheDocument();
     expect(screen.getByTestId("assistant-reset-workflow-bottom")).toBeInTheDocument();
     expect(screen.queryByTestId("assistant-chunk-list")).toBeNull();
+  });
+
+  it("uses fresh session transcript memory when assistant segments are not exportable yet", async () => {
+    const file = new File(["audio"], "assistant-session.wav", { type: "audio/wav" });
+    const audioMetadata = {
+      name: "assistant-session.wav",
+      durationSec: 5,
+      sizeBytes: file.size,
+      mimeType: file.type,
+      sampleRate: 16000,
+    } satisfies AudioMetadata;
+
+    Object.assign(
+      pageHooks.cloudState,
+      createCloudHookValue({
+        selectedFile: file,
+        audioMetadata,
+        status: "done",
+        statusDetail: "Transcription terminée",
+        progress: 1,
+        loadAllSegmentsForExport: vi.fn(async () => []),
+      })
+    );
+    Object.assign(
+      pageHooks.llmState,
+      createLlmHookValue({
+        generateAll: vi.fn(async () => {
+          pageHooks.llmState.status = "preparing";
+        }),
+      })
+    );
+    useAsrStore.setState({
+      assistantWorkflow: {
+        diarizationChoice: false,
+        hasTriggeredTranscription: true,
+        hasTriggeredGeneration: false,
+        hasConfirmedDiarizationReview: false,
+        activeChunkId: null,
+      },
+      sessionTranscriptMemories: {
+        ...useAsrStore.getState().sessionTranscriptMemories,
+        cloud: {
+          mode: "cloud",
+          provider: "demeter_sante",
+          label: "Cloud Demeter Santé · assistant-session.wav",
+          transcriptText: "Texte mémoire disponible",
+          segmentCount: 1,
+          audioSource: { id: "demeter_sante:assistant-session.wav:5", label: "assistant-session.wav", type: "file" },
+          audioMetadata,
+          updatedAt: "2026-04-24T10:00:00.000Z",
+        },
+      },
+    } as never);
+
+    renderWithStore(<AssistantPage />);
+
+    await waitFor(() => {
+      expect(pageHooks.llmState.generateAll).toHaveBeenCalledTimes(1);
+    });
+    expect(pageHooks.cloudState.loadAllSegmentsForExport).toHaveBeenCalled();
+    expect(pageHooks.llmState.generateAll).toHaveBeenCalledWith({
+      source: "text",
+      text: "Texte mémoire disponible",
+    });
   });
 });

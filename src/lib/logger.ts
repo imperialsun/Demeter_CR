@@ -662,6 +662,22 @@ export function exportLogEntries() {
   return [...ensureCachedMemoLoaded(), ...logBuffer];
 }
 
+export function clearLogEntries() {
+  logBuffer.splice(0, logBuffer.length);
+  cachedLogsMemo = [];
+  cachePending = [];
+  cacheFlushScheduled = false;
+
+  const storage = getStorage();
+  if (!storage) return;
+
+  try {
+    storage.removeItem(LOG_CACHE_KEY);
+  } catch {
+    cacheWriteFailures += 1;
+  }
+}
+
 function buildCountMap<T extends string>(entries: LogEntry[], key: (entry: LogEntry) => T, values: readonly T[]) {
   const counts = Object.fromEntries(values.map((value) => [value, 0])) as Record<T, number>;
   for (const entry of entries) {
@@ -786,6 +802,7 @@ export default {
   initializeLogCapture,
   getLogCaptureDiagnostics,
   exportDiagnosticLogBundle,
+  clearLogEntries,
   resolveBootstrapLogLevel,
   setTelemetryProvider,
 };
