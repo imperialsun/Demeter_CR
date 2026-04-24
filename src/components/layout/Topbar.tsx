@@ -301,6 +301,7 @@ export function Topbar() {
     status === "stopping" ||
     cloudStatus === "preprocessing" ||
     cloudStatus === "uploading" ||
+    cloudStatus === "queued" ||
     cloudStatus === "transcribing" ||
     cloudStatus === "stopping" ||
     llmApiStatus === "preparing" ||

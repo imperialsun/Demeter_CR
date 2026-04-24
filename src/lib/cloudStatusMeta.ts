@@ -11,6 +11,7 @@ export const CLOUD_STATUS_META: Record<CloudTranscriptionStatus, CloudStatusMeta
   idle: { label: "En attente", variant: "secondary" },
   preprocessing: { label: "Préparation", variant: "warning" },
   uploading: { label: "Envoi cloud", variant: "warning" },
+  queued: { label: "File d'attente", variant: "warning" },
   transcribing: { label: "Transcription cloud", variant: "default" },
   stopping: { label: "Arrêt", variant: "secondary" },
   done: { label: "Terminé", variant: "success" },
@@ -25,6 +26,7 @@ export function getCloudProgressTitleLabel(status: CloudTranscriptionStatus): st
   switch (status) {
     case "preprocessing":
     case "uploading":
+    case "queued":
     case "transcribing":
       return CLOUD_STATUS_META[status].label;
     default:

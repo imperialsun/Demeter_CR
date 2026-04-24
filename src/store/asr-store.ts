@@ -108,6 +108,7 @@ export type CloudTranscriptionStatus =
   | "idle"
   | "preprocessing"
   | "uploading"
+  | "queued"
   | "transcribing"
   | "stopping"
   | "done"

@@ -59,6 +59,7 @@ import {
   replaceCloudTranscriptChunkSegments,
   updateCloudTranscriptSegment,
 } from "@/lib/cloud/cloudTranscriptCache";
+import type { CloudTranscriptionStatus } from "@/store/asr-store";
 
 type CloudTranscriptionOptions = {
   forceDemeterBackendDirect?: boolean;
@@ -121,6 +122,45 @@ function getCloudStopRequested() {
 
 function isAbortErrorLike(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "name" in error && (error as { name?: unknown }).name === "AbortError");
+}
+
+function resolveDemeterBackendOperationStatus(snapshot: DemeterBackendTranscriptionOperationResponse): {
+  status: CloudTranscriptionStatus;
+  detail: string;
+} {
+  const backendStatus = String(snapshot.status ?? "").trim().toLowerCase();
+  const backendStage = String(snapshot.stage ?? "").trim().toLowerCase();
+  const chunkIndex = Math.max(0, snapshot.chunkIndex ?? 0);
+  const chunkCount = Math.max(0, snapshot.chunkCount ?? 0);
+  if (backendStatus === "pending" || backendStage === "queued") {
+    return { status: "queued", detail: "Transcription en file d'attente" };
+  }
+  if (backendStatus === "running") {
+    return {
+      status: "transcribing",
+      detail:
+        chunkCount > 0
+          ? `Transcription Demeter · ${chunkIndex}/${chunkCount}`
+          : "Transcription Demeter en cours",
+    };
+  }
+  if (backendStatus === "completed") {
+    return { status: "done", detail: "Transcription terminée" };
+  }
+  if (backendStatus === "cancelled") {
+    return { status: "stopping", detail: "Transcription annulée" };
+  }
+  if (backendStatus === "failed") {
+    return {
+      status: "error",
+      detail: snapshot.lastError?.trim() || "La transcription a échoué",
+    };
+  }
+  return {
+    status: "transcribing",
+    detail:
+      chunkCount > 0 ? `Transcription Demeter · ${chunkIndex}/${chunkCount}` : "Transcription Demeter en cours",
+  };
 }
 
 function buildAudioReportFile(file: File, source: string): AudioErrorReportFile {
@@ -219,6 +259,46 @@ export function useCloudTranscription(
     cloudTopP,
     cloudDoSample,
   ]);
+
+  const consumeDemeterBackendOperationSnapshot = useCallback(
+    (
+      snapshot: DemeterBackendTranscriptionOperationResponse,
+      options: {
+        sourceFile: File;
+        shouldAbort: () => boolean;
+        onResponse?: (response: DemeterTranscriptionResponse, snapshot: DemeterBackendTranscriptionOperationResponse) => void;
+      }
+    ) => {
+      if (options.shouldAbort()) {
+        return;
+      }
+      const chunkIndex = Math.max(0, snapshot.chunkIndex ?? 0);
+      const chunkCount = Math.max(0, snapshot.chunkCount ?? 0);
+      const backendProgress =
+        typeof snapshot.progress === "number"
+          ? Math.max(0, Math.min(1, snapshot.progress))
+          : chunkCount > 0
+            ? Math.max(0, Math.min(1, chunkIndex / chunkCount))
+            : 0;
+      const backendStatus = resolveDemeterBackendOperationStatus(snapshot);
+      setCloudTranscriptionSession({
+        preparedUpload: {
+          provider: "demeter_sante",
+          fileName: options.sourceFile.name,
+          mimeType: options.sourceFile.type || "application/octet-stream",
+          sizeBytes: options.sourceFile.size,
+          chunkIndex,
+          totalChunks: chunkCount,
+        },
+        progress: Math.max(0.5, 0.5 + backendProgress * 0.5),
+      });
+      setCloudStatus(backendStatus.status, backendStatus.detail);
+      if (snapshot.status === "completed" && snapshot.response && options.onResponse) {
+        options.onResponse(snapshot.response, snapshot);
+      }
+    },
+    [setCloudStatus, setCloudTranscriptionSession]
+  );
 
   const resetCloudTranscriptBuffers = useCallback(() => {
     cloudTranscriptTextRef.current = "";
@@ -967,77 +1047,59 @@ export function useCloudTranscription(
     };
 
     const consumeBackendOperationSnapshot = (snapshot: DemeterBackendTranscriptionOperationResponse) => {
-      if (shouldAbort()) {
-        return;
-      }
-      const chunkIndex = Math.max(0, snapshot.chunkIndex ?? 0);
-      const chunkCount = Math.max(0, snapshot.chunkCount ?? 0);
-      const backendProgress = typeof snapshot.progress === "number"
-        ? Math.max(0, Math.min(1, snapshot.progress))
-        : chunkCount > 0
-          ? Math.max(0, Math.min(1, chunkIndex / chunkCount))
-          : 0;
-      setCloudTranscriptionSession({
-        preparedUpload: {
-          provider: "demeter_sante",
-          fileName: sourceFile.name,
-          mimeType: sourceFile.type || "application/octet-stream",
-          sizeBytes: sourceFile.size,
-          chunkIndex,
-          totalChunks: chunkCount,
-        },
-        progress: Math.max(0.5, 0.5 + backendProgress * 0.5),
-      });
-      setCloudStatus("transcribing", `Chunk ${chunkIndex}/${chunkCount}`);
-      if (!snapshot.response) {
-        return;
-      }
-
-      const chunkBatch = buildDemeterBackendChunkBatch(snapshot.response, {
-        fallbackChunkId: "demeter-backend-direct",
-        includeWordTimestamps: settings.cloudEnableWordTimestamps,
-        startSegmentIndex: nextDemeterSegmentIndex,
-      });
-      nextDemeterSegmentIndex = chunkBatch.nextSegmentIndex;
-      const nextChunkGroups = chunkBatch.groups.filter((group) => {
-        const normalizedChunkId = normalizeChunkId(group.chunkId);
-        if (!normalizedChunkId) {
-          return false;
-        }
-        if (backendDirectSeenChunkIdsRef.current.has(normalizedChunkId)) {
-          return false;
-        }
-        backendDirectSeenChunkIdsRef.current.add(normalizedChunkId);
-        return true;
-      });
-      if (!nextChunkGroups.length) {
-        return;
-      }
-
-      const appendedSegmentCount = nextChunkGroups.reduce((count, group) => count + group.segments.length, 0);
-      backendDirectAppendQueueRef.current = backendDirectAppendQueueRef.current
-        .catch(() => undefined)
-        .then(async () => {
-          if (shouldAbort()) {
+      consumeDemeterBackendOperationSnapshot(snapshot, {
+        sourceFile,
+        shouldAbort,
+        onResponse: (response, responseSnapshot) => {
+          const chunkBatch = buildDemeterBackendChunkBatch(response, {
+            fallbackChunkId: "demeter-backend-direct",
+            includeWordTimestamps: settings.cloudEnableWordTimestamps,
+            startSegmentIndex: nextDemeterSegmentIndex,
+          });
+          nextDemeterSegmentIndex = chunkBatch.nextSegmentIndex;
+          const nextChunkGroups = chunkBatch.groups.filter((group) => {
+            const normalizedChunkId = normalizeChunkId(group.chunkId);
+            if (!normalizedChunkId) {
+              return false;
+            }
+            if (backendDirectSeenChunkIdsRef.current.has(normalizedChunkId)) {
+              return false;
+            }
+            backendDirectSeenChunkIdsRef.current.add(normalizedChunkId);
+            return true;
+          });
+          if (!nextChunkGroups.length) {
             return;
           }
-          for (const group of nextChunkGroups) {
-            if (shouldAbort()) {
-              return;
-            }
-            await appendCloudSegments(group.segments, "demeter_sante", metadata);
-          }
-          logger.debug("[cloud][demeter] backend chunk appended", {
-            operationId: snapshot.operationId,
-            status: snapshot.status,
-            stage: snapshot.stage,
-            chunkIndex,
-            chunkCount,
-            appendedChunkCount: nextChunkGroups.length,
-            appendedSegmentCount,
-            totalChunks: chunkBatch.groups.length,
-          });
-        });
+
+          const chunkIndex = Math.max(0, responseSnapshot.chunkIndex ?? 0);
+          const chunkCount = Math.max(0, responseSnapshot.chunkCount ?? 0);
+          const appendedSegmentCount = nextChunkGroups.reduce((count, group) => count + group.segments.length, 0);
+          backendDirectAppendQueueRef.current = backendDirectAppendQueueRef.current
+            .catch(() => undefined)
+            .then(async () => {
+              if (shouldAbort()) {
+                return;
+              }
+              for (const group of nextChunkGroups) {
+                if (shouldAbort()) {
+                  return;
+                }
+                await appendCloudSegments(group.segments, "demeter_sante", metadata);
+              }
+              logger.debug("[cloud][demeter] backend chunk appended", {
+                operationId: responseSnapshot.operationId,
+                status: responseSnapshot.status,
+                stage: responseSnapshot.stage,
+                chunkIndex,
+                chunkCount,
+                appendedChunkCount: nextChunkGroups.length,
+                appendedSegmentCount,
+                totalChunks: chunkBatch.groups.length,
+              });
+            });
+        },
+      });
     };
 
     try {
@@ -1181,7 +1243,15 @@ export function useCloudTranscription(
       backendDirectSeenChunkIdsRef.current.clear();
       backendDirectAppendQueueRef.current = Promise.resolve();
     }
-  }, [appendCloudSegments, cloudDemeterDiarizationEnabled, cloudDemeterModel, selectedFile, setCloudStatus, setCloudTranscriptionSession]);
+  }, [
+    appendCloudSegments,
+    cloudDemeterDiarizationEnabled,
+    cloudDemeterModel,
+    consumeDemeterBackendOperationSnapshot,
+    selectedFile,
+    setCloudStatus,
+    setCloudTranscriptionSession,
+  ]);
 
   const runMistralTranscription = useCallback(async (args: {
     runId: number;
@@ -1382,6 +1452,12 @@ export function useCloudTranscription(
                   model,
                   durationSec: chunkDurationSec,
                   signal: getCloudRunAbortController()?.signal,
+                  onBackendOperationProgress: (snapshot) => {
+                    consumeDemeterBackendOperationSnapshot(snapshot, {
+                      sourceFile: uploadFile,
+                      shouldAbort,
+                    });
+                  },
                   onDiarizationResolved,
                 },
                 telemetry
@@ -1453,6 +1529,12 @@ export function useCloudTranscription(
                         model,
                         durationSec: chunkDurationSec,
                         signal: getCloudRunAbortController()?.signal,
+                        onBackendOperationProgress: (snapshot) => {
+                          consumeDemeterBackendOperationSnapshot(snapshot, {
+                            sourceFile: retryFile,
+                            shouldAbort,
+                          });
+                        },
                         onDiarizationResolved,
                       },
                       telemetry
@@ -1677,6 +1759,7 @@ export function useCloudTranscription(
     }
   }, [
     appendCloudSegments,
+    consumeDemeterBackendOperationSnapshot,
     provider,
     mistralApiKey,
     cloudMistralDiarizationEnabled,

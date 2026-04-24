@@ -289,7 +289,11 @@ function AssistantPage() {
     hasTriggeredGeneration &&
     llmStatus === "done" &&
     Boolean(results.cri && results.cro && results.crs);
-  const cloudBusy = cloudStatus === "preprocessing" || cloudStatus === "uploading" || cloudStatus === "transcribing";
+  const cloudBusy =
+    cloudStatus === "preprocessing" ||
+    cloudStatus === "uploading" ||
+    cloudStatus === "queued" ||
+    cloudStatus === "transcribing";
   const llmBusy = llmStatus === "preparing" || llmStatus === "generating" || llmStatus === "formatting";
   const hasError = cloudStatus === "error" || llmStatus === "error";
   const isWaitingForChoice = Boolean(selectedFile) && diarizationChoice === null;
