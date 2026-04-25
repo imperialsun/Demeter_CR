@@ -6,7 +6,6 @@ import { useLlmReports } from "@/hooks/useLlmReports";
 
 const mocks = vi.hoisted(() => ({
   generateReportDetailedMock: vi.fn(),
-  generateCloudMultiPassReportMock: vi.fn(),
   prepareLongInputForReportsMock: vi.fn(),
   getLlmHfClientMock: vi.fn(),
   generateWithChatThenFallbackTextMock: vi.fn(),
@@ -16,10 +15,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/llm/reportService", () => ({
   generateReportDetailed: mocks.generateReportDetailedMock,
-}));
-
-vi.mock("@/lib/llm/reportWorkflow", () => ({
-  generateCloudMultiPassReport: mocks.generateCloudMultiPassReportMock,
 }));
 
 vi.mock("@/lib/llm/longInputPipeline", () => ({
@@ -50,7 +45,6 @@ function createDeferred<T>() {
 describe("useLlmReports telemetry", () => {
   beforeEach(() => {
     mocks.generateReportDetailedMock.mockReset();
-    mocks.generateCloudMultiPassReportMock.mockReset();
     mocks.prepareLongInputForReportsMock.mockReset();
     mocks.getLlmHfClientMock.mockReset();
     mocks.generateWithChatThenFallbackTextMock.mockReset();
@@ -101,20 +95,6 @@ describe("useLlmReports telemetry", () => {
     } as any);
 
     mocks.getLlmHfClientMock.mockResolvedValue({});
-    mocks.generateCloudMultiPassReportMock.mockImplementation(async (params: { format: string }) => ({
-      report: {
-        format: params.format,
-        title: "Workflow title",
-        sections: [{ heading: "Workflow", paragraphs: ["Contenu workflow"] }],
-      },
-      rawResponse: JSON.stringify({
-        format: params.format,
-        title: "Workflow title",
-        sections: [{ heading: "Workflow", paragraphs: ["Contenu workflow"] }],
-      }),
-      strategy: "chatCompletion",
-      pipelinePasses: 4,
-    }));
     mocks.prepareLongInputForReportsMock.mockResolvedValue({
       text: "Source preparee",
       sourceTokenCount: 16,
@@ -186,7 +166,6 @@ describe("useLlmReports telemetry", () => {
     });
 
     await waitFor(() => expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(1));
-    expect(mocks.generateCloudMultiPassReportMock).not.toHaveBeenCalled();
     expect(mocks.generateReportDetailedMock.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({ format: "CRI" })
     );
@@ -208,7 +187,6 @@ describe("useLlmReports telemetry", () => {
     expect(mocks.generateReportDetailedMock.mock.calls[1]?.[0]).toEqual(
       expect.objectContaining({ format: "CRO" })
     );
-    expect(mocks.generateCloudMultiPassReportMock).not.toHaveBeenCalled();
 
     await act(async () => {
       second.resolve({
@@ -275,7 +253,6 @@ describe("useLlmReports telemetry", () => {
     expect(mocks.generateReportDetailedMock).toHaveBeenCalledWith(
       expect.objectContaining({ format: "CRS", detailLevel: "standard" })
     );
-    expect(mocks.generateCloudMultiPassReportMock).not.toHaveBeenCalled();
   });
 
   it("uses the provider override without mutating the global provider", async () => {
@@ -302,37 +279,6 @@ describe("useLlmReports telemetry", () => {
     );
   });
 
-  it("routes detailed reports through multi-pass when requested", async () => {
-    useAsrStore.setState({
-      llmApiReportGenerationMode: "multi_pass",
-      llmApiReportDetailLevels: {
-        CRI: "verbose",
-        CRO: "exhaustive",
-        CRS: "standard",
-      },
-      llmApiReportMonoPassMaxTokens: 8192,
-      llmApiReportWorkflowTextMaxTokens: 2048,
-    } as any);
-
-    const { result } = renderHook(() => useLlmReports());
-
-    await act(async () => {
-      await result.current.generateAll({ source: "transcription", transcriptMode: "upload" });
-    });
-
-    expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(1);
-    expect(mocks.generateReportDetailedMock).toHaveBeenCalledWith(
-      expect.objectContaining({ format: "CRS", detailLevel: "standard", maxTokens: 8192 })
-    );
-    expect(mocks.generateCloudMultiPassReportMock).toHaveBeenCalledTimes(2);
-    expect(mocks.generateCloudMultiPassReportMock).toHaveBeenCalledWith(
-      expect.objectContaining({ format: "CRI", detailLevel: "verbose", maxTokens: 2048 })
-    );
-    expect(mocks.generateCloudMultiPassReportMock).toHaveBeenCalledWith(
-      expect.objectContaining({ format: "CRO", detailLevel: "exhaustive", maxTokens: 2048 })
-    );
-  });
-
   it("caps mono-pass cloud report max tokens with the mono-pass setting", async () => {
     useAsrStore.setState({
       llmApiReportGenerationMode: "mono_pass",
@@ -355,12 +301,10 @@ describe("useLlmReports telemetry", () => {
       ([params]) => (params as { maxTokens: number }).maxTokens
     );
     expect(calledMaxTokens).toEqual([2048, 2048, 2048]);
-    expect(mocks.generateCloudMultiPassReportMock).not.toHaveBeenCalled();
   });
 
   it("emits readable stage labels and global pass counters for cloud stages", async () => {
     useAsrStore.setState({
-      llmApiReportGenerationMode: "multi_pass",
       llmApiReportDetailLevels: {
         CRI: "verbose",
         CRO: "exhaustive",
@@ -377,10 +321,10 @@ describe("useLlmReports telemetry", () => {
     const summary = useAsrStore.getState().telemetrySummary;
     const stageEvents = summary?.events.filter((event) => event.type === "LLM_RUN_STAGE") ?? [];
 
-    expect(stageEvents.some((event) => typeof event.data?.stageLabel === "string" && String(event.data.stageLabel).includes("Passe 1/6"))).toBe(true);
-    expect(stageEvents.some((event) => event.data?.globalPassTotal === 6)).toBe(true);
+    expect(stageEvents.some((event) => typeof event.data?.stageLabel === "string" && String(event.data.stageLabel).length > 0)).toBe(true);
+    expect(stageEvents.some((event) => event.data?.globalPassTotal === 1)).toBe(true);
     expect(stageEvents.some((event) => event.data?.stageLabel === "Séquence des formats")).toBe(true);
-    expect(stageEvents.some((event) => event.data?.generationMode === "multi_pass")).toBe(true);
+    expect(stageEvents.some((event) => event.data?.generationMode === "mono_pass")).toBe(true);
   });
 
   it("emits LLM_RUN_ERROR telemetry event when generation fails", async () => {

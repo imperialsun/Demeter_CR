@@ -35,35 +35,16 @@ describe("LlmCloudSettingsTab", () => {
     render(<LlmCloudSettingsTab showMistral={false} showDemeter={false} />);
 
     expect(screen.getByRole("heading", { name: "Workflow de generation" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Mode détaillé", { selector: "button#settings-llm-report-generation-mode" })).toHaveTextContent("Monopasse");
-    expect(screen.getByLabelText("Taille cible des chunks (%)")).toHaveValue(50);
-    expect(screen.getByLabelText("Sous-parties max par partie")).toHaveValue(4);
     expect(screen.getByLabelText("Plafond max tokens mono-pass")).toHaveValue(16384);
-    expect(screen.getByLabelText("Plafond max tokens multi-pass")).toHaveValue(8192);
   });
 
-  it("updates the detailed mode and token ceilings independently", async () => {
+  it("updates the mono-pass token ceiling", () => {
     render(<LlmCloudSettingsTab showMistral={false} showDemeter={false} />);
 
-    fireEvent.click(screen.getByLabelText("Mode détaillé", { selector: "button#settings-llm-report-generation-mode" }));
-    fireEvent.click(await screen.findByText("Multipasse"));
-    fireEvent.change(screen.getByLabelText("Taille cible des chunks (%)"), {
-      target: { value: "60" },
-    });
-    fireEvent.change(screen.getByLabelText("Sous-parties max par partie"), {
-      target: { value: "2" },
-    });
     fireEvent.change(screen.getByLabelText("Plafond max tokens mono-pass"), {
       target: { value: "8192" },
     });
-    fireEvent.change(screen.getByLabelText("Plafond max tokens multi-pass"), {
-      target: { value: "32768" },
-    });
 
-    expect(useAsrStore.getState().llmApiReportGenerationMode).toBe("multi_pass");
-    expect(useAsrStore.getState().llmApiReportChunkRatio).toBe(0.6);
-    expect(useAsrStore.getState().llmApiReportMaxSubpartsPerPart).toBe(2);
     expect(useAsrStore.getState().llmApiReportMonoPassMaxTokens).toBe(8192);
-    expect(useAsrStore.getState().llmApiReportWorkflowTextMaxTokens).toBe(32768);
   });
 });

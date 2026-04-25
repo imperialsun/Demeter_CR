@@ -27,9 +27,6 @@ import {
   LLM_REPORT_MONO_PASS_MAX_TOKENS_DEFAULT,
   LLM_REPORT_MONO_PASS_MAX_TOKENS_MAX,
   LLM_REPORT_MONO_PASS_MAX_TOKENS_MIN,
-  LLM_REPORT_WORKFLOW_TEXT_MAX_TOKENS_DEFAULT,
-  LLM_REPORT_WORKFLOW_TEXT_MAX_TOKENS_MAX,
-  LLM_REPORT_WORKFLOW_TEXT_MAX_TOKENS_MIN,
 } from "@/lib/storage";
 import { SESSION_ONLY_SECRET_NOTICE } from "@/lib/secret-storage-copy";
 
@@ -54,11 +51,7 @@ export function LlmCloudSettingsTab({
     llmApiMistralTemperature,
     llmApiMistralMaxTokens,
     llmApiReportDetailLevels,
-    llmApiReportGenerationMode,
-    llmApiReportChunkRatio,
-    llmApiReportMaxSubpartsPerPart,
     llmApiReportMonoPassMaxTokens,
-    llmApiReportWorkflowTextMaxTokens,
     mistralApiKey,
     cloudMistralApiUrl,
     setHfApiToken,
@@ -69,11 +62,7 @@ export function LlmCloudSettingsTab({
     setLlmApiMistralTemperature,
     setLlmApiMistralMaxTokens,
     setLlmApiReportDetailLevel,
-    setLlmApiReportGenerationMode,
-    setLlmApiReportChunkRatio,
-    setLlmApiReportMaxSubpartsPerPart,
     setLlmApiReportMonoPassMaxTokens,
-    setLlmApiReportWorkflowTextMaxTokens,
     setMistralApiKey,
     setCloudMistralApiUrl,
   } = useAsrStore(
@@ -87,11 +76,7 @@ export function LlmCloudSettingsTab({
       llmApiMistralTemperature: state.llmApiMistralTemperature,
       llmApiMistralMaxTokens: state.llmApiMistralMaxTokens,
       llmApiReportDetailLevels: state.llmApiReportDetailLevels,
-      llmApiReportGenerationMode: state.llmApiReportGenerationMode,
-      llmApiReportChunkRatio: state.llmApiReportChunkRatio,
-      llmApiReportMaxSubpartsPerPart: state.llmApiReportMaxSubpartsPerPart,
       llmApiReportMonoPassMaxTokens: state.llmApiReportMonoPassMaxTokens,
-      llmApiReportWorkflowTextMaxTokens: state.llmApiReportWorkflowTextMaxTokens,
       mistralApiKey: state.mistralApiKey,
       cloudMistralApiUrl: state.cloudMistralApiUrl,
       setHfApiToken: state.setHfApiToken,
@@ -102,11 +87,7 @@ export function LlmCloudSettingsTab({
       setLlmApiMistralTemperature: state.setLlmApiMistralTemperature,
       setLlmApiMistralMaxTokens: state.setLlmApiMistralMaxTokens,
       setLlmApiReportDetailLevel: state.setLlmApiReportDetailLevel,
-      setLlmApiReportGenerationMode: state.setLlmApiReportGenerationMode,
-      setLlmApiReportChunkRatio: state.setLlmApiReportChunkRatio,
-      setLlmApiReportMaxSubpartsPerPart: state.setLlmApiReportMaxSubpartsPerPart,
       setLlmApiReportMonoPassMaxTokens: state.setLlmApiReportMonoPassMaxTokens,
-      setLlmApiReportWorkflowTextMaxTokens: state.setLlmApiReportWorkflowTextMaxTokens,
       setMistralApiKey: state.setMistralApiKey,
       setCloudMistralApiUrl: state.setCloudMistralApiUrl,
     }))
@@ -175,9 +156,7 @@ export function LlmCloudSettingsTab({
     [availableMistralModels, llmApiMistralModelId]
   );
   const mistralModelMetadata = selectedMistralModel ?? null;
-  const chunkRatioPercent = Math.round(llmApiReportChunkRatio * 100);
   const monoPassTextMaxTokens = llmApiReportMonoPassMaxTokens;
-  const multiPassTextMaxTokens = llmApiReportWorkflowTextMaxTokens;
   const hfSettingMaxTokens = useMemo(
     () => resolveSuggestedModelMaxTokens(llmApiHfModelId),
     [llmApiHfModelId]
@@ -248,76 +227,10 @@ export function LlmCloudSettingsTab({
         <CardHeader>
           <CardTitle>Workflow de generation</CardTitle>
           <CardDescription>
-            Le mode détaillé détermine si les formats verbeux et exhaustifs restent en monopasse ou basculent en
-            workflow multi-pass. Les plafonds mono-pass et multi-pass sont independants.
+            Les comptes rendus cloud sont generes en mono-pass. Ce plafond borne la taille de sortie par format.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <div className="space-y-2">
-            <Label htmlFor="settings-llm-report-generation-mode">Mode détaillé</Label>
-            <Select
-              value={llmApiReportGenerationMode}
-              onValueChange={(value) =>
-                setLlmApiReportGenerationMode(value === "multi_pass" ? "multi_pass" : "mono_pass")
-              }
-            >
-              <SelectTrigger id="settings-llm-report-generation-mode">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="mono_pass">Monopasse</SelectItem>
-                <SelectItem value="multi_pass">Multipasse</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              Monopasse = generation directe. Multipasse = workflow long avec sous-parties et consolidations.
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="settings-llm-report-chunk-ratio">Taille cible des chunks (%)</Label>
-            <Input
-              id="settings-llm-report-chunk-ratio"
-              type="number"
-              min={10}
-              max={100}
-              step={1}
-              value={chunkRatioPercent}
-              onChange={(event) => {
-                const percent = Number(event.currentTarget.value);
-                if (Number.isFinite(percent)) {
-                  setLlmApiReportChunkRatio(percent / 100);
-                }
-              }}
-            />
-            <p className="text-xs text-muted-foreground">
-              50% correspond a un chunk cible egal a la moitie de la transcription, sous reserve du plafond de
-              securite du modele.
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="settings-llm-report-max-subparts">Sous-parties max par partie</Label>
-            <Input
-              id="settings-llm-report-max-subparts"
-              type="number"
-              min={0}
-              max={8}
-              step={1}
-              value={llmApiReportMaxSubpartsPerPart}
-              onChange={(event) => {
-                const nextValue = Number(event.currentTarget.value);
-                if (Number.isFinite(nextValue)) {
-                  setLlmApiReportMaxSubpartsPerPart(nextValue);
-                }
-              }}
-            />
-            <p className="text-xs text-muted-foreground">
-              0 desactive les sous-parties. Les sous-parties excedentaires sont reroutees vers une expansion de la
-              partie parente.
-            </p>
-          </div>
-
           <div className="space-y-2">
             <Label htmlFor="settings-llm-report-mono-pass-max-tokens">Plafond max tokens mono-pass</Label>
             <Input
@@ -337,28 +250,6 @@ export function LlmCloudSettingsTab({
             <p className="text-xs text-muted-foreground">
               Par defaut: {LLM_REPORT_MONO_PASS_MAX_TOKENS_DEFAULT}. Ce plafond borne les appels mono-pass cloud et
               local; le budget du modele peut encore réduire la valeur effective.
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="settings-llm-report-workflow-max-tokens">Plafond max tokens multi-pass</Label>
-            <Input
-              id="settings-llm-report-workflow-max-tokens"
-              type="number"
-              min={LLM_REPORT_WORKFLOW_TEXT_MAX_TOKENS_MIN}
-              max={LLM_REPORT_WORKFLOW_TEXT_MAX_TOKENS_MAX}
-              step={256}
-              value={multiPassTextMaxTokens}
-              onChange={(event) => {
-                const nextValue = Number(event.currentTarget.value);
-                if (Number.isFinite(nextValue)) {
-                  setLlmApiReportWorkflowTextMaxTokens(nextValue);
-                }
-              }}
-            />
-            <p className="text-xs text-muted-foreground">
-              Par defaut: {LLM_REPORT_WORKFLOW_TEXT_MAX_TOKENS_DEFAULT}. Ce plafond borne les appels texte du
-              workflow multi-pass; le plafond mono-pass reste independant.
             </p>
           </div>
         </CardContent>

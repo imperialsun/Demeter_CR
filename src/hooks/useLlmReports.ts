@@ -16,10 +16,6 @@ import { generateReportDetailed, type GenerateReportDetailedResult } from "@/lib
 import { getLlmHfClient, generateWithChatThenFallbackText } from "@/lib/llm/hfClient";
 import { generateWithMistralChat } from "@/lib/llm/mistralChatClient";
 import { generateWithDemeterChat } from "@/lib/llm/demeterChatClient";
-import {
-  generateCloudMultiPassReport,
-  type GenerateCloudMultiPassReportResult,
-} from "@/lib/llm/reportWorkflow";
 import { resolveCloudRunStageDescriptor } from "@/lib/llm/reportTrace";
 import { backendRefresh, isBackendSessionExpiredError } from "@/lib/backend-auth";
 import {
@@ -62,8 +58,6 @@ type GenerateInput =
   | { source: "transcription"; transcriptMode: SessionTranscriptMode }
   | { source: "text"; text?: string };
 
-type GenerateReportOutput = GenerateReportDetailedResult | GenerateCloudMultiPassReportResult;
-
 type UseLlmReportsOptions = {
   providerOverride?: LlmApiProvider;
 };
@@ -80,11 +74,8 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
   const llmApiMistralTemperature = useAsrStore((state) => state.llmApiMistralTemperature);
   const llmApiMistralMaxTokens = useAsrStore((state) => state.llmApiMistralMaxTokens);
   const llmApiReportDetailLevels = useAsrStore((state) => state.llmApiReportDetailLevels);
-  const llmApiReportGenerationMode = useAsrStore((state) => state.llmApiReportGenerationMode);
   const llmApiReportChunkRatio = useAsrStore((state) => state.llmApiReportChunkRatio);
-  const llmApiReportMaxSubpartsPerPart = useAsrStore((state) => state.llmApiReportMaxSubpartsPerPart);
   const llmApiReportMonoPassMaxTokens = useAsrStore((state) => state.llmApiReportMonoPassMaxTokens);
-  const llmApiReportWorkflowTextMaxTokens = useAsrStore((state) => state.llmApiReportWorkflowTextMaxTokens);
   const mistralApiKey = useAsrStore((state) => state.mistralApiKey);
   const cloudMistralApiUrl = useAsrStore((state) => state.cloudMistralApiUrl);
 
@@ -328,9 +319,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
           preparedTokenEstimate: estimateTokenCount(prepared.text),
         });
 
-        const requiresMonoPassGeneration =
-          llmApiReportGenerationMode === "mono_pass" ||
-          FORMAT_ORDER.some((item) => llmApiReportDetailLevels[item.format] === "standard");
+        const requiresMonoPassGeneration = true;
         const sourceTokensForGeneration = estimateTokenCount(prepared.text);
         const tokenBudget = requiresMonoPassGeneration
           ? resolveModelTokenBudget({
@@ -356,8 +345,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
             ? Math.min(requestedMaxTokens, tokenBudget.effectiveMaxGenerationTokens)
             : requestedMaxTokens;
         const monoPassReportMaxTokens = Math.min(effectiveGenerationMaxTokens, llmApiReportMonoPassMaxTokens);
-        const workflowReportMaxTokens = Math.min(effectiveGenerationMaxTokens, llmApiReportWorkflowTextMaxTokens);
-        if (Math.min(monoPassReportMaxTokens, workflowReportMaxTokens) < requestedMaxTokens) {
+        if (monoPassReportMaxTokens < requestedMaxTokens) {
           setLlmApiStatus("preparing", "Max tokens ajustés selon le modèle et les réglages détaillés");
         }
 
@@ -365,9 +353,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
           contextWindowTokens: tokenBudget.contextWindowTokens ?? null,
           effectiveMaxGenerationTokens: tokenBudget.effectiveMaxGenerationTokens ?? null,
           monoPassMaxTokens: llmApiReportMonoPassMaxTokens,
-          workflowTextMaxTokens: llmApiReportWorkflowTextMaxTokens,
           monoPassReportMaxTokens,
-          workflowReportMaxTokens,
           requiresMonoPassGeneration,
         });
 
@@ -381,10 +367,8 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
         for (const [index, item] of FORMAT_ORDER.entries()) {
           const sequenceIndex = index + 1;
           const detailLevel = llmApiReportDetailLevels[item.format];
-          const useMultiPassGeneration = detailLevel !== "standard" && llmApiReportGenerationMode === "multi_pass";
-          const generationMode = useMultiPassGeneration ? "multi_pass" : "mono_pass";
-          const reportMaxTokens =
-            generationMode === "multi_pass" ? workflowReportMaxTokens : monoPassReportMaxTokens;
+          const generationMode = "mono_pass";
+          const reportMaxTokens = monoPassReportMaxTokens;
           activeGenerationContext = {
             format: item.format,
             detailLevel,
@@ -408,29 +392,8 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
           });
           setLlmApiStatus("generating", `Génération du compte rendu ${item.format} (${sequenceIndex}/${FORMAT_ORDER.length})`);
 
-          let generation: GenerateReportOutput;
-          if (useMultiPassGeneration) {
-            generation = await generateCloudMultiPassReport({
-              format: item.format,
-              modelId,
-              sourceText,
-              fallbackPlanSourceText: prepared.text,
-              temperature,
-              maxTokens: reportMaxTokens,
-              detailLevel,
-              chunkRatio: llmApiReportChunkRatio,
-              maxSubpartsPerPart: llmApiReportMaxSubpartsPerPart,
-              workflowTextMaxTokens: llmApiReportWorkflowTextMaxTokens,
-              generateText,
-              emitStage: (stage, data) =>
-                markStage(stage, {
-                  ...data,
-                  format: item.format,
-                  detailLevel,
-                  generationMode,
-                }),
-            });
-          } else if (provider === "huggingface") {
+          let generation: GenerateReportDetailedResult;
+          if (provider === "huggingface") {
             generation = await generateReportDetailed({
               provider: "huggingface",
               format: item.format,
@@ -465,9 +428,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
             });
           }
 
-          const pipelinePasses = isWorkflowGenerationResult(generation)
-            ? generation.pipelinePasses
-            : prepared.pipelinePasses;
+          const pipelinePasses = prepared.pipelinePasses;
           const result: ReportResult = {
             format: item.format,
             report: generation.report,
@@ -622,11 +583,8 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
       llmApiMistralTemperature,
       llmApiMistralMaxTokens,
       llmApiReportDetailLevels,
-      llmApiReportGenerationMode,
       llmApiReportChunkRatio,
-      llmApiReportMaxSubpartsPerPart,
       llmApiReportMonoPassMaxTokens,
-      llmApiReportWorkflowTextMaxTokens,
       registerTelemetry,
       sessionTranscriptMemories,
       setLlmApiProgress,
@@ -740,10 +698,4 @@ function resolveSourceText(
 
 function resolveLlmActivitySourceMode(provider: string): "cloud_direct" | "cloud_backend" {
   return provider === "demeter_sante" ? "cloud_backend" : "cloud_direct";
-}
-
-function isWorkflowGenerationResult(
-  generation: GenerateReportOutput
-): generation is GenerateCloudMultiPassReportResult {
-  return "pipelinePasses" in generation;
 }
