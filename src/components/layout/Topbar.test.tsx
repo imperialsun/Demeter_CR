@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Topbar } from './Topbar';
+import { ThemeProvider } from '@/components/theme-provider';
 import { useAsrStore } from '@/store/asr-store';
 import { TelemetryCollector } from '@/lib/telemetry';
 import * as backendSupport from '@/lib/backend-support';
@@ -156,6 +157,14 @@ function installVisibilityMocks(state: "visible" | "hidden" = "visible") {
   });
 }
 
+function renderTopbar() {
+  return render(
+    <ThemeProvider defaultTheme="dark" storageKey="topbar-theme-test" visualStyleStorageKey="topbar-style-test">
+      <Topbar />
+    </ThemeProvider>
+  );
+}
+
 describe('Topbar', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -202,8 +211,11 @@ describe('Topbar', () => {
     vi.mocked(logger.exportLogEntries).mockReset();
     vi.mocked(logger.exportLogEntries).mockReturnValue([]);
     vi.mocked(logger.clearLogEntries).mockReset();
+    window.localStorage.removeItem("topbar-theme-test");
+    window.localStorage.removeItem("topbar-style-test");
     window.localStorage.removeItem(BACKEND_AUTH_KEY);
     window.localStorage.removeItem(BACKEND_SESSION_KEY);
+    document.documentElement.classList.remove("light", "dark", "style-app");
     // reset store defaults used by Topbar
     useAsrStore.setState({
       hasHydrated: false,
@@ -236,11 +248,12 @@ describe('Topbar', () => {
   });
 
   afterEach(() => {
+    document.documentElement.classList.remove("light", "dark", "style-app");
     vi.restoreAllMocks();
   });
 
   it('navigates to /settings when settings button clicked and not already on settings', () => {
-    render(<Topbar />);
+    renderTopbar();
     const btn = screen.getByLabelText('Aller aux paramètres');
     fireEvent.click(btn);
     expect(mockNavigate).toHaveBeenCalledWith('/settings');
@@ -250,7 +263,7 @@ describe('Topbar', () => {
     // override useLocation to simulate being on /settings
     vi.spyOn(rr, 'useLocation').mockReturnValue({ pathname: '/settings', search: '', state: null, hash: '', key: '' } as any);
     backendPermissionMocks.getFirstAuthorizedRoute.mockReturnValue("/llmapi");
-    render(<Topbar />);
+    renderTopbar();
     const btn = screen.getByLabelText('Aller aux paramètres');
     fireEvent.click(btn);
     expect(mockNavigate).toHaveBeenCalledWith('/llmapi');
@@ -261,9 +274,34 @@ describe('Topbar', () => {
       permission === "feature.settings" ? false : true
     );
 
-    render(<Topbar />);
+    renderTopbar();
 
     expect(screen.queryByLabelText("Aller aux paramètres")).toBeNull();
+  });
+
+  it("toggles the APP visual style from the topbar", async () => {
+    const user = userEvent.setup();
+    const setItemSpy = vi.spyOn(window.localStorage, "setItem");
+    renderTopbar();
+
+    await user.click(screen.getByLabelText("Activer le style APP"));
+
+    await waitFor(() => {
+      expect(document.documentElement.classList.contains("style-app")).toBe(true);
+      expect(document.documentElement.classList.contains("light")).toBe(true);
+      expect(document.documentElement.classList.contains("dark")).toBe(false);
+    });
+    expect(setItemSpy).toHaveBeenCalledWith("topbar-style-test", "app");
+    expect(screen.getByLabelText("Revenir au style par défaut")).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Revenir au style par défaut"));
+
+    await waitFor(() => {
+      expect(document.documentElement.classList.contains("style-app")).toBe(false);
+      expect(document.documentElement.classList.contains("dark")).toBe(true);
+    });
+    expect(setItemSpy).toHaveBeenCalledWith("topbar-style-test", "default");
+    expect(screen.getByLabelText("Activer le style APP")).toBeInTheDocument();
   });
 
   it("shows the connected email in backend mode when a session exists", () => {
@@ -276,7 +314,7 @@ describe('Topbar', () => {
       permissions: ["feature.localupload"],
     });
 
-    render(<Topbar />);
+    renderTopbar();
 
     expect(screen.getByRole("button", { name: connectedEmail })).toBeInTheDocument();
   });
@@ -290,7 +328,7 @@ describe('Topbar', () => {
       permissions: ["feature.localupload"],
     });
 
-    render(<Topbar />);
+    renderTopbar();
 
     expect(screen.queryByText(connectedEmail)).toBeNull();
   });
@@ -299,7 +337,7 @@ describe('Topbar', () => {
     runtimeConfigMocks.isBackendMode.mockReturnValue(true);
     vi.spyOn(backendSession, "getBackendSession").mockReturnValue(null);
 
-    render(<Topbar />);
+    renderTopbar();
 
     expect(screen.queryByRole("button", { name: connectedEmail })).toBeNull();
   });
@@ -316,7 +354,7 @@ describe('Topbar', () => {
     const toastSpy = vi.spyOn(toastMod, "toast").mockImplementation(() => "toast-id" as any);
     const user = userEvent.setup();
 
-    render(<Topbar />);
+    renderTopbar();
 
     await user.click(screen.getByRole("button", { name: connectedEmail }));
     await user.click(await screen.findByRole("menuitem", { name: /changer le mot de passe/i }));
@@ -364,7 +402,7 @@ describe('Topbar', () => {
     });
     const user = userEvent.setup();
 
-    render(<Topbar />);
+    renderTopbar();
 
     await user.click(screen.getByRole("button", { name: connectedEmail }));
     await user.click(await screen.findByRole("menuitem", { name: /changer le mot de passe/i }));
@@ -391,7 +429,7 @@ describe('Topbar', () => {
     const toastSpy = vi.spyOn(toastMod, 'toast').mockImplementation(() => 't-id' as any);
     vi.spyOn(backendSupport, 'initializeBackendSupport').mockResolvedValue(true);
 
-    render(<Topbar />);
+    renderTopbar();
 
     const resetBtn = screen.getByText('Réinitialiser');
     fireEvent.click(resetBtn);
@@ -406,7 +444,7 @@ describe('Topbar', () => {
   });
 
   it("renders the compact logs menu trigger and hides inline controls", () => {
-    render(<Topbar />);
+    renderTopbar();
 
     expect(screen.getByLabelText("Actions de logs")).toBeInTheDocument();
     expect(screen.queryByLabelText("Niveau de logs")).toBeNull();
@@ -414,7 +452,7 @@ describe('Topbar', () => {
   });
 
   it("shows the telemetry console toggle when telemetry access is granted", () => {
-    render(<Topbar />);
+    renderTopbar();
 
     expect(screen.getByLabelText("Afficher les logs console")).toBeInTheDocument();
     expect(screen.queryByTestId("topbar-console-logs-panel")).toBeNull();
@@ -425,7 +463,7 @@ describe('Topbar', () => {
       permission === "feature.telemetry" ? false : true
     );
 
-    render(<Topbar />);
+    renderTopbar();
 
     expect(screen.queryByLabelText("Afficher les logs console")).toBeNull();
     expect(screen.queryByTestId("topbar-console-logs-panel")).toBeNull();
@@ -454,7 +492,7 @@ describe('Topbar', () => {
     ];
     vi.mocked(logger.exportLogEntries).mockReturnValue(entries);
 
-    render(<Topbar />);
+    renderTopbar();
 
     await user.click(screen.getByLabelText("Afficher les logs console"));
 
@@ -504,7 +542,7 @@ describe('Topbar', () => {
     useAsrStore.setState({ logLevel: "warn" } as any);
     vi.mocked(logger.exportLogEntries).mockReturnValue(entries);
 
-    render(<Topbar />);
+    renderTopbar();
 
     await user.click(screen.getByLabelText("Afficher les logs console"));
 
@@ -538,7 +576,7 @@ describe('Topbar', () => {
     useAsrStore.setState({ logLevel: "warn" } as any);
     vi.mocked(logger.exportLogEntries).mockReturnValue(entries);
 
-    render(<Topbar />);
+    renderTopbar();
 
     await user.click(screen.getByLabelText("Afficher les logs console"));
     expect(await screen.findByText("visible warning")).toBeInTheDocument();
@@ -568,7 +606,7 @@ describe('Topbar', () => {
       vi.mocked(logger.exportLogEntries).mockReturnValue([]);
     });
 
-    render(<Topbar />);
+    renderTopbar();
 
     await user.click(screen.getByLabelText("Afficher les logs console"));
     expect(await screen.findByText("log before reset")).toBeInTheDocument();
@@ -583,7 +621,7 @@ describe('Topbar', () => {
 
   it("opens the logs menu and reflects the selected level", async () => {
     const user = userEvent.setup();
-    render(<Topbar />);
+    renderTopbar();
 
     await user.click(screen.getByLabelText("Actions de logs"));
 
@@ -641,7 +679,7 @@ describe('Topbar', () => {
       },
     } as any);
 
-    render(<Topbar />);
+    renderTopbar();
 
     await user.click(screen.getByLabelText("Actions de logs"));
     await user.click(await screen.findByRole("menuitem", { name: /télécharger logs/i }));
@@ -713,7 +751,7 @@ describe('Topbar', () => {
       cloudStatus: "transcribing",
     } as any);
 
-    render(<Topbar />);
+    renderTopbar();
 
     expect(screen.queryByText("Arrière-plan")).toBeNull();
 
@@ -734,7 +772,7 @@ describe('Topbar', () => {
     vi.spyOn(rr, 'useLocation').mockReturnValue({ pathname: '/cloudupload', search: '', state: null, hash: '', key: '' } as any);
     useAsrStore.setState({ cloudStatus: 'transcribing', cloudStatusDetail: 'Envoi cloud' } as any);
 
-    render(<Topbar />);
+    renderTopbar();
 
     expect(screen.queryByText('Backend')).toBeNull();
     expect(screen.getAllByText('Cloud').length).toBeGreaterThan(0);
@@ -751,7 +789,7 @@ describe('Topbar', () => {
       llmApiHfMaxTokens: 131072,
     } as any);
 
-    render(<Topbar />);
+    renderTopbar();
 
     expect(screen.queryByText('Backend')).toBeNull();
     expect(screen.getAllByText('LLM Cloud').length).toBeGreaterThan(0);
@@ -771,7 +809,7 @@ describe('Topbar', () => {
       llmApiMistralMaxTokens: 8192,
     } as any);
 
-    render(<Topbar />);
+    renderTopbar();
 
     expect(screen.getByText('Mistral API')).toBeInTheDocument();
   });
@@ -785,21 +823,21 @@ describe('Topbar', () => {
       llmApiMistralMaxTokens: 8192,
     } as any);
 
-    render(<Topbar />);
+    renderTopbar();
 
     expect(screen.getByText('Demeter Santé')).toBeInTheDocument();
     expect(screen.getByText(new RegExp(`Max ${Math.round(DEMETER_SANTE_MAX_TOKENS / 1000)}`))).toBeInTheDocument();
   });
 
   it("renders the compact logs trigger in production", () => {
-    render(<Topbar />);
+    renderTopbar();
     expect(screen.getByLabelText("Actions de logs")).toBeInTheDocument();
     expect(screen.queryByLabelText("Niveau de logs")).toBeNull();
   });
 
   it("calls runTest when clicking model compatibility test button", () => {
     mockLocation("/localupload");
-    render(<Topbar />);
+    renderTopbar();
     fireEvent.click(screen.getByRole("button", { name: /tester les modèles/i }));
     expect(modelTestHook.runTest).toHaveBeenCalledTimes(1);
   });
@@ -807,7 +845,7 @@ describe('Topbar', () => {
   it("keeps the model compatibility test button visible on /localupload/", () => {
     mockLocation("/localupload/");
 
-    render(<Topbar />);
+    renderTopbar();
 
     expect(screen.getByRole("button", { name: /tester les modèles/i })).toBeInTheDocument();
   });
@@ -815,7 +853,7 @@ describe('Topbar', () => {
   it("hides the model compatibility test button outside /localupload", () => {
     mockLocation("/llmapi");
 
-    render(<Topbar />);
+    renderTopbar();
 
     expect(screen.queryByRole("button", { name: /tester les modèles/i })).toBeNull();
   });
@@ -839,7 +877,7 @@ describe('Topbar', () => {
       },
     ];
 
-    render(<Topbar />);
+    renderTopbar();
 
     expect(screen.getByText(/test de compatibilité des modèles/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /stopper le test/i }));
@@ -864,7 +902,7 @@ describe('Topbar', () => {
     modelTestHook.summary.blockedCount = 0;
     modelTestHook.summary.errors = 1;
 
-    render(<Topbar />);
+    renderTopbar();
 
     expect(screen.getByText(/récapitulatif du test/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /valider et fermer/i }));

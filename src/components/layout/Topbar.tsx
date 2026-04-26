@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ChangePasswordDialog } from "@/components/layout/ChangePasswordDialog";
 import { TopbarConsoleLogsPanel } from "@/components/layout/TopbarConsoleLogsPanel";
+import { useTheme } from "@/components/theme-context";
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { useTranscriptionController } from "@/hooks/useTranscriptionController";
 import { canAccessFeature, getFirstAuthorizedRoute } from "@/lib/backend-permissions";
@@ -43,6 +44,7 @@ import {
   Loader2,
   LogOut,
   Monitor,
+  Palette,
   RotateCw,
 } from "lucide-react";
 
@@ -196,6 +198,7 @@ function TopbarLogsMenu({ logLevel, onLogLevelChange, onExportLogs }: TopbarLogs
 export function Topbar() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { visualStyle, toggleVisualStyle } = useTheme();
   useBackendPermissions();
   const {
     activePreset,
@@ -258,6 +261,7 @@ export function Topbar() {
   const isLocalUploadRoute = normalizedPathname === "/localupload";
   const canOpenSettings = canAccessFeature("feature.settings");
   const isCloudRoute = location.pathname === "/cloudupload" || location.pathname === "/assistant";
+  const styleButtonLabel = visualStyle === "app" ? "Revenir au style par défaut" : "Activer le style APP";
   const isLlmRoute = location.pathname === "/llmapi";
   const isLlmLocalRoute = location.pathname === "/llmlocal";
   const activeLlmPipelineConfig = resolveActiveLlmPipelineConfig(
@@ -554,6 +558,23 @@ export function Topbar() {
             </div>
           )}
           <div className="flex items-center gap-3">
+            <TooltipProvider delayDuration={150}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={visualStyle === "app" ? "secondary" : "ghost"}
+                    size="sm"
+                    className="shrink-0 gap-2"
+                    aria-label={styleButtonLabel}
+                    onClick={toggleVisualStyle}
+                  >
+                    <Palette className="h-4 w-4" />
+                    <span className="hidden xl:inline">Style</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{styleButtonLabel}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <div className={cn("flex flex-col text-right")}>
               <span className="text-sm font-medium leading-tight">{statusLabel}</span>
               {statusDetailLabel ? <span className="text-xs text-muted-foreground">{statusDetailLabel}</span> : null}

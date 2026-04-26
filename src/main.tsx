@@ -120,7 +120,7 @@ logger.debug("[app] debug console channel active", {
 logger.info("[app] react root render");
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <ThemeProvider defaultTheme="dark" storageKey="demeter-theme">
+    <ThemeProvider defaultTheme="dark" storageKey="demeter-theme" visualStyleStorageKey="demeter-visual-style">
       <BrowserRouter>
         <App />
       </BrowserRouter>
