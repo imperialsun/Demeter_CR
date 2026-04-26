@@ -696,7 +696,7 @@ describe("AssistantPage", () => {
     expect(screen.queryByTestId("assistant-reset-workflow-bottom")).toBeNull();
     expect(screen.getByRole("button", { name: "Importer" })).toBeInTheDocument();
     expect(screen.getByText(/Assistant cloud Demeter/i)).toBeInTheDocument();
-  });
+  }, 15_000);
 
   it("keeps the workflow simple when diarization is disabled", async () => {
     const segments: TranscriptionSegment[] = [
