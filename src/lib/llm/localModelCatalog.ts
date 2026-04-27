@@ -66,7 +66,7 @@ const MODELS: LocalLlmModelProfile[] = [
     id: "qwen_1_7b",
     label: "Qwen 3 1.7B",
     modelId: "onnx-community/Qwen3-1.7B-ONNX",
-    description: "Profil standard local. Bon compromis qualité/latence pour les trois comptes rendus.",
+    description: "Profil standard local. Bon compromis qualité/latence pour les comptes rendus.",
     contextWindowTokens: 40_960,
     maxGenerationTokens: 4_096,
     recommendedDtype: {

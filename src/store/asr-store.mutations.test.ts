@@ -537,6 +537,7 @@ describe("asr-store mutation guards", () => {
       CRI: "standard",
       CRO: "standard",
       CRS: "standard",
+      CRN: "standard",
     });
     expect(afterAppReset.llmLocalTemperature).toBe(0.2);
     expect(afterAppReset.llmLocalMaxTokens).toBe(4096);

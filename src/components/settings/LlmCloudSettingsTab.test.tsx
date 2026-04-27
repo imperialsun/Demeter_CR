@@ -20,6 +20,7 @@ describe("LlmCloudSettingsTab", () => {
         CRI: "standard",
         CRO: "standard",
         CRS: "standard",
+        CRN: "standard",
       },
       llmApiReportGenerationMode: "mono_pass",
       llmApiReportChunkRatio: 0.5,

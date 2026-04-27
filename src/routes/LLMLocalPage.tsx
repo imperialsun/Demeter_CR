@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
+import { ReportDetailLevelsSection } from "@/components/llm/ReportDetailLevelsSection";
 import { useAsrStore } from "@/store/asr-store";
 import { useLlmLocalReports } from "@/hooks/useLlmLocalReports";
 import { LLM_API_STATUS_META } from "@/lib/llm/llmStatusMeta";
@@ -60,7 +61,14 @@ const FORMAT_PREVIEW_META = [
     label: buildReportFormatLabel("CRS"),
     description: buildReportFormatDescription("CRS"),
   },
+  {
+    format: "crn" as const,
+    label: buildReportFormatLabel("CRN"),
+    description: buildReportFormatDescription("CRN"),
+  },
 ];
+
+type ReportTabKey = (typeof FORMAT_PREVIEW_META)[number]["format"];
 
 function LLMLocalPage() {
   useBackendPermissions();
@@ -73,17 +81,19 @@ function LLMLocalPage() {
   const llmLocalModelId = useAsrStore((state) => state.llmLocalModelId);
   const llmLocalStatusDetail = useAsrStore((state) => state.llmLocalStatusDetail);
   const llmLocalModelSizeAlert = useAsrStore((state) => state.llmLocalModelSizeAlert);
+  const llmApiReportDetailLevels = useAsrStore((state) => state.llmApiReportDetailLevels);
 
   const setLlmLocalModelProfile = useAsrStore((state) => state.setLlmLocalModelProfile);
   const setLlmLocalModelId = useAsrStore((state) => state.setLlmLocalModelId);
   const setLlmLocalStatus = useAsrStore((state) => state.setLlmLocalStatus);
   const clearLlmLocalModelSizeAlert = useAsrStore((state) => state.clearLlmLocalModelSizeAlert);
+  const setLlmApiReportDetailLevel = useAsrStore((state) => state.setLlmApiReportDetailLevel);
 
   const { status, progress, results, isResettingSession, generateAll, resetSession, downloadDocx } = useLlmLocalReports();
 
   const [source, setSource] = useState<"transcription" | "text">("transcription");
   const [manualText, setManualText] = useState("");
-  const [activeTab, setActiveTab] = useState<"cri" | "cro" | "crs">("cri");
+  const [activeTab, setActiveTab] = useState<ReportTabKey>("cri");
   const [isImporting, setIsImporting] = useState(false);
   const [importedFileMeta, setImportedFileMeta] = useState<ImportedFileMeta | null>(null);
   const [pendingHeavyProfile, setPendingHeavyProfile] = useState<LlmLocalModelProfile | null>(null);
@@ -411,7 +421,7 @@ function LLMLocalPage() {
         <header className="space-y-2">
           <h2 className="text-2xl font-semibold">LLM Local</h2>
           <p className="text-muted-foreground">
-            Générez les trois comptes rendus localement dans le navigateur, puis téléchargez chaque version en DOCX.
+            Générez les comptes rendus localement dans le navigateur, puis téléchargez chaque version en DOCX.
           </p>
           <p className="text-sm font-medium text-emerald-600">
             Traitement 100 % local sur ce poste : aucune donnée n&apos;est partagée en dehors de ce poste.
@@ -474,6 +484,12 @@ function LLMLocalPage() {
                 ) : null}
               </CardContent>
             </Card>
+
+            <ReportDetailLevelsSection
+              values={llmApiReportDetailLevels}
+              onChange={setLlmApiReportDetailLevel}
+              disabled={isBusy}
+            />
 
             <Card>
               <CardHeader>
@@ -594,7 +610,7 @@ function LLMLocalPage() {
 
                 <div className="flex flex-wrap gap-2">
                   <Button onClick={runGeneration} disabled={!canGenerate}>
-                    {isBusy ? "Génération en cours..." : "Générer les trois comptes rendus"}
+                    {isBusy ? "Génération en cours..." : "Générer les comptes rendus"}
                   </Button>
                   <Button
                     variant="outline"
@@ -614,7 +630,7 @@ function LLMLocalPage() {
             <Card>
               <CardHeader>
                 <CardTitle>Progression</CardTitle>
-                <CardDescription>Pipeline local : préparation, génération et mise en forme des trois comptes rendus.</CardDescription>
+                <CardDescription>Pipeline local : préparation, génération et mise en forme des comptes rendus.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -634,45 +650,42 @@ function LLMLocalPage() {
                 <CardDescription>Chaque format est présenté dans son bloc pour une lecture plus claire.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid gap-3 md:grid-cols-3">
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                   {FORMAT_PREVIEW_META.map((item) => (
                     <FormatIntro key={item.format} label={item.label} description={item.description} />
                   ))}
                 </div>
 
-                <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "cri" | "cro" | "crs")}>
-                  <TabsList className="grid h-auto w-full grid-cols-1 gap-1 sm:grid-cols-3">
-                    <TabsTrigger value="cri" className="min-w-0 whitespace-normal px-3 py-2 text-center leading-tight">
-                      {FORMAT_PREVIEW_META[0]!.label}
-                    </TabsTrigger>
-                    <TabsTrigger value="cro" className="min-w-0 whitespace-normal px-3 py-2 text-center leading-tight">
-                      {FORMAT_PREVIEW_META[1]!.label}
-                    </TabsTrigger>
-                    <TabsTrigger value="crs" className="min-w-0 whitespace-normal px-3 py-2 text-center leading-tight">
-                      {FORMAT_PREVIEW_META[2]!.label}
-                    </TabsTrigger>
+                <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as ReportTabKey)}>
+                  <TabsList className="grid h-auto w-full grid-cols-1 gap-1 sm:grid-cols-2 xl:grid-cols-4">
+                    {FORMAT_PREVIEW_META.map((item) => (
+                      <TabsTrigger
+                        key={item.format}
+                        value={item.format}
+                        className="min-w-0 whitespace-normal px-3 py-2 text-center leading-tight"
+                      >
+                        {item.label}
+                      </TabsTrigger>
+                    ))}
                   </TabsList>
-                  <TabsContent value="cri" className="mt-4">
-                    <FormatPreview format="cri" />
-                  </TabsContent>
-                  <TabsContent value="cro" className="mt-4">
-                    <FormatPreview format="cro" />
-                  </TabsContent>
-                  <TabsContent value="crs" className="mt-4">
-                    <FormatPreview format="crs" />
-                  </TabsContent>
+                  {FORMAT_PREVIEW_META.map((item) => (
+                    <TabsContent key={item.format} value={item.format} className="mt-4">
+                      <FormatPreview format={item.format} />
+                    </TabsContent>
+                  ))}
                 </Tabs>
 
-                <div className="grid gap-2 md:grid-cols-3">
-                  <Button variant="outline" onClick={() => runDownload("cri")} disabled={!results.cri || isBusy}>
-                    Télécharger {FORMAT_PREVIEW_META[0]!.label} (.docx)
-                  </Button>
-                  <Button variant="outline" onClick={() => runDownload("cro")} disabled={!results.cro || isBusy}>
-                    Télécharger {FORMAT_PREVIEW_META[1]!.label} (.docx)
-                  </Button>
-                  <Button variant="outline" onClick={() => runDownload("crs")} disabled={!results.crs || isBusy}>
-                    Télécharger {FORMAT_PREVIEW_META[2]!.label} (.docx)
-                  </Button>
+                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                  {FORMAT_PREVIEW_META.map((item) => (
+                    <Button
+                      key={item.format}
+                      variant="outline"
+                      onClick={() => runDownload(item.format)}
+                      disabled={!results[item.format] || isBusy}
+                    >
+                      Télécharger {item.label} (.docx)
+                    </Button>
+                  ))}
                 </div>
               </CardContent>
             </Card>

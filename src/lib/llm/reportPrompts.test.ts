@@ -54,16 +54,22 @@ describe("reportPrompts", () => {
     );
   });
 
-  it("applies specific style rules for CRI/CRO/CRS", () => {
+  it("applies specific style rules for CRI/CRO/CRS/CRN", () => {
     const criPrompt = buildReportUserPrompt("CRI", "Texte source");
     const croPrompt = buildReportUserPrompt("CRO", "Texte source");
     const crsPrompt = buildReportUserPrompt("CRS", "Texte source");
+    const crnPrompt = buildReportUserPrompt("CRN", "Texte source", "standard");
 
     expect(criPrompt).toContain("style narratif et textuel");
     expect(criPrompt).toContain("plusieurs pages");
     expect(croPrompt).toContain("style operationnel");
     expect(crsPrompt).toContain("style ultra synthetique");
     expect(crsPrompt).toContain("2-3 sections");
+    expect(crnPrompt).toContain("Format cible: CRN");
+    expect(crnPrompt).toContain("procès-verbal narratif");
+    expect(crnPrompt).toContain("ordre du jour");
+    expect(crnPrompt).toContain("interventions aux personnes ou groupes");
+    expect(crnPrompt).toContain("au moins");
   });
 
   it("builds chunk extraction prompts", () => {

@@ -64,6 +64,7 @@ describe("useLlmReports telemetry", () => {
         CRI: "standard",
         CRO: "standard",
         CRS: "standard",
+        CRN: "standard",
       },
       llmApiReportGenerationMode: "mono_pass",
       llmApiReportChunkRatio: 0.5,
@@ -132,10 +133,10 @@ describe("useLlmReports telemetry", () => {
         (event) => event.type === "LLM_RUN_STAGE" && event.data?.generationMode === "mono_pass"
       )
     ).toBe(true);
-    expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(3);
+    expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(4);
   });
 
-  it("generates reports sequentially, one format after another", async () => {
+  it("launches reports in parallel and stores each result as it settles", async () => {
     const { result } = renderHook(() => useLlmReports());
 
     const first = createDeferred<{
@@ -153,11 +154,17 @@ describe("useLlmReports telemetry", () => {
       rawResponse: string;
       strategy: "chatCompletion";
     }>();
+    const fourth = createDeferred<{
+      report: { format: string; title: string; sections: Array<{ heading: string; paragraphs: string[] }> };
+      rawResponse: string;
+      strategy: "chatCompletion";
+    }>();
 
     mocks.generateReportDetailedMock
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise)
-      .mockReturnValueOnce(third.promise);
+      .mockReturnValueOnce(third.promise)
+      .mockReturnValueOnce(fourth.promise);
 
     let runPromise!: Promise<void>;
     await act(async () => {
@@ -165,10 +172,31 @@ describe("useLlmReports telemetry", () => {
       await Promise.resolve();
     });
 
-    await waitFor(() => expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(1));
-    expect(mocks.generateReportDetailedMock.mock.calls[0]?.[0]).toEqual(
-      expect.objectContaining({ format: "CRI" })
-    );
+    await waitFor(() => expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(4));
+    expect(mocks.generateReportDetailedMock.mock.calls.map(([params]) => (params as { format: string }).format)).toEqual([
+      "CRI",
+      "CRO",
+      "CRS",
+      "CRN",
+    ]);
+
+    await act(async () => {
+      third.resolve({
+        report: {
+          format: "CRS",
+          title: "CRS title",
+          sections: [{ heading: "CRS", paragraphs: ["Paragraphe"] }],
+        },
+        rawResponse: "crs",
+        strategy: "chatCompletion",
+      });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(useAsrStore.getState().llmApiResults).toHaveProperty("crs"));
+    expect(useAsrStore.getState().llmApiResults.cri).toBeUndefined();
+    expect(useAsrStore.getState().llmApiResults.cro).toBeUndefined();
+    expect(useAsrStore.getState().llmApiResults.crn).toBeUndefined();
 
     await act(async () => {
       first.resolve({
@@ -180,15 +208,6 @@ describe("useLlmReports telemetry", () => {
         rawResponse: "cri",
         strategy: "chatCompletion",
       });
-      await Promise.resolve();
-    });
-
-    await waitFor(() => expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(2));
-    expect(mocks.generateReportDetailedMock.mock.calls[1]?.[0]).toEqual(
-      expect.objectContaining({ format: "CRO" })
-    );
-
-    await act(async () => {
       second.resolve({
         report: {
           format: "CRO",
@@ -198,12 +217,75 @@ describe("useLlmReports telemetry", () => {
         rawResponse: "cro",
         strategy: "chatCompletion",
       });
+      fourth.resolve({
+        report: {
+          format: "CRN",
+          title: "CRN title",
+          sections: [{ heading: "CRN", paragraphs: ["Paragraphe"] }],
+        },
+        rawResponse: "crn",
+        strategy: "chatCompletion",
+      });
       await Promise.resolve();
     });
 
-    await waitFor(() => expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(3));
-    expect(mocks.generateReportDetailedMock.mock.calls[2]?.[0]).toEqual(
-      expect.objectContaining({ format: "CRS" })
+    await act(async () => {
+      await runPromise;
+    });
+
+    expect(useAsrStore.getState().llmApiStatus).toBe("done");
+    expect(useAsrStore.getState().llmApiResults).toHaveProperty("cri");
+    expect(useAsrStore.getState().llmApiResults).toHaveProperty("cro");
+    expect(useAsrStore.getState().llmApiResults).toHaveProperty("crs");
+    expect(useAsrStore.getState().llmApiResults).toHaveProperty("crn");
+  });
+
+  it("launches Demeter reports in parallel and stores each result as it settles", async () => {
+    const { result } = renderHook(() => useLlmReports({ providerOverride: "demeter_sante" }));
+
+    const first = createDeferred<{
+      report: { format: string; title: string; sections: Array<{ heading: string; paragraphs: string[] }> };
+      rawResponse: string;
+      strategy: "chatCompletion";
+    }>();
+    const second = createDeferred<{
+      report: { format: string; title: string; sections: Array<{ heading: string; paragraphs: string[] }> };
+      rawResponse: string;
+      strategy: "chatCompletion";
+    }>();
+    const third = createDeferred<{
+      report: { format: string; title: string; sections: Array<{ heading: string; paragraphs: string[] }> };
+      rawResponse: string;
+      strategy: "chatCompletion";
+    }>();
+    const fourth = createDeferred<{
+      report: { format: string; title: string; sections: Array<{ heading: string; paragraphs: string[] }> };
+      rawResponse: string;
+      strategy: "chatCompletion";
+    }>();
+
+    mocks.generateReportDetailedMock
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+      .mockReturnValueOnce(third.promise)
+      .mockReturnValueOnce(fourth.promise);
+
+    let runPromise!: Promise<void>;
+    await act(async () => {
+      runPromise = result.current.generateAll({ source: "transcription", transcriptMode: "upload" });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(4));
+    expect(mocks.generateReportDetailedMock.mock.calls.map(([params]) => (params as { format: string }).format)).toEqual([
+      "CRI",
+      "CRO",
+      "CRS",
+      "CRN",
+    ]);
+    expect(mocks.generateReportDetailedMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ provider: "demeter_sante", format: "CRI" })
     );
 
     await act(async () => {
@@ -219,6 +301,42 @@ describe("useLlmReports telemetry", () => {
       await Promise.resolve();
     });
 
+    await waitFor(() => expect(useAsrStore.getState().llmApiResults).toHaveProperty("crs"));
+    expect(useAsrStore.getState().llmApiResults.cri).toBeUndefined();
+    expect(useAsrStore.getState().llmApiResults.cro).toBeUndefined();
+    expect(useAsrStore.getState().llmApiResults.crn).toBeUndefined();
+
+    await act(async () => {
+      first.resolve({
+        report: {
+          format: "CRI",
+          title: "CRI title",
+          sections: [{ heading: "CRI", paragraphs: ["Paragraphe"] }],
+        },
+        rawResponse: "cri",
+        strategy: "chatCompletion",
+      });
+      second.resolve({
+        report: {
+          format: "CRO",
+          title: "CRO title",
+          sections: [{ heading: "CRO", paragraphs: ["Paragraphe"] }],
+        },
+        rawResponse: "cro",
+        strategy: "chatCompletion",
+      });
+      fourth.resolve({
+        report: {
+          format: "CRN",
+          title: "CRN title",
+          sections: [{ heading: "CRN", paragraphs: ["Paragraphe"] }],
+        },
+        rawResponse: "crn",
+        strategy: "chatCompletion",
+      });
+      await Promise.resolve();
+    });
+
     await act(async () => {
       await runPromise;
     });
@@ -227,6 +345,7 @@ describe("useLlmReports telemetry", () => {
     expect(useAsrStore.getState().llmApiResults).toHaveProperty("cri");
     expect(useAsrStore.getState().llmApiResults).toHaveProperty("cro");
     expect(useAsrStore.getState().llmApiResults).toHaveProperty("crs");
+    expect(useAsrStore.getState().llmApiResults).toHaveProperty("crn");
   });
 
   it("routes detailed reports through mono-pass by default", async () => {
@@ -235,6 +354,7 @@ describe("useLlmReports telemetry", () => {
         CRI: "verbose",
         CRO: "exhaustive",
         CRS: "standard",
+        CRN: "standard",
       },
     } as any);
 
@@ -252,6 +372,9 @@ describe("useLlmReports telemetry", () => {
     );
     expect(mocks.generateReportDetailedMock).toHaveBeenCalledWith(
       expect.objectContaining({ format: "CRS", detailLevel: "standard" })
+    );
+    expect(mocks.generateReportDetailedMock).toHaveBeenCalledWith(
+      expect.objectContaining({ format: "CRN", detailLevel: "standard" })
     );
   });
 
@@ -277,6 +400,10 @@ describe("useLlmReports telemetry", () => {
       3,
       expect.objectContaining({ provider: "demeter_sante", format: "CRS" })
     );
+    expect(mocks.generateReportDetailedMock).toHaveBeenNthCalledWith(
+      4,
+      expect.objectContaining({ provider: "demeter_sante", format: "CRN" })
+    );
   });
 
   it("caps mono-pass cloud report max tokens with the mono-pass setting", async () => {
@@ -288,6 +415,7 @@ describe("useLlmReports telemetry", () => {
         CRI: "verbose",
         CRO: "exhaustive",
         CRS: "standard",
+        CRN: "standard",
       },
     } as any);
 
@@ -300,7 +428,7 @@ describe("useLlmReports telemetry", () => {
     const calledMaxTokens = mocks.generateReportDetailedMock.mock.calls.map(
       ([params]) => (params as { maxTokens: number }).maxTokens
     );
-    expect(calledMaxTokens).toEqual([2048, 2048, 2048]);
+    expect(calledMaxTokens).toEqual([2048, 2048, 2048, 2048]);
   });
 
   it("emits readable stage labels and global pass counters for cloud stages", async () => {
@@ -309,6 +437,7 @@ describe("useLlmReports telemetry", () => {
         CRI: "verbose",
         CRO: "exhaustive",
         CRS: "standard",
+        CRN: "standard",
       },
     } as any);
 
@@ -456,7 +585,7 @@ describe("useLlmReports telemetry", () => {
     });
 
     expect(useAsrStore.getState().llmApiStatus).toBe("done");
-    expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(3);
+    expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(4);
   });
 
   it("fails the whole cloud batch when one format generation fails", async () => {
@@ -477,11 +606,17 @@ describe("useLlmReports telemetry", () => {
       rawResponse: string;
       strategy: "chatCompletion";
     }>();
+    const fourth = createDeferred<{
+      report: { format: string; title: string; sections: Array<{ heading: string; paragraphs: string[] }> };
+      rawResponse: string;
+      strategy: "chatCompletion";
+    }>();
 
     mocks.generateReportDetailedMock
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise)
-      .mockReturnValueOnce(third.promise);
+      .mockReturnValueOnce(third.promise)
+      .mockReturnValueOnce(fourth.promise);
 
     let runPromise!: Promise<void>;
     await act(async () => {
@@ -489,7 +624,7 @@ describe("useLlmReports telemetry", () => {
       await Promise.resolve();
     });
 
-    await waitFor(() => expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(4));
 
     await act(async () => {
       first.resolve({
@@ -501,13 +636,25 @@ describe("useLlmReports telemetry", () => {
         rawResponse: "cri raw",
         strategy: "chatCompletion",
       });
-      await Promise.resolve();
-    });
-
-    await waitFor(() => expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(2));
-
-    await act(async () => {
       second.reject(new Error("CRO failed"));
+      third.resolve({
+        report: {
+          format: "CRS",
+          title: "CRS title",
+          sections: [{ heading: "Section CRS", paragraphs: ["Paragraphe CRS"] }],
+        },
+        rawResponse: "crs raw",
+        strategy: "chatCompletion",
+      });
+      fourth.resolve({
+        report: {
+          format: "CRN",
+          title: "CRN title",
+          sections: [{ heading: "Section CRN", paragraphs: ["Paragraphe CRN"] }],
+        },
+        rawResponse: "crn raw",
+        strategy: "chatCompletion",
+      });
       await Promise.resolve();
     });
 
@@ -518,7 +665,8 @@ describe("useLlmReports telemetry", () => {
     expect(useAsrStore.getState().llmApiStatus).toBe("error");
     expect(useAsrStore.getState().llmApiResults.cri).toBeTruthy();
     expect(useAsrStore.getState().llmApiResults.cro).toBeUndefined();
-    expect(useAsrStore.getState().llmApiResults.crs).toBeUndefined();
+    expect(useAsrStore.getState().llmApiResults.crs).toBeTruthy();
+    expect(useAsrStore.getState().llmApiResults.crn).toBeTruthy();
   });
 
   it("fails when downloadDocx is called without generated result", async () => {

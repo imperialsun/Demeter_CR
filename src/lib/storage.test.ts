@@ -168,6 +168,7 @@ describe('storage', () => {
       CRI: "standard",
       CRO: "standard",
       CRS: "standard",
+      CRN: "standard",
     });
     expect(DEFAULT_SETTINGS.llmApiReportGenerationMode).toBe("mono_pass");
     expect(DEFAULT_SETTINGS.llmApiReportChunkRatio).toBe(0.5);

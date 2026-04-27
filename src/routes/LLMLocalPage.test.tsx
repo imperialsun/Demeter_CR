@@ -102,7 +102,7 @@ describe("LLMLocalPage", () => {
   it("triggers local generation from transcription source", async () => {
     renderPage();
 
-    const button = screen.getByRole("button", { name: /générer les trois comptes rendus/i });
+    const button = screen.getByRole("button", { name: /générer les comptes rendus/i });
     expect(button).not.toBeDisabled();
 
     fireEvent.click(button);
@@ -192,7 +192,7 @@ describe("LLMLocalPage", () => {
     fireEvent.click(sourceSelect);
     fireEvent.click(await screen.findByText("Texte libre"));
 
-    const button = screen.getByRole("button", { name: /générer les trois comptes rendus/i });
+    const button = screen.getByRole("button", { name: /générer les comptes rendus/i });
     expect(button).toBeDisabled();
     expect(screen.getByRole("button", { name: /choisir un fichier/i })).toBeInTheDocument();
     expect(screen.getByText(/importez un fichier pour lancer la génération/i)).toBeInTheDocument();
@@ -283,7 +283,7 @@ describe("LLMLocalPage", () => {
     const file = new File(["dummy"], "source.txt", { type: "text/plain" });
     fireEvent.change(fileInput, { target: { files: [file] } });
 
-    const generateButton = screen.getByRole("button", { name: /générer les trois comptes rendus/i });
+    const generateButton = screen.getByRole("button", { name: /générer les comptes rendus/i });
     await waitFor(() => {
       expect(generateButton).not.toBeDisabled();
     });
@@ -369,7 +369,7 @@ describe("LLMLocalPage", () => {
     renderPage();
 
     expect(screen.getByText(/aucun backend local disponible/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /générer les trois comptes rendus/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /générer les comptes rendus/i })).toBeDisabled();
   });
 
   it("handles local download failure with toast and telemetry", async () => {

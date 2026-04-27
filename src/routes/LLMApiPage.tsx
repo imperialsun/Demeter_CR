@@ -18,6 +18,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
+import { ReportFormatResultsPanel } from "@/components/llm/ReportFormatResultsPanel";
+import { ReportFormatSwitchesSection } from "@/components/llm/ReportFormatSwitchesSection";
 import { ReportDetailLevelsSection } from "@/components/llm/ReportDetailLevelsSection";
 import { useAsrStore, type LlmApiProvider } from "@/store/asr-store";
 import { useLlmReports } from "@/hooks/useLlmReports";
@@ -70,7 +72,15 @@ const FORMAT_PREVIEW_META = [
     label: buildReportFormatLabel("CRS"),
     description: buildReportFormatDescription("CRS"),
   },
+  {
+    format: "crn" as const,
+    code: "CRN" as const,
+    label: buildReportFormatLabel("CRN"),
+    description: buildReportFormatDescription("CRN"),
+  },
 ];
+
+type ReportTabKey = (typeof FORMAT_PREVIEW_META)[number]["format"];
 
 const LLM_HF_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans clé API Hugging Face.";
 const LLM_MISTRAL_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans clé API Mistral.";
@@ -113,6 +123,7 @@ function LLMApiPage() {
   const llmApiMistralTemperature = useAsrStore((state) => state.llmApiMistralTemperature);
   const llmApiMistralMaxTokens = useAsrStore((state) => state.llmApiMistralMaxTokens);
   const llmApiReportDetailLevels = useAsrStore((state) => state.llmApiReportDetailLevels);
+  const llmApiReportEnabledFormats = useAsrStore((state) => state.llmApiReportEnabledFormats);
   const llmApiStatusDetail = useAsrStore((state) => state.llmApiStatusDetail);
   const mistralApiKey = useAsrStore((state) => state.mistralApiKey);
 
@@ -122,12 +133,13 @@ function LLMApiPage() {
   const resetLlmApiSession = useAsrStore((state) => state.resetLlmApiSession);
   const setMistralApiKey = useAsrStore((state) => state.setMistralApiKey);
   const setLlmApiReportDetailLevel = useAsrStore((state) => state.setLlmApiReportDetailLevel);
+  const setLlmApiReportEnabledFormat = useAsrStore((state) => state.setLlmApiReportEnabledFormat);
 
   const { status, progress, results, generateAll, downloadDocx } = useLlmReports();
 
   const [source, setSource] = useState<"transcription" | "text">("transcription");
   const [manualText, setManualText] = useState("");
-  const [activeTab, setActiveTab] = useState<"cri" | "cro" | "crs">("cri");
+  const [activeTab, setActiveTab] = useState<ReportTabKey>("cri");
   const [isImporting, setIsImporting] = useState(false);
   const [importedFileMeta, setImportedFileMeta] = useState<ImportedFileMeta | null>(null);
   const [selectedTranscriptMode, setSelectedTranscriptMode] = useState<SessionTranscriptMode | null>(null);
@@ -204,6 +216,17 @@ function LLMApiPage() {
     () => availableTranscripts.find((entry) => entry.mode === effectiveTranscriptMode) ?? null,
     [availableTranscripts, effectiveTranscriptMode]
   );
+
+  useEffect(() => {
+    if (results[activeTab]) {
+      return;
+    }
+
+    const nextAvailableTab = FORMAT_PREVIEW_META.find((item) => results[item.format]);
+    if (nextAvailableTab && nextAvailableTab.format !== activeTab) {
+      setActiveTab(nextAvailableTab.format);
+    }
+  }, [activeTab, results]);
 
   const transcriptionText = activeTranscript?.text ?? "";
 
@@ -542,7 +565,7 @@ function LLMApiPage() {
       <header className="space-y-2">
         <h2 className="text-2xl font-semibold">LLM Cloud</h2>
         <p className="text-muted-foreground">
-          Générez les trois comptes rendus via le provider LLM cloud, puis téléchargez chaque version en DOCX.
+          Générez les comptes rendus via le provider LLM cloud, puis téléchargez chaque version en DOCX.
         </p>
         <p className="text-sm font-medium text-amber-700">
           Note : ce module utilise une API externe du provider sélectionné. Pour un équivalent local, utilisez LLM
@@ -684,6 +707,12 @@ function LLMApiPage() {
           <ReportDetailLevelsSection
             values={llmApiReportDetailLevels}
             onChange={setLlmApiReportDetailLevel}
+            defaultCollapsed
+          />
+
+          <ReportFormatSwitchesSection
+            values={llmApiReportEnabledFormats}
+            onChange={setLlmApiReportEnabledFormat}
           />
 
           <Card>
@@ -849,7 +878,7 @@ function LLMApiPage() {
 
               <div className="flex flex-wrap items-center gap-2">
                 <Button onClick={runGeneration} disabled={!canGenerate}>
-                  Générer les trois comptes rendus
+                  Générer les comptes rendus
                 </Button>
                 <Button variant="outline" onClick={handleResetSession} disabled={isBusy}>
                   Réinitialiser la session LLM
@@ -863,7 +892,7 @@ function LLMApiPage() {
           <Card>
             <CardHeader>
               <CardTitle>Progression</CardTitle>
-              <CardDescription>Pipeline cloud: préparation, génération et mise en forme des trois comptes rendus.</CardDescription>
+              <CardDescription>Pipeline cloud: préparation, génération et mise en forme des comptes rendus.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex items-center gap-2">
@@ -884,7 +913,7 @@ function LLMApiPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-                  <div className="grid gap-2 md:grid-cols-3">
+                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
                     {FORMAT_PREVIEW_META.map((item) => (
                       <div key={item.format} className="rounded-md border bg-muted/20 p-3">
                         <p className="text-sm font-semibold text-foreground">{item.label}</p>
@@ -895,18 +924,16 @@ function LLMApiPage() {
                     ))}
                   </div>
 
-                <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "cri" | "cro" | "crs")}>
-                  <TabsList className="grid h-auto w-full grid-cols-1 gap-1 sm:grid-cols-3">
-                    <TabsTrigger value="cri" className="min-w-0 whitespace-normal px-3 py-2 text-center leading-tight">
-                      {FORMAT_PREVIEW_META[0]!.label}
-                    </TabsTrigger>
-                    <TabsTrigger value="cro" className="min-w-0 whitespace-normal px-3 py-2 text-center leading-tight">
-                      {FORMAT_PREVIEW_META[1]!.label}
-                    </TabsTrigger>
-                    <TabsTrigger value="crs" className="min-w-0 whitespace-normal px-3 py-2 text-center leading-tight">
-                      {FORMAT_PREVIEW_META[2]!.label}
-                    </TabsTrigger>
-                  </TabsList>
+                  <ReportFormatResultsPanel
+                    className="mt-4"
+                    results={results}
+                    enabledFormats={llmApiReportEnabledFormats}
+                    onDownload={(format) => {
+                      void runDownload(format);
+                    }}
+                    showDownloadButton={false}
+                    emptyMessage="Les comptes rendus apparaîtront ici au fil de leur génération."
+                  />
 
                 {docxDownloads.length > 0 ? (
                   <section
@@ -941,15 +968,24 @@ function LLMApiPage() {
                   </section>
                 ) : null}
 
-                <TabsContent value="cri" className="mt-4">
-                  <ReportFormatEditor format="cri" description={FORMAT_PREVIEW_META[0]!.description} />
-                </TabsContent>
-                <TabsContent value="cro" className="mt-4">
-                  <ReportFormatEditor format="cro" description={FORMAT_PREVIEW_META[1]!.description} />
-                </TabsContent>
-                <TabsContent value="crs" className="mt-4">
-                  <ReportFormatEditor format="crs" description={FORMAT_PREVIEW_META[2]!.description} />
-                </TabsContent>
+                <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as ReportTabKey)}>
+                  <TabsList className="grid h-auto w-full grid-cols-1 gap-1 sm:grid-cols-2 xl:grid-cols-4">
+                    {FORMAT_PREVIEW_META.map((item) => (
+                      <TabsTrigger
+                        key={item.format}
+                        value={item.format}
+                        className="min-w-0 whitespace-normal px-3 py-2 text-center leading-tight"
+                      >
+                        {item.label}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+
+                {FORMAT_PREVIEW_META.map((item) => (
+                  <TabsContent key={item.format} value={item.format} className="mt-4">
+                    <ReportFormatEditor format={item.format} description={item.description} />
+                  </TabsContent>
+                ))}
               </Tabs>
             </CardContent>
           </Card>

@@ -61,6 +61,12 @@ describe("useLlmLocalReports", () => {
       llmLocalDtypeWebgpu: defaults.qwen_1_7b.dtypeWebgpu,
       llmLocalDtypeWasm: defaults.qwen_1_7b.dtypeWasm,
       llmLocalSettingsByProfile: defaults,
+      llmApiReportDetailLevels: {
+        CRI: "standard",
+        CRO: "standard",
+        CRS: "standard",
+        CRN: "standard",
+      },
       llmApiReportChunkRatio: 0.5,
       llmApiReportGenerationMode: "mono_pass",
       llmApiReportMonoPassMaxTokens: 16384,
@@ -91,7 +97,7 @@ describe("useLlmLocalReports", () => {
     }));
   });
 
-  it("generates three local report formats using active profile settings", async () => {
+  it("generates four local report formats using active profile settings", async () => {
     const { result } = renderHook(() => useLlmLocalReports());
 
     await act(async () => {
@@ -99,7 +105,7 @@ describe("useLlmLocalReports", () => {
     });
 
     expect(useAsrStore.getState().llmLocalStatus).toBe("done");
-    expect(mocks.generateLocalReportDetailedMock).toHaveBeenCalledTimes(3);
+    expect(mocks.generateLocalReportDetailedMock).toHaveBeenCalledTimes(4);
     expect(useAsrStore.getState().llmLocalResults.cri?.strategy).toBe("localTextGeneration");
 
     const firstCall = mocks.generateLocalReportDetailedMock.mock.calls[0]?.[0] as {
@@ -130,7 +136,7 @@ describe("useLlmLocalReports", () => {
     const calledMaxTokens = mocks.generateLocalReportDetailedMock.mock.calls.map(
       ([params]) => (params as { maxTokens: number }).maxTokens
     );
-    expect(calledMaxTokens).toEqual([1024, 1024, 1024]);
+    expect(calledMaxTokens).toEqual([1024, 1024, 1024, 1024]);
   });
 
   it("falls back from webgpu to wasm automatically for qwen profile", async () => {

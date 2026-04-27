@@ -84,4 +84,16 @@ Fin de sortie`;
     expect(report.format).toBe("CRS");
     expect(report.title).toBe("Titre court");
   });
+
+  it("accepts the narrative report format", () => {
+    const input = JSON.stringify({
+      format: "CRN",
+      title: "Compte rendu narratif",
+      sections: [{ heading: "1. Ouverture", paragraphs: ["Mme X ouvre la séance."] }],
+    });
+
+    const report = parseReportJson(input, "CRN");
+    expect(report.format).toBe("CRN");
+    expect(report.sections[0]?.heading).toBe("1. Ouverture");
+  });
 });

@@ -28,6 +28,7 @@ const FORMAT_ORDER: Array<{ key: ReportResultKey; format: ReportFormat }> = [
   { key: "cri", format: "CRI" },
   { key: "cro", format: "CRO" },
   { key: "crs", format: "CRS" },
+  { key: "crn", format: "CRN" },
 ];
 
 type GenerateInput = { source: "transcription" | "text"; text?: string };
@@ -46,6 +47,7 @@ export function useLlmLocalReports() {
   const llmLocalDtypeWebgpuLegacy = useAsrStore((state) => state.llmLocalDtypeWebgpu);
   const llmLocalDtypeWasmLegacy = useAsrStore((state) => state.llmLocalDtypeWasm);
   const llmLocalSettingsByProfile = useAsrStore((state) => state.llmLocalSettingsByProfile);
+  const llmApiReportDetailLevels = useAsrStore((state) => state.llmApiReportDetailLevels);
   const llmApiReportChunkRatio = useAsrStore((state) => state.llmApiReportChunkRatio);
   const llmApiReportMonoPassMaxTokens = useAsrStore((state) => state.llmApiReportMonoPassMaxTokens);
 
@@ -368,13 +370,15 @@ export function useLlmLocalReports() {
 
             for (let index = 0; index < FORMAT_ORDER.length; index += 1) {
               const item = FORMAT_ORDER[index]!;
-              setStatusSafe("generating", `Génération ${buildReportFormatLabel(item.format)} (${index + 1}/3)`);
+              const detailLevel = llmApiReportDetailLevels[item.format];
+              setStatusSafe("generating", `Génération ${buildReportFormatLabel(item.format)} (${index + 1}/${FORMAT_ORDER.length})`);
               setProgressSafe(0.5 + (index / FORMAT_ORDER.length) * 0.4);
               markStage("format_generation_start", {
                 profileId: profile.id,
                 modelId,
                 backend,
                 format: item.format,
+                detailLevel,
                 sequence: index + 1,
                 totalFormats: FORMAT_ORDER.length,
               });
@@ -388,6 +392,7 @@ export function useLlmLocalReports() {
                 dtype,
                 temperature,
                 maxTokens: reportMaxTokens,
+                detailLevel,
                 appendNoThinkDirective,
                 onLoadProgress: () => {
                   // Model download progress is tracked at pipeline level by logger/events.
@@ -405,6 +410,7 @@ export function useLlmLocalReports() {
                 sourceTokenCount: prepared.sourceTokenCount,
                 pipelinePasses: prepared.pipelinePasses,
                 strategy: generation.strategy,
+                detailLevel,
               };
 
               setResultSafe(reportFormatToKey(item.format), result);
@@ -413,6 +419,7 @@ export function useLlmLocalReports() {
                 modelId,
                 backend,
                 format: item.format,
+                detailLevel,
                 sequence: index + 1,
                 sectionCount: result.report.sections.length,
                 outputLength: result.rawResponse.length,
@@ -612,6 +619,7 @@ export function useLlmLocalReports() {
       llmLocalModelIdLegacy,
       llmLocalModelProfile,
       llmLocalSettingsByProfile,
+      llmApiReportDetailLevels,
       llmApiReportChunkRatio,
       llmApiReportMonoPassMaxTokens,
       llmLocalTemperatureLegacy,

@@ -252,6 +252,7 @@ export interface PersistedSettings {
   llmApiMistralTemperature: number;
   llmApiMistralMaxTokens: number;
   llmApiReportDetailLevels: Record<ReportFormat, ReportDetailLevel>;
+  llmApiReportEnabledFormats: Record<ReportFormat, boolean>;
   llmApiReportGenerationMode: LlmReportGenerationMode;
   llmApiReportChunkRatio: number;
   llmApiReportMaxSubpartsPerPart: number;
@@ -548,6 +549,12 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   llmApiMistralTemperature: 0.2,
   llmApiMistralMaxTokens: 8192,
   llmApiReportDetailLevels: { ...DEFAULT_REPORT_DETAIL_LEVELS },
+  llmApiReportEnabledFormats: {
+    CRI: true,
+    CRO: true,
+    CRS: true,
+    CRN: true,
+  },
   llmApiReportChunkRatio: LLM_REPORT_CHUNK_RATIO_DEFAULT,
   llmApiReportMaxSubpartsPerPart: LLM_REPORT_MAX_SUBPARTS_PER_PART_DEFAULT,
   llmApiReportGenerationMode: LLM_REPORT_GENERATION_MODE_DEFAULT,

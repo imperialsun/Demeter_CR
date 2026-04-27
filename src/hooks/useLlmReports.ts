@@ -52,6 +52,7 @@ const FORMAT_ORDER: Array<{ key: ReportResultKey; format: ReportFormat }> = [
   { key: "cri", format: "CRI" },
   { key: "cro", format: "CRO" },
   { key: "crs", format: "CRS" },
+  { key: "crn", format: "CRN" },
 ];
 
 type GenerateInput =
@@ -74,6 +75,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
   const llmApiMistralTemperature = useAsrStore((state) => state.llmApiMistralTemperature);
   const llmApiMistralMaxTokens = useAsrStore((state) => state.llmApiMistralMaxTokens);
   const llmApiReportDetailLevels = useAsrStore((state) => state.llmApiReportDetailLevels);
+  const llmApiReportEnabledFormats = useAsrStore((state) => state.llmApiReportEnabledFormats);
   const llmApiReportChunkRatio = useAsrStore((state) => state.llmApiReportChunkRatio);
   const llmApiReportMonoPassMaxTokens = useAsrStore((state) => state.llmApiReportMonoPassMaxTokens);
   const mistralApiKey = useAsrStore((state) => state.mistralApiKey);
@@ -111,32 +113,41 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
       setTelemetrySummary(null);
       telemetry.startTimer("llm_cloud_total");
       let stage = "init";
-      let activeGenerationContext:
-        | {
-            format: ReportFormat;
-            detailLevel: string;
-            generationMode: string;
-            sequenceIndex: number;
-          }
-        | null = null;
       const provider = effectiveProvider;
       const sourceMode = input.source;
       const activeModelId = activePipelineConfig.modelId.trim() || "unset";
-      const formatOrder = FORMAT_ORDER.map((item) => item.format);
+      const activeFormatOrder = FORMAT_ORDER.filter((item) => llmApiReportEnabledFormats[item.format]);
+      const formatOrder = activeFormatOrder.map((item) => item.format);
+      if (!activeFormatOrder.length) {
+        const message = "Activez au moins un format de compte rendu avant de lancer la génération.";
+        setLlmApiStatus("error", message);
+        setLlmApiProgress(0);
+        telemetry.stopTimer("llm_cloud_total");
+        return;
+      }
       let lastStageLabel = stage;
       let lastGlobalPassIndex = 1;
       let lastGlobalPassTotal = 1;
-      const markStage = (nextStage: string, data?: Record<string, unknown>) => {
+      const markStage = (
+        nextStage: string,
+        data?: Record<string, unknown>,
+        context?: {
+          format: ReportFormat;
+          detailLevel: string;
+          generationMode: string;
+          sequenceIndex: number;
+        }
+      ) => {
         stage = nextStage;
         const descriptor = resolveCloudRunStageDescriptor(nextStage, data, {
           provider,
           modelId: activeModelId,
           sourceMode,
-          format: activeGenerationContext?.format,
-          detailLevel: activeGenerationContext?.detailLevel,
-          generationMode: activeGenerationContext?.generationMode,
-          sequenceIndex: activeGenerationContext?.sequenceIndex,
-          sequenceTotal: FORMAT_ORDER.length,
+          format: context?.format,
+          detailLevel: context?.detailLevel,
+          generationMode: context?.generationMode,
+          sequenceIndex: context?.sequenceIndex,
+          sequenceTotal: activeFormatOrder.length,
         });
         lastStageLabel = descriptor.stageLabel;
         lastGlobalPassIndex = descriptor.globalPassIndex;
@@ -359,112 +370,187 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
 
         markStage("report_sequence_start", {
           formatOrder,
-          totalFormats: FORMAT_ORDER.length,
+          totalFormats: activeFormatOrder.length,
         });
-        setLlmApiStatus("generating", "Génération des trois comptes rendus");
+        setLlmApiStatus(
+          "generating",
+          `Lancement parallèle des ${activeFormatOrder.length} comptes rendus`
+        );
         setLlmApiProgress(0.5);
 
-        for (const [index, item] of FORMAT_ORDER.entries()) {
-          const sequenceIndex = index + 1;
+        let finishedCount = 0;
+        const totalFormats = activeFormatOrder.length;
+        const updateParallelProgress = () => {
+          finishedCount += 1;
+          const nextProgress = Math.min(0.95, 0.5 + (finishedCount / totalFormats) * 0.45);
+          setLlmApiProgress(nextProgress);
+          setLlmApiStatus("generating", `${finishedCount}/${totalFormats} comptes rendus terminés`);
+        };
+
+        const runFormatTask = async (item: (typeof FORMAT_ORDER)[number], sequenceIndex: number) => {
           const detailLevel = llmApiReportDetailLevels[item.format];
           const generationMode = "mono_pass";
           const reportMaxTokens = monoPassReportMaxTokens;
-          activeGenerationContext = {
+          const taskContext = {
             format: item.format,
             detailLevel,
             generationMode,
             sequenceIndex,
+          };
+          const emitTaskStage = (nextStage: string, data?: Record<string, unknown>) => {
+            const descriptor = resolveCloudRunStageDescriptor(nextStage, data, {
+              provider,
+              modelId: activeModelId,
+              sourceMode,
+              format: taskContext.format,
+              detailLevel: taskContext.detailLevel,
+              generationMode: taskContext.generationMode,
+              sequenceIndex: taskContext.sequenceIndex,
+              sequenceTotal: totalFormats,
+            });
+            lastStageLabel = descriptor.stageLabel;
+            lastGlobalPassIndex = descriptor.globalPassIndex;
+            lastGlobalPassTotal = descriptor.globalPassTotal;
+            telemetry.logEvent("LLM_RUN_STAGE", descriptor.telemetryData);
+            logger.info(descriptor.consoleMessage, descriptor.consoleContext);
           };
           logger.debug("[llm-api] format generation start", {
             format: item.format,
             detailLevel,
             generationMode,
             sequenceIndex,
-            totalFormats: FORMAT_ORDER.length,
+            totalFormats,
           });
-          markStage("format_generation_start", {
+          emitTaskStage("format_generation_start", {
             format: item.format,
             detailLevel,
             generationMode,
             sequenceIndex,
-            sequenceTotal: FORMAT_ORDER.length,
-            totalFormats: FORMAT_ORDER.length,
+            sequenceTotal: totalFormats,
+            totalFormats,
           });
-          setLlmApiStatus("generating", `Génération du compte rendu ${item.format} (${sequenceIndex}/${FORMAT_ORDER.length})`);
+          try {
+            let generation: GenerateReportDetailedResult;
+            if (provider === "huggingface") {
+              generation = await generateReportDetailed({
+                provider: "huggingface",
+                format: item.format,
+                modelId,
+                sourceText: prepared.text,
+                temperature,
+                maxTokens: reportMaxTokens,
+                detailLevel,
+                hfToken,
+              });
+            } else if (provider === "mistral") {
+              generation = await generateReportDetailed({
+                provider: "mistral",
+                format: item.format,
+                modelId,
+                sourceText: prepared.text,
+                temperature,
+                maxTokens: reportMaxTokens,
+                detailLevel,
+                mistralApiKey: mistralKey,
+                mistralApiUrl,
+              });
+            } else {
+              generation = await generateReportDetailed({
+                provider: "demeter_sante",
+                format: item.format,
+                modelId,
+                sourceText: prepared.text,
+                temperature,
+                maxTokens: reportMaxTokens,
+                detailLevel,
+              });
+            }
 
-          let generation: GenerateReportDetailedResult;
-          if (provider === "huggingface") {
-            generation = await generateReportDetailed({
-              provider: "huggingface",
+            const pipelinePasses = prepared.pipelinePasses;
+            const result: ReportResult = {
               format: item.format,
+              report: generation.report,
+              rawResponse: generation.rawResponse,
               modelId,
-              sourceText: prepared.text,
-              temperature,
-              maxTokens: reportMaxTokens,
+              generatedAt: new Date().toISOString(),
+              sourceMode: input.source,
+              sourceTokenCount: estimateTokenCount(sourceText),
+              pipelinePasses,
+              strategy: generation.strategy,
               detailLevel,
-              hfToken,
-            });
-          } else if (provider === "mistral") {
-            generation = await generateReportDetailed({
-              provider: "mistral",
+            };
+
+            setLlmApiResult(reportFormatToKey(item.format), result);
+            logger.debug("[llm-api] format generation done", {
               format: item.format,
-              modelId,
-              sourceText: prepared.text,
-              temperature,
-              maxTokens: reportMaxTokens,
               detailLevel,
-              mistralApiKey: mistralKey,
-              mistralApiUrl,
+              generationMode,
+              sequenceIndex,
+              totalFormats,
+              sectionCount: result.report.sections.length,
+              outputLength: result.rawResponse.length,
+              pipelinePasses: result.pipelinePasses,
             });
-          } else {
-            generation = await generateReportDetailed({
-              provider: "demeter_sante",
+            emitTaskStage("format_generation_done", {
               format: item.format,
-              modelId,
-              sourceText: prepared.text,
-              temperature,
-              maxTokens: reportMaxTokens,
               detailLevel,
+              generationMode,
+              sequenceIndex,
+              sequenceTotal: totalFormats,
+              sectionCount: result.report.sections.length,
+              outputLength: result.rawResponse.length,
+              pipelinePasses: result.pipelinePasses,
             });
+            return result;
+          } catch (error) {
+            const taskError = error instanceof Error ? error : new Error(String(error));
+            (taskError as Error & {
+              format?: ReportFormat;
+              detailLevel?: string;
+              generationMode?: string;
+              sequenceIndex?: number;
+            }).format = item.format;
+            (taskError as Error & {
+              format?: ReportFormat;
+              detailLevel?: string;
+              generationMode?: string;
+              sequenceIndex?: number;
+            }).detailLevel = detailLevel;
+            (taskError as Error & {
+              format?: ReportFormat;
+              detailLevel?: string;
+              generationMode?: string;
+              sequenceIndex?: number;
+            }).generationMode = generationMode;
+            (taskError as Error & {
+              format?: ReportFormat;
+              detailLevel?: string;
+              generationMode?: string;
+              sequenceIndex?: number;
+            }).sequenceIndex = sequenceIndex;
+            logger.error("[llm-api] format generation failed", {
+              format: item.format,
+              detailLevel,
+              generationMode,
+              sequenceIndex,
+              totalFormats,
+              provider,
+              modelId,
+              sourceMode,
+              message: taskError.message,
+            });
+            throw taskError;
+          } finally {
+            updateParallelProgress();
           }
+        };
 
-          const pipelinePasses = prepared.pipelinePasses;
-          const result: ReportResult = {
-            format: item.format,
-            report: generation.report,
-            rawResponse: generation.rawResponse,
-            modelId,
-            generatedAt: new Date().toISOString(),
-            sourceMode: input.source,
-            sourceTokenCount: estimateTokenCount(sourceText),
-            pipelinePasses,
-            strategy: generation.strategy,
-            detailLevel,
-          };
-
-          setLlmApiResult(reportFormatToKey(item.format), result);
-          setLlmApiProgress(Math.min(0.95, 0.5 + (sequenceIndex / FORMAT_ORDER.length) * 0.45));
-          logger.debug("[llm-api] format generation done", {
-            format: item.format,
-            detailLevel,
-            generationMode,
-            sequenceIndex,
-            totalFormats: FORMAT_ORDER.length,
-            sectionCount: result.report.sections.length,
-            outputLength: result.rawResponse.length,
-            pipelinePasses: result.pipelinePasses,
-          });
-          markStage("format_generation_done", {
-            format: item.format,
-            detailLevel,
-            generationMode,
-            sequenceIndex,
-            sequenceTotal: FORMAT_ORDER.length,
-            sectionCount: result.report.sections.length,
-            outputLength: result.rawResponse.length,
-            pipelinePasses: result.pipelinePasses,
-          });
-          activeGenerationContext = null;
+        const taskResults = await Promise.allSettled(
+          activeFormatOrder.map((item, index) => runFormatTask(item, index + 1))
+        );
+        const failedTask = taskResults.find((result): result is PromiseRejectedResult => result.status === "rejected");
+        if (failedTask) {
+          throw failedTask.reason;
         }
 
         setLlmApiStatus("done", "Génération terminée");
@@ -537,7 +623,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
           provider,
           modelId: activeModelId,
           sourceMode,
-          ...(activeGenerationContext ?? {}),
+          ...extractReportGenerationErrorContext(error),
         });
         telemetry.logEvent("LLM_RUN_ERROR", {
           stage,
@@ -548,7 +634,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
           provider,
           modelId: activeModelId,
           sourceMode,
-          ...(activeGenerationContext ?? {}),
+          ...extractReportGenerationErrorContext(error),
         });
         trackBackendActivityEvent({
           eventKind: "report",
@@ -583,6 +669,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
       llmApiMistralTemperature,
       llmApiMistralMaxTokens,
       llmApiReportDetailLevels,
+      llmApiReportEnabledFormats,
       llmApiReportChunkRatio,
       llmApiReportMonoPassMaxTokens,
       registerTelemetry,
@@ -698,4 +785,22 @@ function resolveSourceText(
 
 function resolveLlmActivitySourceMode(provider: string): "cloud_direct" | "cloud_backend" {
   return provider === "demeter_sante" ? "cloud_backend" : "cloud_direct";
+}
+
+function extractReportGenerationErrorContext(error: unknown): Record<string, unknown> {
+  if (!error || typeof error !== "object") {
+    return {};
+  }
+  const candidate = error as {
+    format?: ReportFormat;
+    detailLevel?: string;
+    generationMode?: string;
+    sequenceIndex?: number;
+  };
+  const context: Record<string, unknown> = {};
+  if (candidate.format) context.format = candidate.format;
+  if (candidate.detailLevel) context.detailLevel = candidate.detailLevel;
+  if (candidate.generationMode) context.generationMode = candidate.generationMode;
+  if (typeof candidate.sequenceIndex === "number") context.sequenceIndex = candidate.sequenceIndex;
+  return context;
 }

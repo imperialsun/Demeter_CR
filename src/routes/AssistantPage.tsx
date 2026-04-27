@@ -11,6 +11,8 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Progress } from "@/components/ui/progress";
 import { TooltipButton } from "@/components/ui/tooltip-button";
 import { usePageScrollContainer } from "@/components/layout/page-scroll-container";
+import { ReportFormatResultsPanel } from "@/components/llm/ReportFormatResultsPanel";
+import { ReportFormatSwitchesSection } from "@/components/llm/ReportFormatSwitchesSection";
 import { ReportDetailLevelsSection } from "@/components/llm/ReportDetailLevelsSection";
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { useCloudTranscription } from "@/hooks/useCloudTranscription";
@@ -47,6 +49,12 @@ const REPORT_FORMATS = [
     format: "CRS" as const,
     label: buildReportFormatLabel("CRS"),
     description: buildReportFormatDescription("CRS"),
+  },
+  {
+    key: "crn" as const,
+    format: "CRN" as const,
+    label: buildReportFormatLabel("CRN"),
+    description: buildReportFormatDescription("CRN"),
   },
 ];
 
@@ -87,7 +95,9 @@ function AssistantPage() {
   const pageScrollContainerRef = usePageScrollContainer();
 
   const llmApiReportDetailLevels = useAsrStore((state) => state.llmApiReportDetailLevels);
+  const llmApiReportEnabledFormats = useAsrStore((state) => state.llmApiReportEnabledFormats);
   const setLlmApiReportDetailLevel = useAsrStore((state) => state.setLlmApiReportDetailLevel);
+  const setLlmApiReportEnabledFormat = useAsrStore((state) => state.setLlmApiReportEnabledFormat);
   const setCloudDemeterDiarizationEnabled = useAsrStore((state) => state.setCloudDemeterDiarizationEnabled);
   const cloudEnableWordTimestamps = useAsrStore((state) => state.cloudEnableWordTimestamps);
   const cloudShowSegmentConfidence = useAsrStore((state) => state.cloudShowSegmentConfidence);
@@ -343,10 +353,12 @@ function AssistantPage() {
 
   const cloudStatusMeta = getCloudStatusMeta(cloudStatus);
   const llmStatusMeta = LLM_API_STATUS_META[llmStatus];
+  const activeReportFormats = REPORT_FORMATS.filter((format) => llmApiReportEnabledFormats[format.format]);
   const reportsReady =
     hasTriggeredGeneration &&
     llmStatus === "done" &&
-    Boolean(results.cri && results.cro && results.crs);
+    activeReportFormats.every((format) => Boolean(results[format.key]));
+  const hasAnyReportResult = activeReportFormats.some((format) => Boolean(results[format.key]));
   const cloudBusy =
     cloudStatus === "preprocessing" ||
     cloudStatus === "uploading" ||
@@ -413,13 +425,13 @@ function AssistantPage() {
     : hasError
       ? cloudStatusDetail || llmApiStatusDetail || "Le traitement a rencontré une erreur."
       : reportsReady
-        ? "La transcription complète et les trois comptes rendus sont prêts au téléchargement."
+        ? "La transcription complète et les comptes rendus sont prêts au téléchargement."
         : isDiarizationReviewPending
           ? "La transcription est prête. Vérifiez les morceaux ci-dessous, puis validez pour lancer les comptes rendus."
         : llmBusy
         ? llmApiStatusDetail || "Les comptes rendus sont en cours de génération."
         : isWaitingForReports
-          ? "La transcription est terminée. Demeter prépare les trois comptes rendus."
+          ? "La transcription est terminée. Demeter prépare les comptes rendus."
         : cloudBusy || hasTriggeredTranscription
           ? cloudStatusDetail || "La transcription cloud est en cours."
           : isWaitingForChoice
@@ -429,9 +441,10 @@ function AssistantPage() {
     waitingJokeOrder.length > 0 ? waitingJokeOrder[waitingJokeIndex % waitingJokeOrder.length] ?? 0 : 0;
   const currentJoke = ASSISTANT_JOKES[currentJokeIndex] ?? ASSISTANT_JOKES[0];
   const showResetWorkflowAction = reportsReady && !isResettingWorkflow;
-  const hasReportDownloads = reportsReady;
+  const hasReportDownloads = hasAnyReportResult;
   const showChunkReviewCard = isDiarizationReviewPending;
   const isImportCollapsed = Boolean(selectedFile) && (isProcessing || isDiarizationReviewPending || reportsReady);
+  const showReportResultsPanel = Boolean(selectedFile) && (cloudStatus === "done" || llmBusy || hasTriggeredGeneration || hasAnyReportResult);
 
   const handleOpenChunk = useCallback((chunkId: string) => {
     setAssistantWorkflow({ activeChunkId: chunkId });
@@ -584,7 +597,7 @@ function AssistantPage() {
               <h1 className="text-3xl font-semibold tracking-tight">Assistant</h1>
               <p className="max-w-3xl text-sm text-muted-foreground sm:text-base">
                 Déposez un fichier audio, choisissez la diarisation, puis laissez Demeter transcrire et générer les
-                trois comptes rendus. Le flux reste cloud-only, simple et sans détour.
+                comptes rendus. Le flux reste cloud-only, simple et sans détour.
               </p>
             </div>
           </div>
@@ -658,6 +671,13 @@ function AssistantPage() {
               values={llmApiReportDetailLevels}
               onChange={setLlmApiReportDetailLevel}
               className="mt-2"
+              defaultCollapsed
+            />
+
+            <ReportFormatSwitchesSection
+              values={llmApiReportEnabledFormats}
+              onChange={setLlmApiReportEnabledFormat}
+              className="mt-4"
             />
 
             {selectedFile && !isImportCollapsed ? (
@@ -855,7 +875,7 @@ function AssistantPage() {
                   </TooltipButton>
                 </div>
               </div>
-            ) : isProcessing ? (
+            ) : isProcessing && !hasAnyReportResult ? (
               <div data-testid="assistant-status-body" className="space-y-5 rounded-[1.5rem] border bg-background/70 p-5">
                 <div className="flex items-center justify-center gap-2">
                   {[0, 1, 2, 3].map((index) => (
@@ -870,39 +890,34 @@ function AssistantPage() {
                 </div>
                 <p className="text-center text-sm text-muted-foreground">{currentJoke}</p>
               </div>
-            ) : reportsReady ? (
-              <div
-                data-testid="assistant-status-body"
-                className="flex flex-wrap items-center justify-center gap-2 rounded-[1.5rem] border bg-background/70 p-4"
-              >
-                <TooltipButton
-                  tooltip="Télécharge la transcription complète au format DOCX avec les intervenants déjà appliqués."
-                  type="button"
-                  className="gap-2"
-                  variant="default"
-                  onClick={() => {
-                    void handleTranscriptDownload();
+            ) : showReportResultsPanel ? (
+              <div data-testid="assistant-status-body" className="space-y-4 rounded-[1.5rem] border bg-background/70 p-4">
+                {cloudStatus === "done" ? (
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <TooltipButton
+                      tooltip="Télécharge la transcription complète au format DOCX avec les intervenants déjà appliqués."
+                      type="button"
+                      className="gap-2"
+                      variant="default"
+                      onClick={() => {
+                        void handleTranscriptDownload();
+                      }}
+                      disabled={isTranscriptExporting}
+                    >
+                      {isTranscriptExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                      Télécharger la transcription (.docx)
+                    </TooltipButton>
+                  </div>
+                ) : null}
+
+                <ReportFormatResultsPanel
+                  results={results}
+                  enabledFormats={llmApiReportEnabledFormats}
+                  onDownload={(format) => {
+                    void downloadDocx(format);
                   }}
-                  disabled={isTranscriptExporting}
-                >
-                  {isTranscriptExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                  Télécharger la transcription (.docx)
-                </TooltipButton>
-                {REPORT_FORMATS.map((format) => (
-                  <TooltipButton
-                    key={format.key}
-                    type="button"
-                    className="gap-2"
-                    variant="default"
-                    tooltip={`${format.description} Télécharge le ${format.label} généré à partir de la transcription la plus récente.`}
-                    onClick={() => {
-                      void downloadDocx(format.key);
-                    }}
-                  >
-                    <Download className="h-4 w-4" />
-                    Télécharger le {format.label}
-                  </TooltipButton>
-                ))}
+                  emptyMessage="Les comptes rendus apparaîtront ici au fil de leur réception."
+                />
               </div>
             ) : null}
           </CardContent>

@@ -64,7 +64,9 @@ flowchart TD
 
 ## Multi-format orchestration
 
-Fixed order:
+The four formats are launched in parallel and stored by key as each response settles.
+
+Result order in the UI remains stable:
 
 1. CRI,
 2. CRO,

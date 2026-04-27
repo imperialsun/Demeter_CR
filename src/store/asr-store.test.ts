@@ -215,6 +215,7 @@ describe("llm provider config hydration", () => {
           CRI: "verbose",
           CRO: "invalid",
           CRS: "exhaustive",
+          CRN: "standard",
         },
       })
     );
@@ -226,6 +227,7 @@ describe("llm provider config hydration", () => {
       CRI: "verbose",
       CRO: "standard",
       CRS: "exhaustive",
+      CRN: "standard",
     });
   });
 

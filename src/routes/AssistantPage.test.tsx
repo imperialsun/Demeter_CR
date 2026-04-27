@@ -117,11 +117,12 @@ type LlmHookValue = {
     cri?: unknown;
     cro?: unknown;
     crs?: unknown;
+    crn?: unknown;
   };
   generateAll: (
     input: { source: "transcription"; transcriptMode: "cloud" } | { source: "text"; text: string }
   ) => Promise<void>;
-  downloadDocx: (format: "cri" | "cro" | "crs") => Promise<void>;
+  downloadDocx: (format: "cri" | "cro" | "crs" | "crn") => Promise<void>;
 };
 
 function createCloudHookValue(overrides: Partial<CloudHookValue> & { segments?: TranscriptionSegment[] } = {}) {
@@ -570,6 +571,7 @@ describe("AssistantPage", () => {
     expect(screen.queryByTestId("assistant-status-body")).toBeNull();
     expect(screen.queryByRole("button", { name: "Importer" })).toBeNull();
     expect(screen.getByRole("button", { name: "Changer de fichier" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /déplier/i }));
     fireEvent.change(
       screen.getByLabelText("Compte rendu détaillé", { selector: "input#report-detail-cri" }),
       { target: { value: "2" } }
@@ -626,6 +628,7 @@ describe("AssistantPage", () => {
       cri: { ok: true },
       cro: { ok: true },
       crs: { ok: true },
+      crn: { ok: true },
     };
     rerender(<AssistantPage />);
 
@@ -657,6 +660,7 @@ describe("AssistantPage", () => {
     expect(within(readyBody).getByRole("button", { name: /Télécharger le Compte rendu détaillé/i })).toBeInTheDocument();
     expect(within(readyBody).getByRole("button", { name: /Télécharger le Compte rendu opérationnel/i })).toBeInTheDocument();
     expect(within(readyBody).getByRole("button", { name: /Télécharger le Compte rendu synthétique/i })).toBeInTheDocument();
+    expect(within(readyBody).getByRole("button", { name: /Télécharger le Compte rendu narratif/i })).toBeInTheDocument();
     expect(within(readyBody).queryByRole("button", { name: /Valider la transcription/i })).toBeNull();
 
     expect(screen.getByTestId("assistant-reset-workflow-top")).toBeInTheDocument();
@@ -795,6 +799,7 @@ describe("AssistantPage", () => {
       cri: { ok: true },
       cro: { ok: true },
       crs: { ok: true },
+      crn: { ok: true },
     };
     rerender(<AssistantPage />);
 
@@ -803,6 +808,7 @@ describe("AssistantPage", () => {
     expect(within(readyBody).getByRole("button", { name: /Télécharger le Compte rendu détaillé/i })).toBeInTheDocument();
     expect(within(readyBody).getByRole("button", { name: /Télécharger le Compte rendu opérationnel/i })).toBeInTheDocument();
     expect(within(readyBody).getByRole("button", { name: /Télécharger le Compte rendu synthétique/i })).toBeInTheDocument();
+    expect(within(readyBody).getByRole("button", { name: /Télécharger le Compte rendu narratif/i })).toBeInTheDocument();
     expect(screen.getByTestId("assistant-reset-workflow-top")).toBeInTheDocument();
     expect(screen.getByTestId("assistant-reset-workflow-bottom")).toBeInTheDocument();
     expect(screen.queryByTestId("assistant-chunk-list")).toBeNull();

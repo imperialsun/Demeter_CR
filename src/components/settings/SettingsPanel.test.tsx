@@ -100,6 +100,7 @@ describe('SettingsPanel', () => {
         CRI: "standard",
         CRO: "standard",
         CRS: "standard",
+        CRN: "standard",
       },
       setShowSegmentConfidence: (v: boolean) => useAsrStore.setState({ showSegmentConfidence: v }),
       setEnableWordTimestamps: (v: boolean) => useAsrStore.setState({ enableWordTimestamps: v }),

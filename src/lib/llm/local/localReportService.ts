@@ -1,5 +1,6 @@
 import { buildReportSystemPrompt, buildReportUserPrompt } from "@/lib/llm/reportPrompts";
 import { parseReportJson, type ReportFormat, type ReportJson } from "@/lib/llm/reportSchema";
+import type { ReportDetailLevel } from "@/lib/llm/reportDetail";
 import { generateLocalText, type GenerateLocalTextParams } from "@/lib/llm/local/localGeneration";
 import logger from "@/lib/logger";
 import type { BackendImplementation, ModelDtype } from "@/store/asr-store";
@@ -12,6 +13,7 @@ export interface GenerateLocalReportParams {
   dtype: ModelDtype;
   temperature: number;
   maxTokens: number;
+  detailLevel?: ReportDetailLevel;
   appendNoThinkDirective?: boolean;
   onLoadProgress?: GenerateLocalTextParams["onLoadProgress"];
 }
@@ -40,11 +42,17 @@ export async function generateLocalReportDetailed(
     throw new Error("Source vide pour la generation locale.");
   }
 
-  const userPrompt = buildLocalUserPrompt(params.format, sourceText, Boolean(params.appendNoThinkDirective));
+  const userPrompt = buildLocalUserPrompt(
+    params.format,
+    sourceText,
+    params.detailLevel,
+    Boolean(params.appendNoThinkDirective)
+  );
 
   logger.info("[llm-local][report-service] generation start", {
     modelId,
     format: params.format,
+    detailLevel: params.detailLevel ?? "standard",
     backend: params.backend,
     dtype: params.dtype,
   });
@@ -53,7 +61,7 @@ export async function generateLocalReportDetailed(
     modelId,
     backend: params.backend,
     dtype: params.dtype,
-    systemPrompt: buildReportSystemPrompt(),
+    systemPrompt: buildReportSystemPrompt(params.detailLevel),
     userPrompt,
     temperature: params.temperature,
     maxTokens: params.maxTokens,
@@ -120,8 +128,13 @@ async function parseWithRepair(params: {
   }
 }
 
-function buildLocalUserPrompt(format: ReportFormat, sourceText: string, appendNoThinkDirective: boolean): string {
-  const basePrompt = buildReportUserPrompt(format, sourceText);
+function buildLocalUserPrompt(
+  format: ReportFormat,
+  sourceText: string,
+  detailLevel: ReportDetailLevel | undefined,
+  appendNoThinkDirective: boolean
+): string {
+  const basePrompt = buildReportUserPrompt(format, sourceText, detailLevel);
   if (!appendNoThinkDirective) return basePrompt;
   return `${basePrompt}\n\n/no_think`;
 }

@@ -374,6 +374,16 @@ const normalizeLlmLocalSettingsByProfile = (
   return normalized;
 };
 
+const normalizeReportFormatEnabled = (
+  value: Partial<Record<ReportFormat, boolean>> | undefined,
+  fallback: Record<ReportFormat, boolean>
+): Record<ReportFormat, boolean> => ({
+  CRI: typeof value?.CRI === "boolean" ? value.CRI : fallback.CRI,
+  CRO: typeof value?.CRO === "boolean" ? value.CRO : fallback.CRO,
+  CRS: typeof value?.CRS === "boolean" ? value.CRS : fallback.CRS,
+  CRN: typeof value?.CRN === "boolean" ? value.CRN : fallback.CRN,
+});
+
 function normalizeSecureTokens(input: Partial<SecureTokens> | null | undefined): SecureTokens {
   return {
     hfApiToken: typeof input?.hfApiToken === "string" ? input.hfApiToken : "",
@@ -562,6 +572,7 @@ interface AsrConfigState {
   llmApiMistralTemperature: number;
   llmApiMistralMaxTokens: number;
   llmApiReportDetailLevels: Record<ReportFormat, ReportDetailLevel>;
+  llmApiReportEnabledFormats: Record<ReportFormat, boolean>;
   llmApiReportGenerationMode: LlmReportGenerationMode;
   llmApiReportChunkRatio: number;
   llmApiReportMaxSubpartsPerPart: number;
@@ -792,6 +803,8 @@ interface AsrConfigActions {
   setLlmApiMistralMaxTokens: (value: number) => void;
   setLlmApiReportDetailLevel: (format: ReportFormat, value: ReportDetailLevel) => void;
   setLlmApiReportDetailLevels: (value: Partial<Record<ReportFormat, ReportDetailLevel>>) => void;
+  setLlmApiReportEnabledFormat: (format: ReportFormat, value: boolean) => void;
+  setLlmApiReportEnabledFormats: (value: Partial<Record<ReportFormat, boolean>>) => void;
   setLlmApiReportGenerationMode: (value: LlmReportGenerationMode) => void;
   setLlmApiReportChunkRatio: (value: number) => void;
   setLlmApiReportMaxSubpartsPerPart: (value: number) => void;
@@ -1016,6 +1029,7 @@ export function serializePersistedSettings(state: AsrConfigState): PersistedSett
     llmApiMistralTemperature: state.llmApiMistralTemperature,
     llmApiMistralMaxTokens: state.llmApiMistralMaxTokens,
     llmApiReportDetailLevels: state.llmApiReportDetailLevels,
+    llmApiReportEnabledFormats: state.llmApiReportEnabledFormats,
     llmApiReportGenerationMode: state.llmApiReportGenerationMode,
     llmApiReportChunkRatio: state.llmApiReportChunkRatio,
     llmApiReportMaxSubpartsPerPart: state.llmApiReportMaxSubpartsPerPart,
@@ -1180,6 +1194,7 @@ const initialState: AsrConfigState = {
   llmApiMistralTemperature: DEFAULT_SETTINGS.llmApiMistralTemperature,
   llmApiMistralMaxTokens: DEFAULT_SETTINGS.llmApiMistralMaxTokens,
   llmApiReportDetailLevels: { ...DEFAULT_REPORT_DETAIL_LEVELS },
+  llmApiReportEnabledFormats: { ...DEFAULT_SETTINGS.llmApiReportEnabledFormats },
   llmApiReportGenerationMode: DEFAULT_SETTINGS.llmApiReportGenerationMode,
   llmApiReportChunkRatio: DEFAULT_SETTINGS.llmApiReportChunkRatio,
   llmApiReportMaxSubpartsPerPart: DEFAULT_SETTINGS.llmApiReportMaxSubpartsPerPart,
@@ -1461,6 +1476,10 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       const llmApiReportDetailLevels = normalizeReportDetailLevels(
         settings.llmApiReportDetailLevels,
         fallbackSettings.llmApiReportDetailLevels
+      );
+      const llmApiReportEnabledFormats = normalizeReportFormatEnabled(
+        settings.llmApiReportEnabledFormats,
+        fallbackSettings.llmApiReportEnabledFormats
       );
       const llmApiReportGenerationMode = normalizeLlmReportGenerationMode(
         settings.llmApiReportGenerationMode,
@@ -1918,6 +1937,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       llmApiMistralTemperature,
       llmApiMistralMaxTokens,
       llmApiReportDetailLevels,
+      llmApiReportEnabledFormats,
       llmApiReportGenerationMode,
       llmApiReportChunkRatio,
       llmApiReportMaxSubpartsPerPart,
@@ -2262,6 +2282,23 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         CRI: normalizeReportDetailLevel(value.CRI, state.llmApiReportDetailLevels.CRI),
         CRO: normalizeReportDetailLevel(value.CRO, state.llmApiReportDetailLevels.CRO),
         CRS: normalizeReportDetailLevel(value.CRS, state.llmApiReportDetailLevels.CRS),
+        CRN: normalizeReportDetailLevel(value.CRN, state.llmApiReportDetailLevels.CRN),
+      },
+    })),
+  setLlmApiReportEnabledFormat: (format, value) =>
+    set((state) => ({
+      llmApiReportEnabledFormats: {
+        ...state.llmApiReportEnabledFormats,
+        [format]: value,
+      },
+    })),
+  setLlmApiReportEnabledFormats: (value) =>
+    set((state) => ({
+      llmApiReportEnabledFormats: {
+        CRI: typeof value.CRI === "boolean" ? value.CRI : state.llmApiReportEnabledFormats.CRI,
+        CRO: typeof value.CRO === "boolean" ? value.CRO : state.llmApiReportEnabledFormats.CRO,
+        CRS: typeof value.CRS === "boolean" ? value.CRS : state.llmApiReportEnabledFormats.CRS,
+        CRN: typeof value.CRN === "boolean" ? value.CRN : state.llmApiReportEnabledFormats.CRN,
       },
     })),
   setLlmApiReportGenerationMode: (value) =>

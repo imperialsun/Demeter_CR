@@ -1,7 +1,7 @@
 import type { ReportDetailLevel } from "@/lib/llm/reportDetail";
 
-export type ReportFormat = "CRI" | "CRO" | "CRS";
-export type ReportResultKey = "cri" | "cro" | "crs";
+export type ReportFormat = "CRI" | "CRO" | "CRS" | "CRN";
+export type ReportResultKey = "cri" | "cro" | "crs" | "crn";
 
 export interface ReportJson {
   format: ReportFormat;
@@ -26,7 +26,7 @@ export interface ReportResult {
   detailLevel?: ReportDetailLevel;
 }
 
-const FORMAT_SET = new Set<ReportFormat>(["CRI", "CRO", "CRS"]);
+const FORMAT_SET = new Set<ReportFormat>(["CRI", "CRO", "CRS", "CRN"]);
 
 export function reportFormatToKey(format: ReportFormat): ReportResultKey {
   return format.toLowerCase() as ReportResultKey;

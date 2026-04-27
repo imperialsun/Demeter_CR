@@ -22,6 +22,9 @@ describe("reportDetail", () => {
     expect(REPORT_DETAIL_TARGETS.CRS.standard).toEqual({ ratio: 0.0125, label: "compact" });
     expect(REPORT_DETAIL_TARGETS.CRS.verbose).toEqual({ ratio: 0.025, label: "developpe" });
     expect(REPORT_DETAIL_TARGETS.CRS.exhaustive).toEqual({ ratio: 0.0375, label: "tres detaille" });
+    expect(REPORT_DETAIL_TARGETS.CRN.standard).toEqual({ ratio: 0.4, label: "narratif" });
+    expect(REPORT_DETAIL_TARGETS.CRN.verbose).toEqual({ ratio: 0.5, label: "narratif developpe" });
+    expect(REPORT_DETAIL_TARGETS.CRN.exhaustive).toEqual({ ratio: 0.6, label: "proces-verbal" });
   });
 
   it("normalizes persisted report detail levels and falls back to defaults", () => {
@@ -37,6 +40,7 @@ describe("reportDetail", () => {
       CRI: "verbose",
       CRO: "standard",
       CRS: "standard",
+      CRN: "standard",
     });
   });
 
@@ -67,6 +71,7 @@ describe("reportDetail", () => {
     expect(buildReportDetailTargetLabel("CRI", "standard")).toBe("compact");
     expect(buildReportDetailTargetLabel("CRO", "verbose")).toBe("developpe");
     expect(buildReportDetailTargetLabel("CRS", "exhaustive")).toBe("tres detaille");
+    expect(buildReportDetailTargetLabel("CRN", "exhaustive")).toBe("proces-verbal");
     expect(buildReportDetailSummary("CRO", "verbose")).toBe("Verbeux · developpe");
   });
 
@@ -74,5 +79,8 @@ describe("reportDetail", () => {
     expect(computeReportDetailTargetWordCount("CRI", "standard", 100)).toBe(5);
     expect(computeReportDetailTargetWordCount("CRO", "verbose", 100)).toBe(5);
     expect(computeReportDetailTargetWordCount("CRS", "exhaustive", 100)).toBe(4);
+    expect(computeReportDetailTargetWordCount("CRN", "standard", 100)).toBe(40);
+    expect(computeReportDetailTargetWordCount("CRN", "verbose", 100)).toBe(50);
+    expect(computeReportDetailTargetWordCount("CRN", "exhaustive", 100)).toBe(60);
   });
 });
