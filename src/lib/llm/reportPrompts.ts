@@ -66,6 +66,9 @@ const FORMAT_STYLE_RULES: Record<ReportFormat, readonly string[]> = {
   ],
   CRN: [
     "style procès-verbal narratif: déroule la réunion chronologiquement en paraphrase fidèle et fluide.",
+    "considère la source comme une transcription potentiellement fragmentée en chunks: ne déduis jamais un début ou une fin de réunion à partir d'une coupure.",
+    "n'utilise pas de formules génériques d'ouverture ou de reprise du type 'La réunion a débuté...' sauf si la source les formule explicitement.",
+    "enchaîne les idées avec des transitions naturelles et fusionne les répétitions entre chunks au lieu de les réintroduire.",
     "conserve l'ordre du jour, les titres et la structure numérotée si présents.",
     "attribue les interventions aux personnes ou groupes quand la source le permet.",
     "garde dans le fil du sujet les décisions, suites, nuances et incertitudes sans inventer.",

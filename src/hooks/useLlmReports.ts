@@ -370,7 +370,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
 
           let finishedCount = 0;
           const totalBatches = batchSpecs.length;
-          const demeterPollTimeoutMs = Math.max(45 * 60_000, totalBatches * 15_000);
+          const demeterPollTimeoutMs = Math.max(90 * 60_000, totalBatches * 15_000);
           const updateParallelProgress = () => {
             finishedCount += 1;
             const nextProgress = Math.min(0.94, 0.5 + (finishedCount / totalBatches) * 0.4);

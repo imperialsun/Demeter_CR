@@ -950,7 +950,7 @@ describe("useLlmReports telemetry", () => {
       | { provider?: string; pollTimeoutMs?: number }
       | undefined;
     expect(demeterCall?.provider).toBe("demeter_sante");
-    expect(demeterCall?.pollTimeoutMs).toBeGreaterThanOrEqual(45 * 60_000);
+    expect(demeterCall?.pollTimeoutMs).toBeGreaterThanOrEqual(90 * 60_000);
 
     await act(async () => {
       third.resolve(buildBatchResult(batchSources[2] ?? "", "CRN lot 3"));
