@@ -359,7 +359,7 @@ function LLMApiPage() {
         toast("Aucune transcription disponible dans la session.");
         return;
       }
-      await generateAll({ source: "transcription", transcriptMode: effectiveTranscriptMode });
+      await generateAll({ source: "transcription", transcriptMode: effectiveTranscriptMode, sourceText: transcriptionText });
       return;
     }
 

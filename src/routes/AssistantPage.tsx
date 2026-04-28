@@ -24,7 +24,6 @@ import { isBackendMode } from "@/lib/runtime-config";
 import { LLM_API_STATUS_META } from "@/lib/llm/llmStatusMeta";
 import { buildReportFormatDescription, buildReportFormatLabel } from "@/lib/llm/reportPrompts";
 import { getSessionTranscriptText } from "@/lib/sessionTranscriptMemory";
-import { buildSpeakerAwareTranscriptText } from "@/lib/speakerAssignments";
 import { useAsrStore } from "@/store/asr-store";
 import logger from "@/lib/logger";
 import { cn } from "@/lib/utils";
@@ -106,7 +105,6 @@ function AssistantPage() {
   const assistantWorkflow = useAsrStore((state) => state.assistantWorkflow);
   const setAssistantWorkflow = useAsrStore((state) => state.setAssistantWorkflow);
   const resetAssistantWorkflow = useAsrStore((state) => state.resetAssistantWorkflow);
-  const cloudSpeakerAssignments = useAsrStore((state) => state.speakerAssignments.cloud);
 
   const {
     selectedFile,
@@ -230,19 +228,13 @@ function AssistantPage() {
 
   const buildAssistantReportInput = useCallback(async () => {
     for (let attempt = 0; attempt <= REPORT_INPUT_RETRY_COUNT; attempt += 1) {
-      const segments = await loadAllSegmentsForExport();
-      const transcriptText = buildSpeakerAwareTranscriptText(segments, cloudSpeakerAssignments, "cloud").trim();
-      if (transcriptText) {
-        return { source: "text" as const, text: transcriptText };
-      }
-
       const memoryText = getSessionTranscriptText(useAsrStore.getState().sessionTranscriptMemories.cloud).trim();
       if (memoryText) {
-        logger.warn("[assistant][ui] no exportable transcript segments before report generation, using session memory text", {
+        logger.warn("[assistant][ui] no exportable transcript segments before report generation, using session memory", {
           attempt,
           textLength: memoryText.length,
         });
-        return { source: "text" as const, text: memoryText };
+        return { source: "transcription" as const, transcriptMode: "cloud" as const, sourceText: memoryText };
       }
 
       if (attempt < REPORT_INPUT_RETRY_COUNT) {
@@ -251,7 +243,7 @@ function AssistantPage() {
     }
 
     throw new Error("La transcription n'est pas encore disponible pour générer les comptes rendus.");
-  }, [cloudSpeakerAssignments, loadAllSegmentsForExport]);
+  }, []);
 
   const maybeStartGeneration = useCallback(() => {
     if (!selectedFile || diarizationChoice === null) {

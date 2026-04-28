@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applySpeakerAssignments,
   buildSpeakerAssignmentKey,
+  buildSpeakerAwareTranscriptText,
   collectSpeakerAssignmentEntries,
 } from "@/lib/speakerAssignments";
 
@@ -98,5 +99,33 @@ describe("speakerAssignments", () => {
 
     expect(result[0]?.speaker).toBe("Dupont Alice");
     expect(result[1]?.speaker).toBe("SPEAKER_00");
+  });
+
+  it("prefers assigned cloud speaker names over cached raw labels", () => {
+    const segments = [
+      {
+        index: 0,
+        start: 0,
+        end: 1,
+        text: "Bonjour",
+        speaker: "SPEAKER_00",
+        speakerLabel: "SPEAKER_00",
+        chunkId: "mistral-1",
+        strategy: "chunks" as const,
+      },
+    ];
+
+    const transcriptText = buildSpeakerAwareTranscriptText(
+      segments,
+      {
+        "mistral-1::SPEAKER_00": {
+          firstName: "Alice",
+          lastName: "Dupont",
+        },
+      },
+      "cloud"
+    );
+
+    expect(transcriptText).toBe("Dupont Alice: Bonjour");
   });
 });

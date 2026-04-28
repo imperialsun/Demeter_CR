@@ -37,6 +37,7 @@ export interface GenerateReportMistralParams extends GenerateReportBaseParams {
 
 export interface GenerateReportDemeterParams extends GenerateReportBaseParams {
   provider: "demeter_sante";
+  pollTimeoutMs?: number;
 }
 
 export type GenerateReportParams =
@@ -182,6 +183,7 @@ async function generateWithDemeterReportQueue(params: {
   temperature: number;
   maxTokens: number;
   detailLevel?: ReportDetailLevel;
+  pollTimeoutMs?: number;
 }): Promise<GenerateReportDetailedResult> {
   const submitBody = {
     format: params.format,
@@ -227,9 +229,10 @@ async function generateWithDemeterReportQueue(params: {
     throw new Error("Réponse backend invalide: operationId manquant.");
   }
 
+  const pollTimeoutMs = params.pollTimeoutMs ?? DEMETER_REPORT_POLL_TIMEOUT_MS;
   const pollStartedAt = Date.now();
   while (true) {
-    if (Date.now() - pollStartedAt > DEMETER_REPORT_POLL_TIMEOUT_MS) {
+    if (Date.now() - pollStartedAt > pollTimeoutMs) {
       throw new Error("Le traitement du rapport a dépassé le délai maximal.");
     }
 

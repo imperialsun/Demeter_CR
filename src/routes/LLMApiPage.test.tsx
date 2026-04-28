@@ -160,7 +160,13 @@ describe("LLMApiPage", () => {
     expect(button).not.toBeDisabled();
 
     await userEvent.click(button);
-    expect(generateAll).toHaveBeenCalledWith({ source: "transcription", transcriptMode: "upload" });
+    expect(generateAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "transcription",
+        transcriptMode: "upload",
+        sourceText: "Segment 1\nSegment 2",
+      })
+    );
   });
 
   it("hydrates the latest transcription from sessionStorage before generating", async () => {
@@ -197,7 +203,13 @@ describe("LLMApiPage", () => {
     expect(screen.getByRole("button", { name: /générer les comptes rendus/i })).not.toBeDisabled();
 
     await userEvent.click(screen.getByRole("button", { name: /générer les comptes rendus/i }));
-    expect(generateAll).toHaveBeenCalledWith({ source: "transcription", transcriptMode: "upload" });
+    expect(generateAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "transcription",
+        transcriptMode: "upload",
+        sourceText: "Segment 1\nSegment 2",
+      })
+    );
   });
 
   it("emits cloud page view telemetry on mount", () => {
@@ -576,7 +588,13 @@ describe("LLMApiPage", () => {
     fireEvent.click(await screen.findByText("Locale · demo.wav"));
 
     await userEvent.click(screen.getByRole("button", { name: /générer les comptes rendus/i }));
-    expect(generateAll).toHaveBeenCalledWith({ source: "transcription", transcriptMode: "upload" });
+    expect(generateAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "transcription",
+        transcriptMode: "upload",
+        sourceText: "Texte local",
+      })
+    );
   });
 
   it("imports txt file and enables generation", async () => {

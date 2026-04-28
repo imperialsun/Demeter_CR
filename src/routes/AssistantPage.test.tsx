@@ -353,6 +353,25 @@ describe("AssistantPage", () => {
     pageHooks.cloudState.isTranscribing = false;
     pageHooks.cloudState.progress = 1;
     pageHooks.cloudState.chunkSummaries = chunkSummaries;
+    useAsrStore.setState({
+      sessionTranscriptMemories: {
+        ...useAsrStore.getState().sessionTranscriptMemories,
+        cloud: {
+          mode: "cloud",
+          provider: "demeter_sante",
+          label: "Cloud Demeter Santé · assistant-session.wav",
+          transcriptText: "Dupont Alice: Bonjour\nMartin Jean: Suite\nDupont Alice: Encore",
+          segmentCount: 3,
+          audioSource: {
+            id: "demeter_sante:assistant-session.wav:1024",
+            label: "assistant-session.wav",
+            type: "file",
+          },
+          audioMetadata: pageHooks.cloudState.audioMetadata,
+          updatedAt: "2026-04-24T10:00:00.000Z",
+        },
+      },
+    } as never);
 
     await waitFor(() => {
       expect(screen.getByTestId("assistant-chunk-list")).toBeInTheDocument();
@@ -592,6 +611,25 @@ describe("AssistantPage", () => {
     pageHooks.cloudState.isTranscribing = false;
     pageHooks.cloudState.progress = 1;
     pageHooks.cloudState.chunkSummaries = chunkSummaries;
+    useAsrStore.setState({
+      sessionTranscriptMemories: {
+        ...useAsrStore.getState().sessionTranscriptMemories,
+        cloud: {
+          mode: "cloud",
+          provider: "demeter_sante",
+          label: "Cloud Demeter Santé · assistant-session.wav",
+          transcriptText: "SPEAKER_00: Bonjour",
+          segmentCount: 1,
+          audioSource: {
+            id: "demeter_sante:assistant-session.wav:5",
+            label: "assistant-session.wav",
+            type: "file",
+          },
+          audioMetadata: pageHooks.cloudState.audioMetadata,
+          updatedAt: "2026-04-24T10:00:00.000Z",
+        },
+      },
+    } as never);
     rerender(<AssistantPage />);
 
     expect(screen.getByTestId("assistant-chunk-list")).toBeInTheDocument();
@@ -610,10 +648,13 @@ describe("AssistantPage", () => {
     await waitFor(() => {
       expect(pageHooks.llmState.generateAll).toHaveBeenCalledTimes(1);
     });
-    expect(pageHooks.llmState.generateAll).toHaveBeenCalledWith({
-      source: "text",
-      text: "Dupont Alice: Bonjour\nMartin Jean: Suite\nDupont Alice: Encore",
-    });
+    expect(pageHooks.llmState.generateAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "transcription",
+        transcriptMode: "cloud",
+        sourceText: "SPEAKER_00: Bonjour",
+      })
+    );
 
     rerender(<AssistantPage />);
 
@@ -639,7 +680,7 @@ describe("AssistantPage", () => {
     );
 
     await waitFor(() => {
-      expect(pageHooks.cloudState.loadAllSegmentsForExport).toHaveBeenCalledTimes(2);
+      expect(pageHooks.cloudState.loadAllSegmentsForExport).toHaveBeenCalledTimes(1);
       expect(transcriptDocxMocks.buildTranscriptDocx).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({ speakerLabel: "Dupont Alice" }),
@@ -783,15 +824,37 @@ describe("AssistantPage", () => {
     pageHooks.cloudState.isTranscribing = false;
     pageHooks.cloudState.progress = 1;
     pageHooks.cloudState.chunkSummaries = chunkSummaries;
+    useAsrStore.setState({
+      sessionTranscriptMemories: {
+        ...useAsrStore.getState().sessionTranscriptMemories,
+        cloud: {
+          mode: "cloud",
+          provider: "demeter_sante",
+          label: "Cloud Demeter Santé · assistant-session.wav",
+          transcriptText: "SPEAKER_00: Bonjour",
+          segmentCount: 1,
+          audioSource: {
+            id: "demeter_sante:assistant-session.wav:5",
+            label: "assistant-session.wav",
+            type: "file",
+          },
+          audioMetadata: pageHooks.cloudState.audioMetadata,
+          updatedAt: "2026-04-24T10:00:00.000Z",
+        },
+      },
+    } as never);
     rerender(<AssistantPage />);
 
     await waitFor(() => {
       expect(pageHooks.llmState.generateAll).toHaveBeenCalledTimes(1);
     });
-    expect(pageHooks.llmState.generateAll).toHaveBeenCalledWith({
-      source: "text",
-      text: "SPEAKER_00: Bonjour",
-    });
+    expect(pageHooks.llmState.generateAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "transcription",
+        transcriptMode: "cloud",
+        sourceText: "SPEAKER_00: Bonjour",
+      })
+    );
 
     pageHooks.llmState.status = "done";
     pageHooks.llmState.progress = 1;
@@ -871,10 +934,12 @@ describe("AssistantPage", () => {
     await waitFor(() => {
       expect(pageHooks.llmState.generateAll).toHaveBeenCalledTimes(1);
     });
-    expect(pageHooks.cloudState.loadAllSegmentsForExport).toHaveBeenCalled();
-    expect(pageHooks.llmState.generateAll).toHaveBeenCalledWith({
-      source: "text",
-      text: "Texte mémoire disponible",
-    });
+    expect(pageHooks.llmState.generateAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "transcription",
+        transcriptMode: "cloud",
+        sourceText: "Texte mémoire disponible",
+      })
+    );
   });
 });

@@ -558,6 +558,7 @@ describe("useLlmReports telemetry", () => {
     });
 
     await act(async () => {
+
       await expect(result.current.downloadDocx("cri")).rejects.toThrow("docx failed");
     });
 
@@ -577,10 +578,37 @@ describe("useLlmReports telemetry", () => {
     expect(useAsrStore.getState().llmApiStatusDetail).toContain("Saisissez un texte source");
   });
 
-  it("generates from free-text source and keeps success flow", async () => {
+  it("uses an explicit transcription sourceText when session memory is unavailable", async () => {
+    useAsrStore.setState({
+      sessionTranscriptMemories: {
+        upload: null,
+        mic: null,
+        cloud: null,
+      },
+    } as any);
+
     const { result } = renderHook(() => useLlmReports());
 
     await act(async () => {
+      await result.current.generateAll({
+        source: "transcription",
+        transcriptMode: "cloud",
+        sourceText: "Texte mémoire fourni",
+      });
+    });
+
+    expect(useAsrStore.getState().llmApiStatus).toBe("done");
+    expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(4);
+  });
+
+
+
+  it("generates from free-text source and keeps success flow", async () => {
+    const { result } = renderHook(() => useLlmReports());
+
+
+    await act(async () => {
+
       await result.current.generateAll({ source: "text", text: "Compte-rendu libre" });
     });
 
@@ -590,6 +618,7 @@ describe("useLlmReports telemetry", () => {
 
   it("fails the whole cloud batch when one format generation fails", async () => {
     const { result } = renderHook(() => useLlmReports());
+
 
     const first = createDeferred<{
       report: { format: string; title: string; sections: Array<{ heading: string; paragraphs: string[] }> };
@@ -713,7 +742,8 @@ describe("useLlmReports telemetry", () => {
           mode: "cloud",
           provider: "mistral",
           label: "Cloud Mistral · demo.wav",
-          segments: [{ text: "Texte cloud" }],
+          transcriptText: "Dupont Alice: Bonjour\nMartin Jean: Suite",
+          segmentCount: 2,
           audioSource: { id: "cloud-1", label: "demo.wav", type: "file" },
           audioMetadata: null,
           updatedAt: "2026-03-12T10:05:00.000Z",
@@ -728,7 +758,261 @@ describe("useLlmReports telemetry", () => {
     });
 
     expect(mocks.prepareLongInputForReportsMock).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceText: "Texte cloud" })
+      expect.objectContaining({ sourceText: "Dupont Alice: Bonjour\nMartin Jean: Suite" })
     );
   });
+
+  it("launches transcription CRN batches in parallel and preserves order", async () => {
+    useAsrStore.setState({
+      llmApiReportEnabledFormats: {
+        CRI: false,
+        CRO: false,
+        CRS: false,
+        CRN: true,
+      },
+      sessionTranscriptMemories: {
+        upload: {
+          mode: "upload",
+          provider: "upload",
+          label: "Locale · long.wav",
+          segments: Array.from({ length: 50 }, (_, index) => ({ text: `Segment ${index + 1}` })),
+          audioSource: { id: "upload-long-1", label: "long.wav", type: "file" },
+          audioMetadata: null,
+          updatedAt: "2026-03-12T10:00:00.000Z",
+        },
+        mic: null,
+        cloud: null,
+      },
+    } as any);
+
+    const first = createDeferred<{
+      report: { format: string; title: string; sections: Array<{ heading: string; paragraphs: string[] }>; key_points?: string[] };
+      rawResponse: string;
+      strategy: "chatCompletion";
+    }>();
+    const second = createDeferred<{
+      report: { format: string; title: string; sections: Array<{ heading: string; paragraphs: string[] }>; key_points?: string[] };
+      rawResponse: string;
+      strategy: "chatCompletion";
+    }>();
+    const third = createDeferred<{
+      report: { format: string; title: string; sections: Array<{ heading: string; paragraphs: string[] }>; key_points?: string[] };
+      rawResponse: string;
+      strategy: "chatCompletion";
+    }>();
+
+    mocks.generateReportDetailedMock
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+      .mockReturnValueOnce(third.promise);
+
+    const { result } = renderHook(() => useLlmReports());
+
+    let runPromise!: Promise<void>;
+    await act(async () => {
+      runPromise = result.current.generateAll({ source: "transcription", transcriptMode: "upload" });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(3));
+
+    const batchSources = mocks.generateReportDetailedMock.mock.calls.map(
+      ([params]) => (params as { sourceText: string }).sourceText
+    );
+    expect(batchSources).toHaveLength(3);
+    expect(batchSources[0]?.split("\n")[0]).toBe("Segment 1");
+    expect(batchSources[0]?.split("\n").at(-1)).toBe("Segment 25");
+
+    const buildBatchResult = (sourceText: string, title: string) => {
+      const lines = sourceText.split("\n");
+      const summaryLines = [lines[0] ?? "", lines.at(-1) ?? ""].filter(Boolean);
+      return {
+        report: {
+          format: "CRN",
+          title,
+          sections: [{ heading: "Chronologie", paragraphs: summaryLines }],
+          key_points: summaryLines,
+        },
+        rawResponse: title.toLowerCase(),
+        strategy: "chatCompletion" as const,
+      };
+    };
+
+    await act(async () => {
+      third.resolve(buildBatchResult(batchSources[2] ?? "", "CRN lot 3"));
+      await Promise.resolve();
+    });
+
+    expect(useAsrStore.getState().llmApiResults.crn).toBeUndefined();
+
+    await act(async () => {
+      second.resolve(buildBatchResult(batchSources[1] ?? "", "CRN lot 2"));
+      await Promise.resolve();
+    });
+
+    expect(useAsrStore.getState().llmApiResults.crn).toBeUndefined();
+
+    await act(async () => {
+      first.resolve(buildBatchResult(batchSources[0] ?? "", "CRN lot 1"));
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await runPromise;
+    });
+
+    const expectedParagraphs: string[] = [];
+    const seenParagraphs = new Set<string>();
+    for (const sourceText of batchSources) {
+      const lines = sourceText.split("\n");
+      for (const paragraph of [lines[0] ?? "", lines.at(-1) ?? ""]) {
+        const normalized = paragraph.trim().replace(/\s+/g, " ");
+        if (!normalized || seenParagraphs.has(normalized)) {
+          continue;
+        }
+        seenParagraphs.add(normalized);
+        expectedParagraphs.push(paragraph.trim());
+      }
+    }
+
+    const resultState = useAsrStore.getState().llmApiResults.crn;
+    expect(resultState).toBeTruthy();
+    expect(resultState?.report.sections[0]?.paragraphs).toEqual(expectedParagraphs);
+    expect(useAsrStore.getState().llmApiStatus).toBe("done");
+  });
+
+  it("launches Demeter transcription CRN batches in parallel and preserves order", async () => {
+    useAsrStore.setState({
+      llmApiReportEnabledFormats: {
+        CRI: false,
+        CRO: false,
+        CRS: false,
+        CRN: true,
+      },
+      sessionTranscriptMemories: {
+        upload: {
+          mode: "upload",
+          provider: "upload",
+          label: "Locale · long.wav",
+          segments: Array.from({ length: 50 }, (_, index) => ({ text: `Segment ${index + 1}` })),
+          audioSource: { id: "upload-long-1", label: "long.wav", type: "file" },
+          audioMetadata: null,
+          updatedAt: "2026-03-12T10:00:00.000Z",
+        },
+        mic: null,
+        cloud: null,
+      },
+    } as any);
+
+    const first = createDeferred<{
+      report: { format: string; title: string; sections: Array<{ heading: string; paragraphs: string[] }>; key_points?: string[] };
+      rawResponse: string;
+      strategy: "chatCompletion";
+    }>();
+    const second = createDeferred<{
+      report: { format: string; title: string; sections: Array<{ heading: string; paragraphs: string[] }>; key_points?: string[] };
+      rawResponse: string;
+      strategy: "chatCompletion";
+    }>();
+    const third = createDeferred<{
+      report: { format: string; title: string; sections: Array<{ heading: string; paragraphs: string[] }>; key_points?: string[] };
+      rawResponse: string;
+      strategy: "chatCompletion";
+    }>();
+
+    mocks.generateReportDetailedMock
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+      .mockReturnValueOnce(third.promise);
+
+    const { result } = renderHook(() => useLlmReports({ providerOverride: "demeter_sante" }));
+
+    let runPromise!: Promise<void>;
+    await act(async () => {
+      runPromise = result.current.generateAll({ source: "transcription", transcriptMode: "upload" });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(3));
+
+    const batchSources = mocks.generateReportDetailedMock.mock.calls.map(
+      ([params]) => (params as { sourceText: string }).sourceText
+    );
+    expect(batchSources).toHaveLength(3);
+    expect(batchSources[0]?.split("\n")[0]).toBe("Segment 1");
+    expect(batchSources[0]?.split("\n").at(-1)).toBe("Segment 25");
+    expect(batchSources[1]?.split("\n")[0]).toBe("Segment 25");
+    expect(batchSources[1]?.split("\n").at(-1)).toBe("Segment 49");
+    expect(batchSources[2]?.split("\n")[0]).toBe("Segment 49");
+    expect(batchSources[2]?.split("\n").at(-1)).toBe("Segment 50");
+
+    const demeterCall = mocks.generateReportDetailedMock.mock.calls[0]?.[0] as
+      | { provider?: string; pollTimeoutMs?: number }
+      | undefined;
+    expect(demeterCall?.provider).toBe("demeter_sante");
+    expect(demeterCall?.pollTimeoutMs).toBeGreaterThanOrEqual(45 * 60_000);
+
+    await act(async () => {
+      third.resolve(buildBatchResult(batchSources[2] ?? "", "CRN lot 3"));
+      await Promise.resolve();
+    });
+
+    expect(useAsrStore.getState().llmApiResults.crn).toBeUndefined();
+
+    await act(async () => {
+      second.resolve(buildBatchResult(batchSources[1] ?? "", "CRN lot 2"));
+      await Promise.resolve();
+    });
+
+    expect(useAsrStore.getState().llmApiResults.crn).toBeUndefined();
+
+    await act(async () => {
+      first.resolve(buildBatchResult(batchSources[0] ?? "", "CRN lot 1"));
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await runPromise;
+    });
+
+    const expectedParagraphs: string[] = [];
+    const seenParagraphs = new Set<string>();
+    for (const sourceText of batchSources) {
+      const lines = sourceText.split("\n");
+      for (const paragraph of [lines[0] ?? "", lines.at(-1) ?? ""]) {
+        const normalized = paragraph.trim().replace(/\s+/g, " ");
+        if (!normalized || seenParagraphs.has(normalized)) {
+          continue;
+        }
+        seenParagraphs.add(normalized);
+        expectedParagraphs.push(paragraph.trim());
+      }
+    }
+
+    expect(useAsrStore.getState().llmApiResults.crn).toBeTruthy();
+    expect(useAsrStore.getState().llmApiResults.crn?.report.sections[0]?.paragraphs).toEqual(expectedParagraphs);
+    expect(useAsrStore.getState().llmApiStatus).toBe("done");
+  });
 });
+
+function buildBatchResult(
+  sourceText: string,
+  title: string
+): {
+  report: { format: string; title: string; sections: Array<{ heading: string; paragraphs: string[] }>; key_points?: string[] };
+  rawResponse: string;
+  strategy: "chatCompletion";
+} {
+  const lines = sourceText.split("\n");
+  const summaryLines = [lines[0] ?? "", lines.at(-1) ?? ""].filter(Boolean);
+  return {
+    report: {
+      format: "CRN",
+      title,
+      sections: [{ heading: "Chronologie", paragraphs: summaryLines }],
+      key_points: summaryLines,
+    },
+    rawResponse: title.toLowerCase(),
+    strategy: "chatCompletion",
+  };
+}

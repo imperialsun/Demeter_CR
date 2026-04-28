@@ -67,6 +67,7 @@ describe("reportPrompts", () => {
     expect(crsPrompt).toContain("2-3 sections");
     expect(crnPrompt).toContain("Format cible: CRN");
     expect(crnPrompt).toContain("procès-verbal narratif");
+    expect(crnPrompt).toContain("paraphrase fidèle et fluide");
     expect(crnPrompt).toContain("ordre du jour");
     expect(crnPrompt).toContain("interventions aux personnes ou groupes");
     expect(crnPrompt).toContain("au moins");

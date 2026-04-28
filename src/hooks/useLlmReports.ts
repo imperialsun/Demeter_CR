@@ -3,6 +3,7 @@ import { useAsrStore, type LlmApiProvider } from "@/store/asr-store";
 import { TelemetryCollector } from "@/lib/telemetry";
 import {
   reportFormatToKey,
+  type ReportJson,
   type ReportFormat,
   type ReportResultKey,
   type ReportResult,
@@ -12,6 +13,10 @@ import {
   buildLongInputConsolidationPrompt,
   buildReportFormatLabel,
 } from "@/lib/llm/reportPrompts";
+import {
+  buildCrnTranscriptBatches,
+  mergeCrnReportResults,
+} from "@/lib/llm/crnBatchPipeline";
 import { generateReportDetailed, type GenerateReportDetailedResult } from "@/lib/llm/reportService";
 import { getLlmHfClient, generateWithChatThenFallbackText } from "@/lib/llm/hfClient";
 import { generateWithMistralChat } from "@/lib/llm/mistralChatClient";
@@ -33,6 +38,7 @@ import {
   resolveModelTokenBudget,
   type RuntimeModelLimits,
 } from "@/lib/llm/modelCatalog";
+import type { ReportDetailLevel } from "@/lib/llm/reportDetail";
 import { resolveActiveLlmPipelineConfig } from "@/lib/llm/providerSettings";
 import {
   getSessionTranscriptText,
@@ -56,7 +62,7 @@ const FORMAT_ORDER: Array<{ key: ReportResultKey; format: ReportFormat }> = [
 ];
 
 type GenerateInput =
-  | { source: "transcription"; transcriptMode: SessionTranscriptMode }
+  | { source: "transcription"; transcriptMode: SessionTranscriptMode; sourceText?: string }
   | { source: "text"; text?: string };
 
 type UseLlmReportsOptions = {
@@ -292,6 +298,205 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
           return generation.text;
         };
 
+        const generateCrnTranscriptReport = async (params: {
+          detailLevel: ReportDetailLevel;
+          reportMaxTokens: number;
+          sequenceIndex: number;
+          totalFormats: number;
+        }): Promise<{
+          report: ReportJson;
+          rawResponse: string;
+          strategy: GenerateReportDetailedResult["strategy"];
+          pipelinePasses: number;
+        }> => {
+          const batches = buildCrnTranscriptBatches(sourceText, {
+            linesPerBatch: 25,
+            overlapLines: 0,
+          });
+
+          if (!batches.length) {
+            throw new Error("Aucune transcription disponible dans la session.");
+          }
+
+          const largestBatchTokenCount = batches.reduce(
+            (maxTokenCount, batch) => Math.max(maxTokenCount, estimateTokenCount(batch.text)),
+            0
+          );
+          const batchTokenBudget = resolveModelTokenBudget({
+            modelId,
+            sourceTokens: largestBatchTokenCount,
+            runtimeLimits,
+          });
+          if (batchTokenBudget.blockedByContext) {
+            throw new Error(
+              `Un lot CRN dépasse le contexte maximal pour ${modelId}. Contexte max : ${formatTokenCount(
+                batchTokenBudget.contextWindowTokens ?? 0
+              )} tokens.`
+            );
+          }
+
+          const batchSpecs = batches.map((batch, batchIndex) => {
+            const batchNumber = batchIndex + 1;
+            const batchLabel = `CRN ${batchNumber}/${batches.length}`;
+            const batchSourceTokenCount = estimateTokenCount(batch.text);
+            const perBatchBudget = resolveModelTokenBudget({
+              modelId,
+              sourceTokens: batchSourceTokenCount,
+              runtimeLimits,
+            });
+
+            if (perBatchBudget.blockedByContext) {
+              throw new Error(
+                `Le lot ${batchLabel} dépasse le contexte maximal pour ${modelId}. Contexte max : ${formatTokenCount(
+                  perBatchBudget.contextWindowTokens ?? 0
+                )} tokens.`
+              );
+            }
+
+            return {
+              batch,
+              batchNumber,
+              batchLabel,
+              batchSourceTokenCount,
+            };
+          });
+
+          stage = "crn_batch_generation";
+          lastStageLabel = "Lots CRN en parallèle";
+          lastGlobalPassIndex = 1;
+          lastGlobalPassTotal = batches.length;
+          setLlmApiStatus("generating", `Lancement parallèle des ${batchSpecs.length} lots CRN`);
+          setLlmApiProgress(0.5);
+
+          let finishedCount = 0;
+          const totalBatches = batchSpecs.length;
+          const demeterPollTimeoutMs = Math.max(45 * 60_000, totalBatches * 15_000);
+          const updateParallelProgress = () => {
+            finishedCount += 1;
+            const nextProgress = Math.min(0.94, 0.5 + (finishedCount / totalBatches) * 0.4);
+            setLlmApiProgress(nextProgress);
+            setLlmApiStatus("generating", `${finishedCount}/${totalBatches} lots CRN terminés`);
+          };
+
+          const runBatchTask = async (batchSpec: (typeof batchSpecs)[number]) => {
+            const { batch, batchNumber, batchLabel, batchSourceTokenCount } = batchSpec;
+
+            logger.info("[llm-api] CRN batch generation start", {
+              provider,
+              modelId,
+              batchLabel,
+              sequenceIndex: params.sequenceIndex,
+              sequenceTotal: params.totalFormats,
+              startLine: batch.startLine + 1,
+              endLine: batch.endLine,
+              batchLineCount: batch.lines.length,
+              batchTokenCount: batchSourceTokenCount,
+            });
+
+            try {
+              let batchGeneration: GenerateReportDetailedResult;
+              if (provider === "huggingface") {
+                batchGeneration = await generateReportDetailed({
+                  provider: "huggingface",
+                  format: "CRN",
+                  modelId,
+                  sourceText: batch.text,
+                  temperature,
+                  maxTokens: params.reportMaxTokens,
+                  detailLevel: params.detailLevel,
+                  hfToken,
+                });
+              } else if (provider === "mistral") {
+                batchGeneration = await generateReportDetailed({
+                  provider: "mistral",
+                  format: "CRN",
+                  modelId,
+                  sourceText: batch.text,
+                  temperature,
+                  maxTokens: params.reportMaxTokens,
+                  detailLevel: params.detailLevel,
+                  mistralApiKey: mistralKey,
+                  mistralApiUrl,
+                });
+              } else {
+                batchGeneration = await generateReportDetailed({
+                  provider: "demeter_sante",
+                  format: "CRN",
+                  modelId,
+                  sourceText: batch.text,
+                  temperature,
+                  maxTokens: params.reportMaxTokens,
+                  detailLevel: params.detailLevel,
+                  pollTimeoutMs: demeterPollTimeoutMs,
+                });
+              }
+
+              logger.info("[llm-api] CRN batch generation done", {
+                provider,
+                modelId,
+                batchLabel,
+                sequenceIndex: params.sequenceIndex,
+                sequenceTotal: params.totalFormats,
+                outputLength: batchGeneration.rawResponse.length,
+              });
+              return batchGeneration;
+            } catch (error) {
+              const taskError = error instanceof Error ? error : new Error(String(error));
+              (taskError as Error & {
+                format?: ReportFormat;
+                detailLevel?: string;
+                generationMode?: string;
+                sequenceIndex?: number;
+                batchLabel?: string;
+                batchIndex?: number;
+              }).batchLabel = batchLabel;
+              (taskError as Error & {
+                format?: ReportFormat;
+                detailLevel?: string;
+                generationMode?: string;
+                sequenceIndex?: number;
+                batchLabel?: string;
+                batchIndex?: number;
+              }).batchIndex = batchNumber;
+              logger.error("[llm-api] CRN batch generation failed", {
+                provider,
+                modelId,
+                batchLabel,
+                sequenceIndex: params.sequenceIndex,
+                sequenceTotal: params.totalFormats,
+                message: taskError.message,
+              });
+              throw taskError;
+            } finally {
+              updateParallelProgress();
+            }
+          };
+
+          const batchResults = await Promise.allSettled(batchSpecs.map((batchSpec) => runBatchTask(batchSpec)));
+          const failedBatch = batchResults.find(
+            (result): result is PromiseRejectedResult => result.status === "rejected"
+          );
+          if (failedBatch) {
+            throw failedBatch.reason;
+          }
+
+          const batchGenerations = batchResults.map((result) => {
+            if (result.status === "rejected") {
+              throw result.reason;
+            }
+            return result.value;
+          });
+
+          const mergedReport = mergeCrnReportResults(batchGenerations.map((generation) => generation.report));
+          const mergedRawResponse = JSON.stringify(mergedReport);
+          return {
+            report: mergedReport,
+            rawResponse: mergedRawResponse,
+            strategy: batchGenerations[batchGenerations.length - 1]?.strategy ?? "chatCompletion",
+            pipelinePasses: prepared.pipelinePasses + batches.length - 1,
+          };
+        };
+
         const prepared = await prepareLongInputForReports({
           sourceText,
           thresholdTokens: chunkingProfile.thresholdTokens,
@@ -431,7 +636,21 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
           });
           try {
             let generation: GenerateReportDetailedResult;
-            if (provider === "huggingface") {
+            let pipelinePasses: number = prepared.pipelinePasses;
+            if (sourceMode === "transcription" && item.format === "CRN") {
+              const crnGeneration = await generateCrnTranscriptReport({
+                detailLevel,
+                reportMaxTokens,
+                sequenceIndex,
+                totalFormats,
+              });
+              generation = {
+                report: crnGeneration.report,
+                rawResponse: crnGeneration.rawResponse,
+                strategy: crnGeneration.strategy,
+              };
+              pipelinePasses = crnGeneration.pipelinePasses;
+            } else if (provider === "huggingface") {
               generation = await generateReportDetailed({
                 provider: "huggingface",
                 format: item.format,
@@ -466,7 +685,6 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
               });
             }
 
-            const pipelinePasses = prepared.pipelinePasses;
             const result: ReportResult = {
               format: item.format,
               report: generation.report,
@@ -773,6 +991,11 @@ function resolveSourceText(
     return text;
   }
 
+  const providedSourceText = input.sourceText?.trim() ?? "";
+  if (providedSourceText.length > 0) {
+    return providedSourceText;
+  }
+
   const entry = sessionTranscriptMemories[input.transcriptMode];
   const fromSegments = entry ? getSessionTranscriptText(entry) : "";
 
@@ -796,11 +1019,15 @@ function extractReportGenerationErrorContext(error: unknown): Record<string, unk
     detailLevel?: string;
     generationMode?: string;
     sequenceIndex?: number;
+    batchLabel?: string;
+    batchIndex?: number;
   };
   const context: Record<string, unknown> = {};
   if (candidate.format) context.format = candidate.format;
   if (candidate.detailLevel) context.detailLevel = candidate.detailLevel;
   if (candidate.generationMode) context.generationMode = candidate.generationMode;
   if (typeof candidate.sequenceIndex === "number") context.sequenceIndex = candidate.sequenceIndex;
+  if (candidate.batchLabel) context.batchLabel = candidate.batchLabel;
+  if (typeof candidate.batchIndex === "number") context.batchIndex = candidate.batchIndex;
   return context;
 }

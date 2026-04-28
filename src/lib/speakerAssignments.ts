@@ -189,10 +189,15 @@ export function resolveSegmentSpeakerDisplay(
   assignmentMap: SpeakerAssignmentMap,
   mode: SpeakerAssignmentMode
 ): string | undefined {
+  const assignment = resolveSpeakerAssignment(segment, assignmentMap, mode);
+  if (assignment) {
+    return resolveSpeakerLabel(segment.speaker, assignment);
+  }
+
   const cachedLabel = normalizeSpeakerId(segment.speakerLabel);
   if (cachedLabel) return cachedLabel;
 
-  return resolveSpeakerLabel(segment.speaker, resolveSpeakerAssignment(segment, assignmentMap, mode));
+  return resolveSpeakerLabel(segment.speaker, undefined);
 }
 
 function normalizeSpeakerId(value: string | undefined): string | undefined {
