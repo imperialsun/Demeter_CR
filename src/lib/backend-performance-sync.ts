@@ -2,6 +2,7 @@ import { backendFetch, parseBackendJson, readBackendError } from "@/lib/backend-
 import { backendRefresh } from "@/lib/backend-auth";
 import { isAuthenticated } from "@/lib/auth";
 import logger from "@/lib/logger";
+import { loadQueueSnapshot, writeQueueSnapshot } from "@/lib/backend-queue-storage";
 import { isBackendMode } from "@/lib/runtime-config";
 import type { TelemetrySummary } from "@/lib/telemetry";
 import { createSecureId } from "@/lib/secure-id";
@@ -63,16 +64,35 @@ interface BackendPerformanceQueuedEvent {
   meta?: Record<string, unknown>;
 }
 
+function isBackendPerformanceQueuedEvent(value: unknown): value is BackendPerformanceQueuedEvent {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.eventId === "string" &&
+    typeof record.traceId === "string" &&
+    typeof record.component === "string" &&
+    typeof record.task === "string" &&
+    typeof record.status === "string" &&
+    typeof record.durationMs === "number" &&
+    typeof record.route === "string" &&
+    typeof record.occurredAt === "string"
+  );
+}
+
 let queueLoaded = false;
+let queueLoadPromise: Promise<void> | null = null;
 let queue: BackendPerformanceQueuedEvent[] = [];
 let listenersReady = false;
 let flushInFlight = false;
 let retryTimer: number | null = null;
+let persistChain: Promise<void> = Promise.resolve();
 
 export function initializeBackendPerformanceSync() {
   if (!isBackendMode() || typeof window === "undefined" || listenersReady) return;
   listenersReady = true;
-  loadQueue();
+  void loadQueue();
   window.addEventListener("online", () => {
     logger.info("[backend-performance-sync] network online, retrying flush");
     void flushBackendPerformanceQueueNow();
@@ -83,7 +103,7 @@ export function initializeBackendPerformanceSync() {
 export function trackBackendPerformanceEvent(input: BackendPerformanceTrackInput) {
   if (!isBackendMode() || typeof window === "undefined") return;
   if (!Number.isFinite(input.durationMs) || input.durationMs < 0) return;
-  loadQueue();
+  void loadQueue();
   const event: BackendPerformanceQueuedEvent = {
     eventId: input.eventId?.trim() || newEventID(),
     traceId: input.traceId?.trim() || newEventID(),
@@ -152,7 +172,7 @@ export function trackBackendPerformanceSummary(summary: TelemetrySummary | null 
 
   if (events.length === 0) return;
 
-  loadQueue();
+  void loadQueue();
   queue.push(...events);
   persistQueue();
   logger.info("[backend-performance-sync] queued performance batch", {
@@ -167,7 +187,7 @@ export function trackBackendPerformanceSummary(summary: TelemetrySummary | null 
 export async function flushBackendPerformanceQueueNow() {
   if (!isBackendMode() || typeof window === "undefined") return;
   if (flushInFlight) return;
-  loadQueue();
+  await loadQueue();
   if (queue.length === 0) return;
   if (!isAuthenticated()) {
     logger.info("[backend-performance-sync] flush skipped: not authenticated");
@@ -250,40 +270,35 @@ async function sendPerformanceBatch(batch: BackendPerformanceQueuedEvent[]): Pro
   return { kind: "response", response };
 }
 
-function loadQueue() {
-  if (queueLoaded || typeof window === "undefined") return;
-  queueLoaded = true;
-  try {
-    const raw = window.localStorage.getItem(PERFORMANCE_QUEUE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return;
-    queue = parsed.filter((item): item is BackendPerformanceQueuedEvent => {
-      if (!item || typeof item !== "object") return false;
-      const record = item as Record<string, unknown>;
-      return (
-        typeof record.eventId === "string" &&
-        typeof record.traceId === "string" &&
-        typeof record.component === "string" &&
-        typeof record.task === "string" &&
-        typeof record.status === "string" &&
-        typeof record.durationMs === "number" &&
-        typeof record.route === "string" &&
-        typeof record.occurredAt === "string"
-      );
+async function loadQueue() {
+  if (queueLoaded) return;
+  if (queueLoadPromise) return queueLoadPromise;
+  queueLoadPromise = (async () => {
+    queue = await loadQueueSnapshot<BackendPerformanceQueuedEvent>({
+      queueKey: PERFORMANCE_QUEUE_KEY,
+      legacyStorageKey: PERFORMANCE_QUEUE_KEY,
+      validateLegacyItem: isBackendPerformanceQueuedEvent,
+      pendingQueue: queue,
     });
-  } catch (error) {
-    logger.warn("[backend-performance-sync] failed to parse queue, resetting", {
-      message: error instanceof Error ? error.message : String(error),
-    });
-    queue = [];
-    persistQueue();
-  }
+    queueLoaded = true;
+  })().finally(() => {
+    queueLoadPromise = null;
+  });
+  return queueLoadPromise;
 }
 
 function persistQueue() {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(PERFORMANCE_QUEUE_KEY, JSON.stringify(queue));
+  persistChain = persistChain
+    .then(async () => {
+      await loadQueue();
+      await writeQueueSnapshot(PERFORMANCE_QUEUE_KEY, queue);
+    })
+    .catch((error) => {
+      logger.warn("[backend-performance-sync] persist failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
 }
 
 function scheduleRetry() {

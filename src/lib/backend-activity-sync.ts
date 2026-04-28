@@ -2,6 +2,7 @@ import { backendFetch, parseBackendJson, readBackendError } from "@/lib/backend-
 import { backendRefresh } from "@/lib/backend-auth";
 import { isAuthenticated } from "@/lib/auth";
 import logger from "@/lib/logger";
+import { loadQueueSnapshot, writeQueueSnapshot } from "@/lib/backend-queue-storage";
 import { isBackendMode } from "@/lib/runtime-config";
 import { createSecureId } from "@/lib/secure-id";
 
@@ -27,21 +28,38 @@ interface BackendActivityQueuedEvent extends BackendActivityTrackInput {
   occurredAt: string;
 }
 
+function isBackendActivityQueuedEvent(value: unknown): value is BackendActivityQueuedEvent {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.eventId === "string" &&
+    typeof record.eventKind === "string" &&
+    typeof record.sourceMode === "string" &&
+    typeof record.provider === "string" &&
+    typeof record.status === "string" &&
+    typeof record.occurredAt === "string"
+  );
+}
+
 type BackendActivityBatchResult =
   | { kind: "response"; response: Response }
   | { kind: "expired" }
   | { kind: "failed"; response: Response };
 
 let queueLoaded = false;
+let queueLoadPromise: Promise<void> | null = null;
 let queue: BackendActivityQueuedEvent[] = [];
 let listenersReady = false;
 let flushInFlight = false;
 let retryTimer: number | null = null;
+let persistChain: Promise<void> = Promise.resolve();
 
 export function initializeBackendActivitySync() {
   if (!isBackendMode() || typeof window === "undefined" || listenersReady) return;
   listenersReady = true;
-  loadQueue();
+  void loadQueue();
   window.addEventListener("online", () => {
     logger.info("[backend-activity-sync] network online, retrying flush");
     void flushBackendActivityQueueNow();
@@ -51,7 +69,7 @@ export function initializeBackendActivitySync() {
 
 export function trackBackendActivityEvent(input: BackendActivityTrackInput) {
   if (!isBackendMode() || typeof window === "undefined") return;
-  loadQueue();
+  void loadQueue();
   const event: BackendActivityQueuedEvent = {
     eventId: newEventID(),
     eventKind: input.eventKind,
@@ -76,7 +94,7 @@ export function trackBackendActivityEvent(input: BackendActivityTrackInput) {
 export async function flushBackendActivityQueueNow() {
   if (!isBackendMode() || typeof window === "undefined") return;
   if (flushInFlight) return;
-  loadQueue();
+  await loadQueue();
   if (queue.length === 0) return;
   if (!isAuthenticated()) {
     logger.info("[backend-activity-sync] flush skipped: not authenticated");
@@ -159,38 +177,35 @@ async function sendActivityBatch(batch: BackendActivityQueuedEvent[]): Promise<B
   return { kind: "response", response };
 }
 
-function loadQueue() {
-  if (queueLoaded || typeof window === "undefined") return;
-  queueLoaded = true;
-  try {
-    const raw = window.localStorage.getItem(ACTIVITY_QUEUE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return;
-    queue = parsed.filter((item): item is BackendActivityQueuedEvent => {
-      if (!item || typeof item !== "object") return false;
-      const record = item as Record<string, unknown>;
-      return (
-        typeof record.eventId === "string" &&
-        typeof record.eventKind === "string" &&
-        typeof record.sourceMode === "string" &&
-        typeof record.provider === "string" &&
-        typeof record.status === "string" &&
-        typeof record.occurredAt === "string"
-      );
+async function loadQueue() {
+  if (queueLoaded) return;
+  if (queueLoadPromise) return queueLoadPromise;
+  queueLoadPromise = (async () => {
+    queue = await loadQueueSnapshot<BackendActivityQueuedEvent>({
+      queueKey: ACTIVITY_QUEUE_KEY,
+      legacyStorageKey: ACTIVITY_QUEUE_KEY,
+      validateLegacyItem: isBackendActivityQueuedEvent,
+      pendingQueue: queue,
     });
-  } catch (error) {
-    logger.warn("[backend-activity-sync] failed to parse queue, resetting", {
-      message: error instanceof Error ? error.message : String(error),
-    });
-    queue = [];
-    persistQueue();
-  }
+    queueLoaded = true;
+  })().finally(() => {
+    queueLoadPromise = null;
+  });
+  return queueLoadPromise;
 }
 
 function persistQueue() {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(ACTIVITY_QUEUE_KEY, JSON.stringify(queue));
+  persistChain = persistChain
+    .then(async () => {
+      await loadQueue();
+      await writeQueueSnapshot(ACTIVITY_QUEUE_KEY, queue);
+    })
+    .catch((error) => {
+      logger.warn("[backend-activity-sync] persist failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
 }
 
 function scheduleRetry() {
