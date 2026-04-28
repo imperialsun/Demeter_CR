@@ -20,7 +20,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { ReportFormatResultsPanel } from "@/components/llm/ReportFormatResultsPanel";
 import { ReportFormatSwitchesSection } from "@/components/llm/ReportFormatSwitchesSection";
-import { ReportDetailLevelsSection } from "@/components/llm/ReportDetailLevelsSection";
 import { useAsrStore, type LlmApiProvider } from "@/store/asr-store";
 import { useLlmReports } from "@/hooks/useLlmReports";
 import { moveArrayItem } from "@/lib/arrayMove";
@@ -704,15 +703,11 @@ function LLMApiPage() {
             </CardContent>
           </Card>
 
-          <ReportDetailLevelsSection
-            values={llmApiReportDetailLevels}
-            onChange={setLlmApiReportDetailLevel}
-            defaultCollapsed
-          />
-
           <ReportFormatSwitchesSection
             values={llmApiReportEnabledFormats}
             onChange={setLlmApiReportEnabledFormat}
+            detailValues={llmApiReportDetailLevels}
+            onDetailChange={setLlmApiReportDetailLevel}
           />
 
           <Card>

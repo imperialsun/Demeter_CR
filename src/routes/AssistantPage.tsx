@@ -13,7 +13,6 @@ import { TooltipButton } from "@/components/ui/tooltip-button";
 import { usePageScrollContainer } from "@/components/layout/page-scroll-container";
 import { ReportFormatResultsPanel } from "@/components/llm/ReportFormatResultsPanel";
 import { ReportFormatSwitchesSection } from "@/components/llm/ReportFormatSwitchesSection";
-import { ReportDetailLevelsSection } from "@/components/llm/ReportDetailLevelsSection";
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { useCloudTranscription } from "@/hooks/useCloudTranscription";
 import { useLlmReports } from "@/hooks/useLlmReports";
@@ -659,17 +658,12 @@ function AssistantPage() {
               formatsHint="Formats supportés : mp3, wav, m4a, ogg, webm."
             />
 
-            <ReportDetailLevelsSection
-              values={llmApiReportDetailLevels}
-              onChange={setLlmApiReportDetailLevel}
-              className="mt-2"
-              defaultCollapsed
-            />
-
             <ReportFormatSwitchesSection
               values={llmApiReportEnabledFormats}
               onChange={setLlmApiReportEnabledFormat}
-              className="mt-4"
+              detailValues={llmApiReportDetailLevels}
+              onDetailChange={setLlmApiReportDetailLevel}
+              className="mt-2"
             />
 
             {selectedFile && !isImportCollapsed ? (

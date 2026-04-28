@@ -239,7 +239,18 @@ describe("AssistantPage", () => {
       expect(labelNode.parentElement).toHaveClass("items-start");
     }
 
-    expect(screen.getByRole("heading", { name: "Niveau de detail des comptes rendus" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Formats de compte rendu" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Replier" })).toHaveAttribute("aria-expanded", "true");
+    expect(within(screen.getByTestId("report-format-switch-cri")).getByLabelText("Compte rendu détaillé", {
+      selector: "input#report-detail-cri",
+    })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Replier" }));
+    expect(screen.queryByTestId("report-format-switch-cri")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Déplier" })).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(screen.getByRole("button", { name: "Déplier" }));
+    expect(screen.getByTestId("report-format-switch-cri")).toBeInTheDocument();
   });
 
   it("forces Demeter backend direct mode from the Assistant page", () => {
@@ -586,13 +597,13 @@ describe("AssistantPage", () => {
     rerender(<AssistantPage />);
 
     expect(screen.getByRole("heading", { name: "Diarisation" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Niveau de detail des comptes rendus" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Formats de compte rendu" })).toBeInTheDocument();
     expect(screen.queryByTestId("assistant-status-body")).toBeNull();
     expect(screen.queryByRole("button", { name: "Importer" })).toBeNull();
     expect(screen.getByRole("button", { name: "Changer de fichier" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /déplier/i }));
+    const criFormatBlock = screen.getByTestId("report-format-switch-cri");
     fireEvent.change(
-      screen.getByLabelText("Compte rendu détaillé", { selector: "input#report-detail-cri" }),
+      within(criFormatBlock).getByLabelText("Compte rendu détaillé", { selector: "input#report-detail-cri" }),
       { target: { value: "2" } }
     );
     expect(useAsrStore.getState().llmApiReportDetailLevels.CRI).toBe("exhaustive");

@@ -229,14 +229,37 @@ describe("LLMApiPage", () => {
   it("renders report detail sliders and updates the store", () => {
     renderPage();
 
-    expect(screen.getByRole("heading", { name: "Niveau de detail des comptes rendus" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /déplier/i }));
+    expect(screen.getByRole("heading", { name: "Formats de compte rendu" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Replier" })).toHaveAttribute("aria-expanded", "true");
 
-    fireEvent.change(screen.getByLabelText("Compte rendu détaillé", { selector: "input#report-detail-cri" }), {
+    let criFormatBlock = screen.getByTestId("report-format-switch-cri");
+    fireEvent.change(within(criFormatBlock).getByLabelText("Compte rendu détaillé", { selector: "input#report-detail-cri" }), {
       target: { value: "1" },
     });
 
     expect(useAsrStore.getState().llmApiReportDetailLevels.CRI).toBe("verbose");
+
+    fireEvent.click(within(criFormatBlock).getByRole("switch", { name: "Compte rendu détaillé activé" }));
+    criFormatBlock = screen.getByTestId("report-format-switch-cri");
+    expect(within(criFormatBlock).getByRole("switch", { name: "Compte rendu détaillé désactivé" })).toBeInTheDocument();
+    expect(within(criFormatBlock).queryByLabelText("Compte rendu détaillé", { selector: "input#report-detail-cri" })).not.toBeInTheDocument();
+
+    fireEvent.click(within(criFormatBlock).getByRole("switch", { name: "Compte rendu détaillé désactivé" }));
+    criFormatBlock = screen.getByTestId("report-format-switch-cri");
+    expect(within(criFormatBlock).getByLabelText("Compte rendu détaillé", { selector: "input#report-detail-cri" })).toHaveValue("1");
+  });
+
+  it("collapses and expands the whole report format section", () => {
+    renderPage();
+
+    expect(screen.getByTestId("report-format-switch-cri")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Replier" }));
+    expect(screen.queryByTestId("report-format-switch-cri")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Déplier" })).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(screen.getByRole("button", { name: "Déplier" }));
+    expect(screen.getByTestId("report-format-switch-cri")).toBeInTheDocument();
   });
 
   it("requires an imported file when source is texte libre", async () => {
@@ -763,7 +786,10 @@ describe("LLMApiPage", () => {
 
     expect(screen.getByLabelText("Provider LLM", { selector: "button#llm-provider" })).toBeInTheDocument();
     expect(screen.getByLabelText("Token Hugging Face", { selector: "input#llm-api-token" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Niveau de detail des comptes rendus" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Formats de compte rendu" })).toBeInTheDocument();
+    expect(within(screen.getByTestId("report-format-switch-cri")).getByLabelText("Compte rendu détaillé", {
+      selector: "input#report-detail-cri",
+    })).toBeInTheDocument();
 
     expect(screen.queryByLabelText("ID du modèle")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Température")).not.toBeInTheDocument();
