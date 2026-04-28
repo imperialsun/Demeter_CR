@@ -24,23 +24,48 @@ if (typeof (Element as any) !== 'undefined' && typeof (Element as any).prototype
   (Element as any).prototype.scrollIntoView = () => {};
 }
 
+// ThemeProvider reads the system preference through matchMedia.
+if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
+  (window as any).matchMedia = (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  });
+}
+
 // Simple localStorage/sessionStorage polyfill for test envs
+function createStorageMock(): Storage {
+  const store = new Map<string, string>();
+
+  return {
+    get length() {
+      return store.size;
+    },
+    clear: () => {
+      store.clear();
+    },
+    getItem: (key: string) => store.get(key) ?? null,
+    key: (index: number) => Array.from(store.keys())[index] ?? null,
+    removeItem: (key: string) => {
+      store.delete(key);
+    },
+    setItem: (key: string, value: string) => {
+      store.set(key, String(value));
+    },
+  };
+}
+
 if (typeof window !== 'undefined') {
   if (typeof window.localStorage?.getItem !== 'function') {
-    (window as any).localStorage = {
-      getItem: (_: string) => null,
-      setItem: (_: string, __: string) => {},
-      removeItem: (_: string) => {},
-      clear: () => {},
-    };
+    (window as any).localStorage = createStorageMock();
   }
   if (typeof window.sessionStorage?.getItem !== 'function') {
-    (window as any).sessionStorage = {
-      getItem: (_: string) => null,
-      setItem: (_: string, __: string) => {},
-      removeItem: (_: string) => {},
-      clear: () => {},
-    };
+    (window as any).sessionStorage = createStorageMock();
   }
 }
 
