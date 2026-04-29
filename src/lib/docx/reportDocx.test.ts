@@ -23,6 +23,35 @@ describe("reportDocx", () => {
     expect(blob.size).toBeGreaterThan(0);
   });
 
+  it("renders bold markdown markers as docx bold runs", async () => {
+    const report: ReportJson = {
+      format: "CRI",
+      title: "Compte rendu test",
+      sections: [{ heading: "Contexte", paragraphs: ["Point **important** a retenir."] }],
+      key_points: ["Decision **validee**"],
+    };
+
+    const blob = await buildReportDocx(report, {
+      format: "CRI",
+      modelId: "Qwen/Qwen2.5-7B-Instruct",
+      generatedAt: "2026-04-29T12:00:00.000Z",
+      sourceMode: "text",
+      sourceTokenCount: 42,
+    });
+    const arrayBuffer = await blob.arrayBuffer();
+    const mammothModule = await import("mammoth/mammoth.browser.js");
+    const mammoth = (mammothModule.default ?? mammothModule) as {
+      convertToHtml: (input: { arrayBuffer: ArrayBuffer }) => Promise<{ value: string }>;
+    };
+
+    const result = await mammoth.convertToHtml({ arrayBuffer });
+
+    expect(result.value).toContain("<strong>important</strong>");
+    expect(result.value).toContain("<strong>validee</strong>");
+    expect(result.value).not.toContain("**important**");
+    expect(result.value).not.toContain("**validee**");
+  });
+
   it("formats docx filename", () => {
     const file = formatReportDocxFilename("cro", new Date("2026-02-16T09:05:00Z"), "exhaustive");
     expect(file).toMatch(/^rapport-cro-exhaustive-\d{4}-\d{2}-\d{2}-\d{4}\.docx$/);

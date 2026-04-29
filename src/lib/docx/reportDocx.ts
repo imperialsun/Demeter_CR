@@ -110,7 +110,7 @@ export async function buildReportDocx(report: ReportJson, metadata: ReportDocxMe
     for (const paragraph of section.paragraphs) {
       children.push(
         new Paragraph({
-          text: paragraph,
+          children: buildInlineMarkdownTextRuns(paragraph),
           spacing: { after: 100 },
           alignment: AlignmentType.JUSTIFIED,
         })
@@ -185,10 +185,32 @@ function appendBulletSection(target: Paragraph[], title: string, entries: string
   for (const entry of entries) {
     target.push(
       new Paragraph({
-        text: entry,
+        children: buildInlineMarkdownTextRuns(entry),
         bullet: { level: 0 },
         spacing: { after: 70 },
       })
     );
   }
+}
+
+function buildInlineMarkdownTextRuns(value: string): TextRun[] {
+  const runs: TextRun[] = [];
+  const boldPattern = /\*\*([^*]+(?:\*(?!\*)[^*]+)*)\*\*/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = boldPattern.exec(value)) !== null) {
+    if (match.index > lastIndex) {
+      runs.push(new TextRun({ text: value.slice(lastIndex, match.index) }));
+    }
+
+    runs.push(new TextRun({ text: match[1], bold: true }));
+    lastIndex = boldPattern.lastIndex;
+  }
+
+  if (lastIndex < value.length) {
+    runs.push(new TextRun({ text: value.slice(lastIndex) }));
+  }
+
+  return runs.length > 0 ? runs : [new TextRun({ text: value })];
 }

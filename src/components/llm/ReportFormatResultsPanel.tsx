@@ -1,3 +1,4 @@
+import type React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { buildReportFormatDescription, buildReportFormatLabel } from "@/lib/llm/reportPrompts";
@@ -10,6 +11,32 @@ const REPORT_FORMATS: Array<{ format: ReportFormat; key: ReportResultKey }> = [
   { format: "CRS", key: "crs" },
   { format: "CRN", key: "crn" },
 ];
+
+function renderInlineMarkdown(value: string) {
+  const parts: React.ReactNode[] = [];
+  const boldPattern = /\*\*([^*]+(?:\*(?!\*)[^*]+)*)\*\*/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = boldPattern.exec(value)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(value.slice(lastIndex, match.index));
+    }
+
+    parts.push(
+      <strong key={`bold-${match.index}`} className="font-semibold text-foreground">
+        {match[1]}
+      </strong>
+    );
+    lastIndex = boldPattern.lastIndex;
+  }
+
+  if (lastIndex < value.length) {
+    parts.push(value.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : value;
+}
 
 interface ReportFormatResultsPanelProps {
   results: Partial<Record<ReportResultKey, ReportResult>>;
@@ -79,7 +106,9 @@ export function ReportFormatResultsPanel({
                     {report.sections.slice(0, 2).map((section) => (
                       <div key={section.heading} className="space-y-1 rounded-xl border bg-background/60 p-2 text-[11px]">
                         <p className="font-medium text-foreground">{section.heading}</p>
-                        <p className="line-clamp-3 whitespace-pre-wrap leading-relaxed">{section.paragraphs[0] ?? ""}</p>
+                        <p className="line-clamp-3 whitespace-pre-wrap leading-relaxed">
+                          {renderInlineMarkdown(section.paragraphs[0] ?? "")}
+                        </p>
                       </div>
                     ))}
                   </div>
