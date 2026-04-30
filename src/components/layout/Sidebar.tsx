@@ -27,7 +27,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/localupload", label: "Transcription locale", icon: Monitor, permission: "feature.localupload" },
   {
     to: "/cloudupload",
-    label: "Transcription cloud",
+    label: "Transcription",
     icon: Cloud,
     permission: "feature.cloudupload",
     preload: () => import("@/routes/CloudUploadPage"),
@@ -41,7 +41,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     to: "/llmapi",
-    label: "LLM Cloud",
+    label: "Rédaction",
     icon: FileText,
     permission: "feature.llmapi",
     preload: () => import("@/routes/LLMApiPage"),

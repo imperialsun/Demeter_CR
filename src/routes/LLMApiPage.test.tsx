@@ -3,11 +3,9 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ThemeProvider } from "@/components/theme-provider";
-import { formatTokenCount } from "@/lib/llm/modelCatalog";
 import { SESSION_TRANSCRIPT_MEMORIES_STORAGE_KEY } from "@/lib/sessionTranscriptMemory";
 import { useAsrStore } from "@/store/asr-store";
 import LLMApiPage from "@/routes/LLMApiPage";
-import { DEMETER_SANTE_MAX_TOKENS } from "@/lib/llm/providerSettings";
 
 const generateAll = vi.fn(async () => undefined);
 const downloadDocx = vi.fn(async () => undefined);
@@ -29,18 +27,6 @@ const hookState = {
   generateAll,
   downloadDocx,
 };
-
-function createDataTransfer() {
-  const store: Record<string, string> = {};
-  return {
-    effectAllowed: "all",
-    dropEffect: "move",
-    setData: (type: string, value: string) => {
-      store[type] = value;
-    },
-    getData: (type: string) => store[type] ?? "",
-  } as DataTransfer;
-}
 
 function buildGeneratedResult(format: "CRI" | "CRO" | "CRS", title: string) {
   return {
@@ -126,7 +112,6 @@ describe("LLMApiPage", () => {
       },
       llmApiStatusDetail: undefined,
       llmApiResults: {},
-      llmApiReportDrafts: {},
       mistralApiKey: "",
       cloudMistralApiUrl: "https://api.mistral.ai",
       sessionTranscriptMemories: {
@@ -156,6 +141,7 @@ describe("LLMApiPage", () => {
   it("triggers generation from transcription source", async () => {
     renderPage();
 
+    await userEvent.click(screen.getByTestId("llm-memory-source-panel"));
     const button = screen.getByRole("button", { name: /générer les comptes rendus/i });
     expect(button).not.toBeDisabled();
 
@@ -198,8 +184,8 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    expect(screen.getByText(/source active :/i)).toHaveTextContent("Locale · demo.wav");
-    expect(screen.queryByText(/aucune transcription active dans la session/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/transcription disponible :/i)).toHaveTextContent("Locale · demo.wav");
+    expect(screen.queryByText(/aucune transcription disponible en mémoire/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /générer les comptes rendus/i })).not.toBeDisabled();
 
     await userEvent.click(screen.getByRole("button", { name: /générer les comptes rendus/i }));
@@ -220,10 +206,48 @@ describe("LLMApiPage", () => {
     });
   });
 
-  it("shows cloud external api note with local equivalent", () => {
+  it("shows rédaction title and configuration guidance", () => {
     renderPage();
-    expect(screen.getByText(/module utilise une API externe/i)).toBeInTheDocument();
-    expect(screen.getByText(/llm local \(\/llmlocal\)/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Rédaction" })).toBeInTheDocument();
+    expect(screen.getByText(/configuration du provider/i)).toBeInTheDocument();
+    expect(screen.getByText(/paramètres > llm cloud/i)).toBeInTheDocument();
+  });
+
+  it("renders the llm workflow in one clear column", () => {
+    renderPage();
+
+    expect(screen.queryByRole("heading", { name: "Configuration API" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Provider LLM", { selector: "button#llm-provider" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Mode d'entrée", { selector: "button#llm-source" })).not.toBeInTheDocument();
+
+    const source = screen.getByRole("heading", { name: "Source" });
+    const formats = screen.getByRole("heading", { name: "Formats de compte rendu" });
+    const generationActions = screen.getByTestId("llm-generation-actions");
+    const progress = screen.getByRole("heading", { name: "Progression" });
+    const results = screen.getByRole("heading", { name: "Résultats des comptes rendus" });
+
+    expect(source.compareDocumentPosition(formats) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(formats.compareDocumentPosition(generationActions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(generationActions).toHaveClass("justify-center");
+    expect(generationActions.compareDocumentPosition(progress) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(formats.compareDocumentPosition(progress) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(progress.compareDocumentPosition(results) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("renders the two visible source choices", () => {
+    renderPage();
+
+    expect(screen.getByRole("heading", { name: "Charger depuis la transcription en mémoire" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Charger depuis un document de transcription ou une prise de note" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /charger depuis la transcription en mémoire/i })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /choisir un fichier/i })).toBeInTheDocument();
+    expect(within(screen.getByTestId("llm-memory-source-panel")).getByText("Source active")).toBeInTheDocument();
+    expect(within(screen.getByTestId("llm-source-card")).queryByRole("button", { name: /générer les comptes rendus/i })).toBeNull();
+    expect(within(screen.getByTestId("llm-source-card")).queryByRole("button", { name: /réinitialiser la session llm/i })).toBeNull();
   });
 
   it("renders report detail sliders and updates the store", () => {
@@ -262,49 +286,72 @@ describe("LLMApiPage", () => {
     expect(screen.getByTestId("report-format-switch-cri")).toBeInTheDocument();
   });
 
-  it("requires an imported file when source is texte libre", async () => {
+  it("disables memory source when no transcript is available", () => {
+    useAsrStore.setState({
+      sessionTranscriptMemories: {
+        upload: null,
+        mic: null,
+        cloud: null,
+      },
+    } as any);
+
     renderPage();
 
-    const sourceSelect = screen.getByLabelText("Mode d'entrée", { selector: "button#llm-source" });
-    fireEvent.click(sourceSelect);
-    fireEvent.click(await screen.findByText("Texte libre"));
-
+    expect(screen.getByRole("button", { name: /charger depuis la transcription en mémoire/i })).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    );
+    expect(screen.getByText(/aucune transcription disponible en mémoire/i)).toBeInTheDocument();
     const button = screen.getByRole("button", { name: /générer les comptes rendus/i });
     expect(button).toBeDisabled();
-    expect(screen.getByRole("button", { name: /choisir un fichier/i })).toBeInTheDocument();
-    expect(screen.getByText(/importez un fichier pour lancer la génération/i)).toBeInTheDocument();
   });
 
-  it("hides DOCX downloads until a report is generated", () => {
+  it("selects the document source by clicking the document panel", async () => {
     renderPage();
 
-    expect(screen.queryByRole("region", { name: /téléchargements docx/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /télécharger le compte rendu détaillé/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /télécharger le compte rendu opérationnel/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /télécharger le compte rendu synthétique/i })).not.toBeInTheDocument();
+    const documentPanel = screen.getByTestId("llm-document-source-panel");
+    await userEvent.click(documentPanel);
+
+    expect(within(documentPanel).getByText("Source active")).toBeInTheDocument();
+    expect(within(screen.getByTestId("llm-memory-source-panel")).queryByText("Source active")).toBeNull();
+    expect(screen.getByText(/importez un fichier pour lancer la génération/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /générer les comptes rendus/i })).toBeDisabled();
   });
 
-  it("shows only generated DOCX downloads below the format selector", async () => {
+  it("shows the assistant-style empty results panel before generation", () => {
+    renderPage();
+
+    expect(screen.getByRole("heading", { name: "Résultats des comptes rendus" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Édition des formats" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("report-editor-cri")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /téléchargements docx/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /télécharger le compte rendu détaillé/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/les comptes rendus apparaîtront ici au fil de leur réception/i)).toBeInTheDocument();
+  });
+
+  it("shows assistant-style report cards and downloads generated formats", async () => {
     hookState.results = {
       cri: buildGeneratedResult("CRI", "Titre CRI"),
     } as any;
 
     renderPage();
 
-    const docxDownloads = screen.getByRole("region", { name: /téléchargements docx/i });
-    const editor = screen.getByTestId("report-editor-cri");
-    expect(docxDownloads.compareDocumentPosition(editor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole("region", { name: /téléchargements docx/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("report-editor-cri")).not.toBeInTheDocument();
+    const card = screen.getByTestId("report-result-card-cri");
+    expect(within(card).getByText("Titre CRI")).toBeInTheDocument();
+    expect(within(card).getByText("Reçu")).toBeInTheDocument();
 
     const downloadCri = screen.getByRole("button", { name: /télécharger le compte rendu détaillé/i });
     expect(downloadCri).not.toBeDisabled();
-    expect(screen.queryByRole("button", { name: /télécharger le compte rendu opérationnel/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /télécharger le compte rendu synthétique/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /télécharger le compte rendu opérationnel/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /télécharger le compte rendu synthétique/i })).toBeDisabled();
 
     await userEvent.click(downloadCri);
     expect(downloadDocx).toHaveBeenCalledWith("cri");
   });
 
-  it("shows all DOCX downloads when every format has been generated", () => {
+  it("enables all generated DOCX downloads", () => {
     hookState.results = {
       cri: buildGeneratedResult("CRI", "Titre CRI"),
       cro: buildGeneratedResult("CRO", "Titre CRO"),
@@ -316,148 +363,6 @@ describe("LLMApiPage", () => {
     expect(screen.getByRole("button", { name: /télécharger le compte rendu détaillé/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /télécharger le compte rendu opérationnel/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /télécharger le compte rendu synthétique/i })).toBeInTheDocument();
-  });
-
-  it("updates the draft after editing a generated report and resets to the cloud version", async () => {
-    const generatedResult = {
-      format: "CRI",
-      report: {
-        format: "CRI",
-        title: "Titre initial",
-        subtitle: "Sous titre initial",
-        sections: [{ heading: "Contexte", paragraphs: ["Paragraphe initial"] }],
-        key_points: ["Point initial"],
-        action_items: ["Action initial"],
-        caveats: ["Vigilance initial"],
-      },
-      rawResponse: "{}",
-      modelId: "openai/gpt-oss-20b",
-      generatedAt: new Date().toISOString(),
-      sourceMode: "text",
-      sourceTokenCount: 50,
-      pipelinePasses: 1,
-      strategy: "chatCompletion",
-    } as const;
-
-    hookState.results = { cri: generatedResult } as any;
-    useAsrStore.setState({
-      llmApiStatus: "done",
-      llmApiResults: { cri: generatedResult },
-      llmApiReportDrafts: {},
-    } as any);
-
-    renderPage();
-
-    const editor = screen.getByTestId("report-editor-cri");
-    const titleInput = within(editor).getByLabelText("Titre");
-
-    await userEvent.clear(titleInput);
-    await userEvent.type(titleInput, "Titre modifie");
-
-    await waitFor(() => {
-      expect(within(editor).getByDisplayValue("Titre modifie")).toBeInTheDocument();
-    });
-    expect(screen.getAllByText("Modifié").length).toBeGreaterThan(0);
-
-    await userEvent.click(within(editor).getByRole("button", { name: /réinitialiser ce compte rendu/i }));
-
-    await waitFor(() => {
-      expect(within(editor).getByDisplayValue("Titre initial")).toBeInTheDocument();
-    });
-    expect(useAsrStore.getState().llmApiReportDrafts.cri).toBeUndefined();
-  });
-
-  it("reorders sections with drag and drop", async () => {
-    const generatedResult = {
-      format: "CRI",
-      report: {
-        format: "CRI",
-        title: "Titre",
-        sections: [
-          { heading: "Premier bloc", paragraphs: ["P1"] },
-          { heading: "Deuxieme bloc", paragraphs: ["P2"] },
-        ],
-      },
-      rawResponse: "{}",
-      modelId: "openai/gpt-oss-20b",
-      generatedAt: new Date().toISOString(),
-      sourceMode: "text",
-      sourceTokenCount: 50,
-      pipelinePasses: 1,
-      strategy: "chatCompletion",
-    } as const;
-
-    hookState.results = { cri: generatedResult } as any;
-    useAsrStore.setState({
-      llmApiStatus: "done",
-      llmApiResults: { cri: generatedResult },
-      llmApiReportDrafts: {},
-    } as any);
-
-    renderPage();
-
-    const editor = screen.getByTestId("report-editor-cri");
-    const sectionCards = [screen.getByTestId("cri-section-card-0"), screen.getByTestId("cri-section-card-1")];
-    const dragHandle = within(sectionCards[1]!).getByLabelText("Déplacer Section 2");
-    const dataTransfer = createDataTransfer();
-
-    fireEvent.dragStart(dragHandle, { dataTransfer });
-    fireEvent.dragOver(sectionCards[0]!, { dataTransfer });
-    fireEvent.drop(sectionCards[0]!, { dataTransfer });
-
-    await waitFor(() => {
-      const orderedHeadings = within(editor).getAllByLabelText("Titre de section") as HTMLInputElement[];
-      expect(orderedHeadings[0]?.value).toBe("Deuxieme bloc");
-      expect(orderedHeadings[1]?.value).toBe("Premier bloc");
-    });
-  });
-
-  it("reorders paragraphs and list items with fallback buttons", async () => {
-    const generatedResult = {
-      format: "CRI",
-      report: {
-        format: "CRI",
-        title: "Titre",
-        sections: [{ heading: "Premier bloc", paragraphs: ["Paragraphe 1", "Paragraphe 2"] }],
-        key_points: ["Point 1", "Point 2"],
-      },
-      rawResponse: "{}",
-      modelId: "openai/gpt-oss-20b",
-      generatedAt: new Date().toISOString(),
-      sourceMode: "text",
-      sourceTokenCount: 50,
-      pipelinePasses: 1,
-      strategy: "chatCompletion",
-    } as const;
-
-    hookState.results = { cri: generatedResult } as any;
-    useAsrStore.setState({
-      llmApiStatus: "done",
-      llmApiResults: { cri: generatedResult },
-      llmApiReportDrafts: {},
-    } as any);
-
-    renderPage();
-
-    const paragraphCard = screen.getByTestId("cri-section-0-paragraphs-item-0");
-    const paragraphMoveDown = within(paragraphCard).getByRole("button", { name: /descendre/i });
-    await userEvent.click(paragraphMoveDown);
-
-    await waitFor(() => {
-      const paragraphInputs = within(screen.getByTestId("report-editor-cri")).getAllByLabelText(/Paragraphe \d+/);
-      expect((paragraphInputs[0] as HTMLTextAreaElement)?.value).toBe("Paragraphe 2");
-      expect((paragraphInputs[1] as HTMLTextAreaElement)?.value).toBe("Paragraphe 1");
-    });
-
-    const keyPointCard = screen.getByTestId("cri-key-points-item-0");
-    const keyPointMoveDown = within(keyPointCard).getByRole("button", { name: /descendre/i });
-    await userEvent.click(keyPointMoveDown);
-
-    await waitFor(() => {
-      const keyPointInputs = within(screen.getByTestId("report-editor-cri")).getAllByLabelText(/Point clé \d+/);
-      expect((keyPointInputs[0] as HTMLTextAreaElement)?.value).toBe("Point 2");
-      expect((keyPointInputs[1] as HTMLTextAreaElement)?.value).toBe("Point 1");
-    });
   });
 
   it("shows inline alert when llm token is missing", () => {
@@ -486,41 +391,6 @@ describe("LLMApiPage", () => {
     );
   });
 
-  it("switches to mistral provider and keeps mistral pipeline config", async () => {
-    renderPage();
-
-    const providerSelect = screen.getByLabelText("Provider LLM", { selector: "button#llm-provider" });
-    fireEvent.click(providerSelect);
-    fireEvent.click(await screen.findByText("Mistral"));
-
-    expect(useAsrStore.getState().llmApiProvider).toBe("mistral");
-    expect(screen.getByLabelText("Clé API Mistral", { selector: "input#llm-mistral-api-key" })).toBeInTheDocument();
-    expect(screen.queryByLabelText("URL API Mistral")).not.toBeInTheDocument();
-    expect(screen.getByText(/ID du modèle/i)).toBeInTheDocument();
-    expect(screen.getByText("mistral-medium-latest")).toBeInTheDocument();
-    expect(emitLlmEventMock).toHaveBeenCalledWith(
-      "LLM_CLOUD_PROVIDER_CHANGE",
-      expect.objectContaining({ previousProvider: "huggingface", nextProvider: "mistral" })
-    );
-  });
-
-  it("shows hardcoded demeter max tokens in pipeline config", async () => {
-    useAsrStore.setState({
-      llmApiProvider: "demeter_sante",
-      llmApiMistralModelId: "mistral-medium-latest",
-      llmApiMistralMaxTokens: 8192,
-    } as any);
-
-    renderPage();
-
-    expect(
-      screen.getByText((_, element) =>
-        element?.tagName === "P" &&
-        (element.textContent ?? "").includes(`Nombre max de tokens : ${formatTokenCount(DEMETER_SANTE_MAX_TOKENS)}`)
-      )
-    ).toBeInTheDocument();
-  });
-
   it("hides settings links when feature.settings is forbidden", () => {
     backendPermissionMocks.canAccessFeature.mockImplementation((permission: string) =>
       permission === "feature.settings" ? false : true
@@ -536,7 +406,7 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    expect(screen.getByText(/aucun provider llm cloud autorisé/i)).toBeInTheDocument();
+    expect(screen.getByText(/aucun provider llm cloud n'est activé/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /générer les comptes rendus/i })).toBeDisabled();
   });
 
@@ -629,10 +499,6 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    const sourceSelect = screen.getByLabelText("Mode d'entrée", { selector: "button#llm-source" });
-    fireEvent.click(sourceSelect);
-    fireEvent.click(await screen.findByText("Texte libre"));
-
     const fileInput = await screen.findByLabelText("Importer un fichier de transcription", {
       selector: "input#llm-source-file",
     });
@@ -642,6 +508,7 @@ describe("LLMApiPage", () => {
     await waitFor(() => {
       expect(screen.getAllByText("source.txt").length).toBeGreaterThan(0);
     });
+    expect(within(screen.getByTestId("llm-document-source-panel")).getByText("Source active")).toBeInTheDocument();
     const generateButton = screen.getByRole("button", { name: /générer les comptes rendus/i });
     await waitFor(() => expect(generateButton).not.toBeDisabled());
     expect(parseTranscriptFileMock).toHaveBeenCalled();
@@ -656,6 +523,9 @@ describe("LLMApiPage", () => {
       expect.objectContaining({ fileName: "source.txt" })
     );
     expect(useAsrStore.getState().sessionTranscriptMemories.upload?.label).toBe("Locale · demo.wav");
+
+    await userEvent.click(generateButton);
+    expect(generateAll).toHaveBeenCalledWith({ source: "text", text: "Texte importe depuis fichier" });
   });
 
   it("accepts docx imports in free text mode", async () => {
@@ -666,10 +536,6 @@ describe("LLMApiPage", () => {
     });
 
     renderPage();
-
-    const sourceSelect = screen.getByLabelText("Mode d'entrée", { selector: "button#llm-source" });
-    fireEvent.click(sourceSelect);
-    fireEvent.click(await screen.findByText("Texte libre"));
 
     const fileInput = screen.getByLabelText("Importer un fichier de transcription", {
       selector: "input#llm-source-file",
@@ -708,10 +574,6 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    const sourceSelect = screen.getByLabelText("Mode d'entrée", { selector: "button#llm-source" });
-    fireEvent.click(sourceSelect);
-    fireEvent.click(await screen.findByText("Texte libre"));
-
     const fileInput = await screen.findByLabelText("Importer un fichier de transcription", {
       selector: "input#llm-source-file",
     });
@@ -739,10 +601,6 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    const sourceSelect = screen.getByLabelText("Mode d'entrée", { selector: "button#llm-source" });
-    fireEvent.click(sourceSelect);
-    fireEvent.click(await screen.findByText("Texte libre"));
-
     const fileInput = await screen.findByLabelText("Importer un fichier de transcription", {
       selector: "input#llm-source-file",
     });
@@ -767,10 +625,6 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    const sourceSelect = screen.getByLabelText("Mode d'entrée", { selector: "button#llm-source" });
-    fireEvent.click(sourceSelect);
-    fireEvent.click(await screen.findByText("Texte libre"));
-
     const fileInput = await screen.findByLabelText("Importer un fichier de transcription", {
       selector: "input#llm-source-file",
     });
@@ -781,11 +635,12 @@ describe("LLMApiPage", () => {
     });
   });
 
-  it("keeps only provider and token controls on llm page", () => {
+  it("keeps provider and token controls out of the rédaction page", () => {
     renderPage();
 
-    expect(screen.getByLabelText("Provider LLM", { selector: "button#llm-provider" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Token Hugging Face", { selector: "input#llm-api-token" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Provider LLM", { selector: "button#llm-provider" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Token Hugging Face", { selector: "input#llm-api-token" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Clé API Mistral", { selector: "input#llm-mistral-api-key" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Formats de compte rendu" })).toBeInTheDocument();
     expect(within(screen.getByTestId("report-format-switch-cri")).getByLabelText("Compte rendu détaillé", {
       selector: "input#report-detail-cri",
@@ -795,9 +650,6 @@ describe("LLMApiPage", () => {
     expect(screen.queryByLabelText("Température")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Nombre max de tokens")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("URL API Mistral")).not.toBeInTheDocument();
-
-    const settingsLink = screen.getByRole("link", { name: /ouvrir paramètres llm/i });
-    expect(settingsLink).toHaveAttribute("href", "/settings?tab=llm");
   });
 
   it("shows blocking config message when model id is missing", () => {
@@ -806,7 +658,7 @@ describe("LLMApiPage", () => {
     renderPage();
 
     expect(screen.getByText(/configuration du pipeline incomplète/i)).toBeInTheDocument();
-    expect(screen.getByText(/ne peut pas fonctionner sans id du modèle configuré/i)).toBeInTheDocument();
+    expect(screen.getByText(/renseignez l'id du modèle dans paramètres > llm cloud/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /générer les comptes rendus/i })).toBeDisabled();
     expect(screen.getAllByRole("link", { name: /ouvrir paramètres llm/i })[0]).toHaveAttribute(
       "href",
@@ -814,7 +666,7 @@ describe("LLMApiPage", () => {
     );
   });
 
-  it("emits reset and download telemetry events", async () => {
+  it("emits download telemetry events", async () => {
     hookState.results = {
       cri: {
         format: "CRI",
@@ -834,16 +686,7 @@ describe("LLMApiPage", () => {
     } as any;
 
     renderPage();
-
-    await userEvent.click(screen.getByRole("button", { name: /réinitialiser la session llm/i }));
-    expect(emitLlmEventMock).toHaveBeenCalledWith(
-      "LLM_CLOUD_RESET_REQUESTED",
-      expect.objectContaining({ sourceMode: "transcription" })
-    );
-    expect(emitLlmEventMock).toHaveBeenCalledWith(
-      "LLM_CLOUD_RESET_DONE",
-      expect.objectContaining({ sourceMode: "transcription" })
-    );
+    expect(screen.queryByRole("button", { name: /réinitialiser la session llm/i })).toBeNull();
 
     await userEvent.click(screen.getByRole("button", { name: /télécharger le compte rendu détaillé/i }));
     expect(emitLlmEventMock).toHaveBeenCalledWith(
@@ -856,44 +699,36 @@ describe("LLMApiPage", () => {
     );
   });
 
-  it("renders editable content with subtitle, optional lists and paragraph blocks", async () => {
-    useAsrStore.setState({
-      llmApiResults: {
-        cro: {
+  it("renders generated report preview content in the results panel", () => {
+    hookState.results = {
+      cro: {
+        format: "CRO",
+        report: {
           format: "CRO",
-          report: {
-            format: "CRO",
-            title: "Compte rendu CRO",
-            subtitle: "Sous titre",
-            sections: [{ heading: "Synthese", paragraphs: ["Bloc A", "Bloc B"] }],
-            key_points: ["Point 1", "Point 2"],
-            action_items: ["Action A"],
-            caveats: ["Risque X"],
-          },
-          rawResponse: "{}",
-          modelId: "openai/gpt-oss-20b",
-          generatedAt: new Date().toISOString(),
-          sourceMode: "transcription",
-          sourceTokenCount: 42,
-          pipelinePasses: 2,
-          strategy: "chatCompletion",
+          title: "Compte rendu CRO",
+          subtitle: "Sous titre",
+          sections: [{ heading: "Synthese", paragraphs: ["Bloc A", "Bloc B"] }],
+          key_points: ["Point 1", "Point 2"],
+          action_items: ["Action A"],
+          caveats: ["Risque X"],
         },
+        rawResponse: "{}",
+        modelId: "openai/gpt-oss-20b",
+        generatedAt: new Date().toISOString(),
+        sourceMode: "transcription",
+        sourceTokenCount: 42,
+        pipelinePasses: 2,
+        strategy: "chatCompletion",
       },
-    } as any);
+    } as any;
 
     renderPage();
 
-    await userEvent.click(screen.getByRole("tab", { name: "Compte rendu opérationnel" }));
-    const editor = screen.getByTestId("report-editor-cro");
-    expect(within(editor).getByDisplayValue("Compte rendu CRO")).toBeInTheDocument();
-    expect(within(editor).getByDisplayValue("Sous titre")).toBeInTheDocument();
-    expect(within(editor).getByText("Points clés")).toBeInTheDocument();
-    expect(within(editor).getByDisplayValue("Point 1")).toBeInTheDocument();
-    expect(within(editor).getByDisplayValue("Point 2")).toBeInTheDocument();
-    expect(within(editor).getByDisplayValue("Action A")).toBeInTheDocument();
-    expect(within(editor).getByDisplayValue("Risque X")).toBeInTheDocument();
-    expect(within(editor).getByDisplayValue("Bloc A")).toBeInTheDocument();
-    expect(within(editor).getByDisplayValue("Bloc B")).toBeInTheDocument();
+    const card = screen.getByTestId("report-result-card-cro");
+    expect(within(card).getByText("Compte rendu CRO")).toBeInTheDocument();
+    expect(within(card).getByText("Sous titre")).toBeInTheDocument();
+    expect(within(card).getByText("Synthese")).toBeInTheDocument();
+    expect(within(card).getByText("Bloc A")).toBeInTheDocument();
     expect(screen.queryByText(/apercu live/i)).toBeNull();
   });
 
@@ -930,25 +765,10 @@ describe("LLMApiPage", () => {
   it("triggers the hidden file picker button in text source mode", async () => {
     renderPage();
 
-    const sourceSelect = screen.getByLabelText("Mode d'entrée", { selector: "button#llm-source" });
-    fireEvent.click(sourceSelect);
-    fireEvent.click(await screen.findByText("Texte libre"));
-
     const clickSpy = vi.spyOn(HTMLInputElement.prototype, "click");
     await userEvent.click(screen.getByRole("button", { name: /choisir un fichier/i }));
     expect(clickSpy).toHaveBeenCalled();
     clickSpy.mockRestore();
   });
 
-  it("updates mistral token from provider controls", async () => {
-    useAsrStore.setState({ llmApiProvider: "mistral", mistralApiKey: "" } as any);
-    renderPage();
-
-    expect(screen.getByText(/session en cours du navigateur/i)).toBeInTheDocument();
-
-    fireEvent.change(screen.getByLabelText("Clé API Mistral", { selector: "input#llm-mistral-api-key" }), {
-      target: { value: "mistral_token_ui" },
-    });
-    expect(useAsrStore.getState().mistralApiKey).toBe("mistral_token_ui");
-  });
 });

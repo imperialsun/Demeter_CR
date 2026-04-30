@@ -487,7 +487,7 @@ export function Topbar() {
         <header className="flex min-h-16 items-center justify-between px-4 py-3">
           {isCloudRoute ? (
             <div className="space-y-1">
-              <p className="text-sm font-medium text-muted-foreground">Cloud</p>
+              <p className="text-sm font-medium text-muted-foreground">Transcription</p>
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant={cloudStatusMeta.variant}>{cloudStatusMeta.label}</Badge>
                 {backgroundBadge}
@@ -498,7 +498,7 @@ export function Topbar() {
             </div>
           ) : isLlmRoute ? (
             <div className="space-y-1">
-              <p className="text-sm font-medium text-muted-foreground">LLM Cloud</p>
+              <p className="text-sm font-medium text-muted-foreground">Rédaction</p>
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant={llmStatusMeta.variant}>{llmStatusMeta.label}</Badge>
                 {backgroundBadge}

@@ -415,7 +415,7 @@ describe('SettingsPanel', () => {
       </ThemeProvider>
     );
 
-    expect(screen.getByText("Pipeline /llmapi")).toBeInTheDocument();
+    expect(screen.getByText("Pipeline Rédaction")).toBeInTheDocument();
   });
 
   it("shows hf and mistral cards at the same time in llm settings tab", () => {
@@ -425,8 +425,8 @@ describe('SettingsPanel', () => {
       </ThemeProvider>
     );
 
-    expect(screen.getByText("Hugging Face")).toBeInTheDocument();
-    expect(screen.getByText("Mistral")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Hugging Face" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Mistral" })).toBeInTheDocument();
     expect(screen.getByLabelText("Token Hugging Face (LLM)", { selector: "input#settings-llm-hf-token" })).toBeInTheDocument();
     expect(screen.getByLabelText("Cle API Mistral (LLM)", { selector: "input#settings-llm-mistral-api-key" })).toBeInTheDocument();
   });

@@ -325,7 +325,7 @@ function CloudUploadPage() {
   return (
     <div className="space-y-8">
       <header className="space-y-2">
-        <h2 className="text-2xl font-semibold">Transcription cloud</h2>
+        <h2 className="text-2xl font-semibold">Transcription</h2>
         <p className="text-muted-foreground">
           Importez un fichier audio, choisissez un mode basse RAM ou un traitement complet, puis lancez la transcription via le service cloud.
         </p>

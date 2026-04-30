@@ -90,13 +90,11 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
   const status = useAsrStore((state) => state.llmApiStatus);
   const progress = useAsrStore((state) => state.llmApiProgress);
   const results = useAsrStore((state) => state.llmApiResults);
-  const reportDrafts = useAsrStore((state) => state.llmApiReportDrafts);
 
   const setLlmApiStatus = useAsrStore((state) => state.setLlmApiStatus);
   const setLlmApiProgress = useAsrStore((state) => state.setLlmApiProgress);
   const setLlmApiResult = useAsrStore((state) => state.setLlmApiResult);
   const setLlmApiResults = useAsrStore((state) => state.setLlmApiResults);
-  const resetLlmApiReportDrafts = useAsrStore((state) => state.resetLlmApiReportDrafts);
   const registerTelemetry = useAsrStore((state) => state.registerTelemetry);
   const setTelemetrySummary = useAsrStore((state) => state.setTelemetrySummary);
   const effectiveProvider = options.providerOverride ?? llmApiProvider;
@@ -209,7 +207,6 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
         }
 
         const sourceText = resolveSourceText(input, sessionTranscriptMemories);
-        resetLlmApiReportDrafts();
         setLlmApiResults({});
         markStage("source_resolved", {
           sourceLength: sourceText.length,
@@ -897,7 +894,6 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
       setLlmApiResults,
       setLlmApiStatus,
       setTelemetrySummary,
-      resetLlmApiReportDrafts,
     ]
   );
 
@@ -907,7 +903,6 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
       if (!result) {
         throw new Error("Aucun résultat disponible pour ce format.");
       }
-      const report = reportDrafts[format] ?? result.report;
       const telemetry = useAsrStore.getState().telemetryCollector;
       logger.info("[llm-api] docx download start", {
         format: result.format,
@@ -922,7 +917,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
       setLlmApiStatus("formatting", `Préparation DOCX ${buildReportFormatLabel(result.format)}`);
       setLlmApiProgress(0.97);
       try {
-        const blob = await buildReportDocx(report, {
+        const blob = await buildReportDocx(result.report, {
           format: result.format,
           modelId: result.modelId,
           generatedAt: result.generatedAt,
@@ -967,7 +962,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
         throw error;
       }
     },
-    [reportDrafts, results, setLlmApiProgress, setLlmApiStatus, setTelemetrySummary]
+    [results, setLlmApiProgress, setLlmApiStatus, setTelemetrySummary]
   );
 
   return {

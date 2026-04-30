@@ -75,7 +75,6 @@ describe("useLlmReports telemetry", () => {
       llmApiStatusDetail: undefined,
       llmApiProgress: 0,
       llmApiResults: {},
-      llmApiReportDrafts: {},
       mistralApiKey: "",
       cloudMistralApiUrl: "https://api.mistral.ai",
       telemetryCollector: null,
@@ -494,7 +493,7 @@ describe("useLlmReports telemetry", () => {
     expect(docxEvents.some((event) => event.data?.status === "done")).toBe(true);
   });
 
-  it("uses the edited report draft when building a docx", async () => {
+  it("uses the generated report when building a docx", async () => {
     const generatedResult = {
       format: "CRI",
       report: {
@@ -516,16 +515,6 @@ describe("useLlmReports telemetry", () => {
 
     useAsrStore.setState({
       llmApiResults: { cri: generatedResult } as any,
-      llmApiReportDrafts: {
-        cri: {
-          format: "CRI",
-          title: "Titre modifie",
-          sections: [
-            { heading: "Section B", paragraphs: ["Paragraphe B"] },
-            { heading: "Section A", paragraphs: ["Paragraphe A"] },
-          ],
-        },
-      } as any,
     } as any);
 
     const { result } = renderHook(() => useLlmReports());
@@ -536,10 +525,10 @@ describe("useLlmReports telemetry", () => {
 
     expect(mocks.buildReportDocxMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        title: "Titre modifie",
+        title: "Titre initial",
         sections: [
-          { heading: "Section B", paragraphs: ["Paragraphe B"] },
           { heading: "Section A", paragraphs: ["Paragraphe A"] },
+          { heading: "Section B", paragraphs: ["Paragraphe B"] },
         ],
       }),
       expect.objectContaining({

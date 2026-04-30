@@ -48,4 +48,14 @@ describe("LlmCloudSettingsTab", () => {
 
     expect(useAsrStore.getState().llmApiReportMonoPassMaxTokens).toBe(8192);
   });
+
+  it("updates the active rédaction provider", () => {
+    render(<LlmCloudSettingsTab showHuggingFace showMistral showDemeter={false} />);
+
+    const providerSelect = screen.getByLabelText("Provider actif", { selector: "button#settings-llm-provider" });
+    fireEvent.click(providerSelect);
+    fireEvent.click(screen.getByRole("option", { name: "Mistral" }));
+
+    expect(useAsrStore.getState().llmApiProvider).toBe("mistral");
+  });
 });

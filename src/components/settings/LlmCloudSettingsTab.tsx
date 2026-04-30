@@ -65,6 +65,7 @@ export function LlmCloudSettingsTab({
     setLlmApiReportMonoPassMaxTokens,
     setMistralApiKey,
     setCloudMistralApiUrl,
+    setLlmApiProvider,
   } = useAsrStore(
     useShallow((state) => ({
       llmApiProvider: state.llmApiProvider,
@@ -90,6 +91,7 @@ export function LlmCloudSettingsTab({
       setLlmApiReportMonoPassMaxTokens: state.setLlmApiReportMonoPassMaxTokens,
       setMistralApiKey: state.setMistralApiKey,
       setCloudMistralApiUrl: state.setCloudMistralApiUrl,
+      setLlmApiProvider: state.setLlmApiProvider,
     }))
   );
 
@@ -167,6 +169,20 @@ export function LlmCloudSettingsTab({
   );
   const modelSelectValue = selectedSuggestedModel ? selectedSuggestedModel.id : "__custom__";
   const mistralModelSelectValue = selectedMistralModel?.id ?? "__custom__";
+  const visibleProviderOptions = useMemo(
+    () =>
+      [
+        showHuggingFace ? { value: "huggingface", label: "Hugging Face" } : null,
+        showMistral ? { value: "mistral", label: "Mistral" } : null,
+        showDemeter ? { value: "demeter_sante", label: "Demeter Santé" } : null,
+      ].filter((option): option is { value: "huggingface" | "mistral" | "demeter_sante"; label: string } =>
+        Boolean(option)
+      ),
+    [showDemeter, showHuggingFace, showMistral]
+  );
+  const providerSelectValue = visibleProviderOptions.some((option) => option.value === llmApiProvider)
+    ? llmApiProvider
+    : visibleProviderOptions[0]?.value ?? "huggingface";
 
   useEffect(() => {
     if (typeof hfSettingMaxTokens !== "number") return;
@@ -199,20 +215,37 @@ export function LlmCloudSettingsTab({
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Pipeline /llmapi</CardTitle>
+          <CardTitle>Pipeline Rédaction</CardTitle>
           <CardDescription>
-            Reglages avances de generation du module LLM Cloud. Le provider actif se change sur /llmapi.
+            Reglages avances de generation du module Rédaction.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="rounded-md border bg-muted/30 p-3">
-            <p className="text-sm font-medium">
-              Provider actif: {llmApiProvider === "mistral" ? "Mistral" : llmApiProvider === "demeter_sante" ? "Demeter Santé" : "Hugging Face"}
-            </p>
+          <div className="space-y-2">
+            <Label htmlFor="settings-llm-provider">Provider actif</Label>
+            <Select
+              value={providerSelectValue}
+              onValueChange={(value) => {
+                if (value === "huggingface" || value === "mistral" || value === "demeter_sante") {
+                  setLlmApiProvider(value);
+                }
+              }}
+            >
+              <SelectTrigger id="settings-llm-provider">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {visibleProviderOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <p className="text-xs text-muted-foreground">
               {demeterOnlyMode
-                ? "Mode Demeter-only: seuls les reglages pipeline utiles a Demeter sont exposes."
-                : "Les tokens et les parametres des providers autorises sont modifies ici."}
+                ? "Mode Demeter-only: seuls les réglages pipeline utiles à Demeter sont exposés."
+                : "La page Rédaction utilise ce provider actif pour générer les comptes rendus."}
             </p>
           </div>
           </CardContent>

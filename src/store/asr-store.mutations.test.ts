@@ -398,13 +398,8 @@ describe("asr-store mutation guards", () => {
     state.setLlmApiProgress(2);
     state.setLlmApiResult("cri", { text: "x" });
     state.setLlmApiResults({ cro: { text: "y" } });
-    state.setLlmApiReportDraft("cri", {
-      format: "CRI",
-      title: "Titre edite",
-      sections: [{ heading: "Section", paragraphs: ["Paragraphe"] }],
-    } as never);
     state.resetLlmApiSession();
-    expect(useAsrStore.getState().llmApiReportDrafts).toEqual({});
+    expect(useAsrStore.getState().llmApiResults).toEqual({});
 
     state.setLlmLocalModelProfile("ministral_3_3b");
     state.setLlmLocalModelId(" mistralai/Ministral-3-3B-Instruct-2512-ONNX ");

@@ -33,7 +33,7 @@ vi.mock("@/routes/TelemetryPage", () => {
 });
 
 describe("Sidebar", () => {
-  it("renders LLM local/cloud navigation items", () => {
+  it("renders renamed transcription and rédaction navigation items", () => {
     render(
       <MemoryRouter>
         <Sidebar />
@@ -46,7 +46,11 @@ describe("Sidebar", () => {
     expect(localLink).toBeInTheDocument();
     expect(localLink.getAttribute("href")).toBe("/llmlocal");
 
-    const link = screen.getByRole("link", { name: /llm cloud/i });
+    const transcriptionLink = screen.getByRole("link", { name: /^transcription$/i });
+    expect(transcriptionLink).toBeInTheDocument();
+    expect(transcriptionLink.getAttribute("href")).toBe("/cloudupload");
+
+    const link = screen.getByRole("link", { name: /rédaction/i });
     expect(link).toBeInTheDocument();
     expect(link.getAttribute("href")).toBe("/llmapi");
     expect(screen.getByText("Transcription locale et distante · Chrome uniquement")).toBeInTheDocument();
@@ -66,9 +70,9 @@ describe("Sidebar", () => {
       </MemoryRouter>
     );
 
-    fireEvent.mouseEnter(screen.getByRole("link", { name: /transcription cloud/i }));
+    fireEvent.mouseEnter(screen.getByRole("link", { name: /^transcription$/i }));
     fireEvent.focus(screen.getByRole("link", { name: /llm local/i }));
-    fireEvent.mouseEnter(screen.getByRole("link", { name: /llm cloud/i }));
+    fireEvent.mouseEnter(screen.getByRole("link", { name: /rédaction/i }));
     fireEvent.focus(screen.getByRole("link", { name: /paramètres/i }));
     fireEvent.mouseEnter(screen.getByRole("link", { name: /télémetrie/i }));
 

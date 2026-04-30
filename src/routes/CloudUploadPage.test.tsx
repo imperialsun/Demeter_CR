@@ -151,7 +151,7 @@ describe("CloudUploadPage", () => {
       cloudDoSample: true,
     });
 
-    expect(screen.getByText("Transcription cloud")).toBeTruthy();
+    expect(screen.getByText("Transcription")).toBeTruthy();
     expect(screen.getByText(/basse RAM/i)).toBeInTheDocument();
     const providerSelect = screen.getByRole("combobox", { name: /provider/i });
     expect(providerSelect.textContent).toContain("Whisper");

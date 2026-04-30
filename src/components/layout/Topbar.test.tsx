@@ -776,7 +776,7 @@ describe('Topbar', () => {
 
     expect(screen.queryByText('Backend')).toBeNull();
     expect(screen.getAllByText('Cloud').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Transcription cloud').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Transcription').length).toBeGreaterThan(0);
   });
 
   it('shows llm badges and llm status on /llmapi', () => {
@@ -792,7 +792,7 @@ describe('Topbar', () => {
     renderTopbar();
 
     expect(screen.queryByText('Backend')).toBeNull();
-    expect(screen.getAllByText('LLM Cloud').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Rédaction').length).toBeGreaterThan(0);
     expect(screen.getByText('HF API')).toBeInTheDocument();
     expect(screen.getByText('OpenAI OSS 20B')).toBeInTheDocument();
     expect(screen.getByText(/Max 131/)).toBeInTheDocument();

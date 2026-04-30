@@ -44,9 +44,7 @@ import {
   type CloudTranscriptionSessionRuntime,
 } from "@/lib/cloud/transcriptionSession";
 import {
-  cloneReportJson,
   type ReportFormat,
-  type ReportJson,
   type ReportResult,
   type ReportResultKey,
 } from "@/lib/llm/reportSchema";
@@ -582,7 +580,6 @@ interface AsrConfigState {
   llmApiStatusDetail?: string;
   llmApiProgress: number;
   llmApiResults: Partial<Record<ReportResultKey, ReportResult>>;
-  llmApiReportDrafts: Partial<Record<ReportResultKey, ReportJson>>;
   // LLM local specific settings/runtime
   llmLocalModelProfile: LlmLocalModelProfile;
   llmLocalModelId: string;
@@ -813,9 +810,6 @@ interface AsrConfigActions {
   setLlmApiStatus: (status: LlmApiStatus, detail?: string) => void;
   setLlmApiProgress: (value: number) => void;
   setLlmApiResult: (format: ReportResultKey, value: ReportResult) => void;
-  setLlmApiReportDraft: (format: ReportResultKey, value: ReportJson | undefined) => void;
-  resetLlmApiReportDraft: (format: ReportResultKey) => void;
-  resetLlmApiReportDrafts: () => void;
   setLlmApiResults: (value: Partial<Record<ReportResultKey, ReportResult>>) => void;
   resetLlmApiSession: () => void;
   setLlmLocalModelProfile: (value: LlmLocalModelProfile) => void;
@@ -1204,7 +1198,6 @@ const initialState: AsrConfigState = {
   llmApiStatusDetail: undefined,
   llmApiProgress: 0,
   llmApiResults: {},
-  llmApiReportDrafts: {},
   llmLocalSettingsByProfile: normalizeLlmLocalSettingsByProfile(undefined, DEFAULT_LLM_LOCAL_SETTINGS_BY_PROFILE),
   llmLocalModelProfile: DEFAULT_SETTINGS.llmLocalModelProfile,
   llmLocalModelId: DEFAULT_SETTINGS.llmLocalModelId,
@@ -1359,7 +1352,6 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         hasHydrated: true,
         hfApiToken: currentTokens.hfApiToken,
         mistralApiKey: currentTokens.mistralApiKey,
-        llmApiReportDrafts: {},
         sessionTranscriptMemories: persistedSessionTranscriptMemories ?? get().sessionTranscriptMemories,
       }));
       void syncSecureTokensFromVault();
@@ -1956,7 +1948,6 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         "llmLocalForceSingleThread",
         fallbackSettings.llmLocalForceSingleThread
       ),
-      llmApiReportDrafts: {},
       autoTunePreprocess: getHydrationInputValue(settings, "autoTunePreprocess", fallbackSettings.autoTunePreprocess),
       forceSingleThread: getHydrationInputValue(settings, "forceSingleThread", fallbackSettings.forceSingleThread),
       enableWordTimestamps: getHydrationInputValue(
@@ -2338,24 +2329,6 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
     set(() => ({ llmApiProgress: Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0 })),
   setLlmApiResult: (format, value) =>
     set((state) => ({ llmApiResults: { ...state.llmApiResults, [format]: value } })),
-  setLlmApiReportDraft: (format, value) =>
-    set((state) => {
-      const nextDrafts = { ...state.llmApiReportDrafts };
-      if (value) {
-        nextDrafts[format] = cloneReportJson(value);
-      } else {
-        delete nextDrafts[format];
-      }
-      return { llmApiReportDrafts: nextDrafts };
-    }),
-  resetLlmApiReportDraft: (format) =>
-    set((state) => {
-      if (!(format in state.llmApiReportDrafts)) return {};
-      const nextDrafts = { ...state.llmApiReportDrafts };
-      delete nextDrafts[format];
-      return { llmApiReportDrafts: nextDrafts };
-    }),
-  resetLlmApiReportDrafts: () => set(() => ({ llmApiReportDrafts: {} })),
   setLlmApiResults: (value) => set(() => ({ llmApiResults: value })),
   resetLlmApiSession: () =>
     set(() => ({
@@ -2363,7 +2336,6 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
       llmApiStatusDetail: undefined,
       llmApiProgress: 0,
       llmApiResults: {},
-      llmApiReportDrafts: {},
     })),
   setLlmLocalModelProfile: (value) =>
     set((state) => {
@@ -2630,7 +2602,6 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         llmApiStatusDetail: undefined,
         llmApiProgress: 0,
         llmApiResults: {},
-        llmApiReportDrafts: {},
         llmLocalStatus: "idle",
         llmLocalStatusDetail: undefined,
         llmLocalProgress: 0,

@@ -52,7 +52,7 @@ describe("SettingsPage", () => {
       </ThemeProvider>
     );
 
-    expect(screen.getByText("Pipeline /llmapi")).toBeInTheDocument();
+    expect(screen.getByText("Pipeline Rédaction")).toBeInTheDocument();
   });
 
   it("falls back to local tab when query param is invalid", () => {
@@ -67,7 +67,7 @@ describe("SettingsPage", () => {
     );
 
     expect(screen.getByText("Modèle Whisper")).toBeInTheDocument();
-    expect(screen.queryByText("Pipeline /llmapi")).not.toBeInTheDocument();
+    expect(screen.queryByText("Pipeline Rédaction")).not.toBeInTheDocument();
   });
 
   it("falls back to first authorized tab when requested tab is forbidden", () => {
@@ -83,7 +83,7 @@ describe("SettingsPage", () => {
       </ThemeProvider>
     );
 
-    expect(screen.getByText("Pipeline /llmapi")).toBeInTheDocument();
+    expect(screen.getByText("Pipeline Rédaction")).toBeInTheDocument();
     expect(screen.queryByText("Modèle Whisper")).not.toBeInTheDocument();
   });
 });

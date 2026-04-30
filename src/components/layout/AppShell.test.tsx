@@ -100,7 +100,7 @@ describe("AppShell", () => {
         cloudStatus: "transcribing",
       } as Partial<AsrConfigStore>);
     });
-    await waitFor(() => expect(document.title).toBe("Demeter Speech - Transcription cloud (89%)"));
+    await waitFor(() => expect(document.title).toBe("Demeter Speech - Transcription (89%)"));
 
     act(() => {
       useAsrStore.setState({
