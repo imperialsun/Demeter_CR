@@ -541,7 +541,7 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   cloudEnableWordTimestamps: false,
   cloudShowSegmentConfidence: false,
   // llm cloud defaults
-  llmApiProvider: "huggingface",
+  llmApiProvider: "demeter_sante",
   llmApiHfModelId: "openai/gpt-oss-20b",
   llmApiHfTemperature: 0.2,
   llmApiHfMaxTokens: 131072,

@@ -160,6 +160,7 @@ describe('storage', () => {
   });
 
   it('defines provider-specific llm pipeline defaults', () => {
+    expect(DEFAULT_SETTINGS.llmApiProvider).toBe("demeter_sante");
     expect(DEFAULT_SETTINGS.llmApiHfModelId).toBeTruthy();
     expect(DEFAULT_SETTINGS.llmApiHfMaxTokens).toBeGreaterThan(0);
     expect(DEFAULT_SETTINGS.llmApiMistralModelId).toBeTruthy();
