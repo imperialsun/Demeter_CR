@@ -20,7 +20,6 @@ import {
 import { generateReportDetailed, type GenerateReportDetailedResult } from "@/lib/llm/reportService";
 import { getLlmHfClient, generateWithChatThenFallbackText } from "@/lib/llm/hfClient";
 import { generateWithMistralChat } from "@/lib/llm/mistralChatClient";
-import { generateWithDemeterChat } from "@/lib/llm/demeterChatClient";
 import { resolveCloudRunStageDescriptor } from "@/lib/llm/reportTrace";
 import { backendRefresh, isBackendSessionExpiredError } from "@/lib/backend-auth";
 import {
@@ -272,26 +271,19 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
             return generation.text;
           }
 
-          const generation =
-            provider === "mistral"
-              ? await generateWithMistralChat({
-                  apiUrl: mistralApiUrl,
-                  apiKey: mistralKey,
-                  modelId,
-                  systemPrompt: params.systemPrompt,
-                  userPrompt: params.userPrompt,
-                  temperature: params.temperature,
-                  maxTokens: params.maxTokens,
-                  responseMode: params.responseMode,
-                })
-              : await generateWithDemeterChat({
-                  modelId,
-                  systemPrompt: params.systemPrompt,
-                  userPrompt: params.userPrompt,
-                  temperature: params.temperature,
-                  maxTokens: params.maxTokens,
-                  responseMode: params.responseMode,
-                });
+          if (provider !== "mistral") {
+            throw new Error("La préparation locale des sources longues n'est pas disponible pour Demeter Santé.");
+          }
+          const generation = await generateWithMistralChat({
+            apiUrl: mistralApiUrl,
+            apiKey: mistralKey,
+            modelId,
+            systemPrompt: params.systemPrompt,
+            userPrompt: params.userPrompt,
+            temperature: params.temperature,
+            maxTokens: params.maxTokens,
+            responseMode: params.responseMode,
+          });
           return generation.text;
         };
 
@@ -494,37 +486,45 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
           };
         };
 
-        const prepared = await prepareLongInputForReports({
-          sourceText,
-          thresholdTokens: chunkingProfile.thresholdTokens,
-          chunkTokens: chunkingProfile.chunkTokens,
-          chunkOverlapTokens: chunkingProfile.chunkOverlapTokens,
-          chunkRatio: llmApiReportChunkRatio,
-          onProgress: (p, detail) => {
-            setLlmApiStatus("preparing", detail);
-            setLlmApiProgress(Math.min(0.45, 0.04 + p * 0.5));
-          },
-          summarizeChunk: async (chunkText, chunkIndex, chunkCount) => {
-            const prompts = buildLongInputChunkPrompt(chunkText, chunkIndex, chunkCount);
-            return generateText({
-              systemPrompt: prompts.systemPrompt,
-              userPrompt: prompts.userPrompt,
-              temperature: 0,
-              maxTokens: Math.min(1400, configuredMaxTokens),
-              responseMode: "text",
-            });
-          },
-          consolidateSummaries: async (chunkSummaries) => {
-            const prompts = buildLongInputConsolidationPrompt(chunkSummaries);
-            return generateText({
-              systemPrompt: prompts.systemPrompt,
-              userPrompt: prompts.userPrompt,
-              temperature: 0,
-              maxTokens: Math.min(2200, configuredMaxTokens),
-              responseMode: "text",
-            });
-          },
-        });
+        const prepared =
+          provider === "demeter_sante"
+            ? {
+                text: sourceText,
+                sourceTokenCount: estimateTokenCount(sourceText),
+                chunkCount: 1,
+                pipelinePasses: 1 as const,
+              }
+            : await prepareLongInputForReports({
+                sourceText,
+                thresholdTokens: chunkingProfile.thresholdTokens,
+                chunkTokens: chunkingProfile.chunkTokens,
+                chunkOverlapTokens: chunkingProfile.chunkOverlapTokens,
+                chunkRatio: llmApiReportChunkRatio,
+                onProgress: (p, detail) => {
+                  setLlmApiStatus("preparing", detail);
+                  setLlmApiProgress(Math.min(0.45, 0.04 + p * 0.5));
+                },
+                summarizeChunk: async (chunkText, chunkIndex, chunkCount) => {
+                  const prompts = buildLongInputChunkPrompt(chunkText, chunkIndex, chunkCount);
+                  return generateText({
+                    systemPrompt: prompts.systemPrompt,
+                    userPrompt: prompts.userPrompt,
+                    temperature: 0,
+                    maxTokens: Math.min(1400, configuredMaxTokens),
+                    responseMode: "text",
+                  });
+                },
+                consolidateSummaries: async (chunkSummaries) => {
+                  const prompts = buildLongInputConsolidationPrompt(chunkSummaries);
+                  return generateText({
+                    systemPrompt: prompts.systemPrompt,
+                    userPrompt: prompts.userPrompt,
+                    temperature: 0,
+                    maxTokens: Math.min(2200, configuredMaxTokens),
+                    responseMode: "text",
+                  });
+                },
+              });
         markStage("prepare_long_input_done", {
           pipelinePasses: prepared.pipelinePasses,
           chunkCount: prepared.chunkCount,
