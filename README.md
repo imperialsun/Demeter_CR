@@ -12,7 +12,7 @@ Demeter Speech is a browser application for:
 
 - local speech transcription (WebGPU/WASM, no cloud transfer),
 - cloud speech transcription (Gradio / Hugging Face Whisper / Mistral),
-- LLM report generation (CRI / CRO / CRS) in cloud and local modes,
+- LLM report generation (CRI / CRO / CRS / CRN) in cloud and local modes, including Demeter Sante backend-queue mode,
 - export of transcripts and telemetry.
 
 ## Quickstart

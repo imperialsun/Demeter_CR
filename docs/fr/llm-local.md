@@ -4,7 +4,7 @@
 
 Route: `/llmlocal`
 
-Generation CRI/CRO/CRS executee localement dans le navigateur, sans appel API externe.
+Generation CRI/CRO/CRS/CRN executee localement dans le navigateur, sans appel API externe.
 
 ## Profils modeles
 

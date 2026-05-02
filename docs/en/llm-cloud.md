@@ -4,18 +4,20 @@
 
 Route: `/llmapi`
 
-Generation of three report formats:
+Generation of four report formats:
 
 - `CRI` (high-fidelity),
 - `CRO` (structured rewrite),
-- `CRS` (short synthesis).
+- `CRS` (short synthesis),
+- `CRN` (chronological narrative, generated in transcript batches).
 
 Once the cloud response comes back, each report can be edited in `/llmapi` for the current session. A refresh restores the original cloud version.
 
 Providers:
 
 - Hugging Face,
-- Mistral.
+- Mistral,
+- Demeter Sante through the backend report-operation queue.
 
 ## Input sources
 
@@ -27,7 +29,7 @@ Import parsing ensures robust transcript extraction (`parseTranscriptFile`).
 
 ## Long-input strategy
 
-When source size exceeds model context budget, a two-pass strategy is used.
+When source size exceeds model context budget, direct Hugging Face and Mistral runs use a two-pass preparation strategy. Demeter Sante sends the source to the backend queue without using the removed frontend chat-completions proxy.
 
 ## Diagram: LLM long-input pipeline
 
@@ -44,7 +46,8 @@ flowchart TD
     E --> I[Generate CRI]
     I --> J[Generate CRO]
     J --> K[Generate CRS]
-    K --> L[Parse JSON + store results + DOCX export]
+    K --> M[Generate CRN batches when enabled]
+    M --> L[Parse JSON + store results + DOCX export]
 ```
 
 ## Provider rules
@@ -62,15 +65,23 @@ flowchart TD
 - generation through chat completions endpoint,
 - progressive `max_tokens` reduction when context limit errors occur.
 
+### Demeter Sante
+
+- backend session required,
+- report generation submitted to `/providers/demeter-sante/report/operations`,
+- progress is polled from `/providers/demeter-sante/report/operations/:operationId`,
+- no direct frontend call to `/providers/demeter-sante/chat/completions`.
+
 ## Multi-format orchestration
 
-The four formats are launched in parallel and stored by key as each response settles.
+Enabled formats are generated in the configured order and stored by key as each response settles.
 
 Result order in the UI remains stable:
 
 1. CRI,
 2. CRO,
-3. CRS.
+3. CRS,
+4. CRN.
 
 Each format is parsed into structured JSON (`reportSchema`) and stored in `llmApiResults`.
 

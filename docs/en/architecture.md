@@ -20,7 +20,7 @@ Demeter Speech is a React/TypeScript SPA (Vite) organized in layers:
 | Cloud ASR | `src/hooks/useCloudTranscription.ts` | Gradio/Whisper/Mistral cloud pipeline |
 | Speaker mapping | `src/lib/speakerAssignments.ts` | speaker id collection + assigned label resolution |
 | Speaker assignment UI | `src/components/results/SpeakerAssignmentDialog.tsx` | first/last-name assignment dialog per speaker |
-| LLM cloud | `src/hooks/useLlmReports.ts` | CRI/CRO/CRS generation via APIs |
+| LLM cloud | `src/hooks/useLlmReports.ts` | CRI/CRO/CRS/CRN generation via APIs and backend queues |
 | LLM local | `src/hooks/useLlmLocalReports.ts` | browser-side report generation |
 | Runtime backend | `src/lib/backend-support.ts`, `src/lib/asr.ts` | WebGPU/WASM detection, fallback, thread policy |
 | Settings persistence | `src/lib/storage.ts`, `src/store/asr-store.ts` | localStorage without secrets |
@@ -68,6 +68,7 @@ All business routes are wrapped by `RequireAuth`.
 - Reactive persistence via `useAsrStore.subscribe(...)`.
 - Secrets (`hfApiToken`, `mistralApiKey`) are excluded from `demeter-asr-settings`.
 - `runExportHeaders` and `speakerAssignments` are runtime session-only state (not persisted in `PersistedSettings`).
+- Backend-mode queues for activity and performance telemetry are persisted in IndexedDB so events survive a refresh until the backend session can flush them.
 
 ## Diagram: persistence map
 

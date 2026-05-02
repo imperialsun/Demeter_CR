@@ -486,6 +486,9 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
           };
         };
 
+        // Demeter Santé is queue-backed now: the backend owns the Mistral chat
+        // call, so the frontend must not pre-summarize through the removed
+        // Demeter chat-completions proxy.
         const prepared =
           provider === "demeter_sante"
             ? {

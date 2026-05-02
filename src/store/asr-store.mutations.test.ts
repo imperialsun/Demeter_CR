@@ -225,7 +225,7 @@ describe("asr-store mutation guards", () => {
     expect(state.micBackendPreference).toBe("wasm");
     expect(state.cloudMistralModel).toBe("voxtral-mini-latest");
     expect(state.cloudDemeterModel).toBe("voxtral-mini-latest");
-    expect(state.llmApiProvider).toBe("huggingface");
+    expect(state.llmApiProvider).toBe(DEFAULT_SETTINGS.llmApiProvider);
     expect(state.llmLocalModelProfile).toBe("qwen_1_7b");
     expect(state.llmLocalSettingsByProfile.qwen_1_7b.modelId).toBe("onnx-community/Qwen3-1.7B-ONNX");
     expect(state.llmLocalSettingsByProfile.qwen_1_7b.temperature).toBe(2);

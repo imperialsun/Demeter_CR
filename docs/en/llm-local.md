@@ -4,7 +4,7 @@
 
 Route: `/llmlocal`
 
-CRI/CRO/CRS generation runs inside the browser without external LLM API calls.
+CRI/CRO/CRS/CRN generation runs inside the browser without external LLM API calls.
 
 ## Model profiles
 
