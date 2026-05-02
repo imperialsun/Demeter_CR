@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { NavLink } from "react-router-dom";
-import { Activity, type LucideIcon, Bot, Cloud, FileText, Monitor, Settings, WandSparkles } from "lucide-react";
+import { Activity, type LucideIcon, Bot, Cloud, FileSliders, FileText, Monitor, Settings, WandSparkles } from "lucide-react";
 
 import { BrandMark } from "@/components/branding/BrandMark";
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
@@ -45,6 +45,13 @@ const NAV_ITEMS: NavItem[] = [
     icon: FileText,
     permission: "feature.llmapi",
     preload: () => import("@/routes/LLMApiPage"),
+  },
+  {
+    to: "/custom-reports",
+    label: "CR personnalisés",
+    icon: FileSliders,
+    permission: "feature.llmapi",
+    preload: () => import("@/routes/CustomReportsPage"),
   },
   {
     to: "/settings",

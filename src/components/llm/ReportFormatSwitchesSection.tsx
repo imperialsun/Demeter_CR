@@ -14,6 +14,7 @@ import {
 } from "@/lib/llm/reportDetail";
 import { buildReportFormatDescription, buildReportFormatLabel } from "@/lib/llm/reportPrompts";
 import type { ReportFormat } from "@/lib/llm/reportSchema";
+import type { OrganizationReportTemplate } from "@/lib/report-templates";
 import { cn } from "@/lib/utils";
 
 const REPORT_FORMATS: ReportFormat[] = ["CRI", "CRO", "CRS", "CRN"];
@@ -28,6 +29,9 @@ interface ReportFormatSwitchesSectionProps {
   detailValues?: Record<ReportFormat, ReportDetailLevel>;
   onDetailChange?: (format: ReportFormat, level: ReportDetailLevel) => void;
   detailDisabled?: boolean;
+  customTemplates?: OrganizationReportTemplate[];
+  customTemplateValues?: Record<string, boolean>;
+  onCustomTemplateChange?: (templateId: string, value: boolean) => void;
 }
 
 export function ReportFormatSwitchesSection({
@@ -40,6 +44,9 @@ export function ReportFormatSwitchesSection({
   detailValues,
   onDetailChange,
   detailDisabled = false,
+  customTemplates = [],
+  customTemplateValues = {},
+  onCustomTemplateChange,
 }: ReportFormatSwitchesSectionProps) {
   const [isExpanded, setIsExpanded] = useState(true);
   const showDetailControls = Boolean(detailValues && onDetailChange);
@@ -164,6 +171,61 @@ export function ReportFormatSwitchesSection({
               </div>
             );
           })}
+          {customTemplates.length ? (
+            <div className="space-y-3 border-t pt-3">
+              <div className="space-y-1">
+                <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">CR personnalisés</h4>
+                <p className="text-xs text-muted-foreground">Modèles activés dans la page CR personnalisés.</p>
+              </div>
+              {customTemplates.map((template) => {
+                const enabled = customTemplateValues[template.id] ?? true;
+                return (
+                  <div
+                    key={template.id}
+                    data-testid={`report-template-switch-${template.id}`}
+                    className={cn(
+                      "rounded-2xl border p-3 transition",
+                      enabled ? "bg-card/60" : "bg-muted/30",
+                      disabled ? "opacity-60" : ""
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0 space-y-1">
+                        <Label htmlFor={`report-template-enabled-${template.id}`} className="text-sm font-medium">
+                          {template.name}
+                        </Label>
+                        <p className="text-xs text-muted-foreground">
+                          {template.description || "Modèle personnalisé de l'organisation."}
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <Badge variant="outline" className="w-fit">
+                            Base {buildReportFormatLabel(template.baseFormat)}
+                          </Badge>
+                          <Badge variant={enabled ? "success" : "secondary"} className="w-fit">
+                            {enabled ? "Généré" : "Ignoré"}
+                          </Badge>
+                        </div>
+                      </div>
+
+                      <Switch
+                        id={`report-template-enabled-${template.id}`}
+                        checked={enabled}
+                        onCheckedChange={(checked) => onCustomTemplateChange?.(template.id, checked)}
+                        disabled={disabled || !onCustomTemplateChange}
+                        className={cn(
+                          enabled
+                            ? "bg-emerald-500 data-[state=checked]:bg-emerald-500"
+                            : "bg-red-500 data-[state=unchecked]:bg-red-500",
+                          disabled ? "opacity-60" : ""
+                        )}
+                        aria-label={`${template.name} ${enabled ? "activé" : "désactivé"}`}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </section>

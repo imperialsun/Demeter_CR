@@ -16,6 +16,7 @@ const CloudUploadPage = lazy(() => import("@/routes/CloudUploadPage"));
 const AssistantPage = lazy(() => import("@/routes/AssistantPage"));
 const LLMApiPage = lazy(() => import("@/routes/LLMApiPage"));
 const LLMLocalPage = lazy(() => import("@/routes/LLMLocalPage"));
+const CustomReportsPage = lazy(() => import("@/routes/CustomReportsPage"));
 const SettingsPage = lazy(() => import("@/routes/SettingsPage"));
 const TelemetryPage = lazy(() => import("@/routes/TelemetryPage"));
 const ForbiddenPage = lazy(() => import("@/routes/ForbiddenPage"));
@@ -164,6 +165,14 @@ function App() {
           element={
             <RequireFeature permission="feature.llmapi">
               <LLMApiPage />
+            </RequireFeature>
+          }
+        />
+        <Route
+          path="/custom-reports"
+          element={
+            <RequireFeature permission="feature.llmapi">
+              <CustomReportsPage />
             </RequireFeature>
           }
         />

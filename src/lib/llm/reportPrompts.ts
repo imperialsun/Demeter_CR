@@ -136,6 +136,33 @@ export function buildReportUserPrompt(
   ].join("\n");
 }
 
+export function buildCustomReportUserPrompt(params: {
+  format: ReportFormat;
+  sourceText: string;
+  detailLevel?: ReportDetailLevel;
+  templateName: string;
+  instructions: string;
+  exampleOutline?: string;
+}): string {
+  const basePrompt = buildReportUserPrompt(params.format, params.sourceText, params.detailLevel);
+  const customBlock = [
+    "",
+    "MODELE PERSONNALISE ORGANISATION:",
+    `Nom du modele: ${params.templateName.trim()}.`,
+    "Consignes specifiques prioritaires:",
+    params.instructions.trim(),
+    params.exampleOutline?.trim()
+      ? ["", "Structure ou exemple attendu par l'organisation:", params.exampleOutline.trim()].join("\n")
+      : "",
+    "",
+    "Respecte ces consignes personnalisees tant qu'elles ne contredisent pas les regles de securite, de fidelite a la source et le schema JSON impose.",
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
+
+  return basePrompt.replace(`\nSOURCE:\n${params.sourceText}`, `${customBlock}\n\nSOURCE:\n${params.sourceText}`);
+}
+
 export function buildLongInputChunkPrompt(
   chunkText: string,
   chunkIndex: number,

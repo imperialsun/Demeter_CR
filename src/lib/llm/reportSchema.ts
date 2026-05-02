@@ -1,7 +1,8 @@
 import type { ReportDetailLevel } from "@/lib/llm/reportDetail";
 
 export type ReportFormat = "CRI" | "CRO" | "CRS" | "CRN";
-export type ReportResultKey = "cri" | "cro" | "crs" | "crn";
+export type BuiltInReportResultKey = "cri" | "cro" | "crs" | "crn";
+export type ReportResultKey = BuiltInReportResultKey | `custom:${string}`;
 
 export interface ReportJson {
   format: ReportFormat;
@@ -24,12 +25,14 @@ export interface ReportResult {
   pipelinePasses: number;
   strategy: "chatCompletion" | "textGeneration" | "localTextGeneration";
   detailLevel?: ReportDetailLevel;
+  templateId?: string;
+  templateName?: string;
 }
 
 const FORMAT_SET = new Set<ReportFormat>(["CRI", "CRO", "CRS", "CRN"]);
 
 export function reportFormatToKey(format: ReportFormat): ReportResultKey {
-  return format.toLowerCase() as ReportResultKey;
+  return format.toLowerCase() as BuiltInReportResultKey;
 }
 
 export function reportKeyToFormat(key: ReportResultKey): ReportFormat {

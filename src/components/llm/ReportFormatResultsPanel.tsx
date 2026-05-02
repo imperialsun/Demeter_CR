@@ -2,6 +2,7 @@ import type React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { buildReportFormatDescription, buildReportFormatLabel } from "@/lib/llm/reportPrompts";
+import { customReportTemplateKey, type OrganizationReportTemplate } from "@/lib/report-templates";
 import { cn } from "@/lib/utils";
 import type { ReportFormat, ReportResult, ReportResultKey } from "@/lib/llm/reportSchema";
 
@@ -47,6 +48,7 @@ interface ReportFormatResultsPanelProps {
   emptyMessage?: string;
   className?: string;
   showDownloadButton?: boolean;
+  customTemplates?: OrganizationReportTemplate[];
 }
 
 export function ReportFormatResultsPanel({
@@ -54,12 +56,30 @@ export function ReportFormatResultsPanel({
   enabledFormats,
   onDownload,
   title = "Résultats des comptes rendus",
-  description = "Chaque carte apparaît dès qu'un format est reçu. Les formats désactivés restent visibles mais sont grisés.",
+  description = "Chaque carte apparaît dès qu'un format activé est reçu. Seuls les formats activés pour cette génération sont affichés.",
   emptyMessage = "Les résultats apparaîtront ici au fil de la génération.",
   className,
   showDownloadButton = true,
+  customTemplates = [],
 }: ReportFormatResultsPanelProps) {
-  const hasAnyResult = REPORT_FORMATS.some((item) => Boolean(results[item.key]));
+  const displayItems = [
+    ...REPORT_FORMATS.map((item) => ({
+      key: item.key,
+      format: item.format,
+      label: buildReportFormatLabel(item.format),
+      description: buildReportFormatDescription(item.format),
+      enabled: enabledFormats[item.format],
+    })),
+    ...customTemplates.map((template) => ({
+      key: customReportTemplateKey(template.id),
+      format: template.baseFormat,
+      label: template.name,
+      description: template.description || `Modèle personnalisé basé sur ${template.baseFormat}`,
+      enabled: true,
+    })),
+  ];
+  const visibleItems = displayItems.filter((item) => item.enabled);
+  const hasAnyResult = visibleItems.some((item) => Boolean(results[item.key]));
 
   return (
     <section className={cn("rounded-[1.5rem] border bg-background/70 p-4 shadow-sm", className)}>
@@ -70,28 +90,23 @@ export function ReportFormatResultsPanel({
 
       {hasAnyResult ? (
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {REPORT_FORMATS.map((item) => {
+          {visibleItems.map((item) => {
             const result = results[item.key];
-            const enabled = enabledFormats[item.format];
             const report = result?.report;
             const hasResult = Boolean(report);
             return (
               <article
                 key={item.key}
                 data-testid={`report-result-card-${item.key}`}
-                className={cn(
-                  "rounded-2xl border p-3 transition",
-                  hasResult ? "bg-card/80" : "bg-muted/30",
-                  !enabled ? "opacity-60" : ""
-                )}
+                className={cn("rounded-2xl border p-3 transition", hasResult ? "bg-card/80" : "bg-muted/30")}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="space-y-1">
-                    <h4 className="text-sm font-semibold">{buildReportFormatLabel(item.format)}</h4>
-                    <p className="text-xs text-muted-foreground">{buildReportFormatDescription(item.format)}</p>
+                    <h4 className="text-sm font-semibold">{item.label}</h4>
+                    <p className="text-xs text-muted-foreground">{item.description}</p>
                   </div>
-                  <Badge variant={hasResult ? "success" : enabled ? "secondary" : "outline"}>
-                    {hasResult ? "Reçu" : enabled ? "En attente" : "Désactivé"}
+                  <Badge variant={hasResult ? "success" : "secondary"}>
+                    {hasResult ? "Reçu" : "En attente"}
                   </Badge>
                 </div>
 
@@ -113,9 +128,7 @@ export function ReportFormatResultsPanel({
                     ))}
                   </div>
                 ) : (
-                  <p className="mt-3 text-xs text-muted-foreground">
-                    {enabled ? emptyMessage : "Ce format est désactivé pour la prochaine génération."}
-                  </p>
+                  <p className="mt-3 text-xs text-muted-foreground">{emptyMessage}</p>
                 )}
 
                 {showDownloadButton ? (
@@ -128,7 +141,7 @@ export function ReportFormatResultsPanel({
                       disabled={!hasResult}
                       onClick={() => onDownload(item.key)}
                     >
-                      Télécharger le {buildReportFormatLabel(item.format)} (.docx)
+                      Télécharger le {item.label} (.docx)
                     </Button>
                   </div>
                 ) : null}

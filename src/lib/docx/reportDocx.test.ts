@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import JSZip from "jszip";
 import { buildReportDocx, formatReportDocxFilename } from "@/lib/docx/reportDocx";
 import type { ReportJson } from "@/lib/llm/reportSchema";
 
@@ -21,6 +22,33 @@ describe("reportDocx", () => {
     });
 
     expect(blob.size).toBeGreaterThan(0);
+  });
+
+  it("uses the readable report format label in the header and body", async () => {
+    const report: ReportJson = {
+      format: "CRI",
+      title: "Compte rendu test",
+      sections: [{ heading: "Contexte", paragraphs: ["Paragraphe 1"] }],
+    };
+
+    const blob = await buildReportDocx(report, {
+      format: "CRI",
+      modelId: "Qwen/Qwen2.5-7B-Instruct",
+      generatedAt: new Date("2026-04-29T12:00:00.000Z").toISOString(),
+      sourceMode: "text",
+      sourceTokenCount: 42,
+    });
+
+    const zip = await JSZip.loadAsync(await blob.arrayBuffer());
+    const [headerXml, documentXml] = await Promise.all([
+      zip.file("word/header1.xml")?.async("string"),
+      zip.file("word/document.xml")?.async("string"),
+    ]);
+
+    expect(headerXml).toContain("Rapport Compte rendu détaillé");
+    expect(documentXml).toContain("Format: Compte rendu détaillé");
+    expect(headerXml).not.toContain("Rapport CRI");
+    expect(documentXml).not.toContain("Format: CRI");
   });
 
   it("renders bold markdown markers as docx bold runs", async () => {

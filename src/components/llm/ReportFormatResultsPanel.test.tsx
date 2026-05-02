@@ -10,12 +10,12 @@ const enabledFormats = {
   CRN: true,
 };
 
-function buildResult(paragraph: string): ReportResult {
+function buildResult(format: ReportResult["format"], paragraph: string, title = "Compte rendu"): ReportResult {
   return {
-    format: "CRI",
+    format,
     report: {
-      format: "CRI",
-      title: "Compte rendu",
+      format,
+      title,
       sections: [{ heading: "Synthèse", paragraphs: [paragraph] }],
     },
     rawResponse: "{}",
@@ -32,7 +32,7 @@ describe("ReportFormatResultsPanel", () => {
   it("renders bold markdown in report previews without showing markers", () => {
     render(
       <ReportFormatResultsPanel
-        results={{ cri: buildResult("Point **important** à retenir.") }}
+        results={{ cri: buildResult("CRI", "Point **important** à retenir.") }}
         enabledFormats={enabledFormats}
         onDownload={vi.fn()}
       />
@@ -42,5 +42,28 @@ describe("ReportFormatResultsPanel", () => {
     expect(card).toHaveTextContent("Point important à retenir.");
     expect(card).not.toHaveTextContent("**important**");
     expect(within(card).getByText("important").tagName).toBe("STRONG");
+  });
+
+  it("hides disabled formats from the results panel", () => {
+    render(
+      <ReportFormatResultsPanel
+        results={{
+          cri: buildResult("CRI", "Point **important** à retenir.", "Compte rendu détaillé"),
+          cro: buildResult("CRO", "Texte de test", "Compte rendu opérationnel"),
+        }}
+        enabledFormats={{
+          CRI: true,
+          CRO: false,
+          CRS: false,
+          CRN: false,
+        }}
+        onDownload={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId("report-result-card-cri")).toBeInTheDocument();
+    expect(screen.queryByTestId("report-result-card-cro")).toBeNull();
+    expect(screen.queryByTestId("report-result-card-crs")).toBeNull();
+    expect(screen.queryByTestId("report-result-card-crn")).toBeNull();
   });
 });

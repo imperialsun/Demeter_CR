@@ -9,6 +9,7 @@ import {
   Paragraph,
   TextRun,
 } from "docx";
+import { buildReportFormatLabel } from "@/lib/llm/reportPrompts";
 import type { ReportFormat, ReportJson, ReportResultKey } from "@/lib/llm/reportSchema";
 import type { ReportDetailLevel } from "@/lib/llm/reportDetail";
 import logger from "@/lib/logger";
@@ -34,13 +35,14 @@ export async function buildReportDocx(report: ReportJson, metadata: ReportDocxMe
   const timestamp = Number.isNaN(generatedAt.getTime())
     ? metadata.generatedAt
     : generatedAt.toLocaleString("fr-FR");
+  const formatLabel = buildReportFormatLabel(metadata.format);
 
   const header = new Header({
     children: [
       new Paragraph({
         alignment: AlignmentType.LEFT,
         children: [
-          new TextRun({ text: `Rapport ${metadata.format}`, bold: true }),
+          new TextRun({ text: `Rapport ${formatLabel}`, bold: true }),
           new TextRun({ text: "  |  Demeter Speech", color: "666666" }),
         ],
       }),
@@ -82,7 +84,7 @@ export async function buildReportDocx(report: ReportJson, metadata: ReportDocxMe
   children.push(
     new Paragraph({
       children: [
-        new TextRun({ text: `Format: ${metadata.format}`, bold: true }),
+        new TextRun({ text: `Format: ${formatLabel}`, bold: true }),
         new TextRun({ text: `  |  Genere le: ${timestamp}` }),
       ],
       spacing: { after: 80 },

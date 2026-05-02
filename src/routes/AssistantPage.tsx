@@ -16,12 +16,14 @@ import { ReportFormatSwitchesSection } from "@/components/llm/ReportFormatSwitch
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { useCloudTranscription } from "@/hooks/useCloudTranscription";
 import { useLlmReports } from "@/hooks/useLlmReports";
+import { useReportTemplates } from "@/hooks/useReportTemplates";
 import { useVirtualizedList } from "@/hooks/useVirtualizedList";
 import { getCloudStatusMeta } from "@/lib/cloudStatusMeta";
 import { buildTranscriptDocx, downloadDocxBlob, formatTranscriptDocxFilename } from "@/lib/docx/transcriptDocx";
 import { isBackendMode } from "@/lib/runtime-config";
 import { LLM_API_STATUS_META } from "@/lib/llm/llmStatusMeta";
 import { buildReportFormatDescription, buildReportFormatLabel } from "@/lib/llm/reportPrompts";
+import { customReportTemplateKey } from "@/lib/report-templates";
 import { getSessionTranscriptText } from "@/lib/sessionTranscriptMemory";
 import { useAsrStore } from "@/store/asr-store";
 import logger from "@/lib/logger";
@@ -125,13 +127,31 @@ function AssistantPage() {
     applyChunkSpeakerAssignments,
   } = useCloudTranscription("demeter_sante", { forceDemeterBackendDirect: true });
 
+  const { enabledTemplates } = useReportTemplates();
+  const [customTemplateSelections, setCustomTemplateSelections] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    setCustomTemplateSelections((current) => {
+      const next: Record<string, boolean> = {};
+      let changed = false;
+      for (const template of enabledTemplates) {
+        next[template.id] = current[template.id] ?? true;
+        if (next[template.id] !== current[template.id]) changed = true;
+      }
+      if (Object.keys(current).length !== Object.keys(next).length) changed = true;
+      return changed ? next : current;
+    });
+  }, [enabledTemplates]);
+  const selectedCustomTemplates = useMemo(
+    () => enabledTemplates.filter((template) => customTemplateSelections[template.id] ?? true),
+    [customTemplateSelections, enabledTemplates]
+  );
   const {
     status: llmStatus,
     progress: llmProgress,
     results,
     generateAll,
     downloadDocx,
-  } = useLlmReports({ providerOverride: "demeter_sante" });
+  } = useLlmReports({ providerOverride: "demeter_sante", selectedCustomTemplates });
 
   const { diarizationChoice, activeChunkId, hasTriggeredTranscription, hasTriggeredGeneration, hasConfirmedDiarizationReview } =
     assistantWorkflow;
@@ -344,7 +364,15 @@ function AssistantPage() {
 
   const cloudStatusMeta = getCloudStatusMeta(cloudStatus);
   const llmStatusMeta = LLM_API_STATUS_META[llmStatus];
-  const activeReportFormats = REPORT_FORMATS.filter((format) => llmApiReportEnabledFormats[format.format]);
+  const activeReportFormats = [
+    ...REPORT_FORMATS.filter((format) => llmApiReportEnabledFormats[format.format]),
+    ...selectedCustomTemplates.map((template) => ({
+      key: customReportTemplateKey(template.id),
+      format: template.baseFormat,
+      label: template.name,
+      description: template.description,
+    })),
+  ];
   const reportsReady =
     hasTriggeredGeneration &&
     llmStatus === "done" &&
@@ -663,6 +691,11 @@ function AssistantPage() {
               onChange={setLlmApiReportEnabledFormat}
               detailValues={llmApiReportDetailLevels}
               onDetailChange={setLlmApiReportDetailLevel}
+              customTemplates={enabledTemplates}
+              customTemplateValues={customTemplateSelections}
+              onCustomTemplateChange={(templateId, value) =>
+                setCustomTemplateSelections((current) => ({ ...current, [templateId]: value }))
+              }
               className="mt-2"
             />
 
@@ -899,6 +932,7 @@ function AssistantPage() {
                 <ReportFormatResultsPanel
                   results={results}
                   enabledFormats={llmApiReportEnabledFormats}
+                  customTemplates={selectedCustomTemplates}
                   onDownload={(format) => {
                     void downloadDocx(format);
                   }}

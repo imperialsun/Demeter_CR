@@ -1,13 +1,14 @@
 import { useCallback } from "react";
 import { useAsrStore, type LlmApiProvider } from "@/store/asr-store";
+import { useReportTemplates } from "@/hooks/useReportTemplates";
 import { TelemetryCollector } from "@/lib/telemetry";
 import {
-  reportFormatToKey,
   type ReportJson,
   type ReportFormat,
   type ReportResultKey,
   type ReportResult,
 } from "@/lib/llm/reportSchema";
+import { customReportTemplateKey, type OrganizationReportTemplate } from "@/lib/report-templates";
 import {
   buildLongInputChunkPrompt,
   buildLongInputConsolidationPrompt,
@@ -60,16 +61,25 @@ const FORMAT_ORDER: Array<{ key: ReportResultKey; format: ReportFormat }> = [
   { key: "crn", format: "CRN" },
 ];
 
+type ReportGenerationTarget = {
+  key: ReportResultKey;
+  format: ReportFormat;
+  label: string;
+  template?: OrganizationReportTemplate;
+};
+
 type GenerateInput =
   | { source: "transcription"; transcriptMode: SessionTranscriptMode; sourceText?: string }
   | { source: "text"; text?: string };
 
 type UseLlmReportsOptions = {
   providerOverride?: LlmApiProvider;
+  selectedCustomTemplates?: OrganizationReportTemplate[];
 };
 
 export function useLlmReports(options: UseLlmReportsOptions = {}) {
   const sessionTranscriptMemories = useAsrStore((state) => state.sessionTranscriptMemories);
+  const { enabledTemplates } = useReportTemplates();
 
   const hfApiToken = useAsrStore((state) => state.hfApiToken);
   const llmApiProvider = useAsrStore((state) => state.llmApiProvider);
@@ -97,6 +107,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
   const registerTelemetry = useAsrStore((state) => state.registerTelemetry);
   const setTelemetrySummary = useAsrStore((state) => state.setTelemetrySummary);
   const effectiveProvider = options.providerOverride ?? llmApiProvider;
+  const selectedCustomTemplates = options.selectedCustomTemplates ?? enabledTemplates;
 
   const generateAll = useCallback(
     async (input: GenerateInput) => {
@@ -119,8 +130,19 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
       const provider = effectiveProvider;
       const sourceMode = input.source;
       const activeModelId = activePipelineConfig.modelId.trim() || "unset";
-      const activeFormatOrder = FORMAT_ORDER.filter((item) => llmApiReportEnabledFormats[item.format]);
-      const formatOrder = activeFormatOrder.map((item) => item.format);
+      const activeFormatOrder: ReportGenerationTarget[] = [
+        ...FORMAT_ORDER.filter((item) => llmApiReportEnabledFormats[item.format]).map((item) => ({
+          ...item,
+          label: buildReportFormatLabel(item.format),
+        })),
+        ...selectedCustomTemplates.map((template) => ({
+          key: customReportTemplateKey(template.id),
+          format: template.baseFormat,
+          label: template.name,
+          template,
+        })),
+      ];
+      const formatOrder = activeFormatOrder.map((item) => item.template ? `custom:${item.template.name}` : item.format);
       if (!activeFormatOrder.length) {
         const message = "Activez au moins un format de compte rendu avant de lancer la génération.";
         setLlmApiStatus("error", message);
@@ -592,7 +614,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
           setLlmApiStatus("generating", `${finishedCount}/${totalFormats} comptes rendus terminés`);
         };
 
-        const runFormatTask = async (item: (typeof FORMAT_ORDER)[number], sequenceIndex: number) => {
+        const runFormatTask = async (item: ReportGenerationTarget, sequenceIndex: number) => {
           const detailLevel = llmApiReportDetailLevels[item.format];
           const generationMode = "mono_pass";
           const reportMaxTokens = monoPassReportMaxTokens;
@@ -637,7 +659,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
           try {
             let generation: GenerateReportDetailedResult;
             let pipelinePasses: number = prepared.pipelinePasses;
-            if (sourceMode === "transcription" && item.format === "CRN") {
+            if (sourceMode === "transcription" && item.format === "CRN" && !item.template) {
               const crnGeneration = await generateCrnTranscriptReport({
                 detailLevel,
                 reportMaxTokens,
@@ -660,6 +682,14 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
                 maxTokens: reportMaxTokens,
                 detailLevel,
                 hfToken,
+                template: item.template
+                  ? {
+                      id: item.template.id,
+                      name: item.template.name,
+                      instructions: item.template.instructions,
+                      exampleOutline: item.template.exampleOutline,
+                    }
+                  : undefined,
               });
             } else if (provider === "mistral") {
               generation = await generateReportDetailed({
@@ -672,6 +702,14 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
                 detailLevel,
                 mistralApiKey: mistralKey,
                 mistralApiUrl,
+                template: item.template
+                  ? {
+                      id: item.template.id,
+                      name: item.template.name,
+                      instructions: item.template.instructions,
+                      exampleOutline: item.template.exampleOutline,
+                    }
+                  : undefined,
               });
             } else {
               generation = await generateReportDetailed({
@@ -682,6 +720,14 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
                 temperature,
                 maxTokens: reportMaxTokens,
                 detailLevel,
+                template: item.template
+                  ? {
+                      id: item.template.id,
+                      name: item.template.name,
+                      instructions: item.template.instructions,
+                      exampleOutline: item.template.exampleOutline,
+                    }
+                  : undefined,
               });
             }
 
@@ -696,9 +742,11 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
               pipelinePasses,
               strategy: generation.strategy,
               detailLevel,
+              templateId: item.template?.id,
+              templateName: item.template?.name,
             };
 
-            setLlmApiResult(reportFormatToKey(item.format), result);
+            setLlmApiResult(item.key, result);
             logger.debug("[llm-api] format generation done", {
               format: item.format,
               detailLevel,
@@ -897,6 +945,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
       setLlmApiResults,
       setLlmApiStatus,
       setTelemetrySummary,
+      selectedCustomTemplates,
     ]
   );
 

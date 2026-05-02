@@ -18,7 +18,7 @@ import { ReportFormatSwitchesSection } from "@/components/llm/ReportFormatSwitch
 import { useAsrStore, type LlmApiProvider } from "@/store/asr-store";
 import { useLlmReports } from "@/hooks/useLlmReports";
 import { LLM_API_STATUS_META } from "@/lib/llm/llmStatusMeta";
-import type { ReportResultKey } from "@/lib/llm/reportSchema";
+import type { BuiltInReportResultKey, ReportResultKey } from "@/lib/llm/reportSchema";
 import {
   formatTokenCount,
   resolveModelTokenBudget,
@@ -40,6 +40,7 @@ import {
 import { estimateTokenCount } from "@/lib/tokens";
 import logger from "@/lib/logger";
 import { useBackendPermissions } from "@/hooks/useBackendPermissions";
+import { useReportTemplates } from "@/hooks/useReportTemplates";
 import { canAccessFeature, canUseLlmProvider } from "@/lib/backend-permissions";
 import { cn } from "@/lib/utils";
 
@@ -67,7 +68,7 @@ type AvailableSessionTranscriptOption = {
   updatedAt: string;
 };
 
-const REPORT_DOWNLOAD_LABELS: Record<ReportResultKey, string> = {
+const REPORT_DOWNLOAD_LABELS: Record<BuiltInReportResultKey, string> = {
   cri: "Compte rendu détaillé",
   cro: "Compte rendu opérationnel",
   crs: "Compte rendu synthétique",
@@ -98,7 +99,25 @@ function LLMApiPage() {
   const setLlmApiReportDetailLevel = useAsrStore((state) => state.setLlmApiReportDetailLevel);
   const setLlmApiReportEnabledFormat = useAsrStore((state) => state.setLlmApiReportEnabledFormat);
 
-  const { status, progress, results, generateAll, downloadDocx } = useLlmReports();
+  const { enabledTemplates } = useReportTemplates();
+  const [customTemplateSelections, setCustomTemplateSelections] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    setCustomTemplateSelections((current) => {
+      const next: Record<string, boolean> = {};
+      let changed = false;
+      for (const template of enabledTemplates) {
+        next[template.id] = current[template.id] ?? true;
+        if (next[template.id] !== current[template.id]) changed = true;
+      }
+      if (Object.keys(current).length !== Object.keys(next).length) changed = true;
+      return changed ? next : current;
+    });
+  }, [enabledTemplates]);
+  const selectedCustomTemplates = useMemo(
+    () => enabledTemplates.filter((template) => customTemplateSelections[template.id] ?? true),
+    [customTemplateSelections, enabledTemplates]
+  );
+  const { status, progress, results, generateAll, downloadDocx } = useLlmReports({ selectedCustomTemplates });
 
   const [source, setSource] = useState<"transcription" | "text">("transcription");
   const [manualText, setManualText] = useState("");
@@ -347,7 +366,7 @@ function LLMApiPage() {
     });
     try {
       await downloadDocx(format);
-      toast(`DOCX ${REPORT_DOWNLOAD_LABELS[format]} téléchargé.`);
+      toast(`DOCX ${REPORT_DOWNLOAD_LABELS[format as BuiltInReportResultKey] ?? "compte rendu"} téléchargé.`);
       logger.info("[llm-api][ui] download completed", { format });
       emitLlmEvent("LLM_CLOUD_DOWNLOAD_DONE", {
         format,
@@ -690,6 +709,11 @@ function LLMApiPage() {
             onChange={setLlmApiReportEnabledFormat}
             detailValues={llmApiReportDetailLevels}
             onDetailChange={setLlmApiReportDetailLevel}
+            customTemplates={enabledTemplates}
+            customTemplateValues={customTemplateSelections}
+            onCustomTemplateChange={(templateId, value) =>
+              setCustomTemplateSelections((current) => ({ ...current, [templateId]: value }))
+            }
           />
 
           <div className="flex flex-wrap items-center justify-center gap-2" data-testid="llm-generation-actions">
@@ -716,6 +740,7 @@ function LLMApiPage() {
           <ReportFormatResultsPanel
             results={results}
             enabledFormats={llmApiReportEnabledFormats}
+            customTemplates={selectedCustomTemplates}
             onDownload={(format) => {
               void runDownload(format);
             }}

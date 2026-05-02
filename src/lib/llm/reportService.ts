@@ -1,4 +1,4 @@
-import { buildReportSystemPrompt, buildReportUserPrompt } from "@/lib/llm/reportPrompts";
+import { buildCustomReportUserPrompt, buildReportSystemPrompt, buildReportUserPrompt } from "@/lib/llm/reportPrompts";
 import { parseReportJson, type ReportFormat, type ReportJson } from "@/lib/llm/reportSchema";
 import type { ReportDetailLevel } from "@/lib/llm/reportDetail";
 import {
@@ -22,6 +22,12 @@ interface GenerateReportBaseParams {
   temperature: number;
   maxTokens: number;
   detailLevel?: ReportDetailLevel;
+  template?: {
+    id: string;
+    name: string;
+    instructions: string;
+    exampleOutline?: string;
+  };
 }
 
 export interface GenerateReportHuggingFaceParams extends GenerateReportBaseParams {
@@ -60,6 +66,8 @@ type DemeterReportOperationResponse = {
   lastError?: string;
   response?: {
     format?: string;
+    templateId?: string;
+    templateName?: string;
     raw?: string;
     report?: ReportJson;
   };
@@ -89,10 +97,22 @@ export async function generateReportDetailed(
   logger.info("[llm-api][report-service] Génération standard · démarrage", {
     provider: params.provider,
     format: params.format,
+    templateId: params.template?.id,
     modelId,
     detailLevel: params.detailLevel ?? "standard",
     sourceLength: sourceText.length,
   });
+
+  const userPrompt = params.template
+    ? buildCustomReportUserPrompt({
+        format: params.format,
+        sourceText,
+        detailLevel: params.detailLevel,
+        templateName: params.template.name,
+        instructions: params.template.instructions,
+        exampleOutline: params.template.exampleOutline,
+      })
+    : buildReportUserPrompt(params.format, sourceText, params.detailLevel);
 
   let generation: { text: string; strategy: GenerationStrategy };
   if (params.provider === "huggingface") {
@@ -106,7 +126,7 @@ export async function generateReportDetailed(
       client,
       modelId,
       systemPrompt: buildReportSystemPrompt(params.detailLevel),
-      userPrompt: buildReportUserPrompt(params.format, sourceText, params.detailLevel),
+      userPrompt,
       temperature: params.temperature,
       maxTokens: params.maxTokens,
       responseMode: "json",
@@ -121,7 +141,7 @@ export async function generateReportDetailed(
       apiKey,
       modelId,
       systemPrompt: buildReportSystemPrompt(params.detailLevel),
-      userPrompt: buildReportUserPrompt(params.format, sourceText, params.detailLevel),
+      userPrompt,
       temperature: params.temperature,
       maxTokens: params.maxTokens,
       responseMode: "json",
@@ -134,6 +154,7 @@ export async function generateReportDetailed(
       temperature: params.temperature,
       maxTokens: params.maxTokens,
       detailLevel: params.detailLevel,
+      templateId: params.template?.id,
     });
   }
   logger.info("[llm-api][report-service] Génération standard · réponse reçue", {
@@ -170,7 +191,7 @@ export async function generateReportDetailed(
     sectionCount: report.sections.length,
   });
   return {
-    report,
+    report: params.template ? { ...report, title: `${params.template.name} - ${report.title}` } : report,
     rawResponse: generation.text,
     strategy: generation.strategy,
   };
@@ -183,6 +204,7 @@ async function generateWithDemeterReportQueue(params: {
   temperature: number;
   maxTokens: number;
   detailLevel?: ReportDetailLevel;
+  templateId?: string;
   pollTimeoutMs?: number;
 }): Promise<GenerateReportDetailedResult> {
   const submitBody = {
@@ -192,6 +214,7 @@ async function generateWithDemeterReportQueue(params: {
     temperature: params.temperature,
     maxTokens: params.maxTokens,
     detailLevel: params.detailLevel ?? "standard",
+    templateId: params.templateId,
   };
 
   const submit = () =>
