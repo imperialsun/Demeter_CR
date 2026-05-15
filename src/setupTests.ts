@@ -4,6 +4,18 @@ import { afterEach } from "vitest";
 
 // Global mocks and helpers for Vitest + Testing Library
 
+const testProcess = (globalThis as any).process;
+if (typeof testProcess?.emitWarning === 'function') {
+  const emitWarning = testProcess.emitWarning.bind(testProcess);
+  testProcess.emitWarning = (warning: unknown, ...args: unknown[]) => {
+    const message = typeof warning === 'string' ? warning : String((warning as Error | undefined)?.message ?? '');
+    if (message.includes('--localstorage-file')) {
+      return;
+    }
+    return emitWarning(warning, ...args);
+  };
+}
+
 // Mock crypto.randomUUID for test environments if missing
 if (typeof (globalThis as any).crypto === 'undefined') {
   (globalThis as any).crypto = { randomUUID: () => 'test-uuid' };
