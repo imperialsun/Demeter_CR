@@ -37,6 +37,7 @@ describe("reportDetail", () => {
         DEFAULT_REPORT_DETAIL_LEVELS
       )
     ).toEqual({
+      CUSTOM: "standard",
       CRI: "verbose",
       CRO: "standard",
       CRS: "standard",

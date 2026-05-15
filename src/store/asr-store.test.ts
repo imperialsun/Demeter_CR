@@ -224,6 +224,7 @@ describe("llm provider config hydration", () => {
 
     const state = useAsrStore.getState();
     expect(state.llmApiReportDetailLevels).toEqual({
+      CUSTOM: "standard",
       CRI: "verbose",
       CRO: "standard",
       CRS: "exhaustive",

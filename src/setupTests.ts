@@ -19,6 +19,17 @@ if (typeof (URL as any).revokeObjectURL !== 'function') {
   (URL as any).revokeObjectURL = (_: any) => {};
 }
 
+if (typeof HTMLMediaElement !== 'undefined') {
+  Object.defineProperty(HTMLMediaElement.prototype, 'load', {
+    configurable: true,
+    value: () => {},
+  });
+  Object.defineProperty(HTMLMediaElement.prototype, 'pause', {
+    configurable: true,
+    value: () => {},
+  });
+}
+
 // Radix Select relies on scrollIntoView in jsdom test env.
 if (typeof (Element as any) !== 'undefined' && typeof (Element as any).prototype.scrollIntoView !== 'function') {
   (Element as any).prototype.scrollIntoView = () => {};

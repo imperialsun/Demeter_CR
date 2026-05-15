@@ -529,6 +529,7 @@ describe("asr-store mutation guards", () => {
     expect(afterAppReset.llmApiMistralTemperature).toBe(0.2);
     expect(afterAppReset.llmApiMistralMaxTokens).toBe(8192);
     expect(afterAppReset.llmApiReportDetailLevels).toEqual({
+      CUSTOM: "standard",
       CRI: "standard",
       CRO: "standard",
       CRS: "standard",

@@ -166,6 +166,7 @@ describe('storage', () => {
     expect(DEFAULT_SETTINGS.llmApiMistralModelId).toBeTruthy();
     expect(DEFAULT_SETTINGS.llmApiMistralMaxTokens).toBeGreaterThan(0);
     expect(DEFAULT_SETTINGS.llmApiReportDetailLevels).toEqual({
+      CUSTOM: "standard",
       CRI: "standard",
       CRO: "standard",
       CRS: "standard",
