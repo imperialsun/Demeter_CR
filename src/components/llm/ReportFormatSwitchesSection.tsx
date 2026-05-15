@@ -19,6 +19,10 @@ import { cn } from "@/lib/utils";
 
 const REPORT_FORMATS: ReportFormat[] = ["CRI", "CRO", "CRS", "CRN"];
 
+function buildTemplateFormatBadge(format: ReportFormat): string {
+  return format === "CUSTOM" ? "Modèle libre" : `Base ${buildReportFormatLabel(format)}`;
+}
+
 interface ReportFormatSwitchesSectionProps {
   values: Record<ReportFormat, boolean>;
   onChange: (format: ReportFormat, value: boolean) => void;
@@ -199,7 +203,7 @@ export function ReportFormatSwitchesSection({
                         </p>
                         <div className="flex flex-wrap gap-2">
                           <Badge variant="outline" className="w-fit">
-                            Base {buildReportFormatLabel(template.baseFormat)}
+                            {buildTemplateFormatBadge(template.baseFormat)}
                           </Badge>
                           <Badge variant={enabled ? "success" : "secondary"} className="w-fit">
                             {enabled ? "Généré" : "Ignoré"}

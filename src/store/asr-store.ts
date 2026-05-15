@@ -376,6 +376,7 @@ const normalizeReportFormatEnabled = (
   value: Partial<Record<ReportFormat, boolean>> | undefined,
   fallback: Record<ReportFormat, boolean>
 ): Record<ReportFormat, boolean> => ({
+  CUSTOM: typeof value?.CUSTOM === "boolean" ? value.CUSTOM : fallback.CUSTOM,
   CRI: typeof value?.CRI === "boolean" ? value.CRI : fallback.CRI,
   CRO: typeof value?.CRO === "boolean" ? value.CRO : fallback.CRO,
   CRS: typeof value?.CRS === "boolean" ? value.CRS : fallback.CRS,
@@ -2270,6 +2271,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
   setLlmApiReportDetailLevels: (value) =>
     set((state) => ({
       llmApiReportDetailLevels: {
+        CUSTOM: normalizeReportDetailLevel(value.CUSTOM, state.llmApiReportDetailLevels.CUSTOM),
         CRI: normalizeReportDetailLevel(value.CRI, state.llmApiReportDetailLevels.CRI),
         CRO: normalizeReportDetailLevel(value.CRO, state.llmApiReportDetailLevels.CRO),
         CRS: normalizeReportDetailLevel(value.CRS, state.llmApiReportDetailLevels.CRS),
@@ -2286,6 +2288,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
   setLlmApiReportEnabledFormats: (value) =>
     set((state) => ({
       llmApiReportEnabledFormats: {
+        CUSTOM: typeof value.CUSTOM === "boolean" ? value.CUSTOM : state.llmApiReportEnabledFormats.CUSTOM,
         CRI: typeof value.CRI === "boolean" ? value.CRI : state.llmApiReportEnabledFormats.CRI,
         CRO: typeof value.CRO === "boolean" ? value.CRO : state.llmApiReportEnabledFormats.CRO,
         CRS: typeof value.CRS === "boolean" ? value.CRS : state.llmApiReportEnabledFormats.CRS,

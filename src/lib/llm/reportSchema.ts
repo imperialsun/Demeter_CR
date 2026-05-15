@@ -1,6 +1,6 @@
 import type { ReportDetailLevel } from "@/lib/llm/reportDetail";
 
-export type ReportFormat = "CRI" | "CRO" | "CRS" | "CRN";
+export type ReportFormat = "CUSTOM" | "CRI" | "CRO" | "CRS" | "CRN";
 export type BuiltInReportResultKey = "cri" | "cro" | "crs" | "crn";
 export type ReportResultKey = BuiltInReportResultKey | `custom:${string}`;
 
@@ -29,7 +29,7 @@ export interface ReportResult {
   templateName?: string;
 }
 
-const FORMAT_SET = new Set<ReportFormat>(["CRI", "CRO", "CRS", "CRN"]);
+const FORMAT_SET = new Set<ReportFormat>(["CUSTOM", "CRI", "CRO", "CRS", "CRN"]);
 
 export function reportFormatToKey(format: ReportFormat): ReportResultKey {
   return format.toLowerCase() as BuiltInReportResultKey;

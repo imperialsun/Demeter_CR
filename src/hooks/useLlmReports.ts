@@ -376,12 +376,12 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
           lastStageLabel = "Lots CRN en parallèle";
           lastGlobalPassIndex = 1;
           lastGlobalPassTotal = batches.length;
-          setLlmApiStatus("generating", `Lancement parallèle des ${batchSpecs.length} lots CRN`);
+          setLlmApiStatus("generating", `Lancement parallèle des ${batchSpecs.length} lots CRN (délai étendu)`);
           setLlmApiProgress(0.5);
 
           let finishedCount = 0;
           const totalBatches = batchSpecs.length;
-          const demeterPollTimeoutMs = Math.max(90 * 60_000, totalBatches * 15_000);
+          const demeterPollTimeoutMs = Math.max(6 * 60 * 60_000, totalBatches * 5 * 60_000);
           const updateParallelProgress = () => {
             finishedCount += 1;
             const nextProgress = Math.min(0.94, 0.5 + (finishedCount / totalBatches) * 0.4);
@@ -460,6 +460,10 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
                 sequenceIndex?: number;
                 batchLabel?: string;
                 batchIndex?: number;
+                stage?: string;
+                stageLabel?: string;
+                globalPassIndex?: number;
+                globalPassTotal?: number;
               }).batchLabel = batchLabel;
               (taskError as Error & {
                 format?: ReportFormat;
@@ -468,7 +472,35 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
                 sequenceIndex?: number;
                 batchLabel?: string;
                 batchIndex?: number;
+                stage?: string;
+                stageLabel?: string;
+                globalPassIndex?: number;
+                globalPassTotal?: number;
               }).batchIndex = batchNumber;
+              (taskError as Error & {
+                stage?: string;
+                stageLabel?: string;
+                globalPassIndex?: number;
+                globalPassTotal?: number;
+              }).stage = "crn_batch_generation";
+              (taskError as Error & {
+                stage?: string;
+                stageLabel?: string;
+                globalPassIndex?: number;
+                globalPassTotal?: number;
+              }).stageLabel = batchLabel;
+              (taskError as Error & {
+                stage?: string;
+                stageLabel?: string;
+                globalPassIndex?: number;
+                globalPassTotal?: number;
+              }).globalPassIndex = batchNumber;
+              (taskError as Error & {
+                stage?: string;
+                stageLabel?: string;
+                globalPassIndex?: number;
+                globalPassTotal?: number;
+              }).globalPassTotal = totalBatches;
               logger.error("[llm-api] CRN batch generation failed", {
                 provider,
                 modelId,
@@ -775,25 +807,84 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
               detailLevel?: string;
               generationMode?: string;
               sequenceIndex?: number;
+              stage?: string;
+              stageLabel?: string;
+              globalPassIndex?: number;
+              globalPassTotal?: number;
             }).format = item.format;
             (taskError as Error & {
               format?: ReportFormat;
               detailLevel?: string;
               generationMode?: string;
               sequenceIndex?: number;
+              stage?: string;
+              stageLabel?: string;
+              globalPassIndex?: number;
+              globalPassTotal?: number;
             }).detailLevel = detailLevel;
             (taskError as Error & {
               format?: ReportFormat;
               detailLevel?: string;
               generationMode?: string;
               sequenceIndex?: number;
+              stage?: string;
+              stageLabel?: string;
+              globalPassIndex?: number;
+              globalPassTotal?: number;
             }).generationMode = generationMode;
             (taskError as Error & {
               format?: ReportFormat;
               detailLevel?: string;
               generationMode?: string;
               sequenceIndex?: number;
+              stage?: string;
+              stageLabel?: string;
+              globalPassIndex?: number;
+              globalPassTotal?: number;
             }).sequenceIndex = sequenceIndex;
+            if (!(taskError as Error & { stage?: string }).stage) {
+              const failureDescriptor = resolveCloudRunStageDescriptor("format_generation_start", {
+                format: item.format,
+                detailLevel,
+                generationMode,
+                sequenceIndex,
+                sequenceTotal: totalFormats,
+                totalFormats,
+              }, {
+                provider,
+                modelId: activeModelId,
+                sourceMode,
+                format: taskContext.format,
+                detailLevel: taskContext.detailLevel,
+                generationMode: taskContext.generationMode,
+                sequenceIndex: taskContext.sequenceIndex,
+                sequenceTotal: totalFormats,
+              });
+              (taskError as Error & {
+                stage?: string;
+                stageLabel?: string;
+                globalPassIndex?: number;
+                globalPassTotal?: number;
+              }).stage = "format_generation_start";
+              (taskError as Error & {
+                stage?: string;
+                stageLabel?: string;
+                globalPassIndex?: number;
+                globalPassTotal?: number;
+              }).stageLabel = failureDescriptor.stageLabel;
+              (taskError as Error & {
+                stage?: string;
+                stageLabel?: string;
+                globalPassIndex?: number;
+                globalPassTotal?: number;
+              }).globalPassIndex = failureDescriptor.globalPassIndex;
+              (taskError as Error & {
+                stage?: string;
+                stageLabel?: string;
+                globalPassIndex?: number;
+                globalPassTotal?: number;
+              }).globalPassTotal = failureDescriptor.globalPassTotal;
+            }
             logger.error("[llm-api] format generation failed", {
               format: item.format,
               detailLevel,
@@ -880,27 +971,34 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
         if (unauthorized || forbidden) {
           telemetry.stopTimer("llm_cloud_total");
         }
+        const errorContext = extractReportGenerationErrorContext(error);
+        const errorStage = typeof errorContext.stage === "string" ? errorContext.stage : stage;
+        const errorStageLabel = typeof errorContext.stageLabel === "string" ? errorContext.stageLabel : lastStageLabel;
+        const errorGlobalPassIndex =
+          typeof errorContext.globalPassIndex === "number" ? errorContext.globalPassIndex : lastGlobalPassIndex;
+        const errorGlobalPassTotal =
+          typeof errorContext.globalPassTotal === "number" ? errorContext.globalPassTotal : lastGlobalPassTotal;
         logger.error("[llm-api] run failed", {
-          stage,
-          stageLabel: lastStageLabel,
-          globalPassIndex: lastGlobalPassIndex,
-          globalPassTotal: lastGlobalPassTotal,
+          stage: errorStage,
+          stageLabel: errorStageLabel,
+          globalPassIndex: errorGlobalPassIndex,
+          globalPassTotal: errorGlobalPassTotal,
           message,
           provider,
           modelId: activeModelId,
           sourceMode,
-          ...extractReportGenerationErrorContext(error),
+          ...errorContext,
         });
         telemetry.logEvent("LLM_RUN_ERROR", {
-          stage,
-          stageLabel: lastStageLabel,
-          globalPassIndex: lastGlobalPassIndex,
-          globalPassTotal: lastGlobalPassTotal,
+          stage: errorStage,
+          stageLabel: errorStageLabel,
+          globalPassIndex: errorGlobalPassIndex,
+          globalPassTotal: errorGlobalPassTotal,
           message,
           provider,
           modelId: activeModelId,
           sourceMode,
-          ...extractReportGenerationErrorContext(error),
+          ...errorContext,
         });
         trackBackendActivityEvent({
           eventKind: "report",
@@ -909,7 +1007,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
           status: "error",
           meta: {
             source: sourceMode,
-            stage,
+            stage: errorStage,
             message,
             modelId: activeModelId,
           },
@@ -917,7 +1015,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
         publishTelemetrySummary("error", {
           modelId: activeModelId,
           sourceMode,
-          stage,
+          stage: errorStage,
           message,
         });
         setLlmApiStatus("error", message);
@@ -1062,18 +1160,28 @@ function extractReportGenerationErrorContext(error: unknown): Record<string, unk
     return {};
   }
   const candidate = error as {
+    stage?: string;
+    stageLabel?: string;
+    globalPassIndex?: number;
+    globalPassTotal?: number;
     format?: ReportFormat;
     detailLevel?: string;
     generationMode?: string;
     sequenceIndex?: number;
+    sequenceTotal?: number;
     batchLabel?: string;
     batchIndex?: number;
   };
   const context: Record<string, unknown> = {};
+  if (candidate.stage) context.stage = candidate.stage;
+  if (candidate.stageLabel) context.stageLabel = candidate.stageLabel;
+  if (typeof candidate.globalPassIndex === "number") context.globalPassIndex = candidate.globalPassIndex;
+  if (typeof candidate.globalPassTotal === "number") context.globalPassTotal = candidate.globalPassTotal;
   if (candidate.format) context.format = candidate.format;
   if (candidate.detailLevel) context.detailLevel = candidate.detailLevel;
   if (candidate.generationMode) context.generationMode = candidate.generationMode;
   if (typeof candidate.sequenceIndex === "number") context.sequenceIndex = candidate.sequenceIndex;
+  if (typeof candidate.sequenceTotal === "number") context.sequenceTotal = candidate.sequenceTotal;
   if (candidate.batchLabel) context.batchLabel = candidate.batchLabel;
   if (typeof candidate.batchIndex === "number") context.batchIndex = candidate.batchIndex;
   return context;

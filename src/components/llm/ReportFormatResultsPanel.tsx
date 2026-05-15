@@ -13,6 +13,13 @@ const REPORT_FORMATS: Array<{ format: ReportFormat; key: ReportResultKey }> = [
   { format: "CRN", key: "crn" },
 ];
 
+function buildTemplateDescription(template: OrganizationReportTemplate): string {
+  if (template.description) return template.description;
+  return template.baseFormat === "CUSTOM"
+    ? "Modèle libre de l'organisation"
+    : `Modèle personnalisé basé sur ${template.baseFormat}`;
+}
+
 function renderInlineMarkdown(value: string) {
   const parts: React.ReactNode[] = [];
   const boldPattern = /\*\*([^*]+(?:\*(?!\*)[^*]+)*)\*\*/g;
@@ -74,7 +81,7 @@ export function ReportFormatResultsPanel({
       key: customReportTemplateKey(template.id),
       format: template.baseFormat,
       label: template.name,
-      description: template.description || `Modèle personnalisé basé sur ${template.baseFormat}`,
+      description: buildTemplateDescription(template),
       enabled: true,
     })),
   ];

@@ -73,9 +73,10 @@ type DemeterReportOperationResponse = {
   };
 };
 
-const DEMETER_REPORT_REQUEST_TIMEOUT_MS = 30_000;
+const DEMETER_REPORT_REQUEST_TIMEOUT_MS = 10 * 60_000;
 const DEMETER_REPORT_POLL_INTERVAL_MS = 10_000;
-const DEMETER_REPORT_POLL_TIMEOUT_MS = 10 * 60_000;
+const DEMETER_REPORT_POLL_TIMEOUT_MS = 6 * 60 * 60_000;
+const DEMETER_REPORT_INVALID_JSON_MAX_ATTEMPTS = 3;
 
 export async function generateReport(params: GenerateReportParams): Promise<ReportJson> {
   const detailed = await generateReportDetailed(params);
@@ -155,6 +156,7 @@ export async function generateReportDetailed(
       maxTokens: params.maxTokens,
       detailLevel: params.detailLevel,
       templateId: params.template?.id,
+      pollTimeoutMs: params.pollTimeoutMs,
     });
   }
   logger.info("[llm-api][report-service] Génération standard · réponse reçue", {
@@ -207,6 +209,43 @@ async function generateWithDemeterReportQueue(params: {
   templateId?: string;
   pollTimeoutMs?: number;
 }): Promise<GenerateReportDetailedResult> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= DEMETER_REPORT_INVALID_JSON_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await runDemeterReportQueueOperation(params, attempt);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= DEMETER_REPORT_INVALID_JSON_MAX_ATTEMPTS || !isRetryableInvalidReportPayloadError(error)) {
+        throw error;
+      }
+      logger.warn("[llm-api][report-service] Demeter report payload invalide · nouvel essai", {
+        provider: "demeter_sante",
+        format: params.format,
+        modelId: params.modelId,
+        detailLevel: params.detailLevel ?? "standard",
+        attempt,
+        nextAttempt: attempt + 1,
+        maxAttempts: DEMETER_REPORT_INVALID_JSON_MAX_ATTEMPTS,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError ?? "La génération du rapport a échoué."));
+}
+
+async function runDemeterReportQueueOperation(
+  params: {
+    format: ReportFormat;
+    modelId: string;
+    sourceText: string;
+    temperature: number;
+    maxTokens: number;
+    detailLevel?: ReportDetailLevel;
+    templateId?: string;
+    pollTimeoutMs?: number;
+  },
+  attempt: number
+): Promise<GenerateReportDetailedResult> {
   const submitBody = {
     format: params.format,
     modelId: params.modelId,
@@ -216,6 +255,15 @@ async function generateWithDemeterReportQueue(params: {
     detailLevel: params.detailLevel ?? "standard",
     templateId: params.templateId,
   };
+
+  logger.info("[llm-api][report-service] Demeter report queue · tentative", {
+    provider: "demeter_sante",
+    format: params.format,
+    modelId: params.modelId,
+    detailLevel: params.detailLevel ?? "standard",
+    attempt,
+    maxAttempts: DEMETER_REPORT_INVALID_JSON_MAX_ATTEMPTS,
+  });
 
   const submit = () =>
     backendFetch("/providers/demeter-sante/report/operations", {
@@ -296,6 +344,16 @@ async function generateWithDemeterReportQueue(params: {
 
     await new Promise((resolve) => setTimeout(resolve, DEMETER_REPORT_POLL_INTERVAL_MS));
   }
+}
+
+function isRetryableInvalidReportPayloadError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("invalid report payload") ||
+    normalized.includes("invalid json response") ||
+    normalized.includes("no usable sections returned")
+  );
 }
 
 function buildTextPreview(text: string): string {

@@ -4,6 +4,7 @@ import { generateReport, generateReportDetailed } from "@/lib/llm/reportService"
 const getLlmHfClientMock = vi.fn();
 const generateWithChatThenFallbackTextMock = vi.fn();
 const generateWithMistralChatMock = vi.fn();
+const backendFetchMock = vi.fn();
 
 vi.mock("@/lib/llm/hfClient", () => ({
   getLlmHfClient: (...args: unknown[]) => getLlmHfClientMock(...args),
@@ -14,11 +15,23 @@ vi.mock("@/lib/llm/mistralChatClient", () => ({
   generateWithMistralChat: (...args: unknown[]) => generateWithMistralChatMock(...args),
 }));
 
+vi.mock("@/lib/backend-api", () => ({
+  backendFetch: (...args: unknown[]) => backendFetchMock(...args),
+  handleBackendUnauthorized: vi.fn(),
+  parseBackendHttpError: vi.fn(async () => new Error("backend error")),
+}));
+
+vi.mock("@/lib/backend-auth", () => ({
+  BackendSessionExpiredError: class BackendSessionExpiredError extends Error {},
+  backendRefresh: vi.fn(),
+}));
+
 describe("reportService", () => {
   beforeEach(() => {
     getLlmHfClientMock.mockReset();
     generateWithChatThenFallbackTextMock.mockReset();
     generateWithMistralChatMock.mockReset();
+    backendFetchMock.mockReset();
     getLlmHfClientMock.mockResolvedValue({ chatCompletion: vi.fn(), textGeneration: vi.fn() });
   });
 
@@ -139,5 +152,109 @@ describe("reportService", () => {
       })
     );
     expect(generateWithChatThenFallbackTextMock).not.toHaveBeenCalled();
+  });
+
+  it("uses extended request timeout for Demeter report queue calls", async () => {
+    backendFetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ operationId: "op-report-1", status: "pending" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          operationId: "op-report-1",
+          status: "completed",
+          response: {
+            report: {
+              format: "CRI",
+              title: "Compte rendu Demeter",
+              sections: [{ heading: "Synthese", paragraphs: ["Texte"] }],
+            },
+            raw: "{}",
+          },
+        }),
+      });
+
+    const result = await generateReportDetailed({
+      provider: "demeter_sante",
+      format: "CRI",
+      modelId: "mistral-medium-latest",
+      sourceText: "source",
+      temperature: 0,
+      maxTokens: 1024,
+      detailLevel: "standard",
+    });
+
+    expect(result.report.title).toBe("Compte rendu Demeter");
+    expect(backendFetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/providers/demeter-sante/report/operations",
+      expect.objectContaining({ timeoutMs: 10 * 60_000 })
+    );
+    expect(backendFetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/providers/demeter-sante/report/operations/op-report-1",
+      expect.objectContaining({ timeoutMs: 10 * 60_000 })
+    );
+  });
+
+  it("retries Demeter report queue when backend returns invalid report JSON", async () => {
+    backendFetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ operationId: "op-report-invalid", status: "pending" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          operationId: "op-report-invalid",
+          status: "failed",
+          lastError: "invalid report payload: invalid JSON response",
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ operationId: "op-report-retry", status: "pending" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          operationId: "op-report-retry",
+          status: "completed",
+          response: {
+            report: {
+              format: "CRN",
+              title: "Compte rendu relancé",
+              sections: [{ heading: "Synthese", paragraphs: ["Texte"] }],
+            },
+            raw: "{}",
+          },
+        }),
+      });
+
+    const result = await generateReportDetailed({
+      provider: "demeter_sante",
+      format: "CRN",
+      modelId: "mistral-medium-latest",
+      sourceText: "source",
+      temperature: 0,
+      maxTokens: 1024,
+      detailLevel: "exhaustive",
+      pollTimeoutMs: 123_456,
+    });
+
+    expect(result.report.title).toBe("Compte rendu relancé");
+    expect(backendFetchMock).toHaveBeenCalledTimes(4);
+    expect(backendFetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/providers/demeter-sante/report/operations",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(backendFetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/providers/demeter-sante/report/operations",
+      expect.objectContaining({ method: "POST" })
+    );
   });
 });

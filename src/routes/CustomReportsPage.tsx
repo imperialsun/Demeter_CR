@@ -12,6 +12,10 @@ import { buildReportFormatLabel } from "@/lib/llm/reportPrompts";
 import logger from "@/lib/logger";
 import type { UserReportTemplatePreference } from "@/lib/report-templates";
 
+function buildTemplateFormatBadge(format: UserReportTemplatePreference["template"]["baseFormat"]): string {
+  return format === "CUSTOM" ? "Modèle libre" : `Base ${buildReportFormatLabel(format)}`;
+}
+
 export default function CustomReportsPage() {
   const { items, loading, error, refresh, setPreference } = useReportTemplates();
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
@@ -76,7 +80,7 @@ export default function CustomReportsPage() {
                   <Badge variant={enabled ? "success" : "secondary"}>{enabled ? "Visible" : "Masqué"}</Badge>
                 </div>
                 <Badge variant="outline" className="w-fit">
-                  Base {buildReportFormatLabel(template.baseFormat)}
+                  {buildTemplateFormatBadge(template.baseFormat)}
                 </Badge>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -161,7 +165,7 @@ function ReportTemplateDetailsDialog({
               {template.description || "Modèle personnalisé de l'organisation."}
             </p>
             <div className="flex flex-wrap gap-2">
-              <Badge variant="outline">Base {buildReportFormatLabel(template.baseFormat)}</Badge>
+              <Badge variant="outline">{buildTemplateFormatBadge(template.baseFormat)}</Badge>
               <Badge variant={enabled ? "success" : "secondary"}>{enabled ? "Visible" : "Masqué"}</Badge>
             </div>
           </div>

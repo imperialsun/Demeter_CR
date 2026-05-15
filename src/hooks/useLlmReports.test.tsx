@@ -61,10 +61,18 @@ describe("useLlmReports telemetry", () => {
       llmApiMistralTemperature: 0.2,
       llmApiMistralMaxTokens: 8192,
       llmApiReportDetailLevels: {
+        CUSTOM: "standard",
         CRI: "standard",
         CRO: "standard",
         CRS: "standard",
         CRN: "standard",
+      },
+      llmApiReportEnabledFormats: {
+        CUSTOM: false,
+        CRI: true,
+        CRO: true,
+        CRS: true,
+        CRN: true,
       },
       llmApiReportGenerationMode: "mono_pass",
       llmApiReportChunkRatio: 0.5,
@@ -133,6 +141,52 @@ describe("useLlmReports telemetry", () => {
       )
     ).toBe(true);
     expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("generates selected free custom templates with CUSTOM format", async () => {
+    useAsrStore.setState({
+      llmApiReportEnabledFormats: {
+        CUSTOM: false,
+        CRI: false,
+        CRO: false,
+        CRS: false,
+        CRN: false,
+      },
+    } as any);
+
+    const { result } = renderHook(() =>
+      useLlmReports({
+        selectedCustomTemplates: [
+          {
+            id: "template-free",
+            organizationId: "org-1",
+            name: "CR Libre",
+            description: "Structure libre",
+            baseFormat: "CUSTOM",
+            instructions: "Produire une section Constats.",
+            exampleOutline: "Constats",
+            orgEnabled: true,
+            createdAt: "2026-03-12T10:00:00.000Z",
+            updatedAt: "2026-03-12T10:00:00.000Z",
+          },
+        ],
+      })
+    );
+
+    await act(async () => {
+      await result.current.generateAll({ source: "transcription", transcriptMode: "upload" });
+    });
+
+    expect(mocks.generateReportDetailedMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        format: "CUSTOM",
+        template: expect.objectContaining({
+          id: "template-free",
+          name: "CR Libre",
+        }),
+      })
+    );
+    expect(useAsrStore.getState().llmApiResults["custom:template-free"]?.format).toBe("CUSTOM");
   });
 
   it("launches reports in parallel and stores each result as it settles", async () => {
@@ -470,6 +524,10 @@ describe("useLlmReports telemetry", () => {
     const eventTypes = summary?.events.map((event) => event.type) ?? [];
     expect(eventTypes).toContain("LLM_RUN_START");
     expect(eventTypes).toContain("LLM_RUN_ERROR");
+    const errorEvent = summary?.events.find((event) => event.type === "LLM_RUN_ERROR");
+    expect(errorEvent?.data?.stage).toBe("format_generation_start");
+    expect(errorEvent?.data?.format).toBe("CRI");
+    expect(errorEvent?.data?.stageLabel).toBe("Compte rendu détaillé · démarrage");
     expect(useAsrStore.getState().llmApiStatus).toBe("error");
   });
 
@@ -939,7 +997,7 @@ describe("useLlmReports telemetry", () => {
       | { provider?: string; pollTimeoutMs?: number }
       | undefined;
     expect(demeterCall?.provider).toBe("demeter_sante");
-    expect(demeterCall?.pollTimeoutMs).toBeGreaterThanOrEqual(90 * 60_000);
+    expect(demeterCall?.pollTimeoutMs).toBeGreaterThanOrEqual(6 * 60 * 60_000);
 
     await act(async () => {
       third.resolve(buildBatchResult(batchSources[2] ?? "", "CRN lot 3"));

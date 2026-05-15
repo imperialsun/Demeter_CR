@@ -16,6 +16,10 @@ const COMMON_RULES = [
 ] as const;
 
 const REPORT_FORMAT_DISPLAY_META: Record<ReportFormat, { label: string; description: string }> = {
+  CUSTOM: {
+    label: "Modèle libre",
+    description: "Compte rendu personnalisé piloté par les consignes de l'organisation.",
+  },
   CRI: {
     label: "Compte rendu détaillé",
     description: "Version la plus complète, narrative et fidèle à la transcription.",
@@ -35,6 +39,7 @@ const REPORT_FORMAT_DISPLAY_META: Record<ReportFormat, { label: string; descript
 };
 
 const FORMAT_PROMPT_GUIDELINES: Record<ReportFormat, string> = {
+  CUSTOM: "CUSTOM = modèle libre défini par les consignes et la structure attendue par l'organisation.",
   CRI: "CRI = restitution narrative fidèle, très détaillée, avec une rédaction textuelle longue et complète.",
   CRO: "CRO = compte rendu opérationnel, axé décisions, actions, priorités et points à exécuter.",
   CRS: "CRS = synthèse ultra concise, uniquement l'essentiel critique en format très court.",
@@ -42,6 +47,11 @@ const FORMAT_PROMPT_GUIDELINES: Record<ReportFormat, string> = {
 };
 
 const FORMAT_STYLE_RULES: Record<ReportFormat, readonly string[]> = {
+  CUSTOM: [
+    "n'utilise aucune structure CRI, CRO, CRS ou CRN sauf si les consignes du modèle le demandent explicitement.",
+    "applique les consignes personnalisées comme structure principale du compte rendu.",
+    "organise les sections selon la structure attendue si elle est fournie.",
+  ],
   CRI: [
     "style narratif et textuel: developpe les informations utiles dans des paragraphes complets.",
     "tu peux produire un document long (plusieurs pages) si la source contient assez de matiere.",
@@ -144,6 +154,55 @@ export function buildCustomReportUserPrompt(params: {
   instructions: string;
   exampleOutline?: string;
 }): string {
+  if (params.format === "CUSTOM") {
+    const detailRules = params.detailLevel ? buildReportDetailPromptRules(params.format, params.detailLevel, params.sourceText) : [];
+    return [
+      `Format cible: ${params.format}.`,
+      FORMAT_PROMPT_GUIDELINES[params.format],
+      "",
+      ...(detailRules.length
+        ? [
+            "Consigne prioritaire de longueur:",
+            ...detailRules.map((rule) => `- ${rule}`),
+            "",
+          ]
+        : []),
+      "MODELE PERSONNALISE ORGANISATION:",
+      `Nom du modele: ${params.templateName.trim()}.`,
+      "Consignes specifiques prioritaires:",
+      params.instructions.trim(),
+      params.exampleOutline?.trim()
+        ? ["", "Structure ou exemple attendu par l'organisation:", params.exampleOutline.trim()].join("\n")
+        : "",
+      "",
+      "Retourne uniquement un JSON valide avec cette structure:",
+      `{
+  "format": "CUSTOM",
+  "title": "...",
+  "subtitle": "... (optionnel)",
+  "sections": [
+    { "heading": "...", "paragraphs": ["...", "..."] }
+  ],
+  "key_points": ["..."],
+  "action_items": ["..."],
+  "caveats": ["..."]
+}`,
+      "",
+      "Contraintes de contenu:",
+      "- N'invente jamais d'informations absentes de la source.",
+      "- sections: titres clairs et ordre conforme au modèle si une structure est fournie.",
+      "- key_points: points saillants utiles a la lecture rapide.",
+      "- action_items: suites concretes si explicites dans la source.",
+      "- caveats: zones d'incertitude / informations absentes.",
+      ...FORMAT_STYLE_RULES.CUSTOM.map((rule) => `- ${rule}`),
+      "",
+      "SOURCE:",
+      params.sourceText,
+    ]
+      .filter((line) => line !== "")
+      .join("\n");
+  }
+
   const basePrompt = buildReportUserPrompt(params.format, params.sourceText, params.detailLevel);
   const customBlock = [
     "",

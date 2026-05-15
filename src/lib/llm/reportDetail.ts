@@ -11,6 +11,7 @@ export const REPORT_DETAIL_LEVEL_LABELS: Record<ReportDetailLevel, string> = {
 };
 
 export const DEFAULT_REPORT_DETAIL_LEVELS: Record<ReportFormat, ReportDetailLevel> = {
+  CUSTOM: "standard",
   CRI: "standard",
   CRO: "standard",
   CRS: "standard",
@@ -21,6 +22,11 @@ export const REPORT_DETAIL_TARGETS: Record<
   ReportFormat,
   Record<ReportDetailLevel, { ratio: number; label: string }>
 > = {
+  CUSTOM: {
+    standard: { ratio: 0.05, label: "libre compact" },
+    verbose: { ratio: 0.1, label: "libre developpe" },
+    exhaustive: { ratio: 0.15, label: "libre tres detaille" },
+  },
   CRI: {
     standard: { ratio: 0.05, label: "compact" },
     verbose: { ratio: 0.1, label: "developpe" },
@@ -127,7 +133,7 @@ function countWords(text: string): number {
 }
 
 function getReportFormats(): ReportFormat[] {
-  return ["CRI", "CRO", "CRS", "CRN"];
+  return ["CUSTOM", "CRI", "CRO", "CRS", "CRN"];
 }
 
 function isReportDetailLevel(value: string): value is ReportDetailLevel {

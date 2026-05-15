@@ -550,6 +550,7 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   llmApiMistralMaxTokens: 8192,
   llmApiReportDetailLevels: { ...DEFAULT_REPORT_DETAIL_LEVELS },
   llmApiReportEnabledFormats: {
+    CUSTOM: false,
     CRI: true,
     CRO: true,
     CRS: true,
