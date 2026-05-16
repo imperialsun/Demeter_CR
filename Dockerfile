@@ -12,7 +12,7 @@ RUN npm run build:prod
 # Production image
 FROM nginx:1.29.8-alpine3.23
 # Refresh Alpine security-sensitive packages when the upstream nginx image lags behind security rebuilds.
-RUN apk upgrade --no-cache zlib libexpat libpng libxpm
+RUN apk upgrade --no-cache zlib libexpat libpng libxpm libcurl xz-libs nghttp2-libs
 
 # Copy built static assets
 COPY --from=builder /app/dist /srv
