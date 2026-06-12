@@ -290,11 +290,12 @@ describe("llm provider config hydration", () => {
     window.localStorage.setItem(storageKey, JSON.stringify(payload));
     expect(loadSettings()?.llmApiProvider).toBe("mistral");
     expect(loadSettings()?.llmApiModelId).toBe("legacy/mistral-model");
+    expect(loadSettings()?.llmApiMistralModelId).toBe(DEFAULT_SETTINGS.llmApiMistralModelId);
     useAsrStore.getState().hydrateFromStorage();
 
     const state = useAsrStore.getState();
     expect(state.llmApiProvider).toBe("mistral");
-    expect(state.llmApiMistralModelId).toBe("legacy/mistral-model");
+    expect(state.llmApiMistralModelId).toBe(DEFAULT_SETTINGS.llmApiMistralModelId);
     expect(state.llmApiMistralTemperature).toBe(0.4);
     expect(state.llmApiMistralMaxTokens).toBe(4444);
     expect(state.llmApiHfModelId).toBe(DEFAULT_SETTINGS.llmApiHfModelId);

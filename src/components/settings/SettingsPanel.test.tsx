@@ -54,7 +54,7 @@ vi.mock('@/lib/secure-token-vault', () => ({
 }));
 
 vi.mock('@/lib/llm/mistralModelsClient', () => ({
-  DEFAULT_MISTRAL_LLM_MODEL_ID: 'mistral-medium-latest',
+  DEFAULT_MISTRAL_LLM_MODEL_ID: 'mistral-large-2512',
   FALLBACK_MISTRAL_MAX_TOKENS: 8192,
   fetchMistralModelsSafe: (...args: unknown[]) => fetchMistralModelsSafeMock(...args),
   findMistralModelMetadata: (models: Array<{ id: string }>, modelId: string) =>
@@ -93,7 +93,7 @@ describe('SettingsPanel', () => {
       llmApiHfModelId: "openai/gpt-oss-20b",
       llmApiHfTemperature: 0.2,
       llmApiHfMaxTokens: 1024,
-      llmApiMistralModelId: "mistral-medium-latest",
+      llmApiMistralModelId: "mistral-large-2512",
       llmApiMistralTemperature: 0.2,
       llmApiMistralMaxTokens: 8192,
       llmApiReportDetailLevels: {
@@ -491,9 +491,9 @@ describe('SettingsPanel', () => {
     expect(state.llmApiHfMaxTokens).toBe(8192);
   });
 
-  it("updates mistral model id and temperature from llm tab", () => {
+  it("keeps the imposed mistral model id and updates temperature from llm tab", () => {
     useAsrStore.setState({
-      llmApiMistralModelId: "mistral-medium-latest",
+      llmApiMistralModelId: "mistral-large-2512",
       llmApiMistralTemperature: 0.2,
     } as any);
 
@@ -515,7 +515,7 @@ describe('SettingsPanel', () => {
     );
 
     const state = useAsrStore.getState();
-    expect(state.llmApiMistralModelId).toBe("mistral-large-latest");
+    expect(state.llmApiMistralModelId).toBe("mistral-large-2512");
     expect(state.llmApiMistralTemperature).toBe(0.4);
   });
 

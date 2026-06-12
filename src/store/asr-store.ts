@@ -1452,10 +1452,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
         fallbackSettings.llmApiHfMaxTokens
       );
 
-      const llmApiMistralModelId =
-        settings.llmApiMistralModelId ??
-        (persistedLlmProvider === "mistral" ? legacyLlmModelId : undefined) ??
-        fallbackSettings.llmApiMistralModelId;
+      const llmApiMistralModelId = DEFAULT_SETTINGS.llmApiMistralModelId;
       const llmApiMistralTemperature = normalizeLlmTemperature(
         settings.llmApiMistralTemperature ??
           (persistedLlmProvider === "mistral" ? legacyLlmTemperature : undefined),
@@ -2256,7 +2253,7 @@ export const useAsrStore = create<AsrConfigStore>((set, get): AsrConfigStore => 
     set(() => ({ llmApiHfTemperature: normalizeLlmTemperature(value, DEFAULT_LLM_HF_TEMPERATURE) })),
   setLlmApiHfMaxTokens: (value) =>
     set(() => ({ llmApiHfMaxTokens: normalizeLlmMaxTokens(value, DEFAULT_LLM_HF_MAX_TOKENS) })),
-  setLlmApiMistralModelId: (value) => set(() => ({ llmApiMistralModelId: value })),
+  setLlmApiMistralModelId: () => set(() => ({ llmApiMistralModelId: DEFAULT_SETTINGS.llmApiMistralModelId })),
   setLlmApiMistralTemperature: (value) =>
     set(() => ({ llmApiMistralTemperature: normalizeLlmTemperature(value, DEFAULT_LLM_MISTRAL_TEMPERATURE) })),
   setLlmApiMistralMaxTokens: (value) =>

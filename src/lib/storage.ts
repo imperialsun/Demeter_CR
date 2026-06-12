@@ -16,6 +16,7 @@ import {
   DEFAULT_LLM_LOCAL_PROFILE,
   DEFAULT_LLM_LOCAL_TEMPERATURE,
 } from "@/lib/llm/localModelCatalog";
+import { DEFAULT_MISTRAL_LLM_MODEL_ID } from "@/lib/llm/mistralModelsClient";
 import logger, { type LogLevel } from "@/lib/logger";
 import { isBackendMode } from "@/lib/runtime-config";
 import { isBackendAuthenticated } from "@/lib/backend-session";
@@ -336,6 +337,16 @@ function migratePersistedReportSettings(settings: PersistedSettingsInput): Persi
   return migrated;
 }
 
+function enforceMistralModel(settings: PersistedSettingsInput): PersistedSettingsInput {
+  if (settings.llmApiMistralModelId === DEFAULT_MISTRAL_LLM_MODEL_ID) {
+    return settings;
+  }
+  return {
+    ...settings,
+    llmApiMistralModelId: DEFAULT_MISTRAL_LLM_MODEL_ID,
+  };
+}
+
 function parseStoredSettings(): PersistedSettingsInput | null {
   if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -356,7 +367,7 @@ export function loadSettings(): PersistedSettingsInput | null {
       return null;
     }
     const sanitized = stripSensitiveSettings(parsed);
-    const migrated = migratePersistedReportSettings(sanitized);
+    const migrated = enforceMistralModel(migratePersistedReportSettings(sanitized));
     // Backward compatibility: purge sensitive values from existing persisted blobs.
     if (hasSensitiveSettings(parsed) || hasLegacySettings(parsed) || migrated !== sanitized) {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
@@ -380,7 +391,7 @@ export function loadSettings(): PersistedSettingsInput | null {
 export function saveSettings(settings: PersistedSettings) {
   if (typeof window === "undefined") return;
   try {
-    const sanitized = stripSensitiveSettings(settings);
+    const sanitized = enforceMistralModel(stripSensitiveSettings(settings));
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
     logger.debug("[settings][storage] settings persisted", {
       keyCount: Object.keys(sanitized).length,
@@ -545,7 +556,7 @@ export const DEFAULT_SETTINGS: PersistedSettings = {
   llmApiHfModelId: "openai/gpt-oss-20b",
   llmApiHfTemperature: 0.2,
   llmApiHfMaxTokens: 131072,
-  llmApiMistralModelId: "mistral-medium-latest",
+  llmApiMistralModelId: DEFAULT_MISTRAL_LLM_MODEL_ID,
   llmApiMistralTemperature: 0.2,
   llmApiMistralMaxTokens: 8192,
   llmApiReportDetailLevels: { ...DEFAULT_REPORT_DETAIL_LEVELS },

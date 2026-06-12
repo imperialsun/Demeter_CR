@@ -257,4 +257,34 @@ describe("reportService", () => {
       expect.objectContaining({ method: "POST" })
     );
   });
+
+  it("formats Demeter Mistral rate limit errors without exposing raw upstream JSON", async () => {
+    backendFetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ operationId: "op-report-rate-limit", status: "pending" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          operationId: "op-report-rate-limit",
+          status: "failed",
+          statusCode: 429,
+          lastError:
+            'mistral api (429): {"object":"error","message":"Rate limit exceeded","type":"rate_limited","param":null,"code":"1300","raw_status_code":429}',
+        }),
+      });
+
+    await expect(
+      generateReportDetailed({
+        provider: "demeter_sante",
+        format: "CRI",
+        modelId: "mistral-medium-latest",
+        sourceText: "source",
+        temperature: 0,
+        maxTokens: 1024,
+        detailLevel: "standard",
+      })
+    ).rejects.toThrow("Limite Mistral atteinte (429).");
+  });
 });

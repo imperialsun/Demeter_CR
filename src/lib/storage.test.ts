@@ -163,7 +163,7 @@ describe('storage', () => {
     expect(DEFAULT_SETTINGS.llmApiProvider).toBe("demeter_sante");
     expect(DEFAULT_SETTINGS.llmApiHfModelId).toBeTruthy();
     expect(DEFAULT_SETTINGS.llmApiHfMaxTokens).toBeGreaterThan(0);
-    expect(DEFAULT_SETTINGS.llmApiMistralModelId).toBeTruthy();
+    expect(DEFAULT_SETTINGS.llmApiMistralModelId).toBe("mistral-large-2512");
     expect(DEFAULT_SETTINGS.llmApiMistralMaxTokens).toBeGreaterThan(0);
     expect(DEFAULT_SETTINGS.llmApiReportDetailLevels).toEqual({
       CUSTOM: "standard",

@@ -336,7 +336,7 @@ async function runDemeterReportQueueOperation(
       };
     }
     if (snapshot.status === "failed") {
-      throw new Error(snapshot.lastError?.trim() || "La génération du rapport a échoué.");
+      throw new Error(formatDemeterReportQueueError(snapshot));
     }
     if (snapshot.status === "cancelled") {
       throw new Error("La génération du rapport a été annulée.");
@@ -354,6 +354,28 @@ function isRetryableInvalidReportPayloadError(error: unknown): boolean {
     normalized.includes("invalid json response") ||
     normalized.includes("no usable sections returned")
   );
+}
+
+function formatDemeterReportQueueError(snapshot: DemeterReportOperationResponse): string {
+  const raw = snapshot.lastError?.trim() ?? "";
+  const normalized = raw.toLowerCase();
+  if (
+    snapshot.statusCode === 429 ||
+    normalized.includes("rate limit") ||
+    normalized.includes("rate_limited") ||
+    normalized.includes("mistral api (429)") ||
+    normalized.includes("\"raw_status_code\":429")
+  ) {
+    return "Limite Mistral atteinte (429). Patientez quelques minutes, réduisez le parallélisme de la Queue Rapport, ou augmentez le quota Mistral avant de relancer.";
+  }
+  if (
+    snapshot.statusCode === 503 ||
+    normalized.includes("capacity exceeded") ||
+    normalized.includes("temporarily unavailable")
+  ) {
+    return "Mistral est temporairement saturé. Patientez quelques minutes puis relancez la génération.";
+  }
+  return raw || "La génération du rapport a échoué.";
 }
 
 function buildTextPreview(text: string): string {
