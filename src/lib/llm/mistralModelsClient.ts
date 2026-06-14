@@ -1,7 +1,7 @@
 import logger from "@/lib/logger";
 import { MIN_REPORT_GENERATION_TOKENS, TOKEN_RESERVE_FOR_PROMPTS } from "@/lib/llm/modelCatalog";
 
-export const DEFAULT_MISTRAL_LLM_MODEL_ID = "mistral-medium-latest";
+export const DEFAULT_MISTRAL_LLM_MODEL_ID = "mistral-large-2512";
 export const MISTRAL_MODELS_CACHE_TTL_MS = 5 * 60 * 1000;
 export const FALLBACK_MISTRAL_MAX_TOKENS = 8192;
 

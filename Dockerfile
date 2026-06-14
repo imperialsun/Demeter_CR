@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile: build with Node, serve with Nginx (static files)
 
-FROM node:26.1.0-alpine3.23 AS builder
+FROM node:26.3.0-alpine3.23 AS builder
 WORKDIR /app
 
 # Install deps and build
@@ -10,9 +10,9 @@ COPY . .
 RUN npm run build:prod
 
 # Production image
-FROM nginx:1.29.8-alpine3.23
+FROM nginx:1.31.1-alpine3.23
 # Refresh Alpine security-sensitive packages when the upstream nginx image lags behind security rebuilds.
-RUN apk upgrade --no-cache zlib libexpat libpng libxpm libcurl xz-libs nghttp2-libs
+RUN apk upgrade --no-cache zlib libexpat libpng libxpm libcurl xz-libs nghttp2-libs libcrypto3 libssl3
 
 # Copy built static assets
 COPY --from=builder /app/dist /srv
