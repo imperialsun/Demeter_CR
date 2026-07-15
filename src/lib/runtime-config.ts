@@ -17,7 +17,18 @@ let cachedConfig: RuntimeConfig | null = null;
 function normalizeBackendBaseUrl(value: string | undefined): string {
   const trimmed = (value ?? "").trim();
   if (!trimmed) return DEFAULT_CONFIG.backendBaseUrl;
-  return trimmed.replace(/\/+$/, "");
+  const normalized = trimmed.replace(/\/+$/, "");
+  if (normalized.startsWith("/") && !normalized.startsWith("//")) return normalized;
+
+  try {
+    const parsed = new URL(normalized);
+    const isLoopback = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "[::1]";
+    if (parsed.protocol === "https:" || (parsed.protocol === "http:" && isLoopback)) return normalized;
+  } catch {
+    // Invalid and unsafe values fall back to the same-origin API path.
+  }
+  logger.warn("[app][runtime] rejected unsafe backend URL");
+  return DEFAULT_CONFIG.backendBaseUrl;
 }
 
 function normalizeMode(value: string | undefined): RuntimeMode {
