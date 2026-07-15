@@ -281,7 +281,6 @@ describe('Topbar', () => {
 
   it("toggles the APP visual style from the topbar", async () => {
     const user = userEvent.setup();
-    const setItemSpy = vi.spyOn(window.localStorage, "setItem");
     renderTopbar();
 
     await user.click(screen.getByLabelText("Activer le style APP"));
@@ -291,7 +290,7 @@ describe('Topbar', () => {
       expect(document.documentElement.classList.contains("light")).toBe(true);
       expect(document.documentElement.classList.contains("dark")).toBe(false);
     });
-    expect(setItemSpy).toHaveBeenCalledWith("topbar-style-test", "app");
+    expect(window.localStorage.getItem("topbar-style-test")).toBe("app");
     expect(screen.getByLabelText("Revenir au style par défaut")).toBeInTheDocument();
 
     await user.click(screen.getByLabelText("Revenir au style par défaut"));
@@ -300,7 +299,7 @@ describe('Topbar', () => {
       expect(document.documentElement.classList.contains("style-app")).toBe(false);
       expect(document.documentElement.classList.contains("dark")).toBe(true);
     });
-    expect(setItemSpy).toHaveBeenCalledWith("topbar-style-test", "default");
+    expect(window.localStorage.getItem("topbar-style-test")).toBe("default");
     expect(screen.getByLabelText("Activer le style APP")).toBeInTheDocument();
   });
 

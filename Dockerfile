@@ -10,7 +10,7 @@ COPY . .
 RUN npm run build:prod
 
 # Production image
-FROM nginx:1.31.1-alpine3.23
+FROM nginx:1.31.2-alpine3.23
 # Refresh Alpine security-sensitive packages when the upstream nginx image lags behind security rebuilds.
 RUN apk upgrade --no-cache zlib libexpat libpng libxpm libcurl xz-libs nghttp2-libs libcrypto3 libssl3
 
