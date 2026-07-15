@@ -47,9 +47,7 @@ describe("ThemeProvider", () => {
   });
 
   it("uses stored theme from localStorage", () => {
-    vi.spyOn(window.localStorage, "getItem").mockImplementation((key: string) =>
-      key === "theme-test" ? "dark" : null
-    );
+    window.localStorage.setItem("theme-test", "dark");
 
     render(
       <ThemeProvider defaultTheme="light" storageKey="theme-test">
@@ -64,9 +62,8 @@ describe("ThemeProvider", () => {
   });
 
   it("uses stored visual style from localStorage and forces the light app style", async () => {
-    vi.spyOn(window.localStorage, "getItem").mockImplementation((key: string) =>
-      key === "theme-test" ? "dark" : key === "style-test" ? "app" : null
-    );
+    window.localStorage.setItem("theme-test", "dark");
+    window.localStorage.setItem("style-test", "app");
 
     render(
       <ThemeProvider defaultTheme="light" storageKey="theme-test" visualStyleStorageKey="style-test">
@@ -122,7 +119,7 @@ describe("ThemeProvider", () => {
   });
 
   it("updates and persists the visual style independently from theme", () => {
-    const setItemSpy = vi.spyOn(window.localStorage, "setItem");
+    const setItemSpy = vi.spyOn(Storage.prototype, "setItem");
 
     render(
       <ThemeProvider defaultTheme="dark" storageKey="theme-test" visualStyleStorageKey="style-test">

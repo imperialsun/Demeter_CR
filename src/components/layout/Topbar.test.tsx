@@ -281,7 +281,7 @@ describe('Topbar', () => {
 
   it("toggles the APP visual style from the topbar", async () => {
     const user = userEvent.setup();
-    const setItemSpy = vi.spyOn(window.localStorage, "setItem");
+    const setItemSpy = vi.spyOn(Storage.prototype, "setItem");
     renderTopbar();
 
     await user.click(screen.getByLabelText("Activer le style APP"));

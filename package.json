@@ -77,14 +77,14 @@
     "postcss": "^8.5.18",
     "tailwindcss": "^4.3.1",
     "terser": "^5.49.0",
-    "typescript": "~7.0.2",
+    "typescript": "~6.0.3",
     "typescript-eslint": "^8.63.0",
     "vite": "^8.1.4",
     "vitest": "^4.1.8"
   },
   "overrides": {
     "@vercel/blob": {
-      "undici": "6.24.0"
+      "undici": "6.27.0"
     },
     "eslint": {
       "@eslint/eslintrc": "3.3.5",
@@ -98,6 +98,6 @@
     "onnxruntime-web": "1.27.0",
     "rollup": "4.59.0",
     "tar": "7.5.11",
-    "undici": "7.24.0"
+    "undici": "7.28.0"
   }
 }
