@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile: build with Node, serve with Nginx (static files)
 
-FROM node:26.5.0-alpine3.23 AS builder
+FROM node:26.7.0-alpine3.23 AS builder
 WORKDIR /app
 
 # Install deps and build
