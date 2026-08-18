@@ -13,7 +13,7 @@ Le repo fournit:
 
 Etapes:
 
-1. build sur `node:25.8.1-alpine3.23`.
+1. build sur `node:26.1.0-alpine3.23`.
 2. `npm ci` puis `npm run build:prod`.
 3. runtime `nginx:1.29.6-alpine3.23` servant `dist/` sur port `3000`.
 

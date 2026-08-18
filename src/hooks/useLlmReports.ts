@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useAsrStore, type LlmApiProvider } from "@/store/asr-store";
 import { useReportTemplates } from "@/hooks/useReportTemplates";
 import { TelemetryCollector } from "@/lib/telemetry";
@@ -21,6 +21,7 @@ import {
 import {
   analyzeReportSource,
   generateReportDetailed,
+  isReportOperationCancelled,
   type GenerateReportDetailedResult,
   type AnalyzeReportSourceParams,
 } from "@/lib/llm/reportService";
@@ -132,6 +133,17 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
   const setTelemetrySummary = useAsrStore((state) => state.setTelemetrySummary);
   const effectiveProvider = options.providerOverride ?? llmApiProvider;
   const selectedCustomTemplates = options.selectedCustomTemplates ?? enabledTemplates;
+  const activeOperationAbortControllerRef = useRef<AbortController | null>(null);
+
+  const cancelCurrentOperation = useCallback(() => {
+    activeOperationAbortControllerRef.current?.abort();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      activeOperationAbortControllerRef.current?.abort();
+    };
+  }, []);
 
   const analyzeSource = useCallback(
     async (input: GenerateInput): Promise<ReportClarification> => {
@@ -150,28 +162,38 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
       const sourceKind = normalizeReportSourceKind(
         input.sourceKind ?? (input.source === "text" ? "text_note" : "transcription")
       );
+      activeOperationAbortControllerRef.current?.abort();
+      const operationController = new AbortController();
+      activeOperationAbortControllerRef.current = operationController;
       const base = {
         modelId: activePipelineConfig.modelId,
         sourceText,
         sourceKind,
         temperature: 0,
         maxTokens: 512,
+        signal: operationController.signal,
       } as const;
-      let params: AnalyzeReportSourceParams;
-      if (effectiveProvider === "huggingface") {
-        params = { ...base, provider: "huggingface", hfToken: hfApiToken };
-      } else if (effectiveProvider === "mistral") {
-        params = {
-          ...base,
-          provider: "mistral",
-          mistralApiKey,
-          mistralApiUrl: cloudMistralApiUrl,
-        };
-      } else {
-        params = { ...base, provider: "demeter_sante" };
+      try {
+        let params: AnalyzeReportSourceParams;
+        if (effectiveProvider === "huggingface") {
+          params = { ...base, provider: "huggingface", hfToken: hfApiToken };
+        } else if (effectiveProvider === "mistral") {
+          params = {
+            ...base,
+            provider: "mistral",
+            mistralApiKey,
+            mistralApiUrl: cloudMistralApiUrl,
+          };
+        } else {
+          params = { ...base, provider: "demeter_sante" };
+        }
+        const result = await analyzeReportSource(params);
+        return result.clarification;
+      } finally {
+        if (activeOperationAbortControllerRef.current === operationController) {
+          activeOperationAbortControllerRef.current = null;
+        }
       }
-      const result = await analyzeReportSource(params);
-      return result.clarification;
     },
     [
       cloudMistralApiUrl,
@@ -229,6 +251,9 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
         telemetry.stopTimer("llm_cloud_total");
         return;
       }
+      activeOperationAbortControllerRef.current?.abort();
+      const operationController = new AbortController();
+      activeOperationAbortControllerRef.current = operationController;
       let lastStageLabel = stage;
       let lastGlobalPassIndex = 1;
       let lastGlobalPassTotal = 1;
@@ -400,6 +425,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
           reportMaxTokens: number;
           sequenceIndex: number;
           totalFormats: number;
+          signal?: AbortSignal;
         }): Promise<{
           report: ReportJson;
           rawResponse: string;
@@ -503,6 +529,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
                   detailLevel: params.detailLevel,
                   sourceKind,
                   hfToken,
+                  signal: params.signal,
                 });
               } else if (provider === "mistral") {
                 batchGeneration = await generateReportDetailed({
@@ -516,6 +543,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
                   sourceKind,
                   mistralApiKey: mistralKey,
                   mistralApiUrl,
+                  signal: params.signal,
                 });
               } else {
                 batchGeneration = await generateReportDetailed({
@@ -528,6 +556,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
                   detailLevel: params.detailLevel,
                   sourceKind,
                   pollTimeoutMs: demeterPollTimeoutMs,
+                  signal: params.signal,
                 });
               }
 
@@ -792,6 +821,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
                 reportMaxTokens,
                 sequenceIndex,
                 totalFormats,
+                signal: operationController.signal,
               });
               generation = {
                 report: crnGeneration.report,
@@ -818,6 +848,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
                       exampleOutline: item.template.exampleOutline,
                     }
                   : undefined,
+                signal: operationController.signal,
               });
             } else if (provider === "mistral") {
               generation = await generateReportDetailed({
@@ -839,6 +870,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
                       exampleOutline: item.template.exampleOutline,
                     }
                   : undefined,
+                signal: operationController.signal,
               });
             } else {
               generation = await generateReportDetailed({
@@ -858,6 +890,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
                       exampleOutline: item.template.exampleOutline,
                     }
                   : undefined,
+                signal: operationController.signal,
               });
             }
 
@@ -1014,14 +1047,14 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
           provider,
           modelId,
           sourceMode,
-          formatCount: FORMAT_ORDER.length,
+          formatCount: activeFormatOrder.length,
           formatOrder,
         });
         logger.info("[llm-api] run done", {
           provider,
           modelId,
           sourceMode,
-          formatCount: FORMAT_ORDER.length,
+          formatCount: activeFormatOrder.length,
           formatOrder,
         });
         trackBackendActivityEvent({
@@ -1039,6 +1072,12 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
           sourceMode,
         });
       } catch (error) {
+        if (isReportOperationCancelled(error)) {
+          telemetry.stopTimer("llm_cloud_total");
+          setLlmApiProgress(0);
+          setLlmApiStatus("idle", "Opération annulée");
+          return;
+        }
         if (isBackendSessionExpiredError(error)) {
           telemetry.stopTimer("llm_cloud_total");
           setLlmApiProgress(0);
@@ -1117,6 +1156,10 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
           message,
         });
         setLlmApiStatus("error", message);
+      } finally {
+        if (activeOperationAbortControllerRef.current === operationController) {
+          activeOperationAbortControllerRef.current = null;
+        }
       }
     },
     [
@@ -1219,6 +1262,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
     results,
     analyzeSource,
     generateAll,
+    cancelCurrentOperation,
     downloadDocx,
   };
 }

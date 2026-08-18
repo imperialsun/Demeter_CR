@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 
@@ -81,6 +81,17 @@ vi.mock("@/hooks/useLlmReports", () => ({
     pageHooks.llmHookCalls.push(options);
     return pageHooks.llmState;
   },
+}));
+
+vi.mock("@/hooks/useReportTemplates", () => ({
+  useReportTemplates: () => ({
+    enabledTemplates: [],
+    items: [],
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+    setPreference: vi.fn(),
+  }),
 }));
 
 vi.mock("@/lib/docx/transcriptDocx", () => ({
@@ -179,6 +190,12 @@ function resetMutableObject(target: Record<string, unknown>) {
   }
 }
 
+function setStoreState(next: Parameters<typeof useAsrStore.setState>[0]) {
+  act(() => {
+    useAsrStore.setState(next);
+  });
+}
+
 function NavigationHarness() {
   const navigate = useNavigate();
 
@@ -202,7 +219,9 @@ function NavigationHarness() {
 
 describe("AssistantPage", () => {
   beforeEach(() => {
-    useAsrStore.getState().resetApp();
+    act(() => {
+      useAsrStore.getState().resetApp();
+    });
     resetMutableObject(pageHooks.cloudState);
     resetMutableObject(pageHooks.llmState);
     pageHooks.cloudHookCalls.length = 0;
@@ -214,7 +233,9 @@ describe("AssistantPage", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    useAsrStore.getState().resetApp();
+    act(() => {
+      useAsrStore.getState().resetApp();
+    });
   });
 
   it("shows the workflow step labels without truncation", () => {
@@ -323,7 +344,7 @@ describe("AssistantPage", () => {
         progress: 0,
       })
     );
-    useAsrStore.setState({
+    setStoreState({
       assistantWorkflow: {
         diarizationChoice: null,
         hasTriggeredTranscription: false,
@@ -350,7 +371,12 @@ describe("AssistantPage", () => {
       expect(pageHooks.cloudState.startTranscription).toHaveBeenCalledTimes(1);
     });
 
-    useAsrStore.setState({
+    pageHooks.cloudState.status = "done";
+    pageHooks.cloudState.statusDetail = "Transcription terminée";
+    pageHooks.cloudState.isTranscribing = false;
+    pageHooks.cloudState.progress = 1;
+    pageHooks.cloudState.chunkSummaries = chunkSummaries;
+    setStoreState({
       assistantWorkflow: {
         diarizationChoice: true,
         hasTriggeredTranscription: true,
@@ -358,13 +384,6 @@ describe("AssistantPage", () => {
         hasConfirmedDiarizationReview: false,
         activeChunkId: "assistant-1",
       },
-    } as never);
-    pageHooks.cloudState.status = "done";
-    pageHooks.cloudState.statusDetail = "Transcription terminée";
-    pageHooks.cloudState.isTranscribing = false;
-    pageHooks.cloudState.progress = 1;
-    pageHooks.cloudState.chunkSummaries = chunkSummaries;
-    useAsrStore.setState({
       sessionTranscriptMemories: {
         ...useAsrStore.getState().sessionTranscriptMemories,
         cloud: {
@@ -622,7 +641,7 @@ describe("AssistantPage", () => {
     pageHooks.cloudState.isTranscribing = false;
     pageHooks.cloudState.progress = 1;
     pageHooks.cloudState.chunkSummaries = chunkSummaries;
-    useAsrStore.setState({
+    setStoreState({
       sessionTranscriptMemories: {
         ...useAsrStore.getState().sessionTranscriptMemories,
         cloud: {
@@ -835,7 +854,7 @@ describe("AssistantPage", () => {
     pageHooks.cloudState.isTranscribing = false;
     pageHooks.cloudState.progress = 1;
     pageHooks.cloudState.chunkSummaries = chunkSummaries;
-    useAsrStore.setState({
+    setStoreState({
       sessionTranscriptMemories: {
         ...useAsrStore.getState().sessionTranscriptMemories,
         cloud: {
@@ -917,7 +936,7 @@ describe("AssistantPage", () => {
         }),
       })
     );
-    useAsrStore.setState({
+    setStoreState({
       assistantWorkflow: {
         diarizationChoice: false,
         hasTriggeredTranscription: true,

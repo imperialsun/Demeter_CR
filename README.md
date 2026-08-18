@@ -69,7 +69,7 @@ From the workspace root, `./deploy-transcode.sh local` starts Backend, Front use
 
 ## Compatibility and prerequisites
 
-- Node.js `25.8.1` (`.nvmrc`) for local build and scripts.
+- Node.js `26.1.0` (`.nvmrc`) for local build and scripts.
 - npm (lockfile is `package-lock.json`).
 - Modern browser with WebGPU/WASM support (Chrome/Edge recommended).
 - Cross-origin isolation headers for multithreaded WASM:

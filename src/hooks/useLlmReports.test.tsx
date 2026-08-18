@@ -15,6 +15,18 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/llm/reportService", () => ({
   generateReportDetailed: mocks.generateReportDetailedMock,
+  isReportOperationCancelled: (error: unknown) => error instanceof Error && error.name === "AbortError",
+}));
+
+vi.mock("@/hooks/useReportTemplates", () => ({
+  useReportTemplates: () => ({
+    enabledTemplates: [],
+    items: [],
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+    setPreference: vi.fn(),
+  }),
 }));
 
 vi.mock("@/lib/llm/longInputPipeline", () => ({
@@ -140,6 +152,7 @@ describe("useLlmReports telemetry", () => {
         (event) => event.type === "LLM_RUN_STAGE" && event.data?.generationMode === "mono_pass"
       )
     ).toBe(true);
+    expect(summary?.events.find((event) => event.type === "LLM_RUN_DONE")?.data?.formatCount).toBe(4);
     expect(mocks.generateReportDetailedMock).toHaveBeenCalledTimes(4);
   });
 

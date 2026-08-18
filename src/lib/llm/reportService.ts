@@ -42,6 +42,7 @@ interface GenerateReportBaseParams {
     instructions: string;
     exampleOutline?: string;
   };
+  signal?: AbortSignal;
 }
 
 export interface GenerateReportHuggingFaceParams extends GenerateReportBaseParams {
@@ -58,6 +59,7 @@ export interface GenerateReportMistralParams extends GenerateReportBaseParams {
 export interface GenerateReportDemeterParams extends GenerateReportBaseParams {
   provider: "demeter_sante";
   pollTimeoutMs?: number;
+  pollIntervalMs?: number;
 }
 
 export type GenerateReportParams =
@@ -93,6 +95,146 @@ const DEMETER_REPORT_REQUEST_TIMEOUT_MS = 10 * 60_000;
 const DEMETER_REPORT_POLL_INTERVAL_MS = 10_000;
 const DEMETER_REPORT_POLL_TIMEOUT_MS = 6 * 60 * 60_000;
 const DEMETER_REPORT_INVALID_JSON_MAX_ATTEMPTS = 3;
+
+export function isReportOperationCancelled(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function createReportOperationAbortError(): Error {
+  const error = new Error("L'opération Demeter a été annulée.");
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfReportOperationCancelled(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw createReportOperationAbortError();
+  }
+}
+
+async function waitForDemeterPoll(delayMs: number, signal?: AbortSignal): Promise<void> {
+  throwIfReportOperationCancelled(signal);
+  await new Promise<void>((resolve, reject) => {
+    const timerId = globalThis.setTimeout(resolve, delayMs);
+    const onAbort = () => {
+      globalThis.clearTimeout(timerId);
+      reject(createReportOperationAbortError());
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal) {
+      const cleanup = () => signal.removeEventListener("abort", onAbort);
+      signal.addEventListener("abort", cleanup, { once: true });
+      globalThis.setTimeout(cleanup, delayMs);
+    }
+  });
+}
+
+async function cancelDemeterReportQueueOperation(operationId: string): Promise<void> {
+  try {
+    await backendFetch(`/providers/demeter-sante/report/operations/${encodeURIComponent(operationId)}`, {
+      method: "DELETE",
+      timeoutMs: DEMETER_REPORT_REQUEST_TIMEOUT_MS,
+      retryAttempts: 0,
+      allowSessionRefresh: false,
+    });
+  } catch {
+    // Cancellation is best effort after the local operation has already been
+    // interrupted. The backend worker still enforces terminal cancellation.
+  }
+}
+
+type DemeterQueueRunOptions<T> = {
+  submitBody: Record<string, unknown>;
+  signal?: AbortSignal;
+  pollTimeoutMs: number;
+  pollIntervalMs: number;
+  parseCompleted: (snapshot: DemeterReportOperationResponse) => T;
+  buildFailure: (snapshot: DemeterReportOperationResponse) => Error;
+};
+
+async function runDemeterQueueOperation<T>(options: DemeterQueueRunOptions<T>): Promise<T> {
+  const submitPath = "/providers/demeter-sante/report/operations";
+  let operationId = "";
+  let terminal = false;
+  let cancellationPromise: Promise<void> | null = null;
+  const requestCancellation = () => {
+    if (!operationId) return Promise.resolve();
+    cancellationPromise ??= cancelDemeterReportQueueOperation(operationId);
+    return cancellationPromise;
+  };
+  const onAbort = () => {
+    void requestCancellation();
+  };
+
+  options.signal?.addEventListener("abort", onAbort, { once: true });
+  try {
+    throwIfReportOperationCancelled(options.signal);
+    const submit = () =>
+      backendFetch(submitPath, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(options.submitBody),
+        timeoutMs: DEMETER_REPORT_REQUEST_TIMEOUT_MS,
+        signal: options.signal,
+      });
+
+    let submitResponse = await submit();
+    if (!submitResponse.ok && submitResponse.status === 401) {
+      const refreshResult = await backendRefresh();
+      throwIfReportOperationCancelled(options.signal);
+      if (refreshResult === "expired") throw new BackendSessionExpiredError();
+      if (refreshResult === "failed") {
+        throw new Error("Impossible de renouveler la session backend Demeter Santé.");
+      }
+      submitResponse = await submit();
+    }
+    if (!submitResponse.ok) {
+      const error = await parseBackendHttpError(submitResponse, submitPath, "POST");
+      if ((error as Error & { status?: number }).status === 401) handleBackendUnauthorized(error);
+      throw error;
+    }
+
+    const submitPayload = (await submitResponse.json()) as DemeterReportOperationResponse;
+    operationId = submitPayload.operationId?.trim() ?? "";
+    if (!operationId) throw new Error("Réponse backend invalide: operationId manquant.");
+
+    const pollStartedAt = Date.now();
+    while (true) {
+      throwIfReportOperationCancelled(options.signal);
+      if (Date.now() - pollStartedAt > options.pollTimeoutMs) {
+        throw new Error("Le traitement du rapport a dépassé le délai maximal.");
+      }
+
+      const statusPath = `${submitPath}/${encodeURIComponent(operationId)}`;
+      const statusResponse = await backendFetch(statusPath, {
+        method: "GET",
+        timeoutMs: DEMETER_REPORT_REQUEST_TIMEOUT_MS,
+        signal: options.signal,
+      });
+      if (!statusResponse.ok) {
+        const error = await parseBackendHttpError(statusResponse, statusPath, "GET");
+        if ((error as Error & { status?: number }).status === 401) handleBackendUnauthorized(error);
+        throw error;
+      }
+
+      const snapshot = (await statusResponse.json()) as DemeterReportOperationResponse;
+      if (snapshot.status === "completed") {
+        terminal = true;
+        return options.parseCompleted(snapshot);
+      }
+      if (snapshot.status === "failed" || snapshot.status === "cancelled") {
+        terminal = true;
+        throw options.buildFailure(snapshot);
+      }
+      await waitForDemeterPoll(options.pollIntervalMs, options.signal);
+    }
+  } finally {
+    options.signal?.removeEventListener("abort", onAbort);
+    if (operationId && !terminal) {
+      await requestCancellation();
+    }
+  }
+}
 
 export async function generateReport(params: GenerateReportParams): Promise<ReportJson> {
   const detailed = await generateReportDetailed(params);
@@ -177,6 +319,8 @@ export async function generateReportDetailed(
       sourceKind: params.sourceKind,
       templateId: params.template?.id,
       pollTimeoutMs: params.pollTimeoutMs,
+      pollIntervalMs: params.pollIntervalMs,
+      signal: params.signal,
     });
   }
   logger.info("[llm-api][report-service] Génération standard · réponse reçue", {
@@ -229,6 +373,8 @@ async function generateWithDemeterReportQueue(params: {
   sourceKind?: ReportSourceKind;
   templateId?: string;
   pollTimeoutMs?: number;
+  pollIntervalMs?: number;
+  signal?: AbortSignal;
 }): Promise<GenerateReportDetailedResult> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= DEMETER_REPORT_INVALID_JSON_MAX_ATTEMPTS; attempt += 1) {
@@ -265,6 +411,8 @@ async function runDemeterReportQueueOperation(
     sourceKind?: ReportSourceKind;
     templateId?: string;
     pollTimeoutMs?: number;
+    pollIntervalMs?: number;
+    signal?: AbortSignal;
   },
   attempt: number
 ): Promise<GenerateReportDetailedResult> {
@@ -289,85 +437,25 @@ async function runDemeterReportQueueOperation(
     maxAttempts: DEMETER_REPORT_INVALID_JSON_MAX_ATTEMPTS,
   });
 
-  const submit = () =>
-    backendFetch("/providers/demeter-sante/report/operations", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(submitBody),
-      timeoutMs: DEMETER_REPORT_REQUEST_TIMEOUT_MS,
-    });
-
-  let submitResponse = await submit();
-  if (!submitResponse.ok && submitResponse.status === 401) {
-    const refreshResult = await backendRefresh();
-    if (refreshResult === "expired") {
-      throw new BackendSessionExpiredError();
-    }
-    if (refreshResult === "failed") {
-      throw new Error("Impossible de renouveler la session backend Demeter Santé.");
-    }
-    submitResponse = await submit();
-  }
-  if (!submitResponse.ok) {
-    const error = await parseBackendHttpError(submitResponse, "/providers/demeter-sante/report/operations", "POST");
-    if ((error as Error & { status?: number }).status === 401) {
-      handleBackendUnauthorized(error);
-    }
-    throw error;
-  }
-
-  const submitPayload = (await submitResponse.json()) as DemeterReportOperationResponse;
-  const operationId = submitPayload.operationId?.trim();
-  if (!operationId) {
-    throw new Error("Réponse backend invalide: operationId manquant.");
-  }
-
-  const pollTimeoutMs = params.pollTimeoutMs ?? DEMETER_REPORT_POLL_TIMEOUT_MS;
-  const pollStartedAt = Date.now();
-  while (true) {
-    if (Date.now() - pollStartedAt > pollTimeoutMs) {
-      throw new Error("Le traitement du rapport a dépassé le délai maximal.");
-    }
-
-    const statusRes = await backendFetch(`/providers/demeter-sante/report/operations/${encodeURIComponent(operationId)}`, {
-      method: "GET",
-      timeoutMs: DEMETER_REPORT_REQUEST_TIMEOUT_MS,
-    });
-    if (!statusRes.ok) {
-      const error = await parseBackendHttpError(
-        statusRes,
-        `/providers/demeter-sante/report/operations/${operationId}`,
-        "GET"
-      );
-      if ((error as Error & { status?: number }).status === 401) {
-        handleBackendUnauthorized(error);
-      }
-      throw error;
-    }
-
-    const snapshot = (await statusRes.json()) as DemeterReportOperationResponse;
-    if (snapshot.status === "completed") {
+  return runDemeterQueueOperation({
+    submitBody,
+    signal: params.signal,
+    pollTimeoutMs: params.pollTimeoutMs ?? DEMETER_REPORT_POLL_TIMEOUT_MS,
+    pollIntervalMs: params.pollIntervalMs ?? DEMETER_REPORT_POLL_INTERVAL_MS,
+    parseCompleted: (snapshot) => {
       const report = snapshot.response?.report;
-      if (!report) {
-        throw new Error("Le backend a terminé sans renvoyer de rapport.");
-      }
+      if (!report) throw new Error("Le backend a terminé sans renvoyer de rapport.");
       return {
         report,
         rawResponse: snapshot.response?.raw ?? "",
-        strategy: "chatCompletion",
+        strategy: "chatCompletion" as const,
       };
-    }
-    if (snapshot.status === "failed") {
-      throw new Error(formatDemeterReportQueueError(snapshot));
-    }
-    if (snapshot.status === "cancelled") {
-      throw new Error("La génération du rapport a été annulée.");
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, DEMETER_REPORT_POLL_INTERVAL_MS));
-  }
+    },
+    buildFailure: (snapshot) => {
+      if (snapshot.status === "cancelled") return new Error("La génération du rapport a été annulée.");
+      return new Error(formatDemeterReportQueueError(snapshot));
+    },
+  });
 }
 
 type AnalyzeReportSourceBaseParams = {
@@ -377,6 +465,8 @@ type AnalyzeReportSourceBaseParams = {
   temperature?: number;
   maxTokens?: number;
   pollTimeoutMs?: number;
+  pollIntervalMs?: number;
+  signal?: AbortSignal;
 };
 
 export type AnalyzeReportSourceParams =
@@ -419,6 +509,8 @@ export async function analyzeReportSource(
       temperature: 0,
       maxTokens,
       pollTimeoutMs: params.pollTimeoutMs,
+      pollIntervalMs: params.pollIntervalMs,
+      signal: params.signal,
     });
   }
 
@@ -473,6 +565,8 @@ async function runDemeterClarificationQueueOperation(params: {
   temperature: number;
   maxTokens: number;
   pollTimeoutMs?: number;
+  pollIntervalMs?: number;
+  signal?: AbortSignal;
 }): Promise<ReportClarificationGeneration> {
   const submitBody = {
     operationType: "clarification",
@@ -482,52 +576,12 @@ async function runDemeterClarificationQueueOperation(params: {
     temperature: 0,
     maxTokens: params.maxTokens,
   };
-  const submitPath = "/providers/demeter-sante/report/operations";
-  const submit = () =>
-    backendFetch(submitPath, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(submitBody),
-      timeoutMs: DEMETER_REPORT_REQUEST_TIMEOUT_MS,
-    });
-
-  let submitResponse = await submit();
-  if (!submitResponse.ok && submitResponse.status === 401) {
-    const refreshResult = await backendRefresh();
-    if (refreshResult === "expired") throw new BackendSessionExpiredError();
-    if (refreshResult === "failed") {
-      throw new Error("Impossible de renouveler la session backend Demeter Santé.");
-    }
-    submitResponse = await submit();
-  }
-  if (!submitResponse.ok) {
-    const error = await parseBackendHttpError(submitResponse, submitPath, "POST");
-    if ((error as Error & { status?: number }).status === 401) handleBackendUnauthorized(error);
-    throw error;
-  }
-
-  const submitPayload = (await submitResponse.json()) as DemeterReportOperationResponse;
-  const operationId = submitPayload.operationId?.trim();
-  if (!operationId) throw new Error("Réponse backend invalide: operationId manquant.");
-
-  const pollTimeoutMs = params.pollTimeoutMs ?? DEMETER_REPORT_POLL_TIMEOUT_MS;
-  const pollStartedAt = Date.now();
-  while (true) {
-    if (Date.now() - pollStartedAt > pollTimeoutMs) {
-      throw new Error("L'analyse de clarification a dépassé le délai maximal.");
-    }
-    const statusPath = `${submitPath}/${encodeURIComponent(operationId)}`;
-    const statusResponse = await backendFetch(statusPath, {
-      method: "GET",
-      timeoutMs: DEMETER_REPORT_REQUEST_TIMEOUT_MS,
-    });
-    if (!statusResponse.ok) {
-      const error = await parseBackendHttpError(statusResponse, statusPath, "GET");
-      if ((error as Error & { status?: number }).status === 401) handleBackendUnauthorized(error);
-      throw error;
-    }
-    const snapshot = (await statusResponse.json()) as DemeterReportOperationResponse;
-    if (snapshot.status === "completed") {
+  return runDemeterQueueOperation({
+    submitBody,
+    signal: params.signal,
+    pollTimeoutMs: params.pollTimeoutMs ?? DEMETER_REPORT_POLL_TIMEOUT_MS,
+    pollIntervalMs: params.pollIntervalMs ?? DEMETER_REPORT_POLL_INTERVAL_MS,
+    parseCompleted: (snapshot) => {
       const clarification = snapshot.response?.clarification;
       if (!clarification) {
         throw new Error("Le backend a terminé sans renvoyer l'analyse de clarification.");
@@ -535,13 +589,14 @@ async function runDemeterClarificationQueueOperation(params: {
       return {
         clarification: parseReportClarificationJson(JSON.stringify(clarification)),
         rawResponse: snapshot.response?.raw ?? "",
-        strategy: "chatCompletion",
+        strategy: "chatCompletion" as const,
       };
-    }
-    if (snapshot.status === "failed") throw new Error(formatDemeterReportQueueError(snapshot));
-    if (snapshot.status === "cancelled") throw new Error("L'analyse de clarification a été annulée.");
-    await new Promise((resolve) => setTimeout(resolve, DEMETER_REPORT_POLL_INTERVAL_MS));
-  }
+    },
+    buildFailure: (snapshot) => {
+      if (snapshot.status === "cancelled") return new Error("L'analyse de clarification a été annulée.");
+      return new Error(formatDemeterReportQueueError(snapshot));
+    },
+  });
 }
 
 function isRetryableInvalidReportPayloadError(error: unknown): boolean {

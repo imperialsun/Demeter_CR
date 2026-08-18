@@ -126,7 +126,7 @@ Note explicite: `speakerAssignments` n est pas inclus dans `PersistedSettings`.
 
 ## Valeurs par defaut notables
 
-- Node attendu: `25.8.1`.
+- Node attendu: `26.1.0`.
 - Local preset: `fast`.
 - Local backend preference: `webgpu`.
 - Cloud provider (UI): Gradio.

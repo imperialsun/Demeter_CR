@@ -2,7 +2,7 @@
 
 ## Prerequis
 
-- Node.js `25.8.1` (voir `.nvmrc`).
+- Node.js `26.1.0` (voir `.nvmrc`).
 - npm.
 - Docker Engine + Compose plugin pour execution conteneurisee.
 - Navigateur moderne (Chrome/Edge recommande).

@@ -9,6 +9,7 @@ import LLMApiPage from "@/routes/LLMApiPage";
 
 const generateAll = vi.fn(async () => undefined);
 const analyzeSource = vi.fn(async () => ({ needsClarification: false, summary: "", questions: [] }));
+const cancelCurrentOperation = vi.fn();
 const downloadDocx = vi.fn(async () => undefined);
 const { toastMock, parseTranscriptFileMock, emitLlmEventMock } = vi.hoisted(() => ({
   toastMock: vi.fn(),
@@ -27,6 +28,7 @@ const hookState = {
   results: {},
   analyzeSource,
   generateAll,
+  cancelCurrentOperation,
   downloadDocx,
 };
 
@@ -79,11 +81,23 @@ vi.mock("@/hooks/useBackendPermissions", () => ({
   useBackendPermissions: () => ({}),
 }));
 
+vi.mock("@/hooks/useReportTemplates", () => ({
+  useReportTemplates: () => ({
+    enabledTemplates: [],
+    items: [],
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+    setPreference: vi.fn(),
+  }),
+}));
+
 describe("LLMApiPage", () => {
   beforeEach(() => {
     generateAll.mockClear();
     analyzeSource.mockClear();
     analyzeSource.mockResolvedValue({ needsClarification: false, summary: "", questions: [] });
+    cancelCurrentOperation.mockClear();
     downloadDocx.mockClear();
     toastMock.mockClear();
     parseTranscriptFileMock.mockReset();
@@ -145,7 +159,7 @@ describe("LLMApiPage", () => {
   it("triggers generation from transcription source", async () => {
     renderPage();
 
-    await userEvent.click(screen.getByTestId("llm-memory-source-panel"));
+    await userEvent.click(screen.getByRole("button", { name: /charger depuis la transcription en mémoire/i }));
     const button = screen.getByRole("button", { name: /générer les comptes rendus/i });
     expect(button).not.toBeDisabled();
 
@@ -302,10 +316,7 @@ describe("LLMApiPage", () => {
 
     renderPage();
 
-    expect(screen.getByRole("button", { name: /charger depuis la transcription en mémoire/i })).toHaveAttribute(
-      "aria-disabled",
-      "true"
-    );
+    expect(screen.getByRole("button", { name: /charger depuis la transcription en mémoire/i })).toBeDisabled();
     expect(screen.getByText(/aucune transcription disponible en mémoire/i)).toBeInTheDocument();
     const button = screen.getByRole("button", { name: /générer les comptes rendus/i });
     expect(button).toBeDisabled();
@@ -315,7 +326,11 @@ describe("LLMApiPage", () => {
     renderPage();
 
     const documentPanel = screen.getByTestId("llm-document-source-panel");
-    await userEvent.click(documentPanel);
+    await userEvent.click(
+      within(documentPanel).getByRole("button", {
+        name: /charger depuis un document de transcription ou une prise de note/i,
+      })
+    );
 
     expect(within(documentPanel).getByText("Source active")).toBeInTheDocument();
     expect(within(screen.getByTestId("llm-memory-source-panel")).queryByText("Source active")).toBeNull();
@@ -609,6 +624,25 @@ describe("LLMApiPage", () => {
         ],
       })
     );
+  });
+
+  it("does not create a clarification focus target when analysis has no questions", async () => {
+    renderPage();
+
+    const generateButton = screen.getByRole("button", { name: /générer les comptes rendus/i });
+    await userEvent.click(generateButton);
+
+    await waitFor(() => expect(generateAll).toHaveBeenCalled());
+    expect(screen.queryByTestId("llm-clarification-panel")).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(generateButton);
+  });
+
+  it("exposes cancellation while a generation is running", async () => {
+    hookState.status = "generating";
+    renderPage();
+
+    await userEvent.click(screen.getByTestId("llm-cancel-operation"));
+    expect(cancelCurrentOperation).toHaveBeenCalledTimes(1);
   });
 
   it("allows continuing without clarification when analysis fails", async () => {

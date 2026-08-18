@@ -92,7 +92,7 @@ export function areReportJsonsEqual(left: ReportJson | null | undefined, right: 
   return true;
 }
 
-function parseJsonCandidate(rawOutput: string): unknown {
+export function parseJsonCandidate(rawOutput: string): unknown {
   const trimmed = rawOutput.trim();
   if (!trimmed) {
     throw new Error("La reponse du modele est vide.");

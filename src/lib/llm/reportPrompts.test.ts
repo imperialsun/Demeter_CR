@@ -12,7 +12,7 @@ describe("reportPrompts", () => {
     const prompt = buildReportSystemPrompt();
     expect(prompt).toContain("N'invente jamais");
     expect(prompt).toContain("JSON");
-    expect(prompt).toContain("transcription ASR");
+    expect(prompt).toContain("Le texte source peut contenir des erreurs");
     expect(prompt).toContain("Corrige uniquement les erreurs manifestes");
   });
 
@@ -39,6 +39,7 @@ describe("reportPrompts", () => {
     });
 
     expect(systemPrompt).toContain("prise de note Word très abrégée");
+    expect(systemPrompt).toContain("pas nécessairement une transcription ASR");
     expect(userPrompt).toContain("une longueur inférieure à la cible est acceptable");
     expect(userPrompt).not.toContain("longueur minimale obligatoire");
   });

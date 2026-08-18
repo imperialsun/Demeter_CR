@@ -4,7 +4,6 @@ import {
   useRef,
   useState,
   type ChangeEvent,
-  type KeyboardEvent,
 } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,6 +43,7 @@ import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { useReportTemplates } from "@/hooks/useReportTemplates";
 import { canAccessFeature, canUseLlmProvider } from "@/lib/backend-permissions";
 import { cn } from "@/lib/utils";
+import { isReportOperationCancelled } from "@/lib/llm/reportService";
 import {
   type ReportClarification,
   type ReportClarificationAnswer,
@@ -123,7 +123,15 @@ function LLMApiPage() {
     () => enabledTemplates.filter((template) => customTemplateSelections[template.id] ?? true),
     [customTemplateSelections, enabledTemplates]
   );
-  const { status, progress, results, analyzeSource, generateAll, downloadDocx } = useLlmReports({ selectedCustomTemplates });
+  const {
+    status,
+    progress,
+    results,
+    analyzeSource,
+    generateAll,
+    cancelCurrentOperation,
+    downloadDocx,
+  } = useLlmReports({ selectedCustomTemplates });
 
   const [source, setSource] = useState<"transcription" | "text">("transcription");
   const [manualText, setManualText] = useState("");
@@ -269,6 +277,7 @@ function LLMApiPage() {
 
   const meta = LLM_API_STATUS_META[status];
   const isBusy = status === "preparing" || status === "generating" || status === "formatting";
+  const canCancelOperation = isBusy || clarificationState === "analyzing";
   const hasSource = source === "transcription" ? transcriptionText.length > 0 : manualText.trim().length > 0;
   const tokenRequiredMessage =
     activeProvider === "huggingface"
@@ -403,6 +412,12 @@ function LLMApiPage() {
       }
       await generateWithAnswers([]);
     } catch (error) {
+      if (isReportOperationCancelled(error)) {
+        setClarificationState("idle");
+        setClarificationError("");
+        setLlmApiStatus("idle", "Opération annulée");
+        return;
+      }
       const message = error instanceof Error ? error.message : "L'analyse de la source a échoué.";
       setClarificationError(message);
       setClarificationState("error");
@@ -442,12 +457,6 @@ function LLMApiPage() {
   const selectDocumentSource = () => {
     setSource("text");
     setSourceKind(importedFileMeta?.format === "docx" ? "word_note" : "text_note");
-  };
-
-  const handleSourcePanelKeyDown = (event: KeyboardEvent<HTMLElement>, selectSource: () => void) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    selectSource();
   };
 
   const runDownload = async (format: ReportResultKey) => {
@@ -598,13 +607,7 @@ function LLMApiPage() {
                     canSelectMemorySource ? "cursor-pointer hover:border-primary/70" : "cursor-not-allowed opacity-60",
                     memorySourceActive ? "border-primary bg-primary/5" : "border-border"
                   )}
-                  role="button"
-                  tabIndex={canSelectMemorySource ? 0 : -1}
-                  aria-disabled={!canSelectMemorySource}
-                  aria-labelledby="llm-memory-source-title"
                   data-testid="llm-memory-source-panel"
-                  onClick={selectMemorySource}
-                  onKeyDown={(event) => handleSourcePanelKeyDown(event, selectMemorySource)}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 space-y-1">
@@ -615,7 +618,20 @@ function LLMApiPage() {
                         Utilisez la dernière transcription disponible dans cette session navigateur.
                       </p>
                     </div>
-                    {memorySourceActive ? <Badge>Source active</Badge> : null}
+                    <div className="flex items-center gap-2">
+                      {memorySourceActive ? <Badge>Source active</Badge> : null}
+                      <Button
+                        type="button"
+                        variant={memorySourceActive ? "default" : "outline"}
+                        size="sm"
+                        disabled={!canSelectMemorySource}
+                        aria-label="Charger depuis la transcription en mémoire"
+                        aria-pressed={memorySourceActive}
+                        onClick={selectMemorySource}
+                      >
+                        {memorySourceActive ? "Source sélectionnée" : "Utiliser cette source"}
+                      </Button>
+                    </div>
                   </div>
 
                   {availableTranscripts.length > 1 ? (
@@ -670,15 +686,10 @@ function LLMApiPage() {
 
                 <section
                   className={cn(
-                    "cursor-pointer rounded-md border bg-muted/20 p-4 transition-colors hover:border-primary/70",
+                    "rounded-md border bg-muted/20 p-4 transition-colors",
                     documentSourceActive ? "border-primary bg-primary/5" : "border-border"
                   )}
-                  role="button"
-                  tabIndex={0}
-                  aria-labelledby="llm-document-source-title"
                   data-testid="llm-document-source-panel"
-                  onClick={selectDocumentSource}
-                  onKeyDown={(event) => handleSourcePanelKeyDown(event, selectDocumentSource)}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 space-y-1">
@@ -689,7 +700,19 @@ function LLMApiPage() {
                         Importez un fichier texte, DOCX ou sous-titres pour alimenter la rédaction.
                       </p>
                     </div>
-                    {documentSourceActive ? <Badge>Source active</Badge> : null}
+                    <div className="flex items-center gap-2">
+                      {documentSourceActive ? <Badge>Source active</Badge> : null}
+                      <Button
+                        type="button"
+                        variant={documentSourceActive ? "default" : "outline"}
+                        size="sm"
+                        aria-label="Charger depuis un document de transcription ou une prise de note"
+                        aria-pressed={documentSourceActive}
+                        onClick={selectDocumentSource}
+                      >
+                        {documentSourceActive ? "Source sélectionnée" : "Utiliser cette source"}
+                      </Button>
+                    </div>
                   </div>
 
                   <div className="mt-4">
@@ -871,6 +894,16 @@ function LLMApiPage() {
             <Button onClick={runGeneration} disabled={!canGenerate}>
               Générer les comptes rendus
             </Button>
+            {canCancelOperation ? (
+              <Button
+                type="button"
+                variant="outline"
+                data-testid="llm-cancel-operation"
+                onClick={cancelCurrentOperation}
+              >
+                Annuler
+              </Button>
+            ) : null}
           </div>
 
           <Card>

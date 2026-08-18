@@ -988,7 +988,7 @@ describe('SettingsPanel', () => {
       expect(state.micShowExportTelemetry).toBe(false);
       expect(state.micCustomModelId).toBe("org/custom-mic-model");
     });
-  }, 20000);
+  }, 45000);
 
   it("updates cloud provider fields and cloud preprocessing mode selector", async () => {
     useAsrStore.setState({

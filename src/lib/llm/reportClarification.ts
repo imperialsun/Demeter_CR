@@ -1,4 +1,5 @@
 import type { GenerationStrategy } from "@/lib/llm/hfClient";
+import { parseJsonCandidate } from "@/lib/llm/reportSchema";
 
 export type ReportSourceKind = "transcription" | "word_note" | "text_note";
 
@@ -71,14 +72,9 @@ export function buildClarificationUserPrompt(sourceText: string, sourceKind?: Re
 }
 
 export function parseReportClarificationJson(rawResponse: string): ReportClarification {
-  let candidate = rawResponse.trim();
-  if (candidate.startsWith("```")) {
-    candidate = candidate.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
-  }
-
   let parsed: unknown;
   try {
-    parsed = JSON.parse(candidate);
+    parsed = parseJsonCandidate(rawResponse);
   } catch {
     throw new Error("Réponse de clarification JSON invalide.");
   }

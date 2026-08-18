@@ -18,6 +18,14 @@ describe("report clarification", () => {
     });
   });
 
+  it("extracts clarification JSON surrounded by model commentary", () => {
+    const result = parseReportClarificationJson(
+      'Voici l\'analyse : {"needsClarification":true,"summary":"","questions":[{"id":"date","question":"Quelle est la date ?"}]} Merci.'
+    );
+
+    expect(result.questions[0]?.id).toBe("date");
+  });
+
   it("keeps the original source and appends optional user answers separately", () => {
     const source = "Réunion équipe : budget à revoir.";
     const result = buildClarifiedSourceText(source, [

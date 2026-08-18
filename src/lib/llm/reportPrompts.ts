@@ -10,7 +10,7 @@ const COMMON_RULES = [
   "N'invente jamais d'informations absentes de la source.",
   "Si une information est manquante, ambiguë ou incertaine, indique-le explicitement dans `caveats`.",
   "Ne fais aucune interprétation diagnostique supplémentaire.",
-  "Le texte source provient d'une transcription ASR et peut contenir des erreurs (reconnaissance, ponctuation, traduction).",
+  "Le texte source peut contenir des erreurs de formulation, de ponctuation ou de transcription.",
   "Corrige uniquement les erreurs manifestes quand le sens est clair; en cas de doute, conserve l'intention d'origine et signale l'incertitude dans `caveats`.",
   "Respecte strictement le format JSON demandé, sans texte avant/après.",
   "Conserve la langue francaise.",

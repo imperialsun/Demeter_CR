@@ -13,7 +13,7 @@ The repository ships with:
 
 Stages:
 
-1. build stage on `node:25.8.1-alpine3.23`.
+1. build stage on `node:26.1.0-alpine3.23`.
 2. `npm ci` then `npm run build:prod`.
 3. runtime stage on `nginx:1.29.6-alpine3.23` serving `dist/` on port `3000`.
 

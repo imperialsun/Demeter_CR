@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderWithStore } from "../test/utils";
 import { useAsrStore } from "../store/asr-store";
 import CloudUploadPage from "./CloudUploadPage";
@@ -76,16 +77,28 @@ function createHookValue(overrides: HookOverrides = {}) {
   } satisfies ReturnType<typeof cloudHook.useCloudTranscription>;
 }
 
+function resetStore() {
+  act(() => {
+    useAsrStore.getState().resetApp();
+  });
+}
+
+function setStoreState(next: Parameters<typeof useAsrStore.setState>[0]) {
+  act(() => {
+    useAsrStore.setState(next);
+  });
+}
+
 describe("CloudUploadPage", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     backendPermissionMocks.canUseCloudProvider.mockReset();
     backendPermissionMocks.canUseCloudProvider.mockReturnValue(true);
-    useAsrStore.getState().resetApp();
+    resetStore();
   });
 
   it("shows cloud export defaults (VTT/SRT/JSON enabled, Telemetry disabled)", () => {
-    useAsrStore.getState().resetApp();
+    resetStore();
     renderWithStore(<CloudUploadPage />);
 
     expect(screen.getByRole("button", { name: /VTT/i })).toBeInTheDocument();
@@ -253,6 +266,7 @@ describe("CloudUploadPage", () => {
     vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(hookValue);
 
     const { container } = renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
+    const user = userEvent.setup();
 
     const firstChunkCard = screen.getByTestId("cloud-chunk-card-mistral-1");
     const secondChunkCard = screen.getByTestId("cloud-chunk-card-mistral-2");
@@ -276,7 +290,7 @@ describe("CloudUploadPage", () => {
     expect(chunkListContainer).not.toHaveClass("rounded-lg");
 
     expect(screen.queryByTestId("cloud-chunk-details-mistral-1")).toBeNull();
-    fireEvent.click(within(firstChunkCard).getByRole("button", { name: /Ouvrir/i }));
+    await user.click(within(firstChunkCard).getByRole("button", { name: /Ouvrir/i }));
 
     const detailsPanel = screen.getByTestId("cloud-chunk-details-mistral-1");
     await waitFor(() => {
@@ -298,7 +312,7 @@ describe("CloudUploadPage", () => {
     ]);
     expect(screen.getAllByRole("button", { name: /Lecture/i })).toHaveLength(1);
 
-    fireEvent.click(within(detailsPanel).getByRole("button", { name: /Fermer/i }));
+    await user.click(within(detailsPanel).getByRole("button", { name: /Fermer/i }));
 
     await waitFor(() => {
       expect(screen.queryByRole("dialog", { name: /détails de la partie/i })).toBeNull();
@@ -504,7 +518,7 @@ describe("CloudUploadPage", () => {
     });
     vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(hookValue);
 
-    useAsrStore.setState({
+    setStoreState({
       speakerAssignments: {
         upload: {},
         mic: {},
@@ -534,7 +548,10 @@ describe("CloudUploadPage", () => {
     fireEvent.change(within(dialog).getByLabelText("Prénom Partie 1 SPEAKER_00"), {
       target: { value: "Alice" },
     });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Appliquer" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Appliquer" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /nommer les intervenants par partie/i })).toBeNull();
+    });
 
     expect(useAsrStore.getState().speakerAssignments.cloud["mistral-1::SPEAKER_00"]).toEqual({
       firstName: "Alice",
@@ -598,7 +615,7 @@ describe("CloudUploadPage", () => {
     });
     vi.spyOn(cloudHook, "useCloudTranscription").mockReturnValue(hookValue);
 
-    useAsrStore.setState({
+    setStoreState({
       speakerAssignments: {
         upload: {},
         mic: {},
@@ -618,11 +635,17 @@ describe("CloudUploadPage", () => {
     renderWithStore(<CloudUploadPage />, { cloudShowSegments: true });
 
     const chunkCard = screen.getByTestId("cloud-chunk-card-cloud-1");
-    fireEvent.click(within(chunkCard).getByRole("button", { name: /Ouvrir/i }));
+    const user = userEvent.setup();
+    await user.click(within(chunkCard).getByRole("button", { name: /Ouvrir/i }));
 
     const detailsPanel = screen.getByTestId("cloud-chunk-details-cloud-1");
     await waitFor(() => {
       expect(within(detailsPanel).getByRole("button", { name: /modifier le segment 1/i })).toBeInTheDocument();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
     });
     const firstSpeakerSelect = within(detailsPanel).getByRole("combobox", { name: /Intervenant du segment 1/i });
     const secondSpeakerSelect = within(detailsPanel).getByRole("combobox", { name: /Intervenant du segment 2/i });
@@ -631,7 +654,11 @@ describe("CloudUploadPage", () => {
     expect(secondSpeakerSelect).toHaveTextContent("Dupont Alice · SPEAKER_00");
 
     fireEvent.click(firstSpeakerSelect);
-    fireEvent.click(screen.getByRole("option", { name: "Martin Bob · SPEAKER_01" }));
+    const speakerOption = screen.getByRole("option", { name: "Martin Bob · SPEAKER_01" });
+    await act(async () => {
+      fireEvent.click(speakerOption);
+      await Promise.resolve();
+    });
 
     await waitFor(() => {
       expect(within(detailsPanel).getByRole("combobox", { name: /Intervenant du segment 1/i })).toHaveTextContent(
@@ -674,7 +701,7 @@ describe("CloudUploadPage", () => {
       expect(screen.getByTestId("cloud-chunk-details-cloud-1")).toBeInTheDocument();
     });
 
-    useAsrStore.setState({ cloudShowSegments: false });
+    setStoreState({ cloudShowSegments: false });
 
     await waitFor(() => {
       expect(screen.queryByTestId("cloud-chunk-details-cloud-1")).toBeNull();

@@ -215,6 +215,7 @@ describe("reportService", () => {
       temperature: 0,
       maxTokens: 1024,
       detailLevel: "standard",
+      pollIntervalMs: 1,
     });
 
     expect(result.report.title).toBe("Compte rendu Demeter");
@@ -258,6 +259,7 @@ describe("reportService", () => {
       sourceText: "CR équipe / budget",
       sourceKind: "word_note",
       pollTimeoutMs: 123_456,
+      pollIntervalMs: 1,
     });
 
     expect(result.clarification.questions[0]?.question).toBe("Qui participait ?");
@@ -322,6 +324,7 @@ describe("reportService", () => {
       maxTokens: 1024,
       detailLevel: "exhaustive",
       pollTimeoutMs: 123_456,
+      pollIntervalMs: 1,
     });
 
     expect(result.report.title).toBe("Compte rendu relancé");
@@ -367,4 +370,64 @@ describe("reportService", () => {
       })
     ).rejects.toThrow("Limite Mistral atteinte (429).");
   });
+
+  it("cancels the backend operation when the queue signal is aborted", async () => {
+    const requestStarted = createDeferred<void>();
+    const controller = new AbortController();
+    backendFetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({ operationId: "op-abort-1", status: "pending" }),
+        };
+      }
+      if (init?.method === "DELETE") {
+        return { ok: true, json: async () => ({ operationId: "op-abort-1", status: "cancelled" }) };
+      }
+      requestStarted.resolve(undefined);
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          const error = new Error("aborted");
+          error.name = "AbortError";
+          reject(error);
+        }, { once: true });
+      });
+    });
+
+    const operation = analyzeReportSource({
+      provider: "demeter_sante",
+      modelId: "mistral-medium-latest",
+      sourceText: "note abrégée",
+      sourceKind: "word_note",
+      signal: controller.signal,
+      pollIntervalMs: 1,
+    });
+    await requestStarted.promise;
+    controller.abort();
+
+    await expect(operation).rejects.toMatchObject({ name: "AbortError" });
+    expect(backendFetchMock).toHaveBeenCalledWith(
+      "/providers/demeter-sante/report/operations/op-abort-1",
+      expect.objectContaining({ method: "DELETE", retryAttempts: 0 })
+    );
+    expect(pathForCalls(backendFetchMock)).toEqual([
+      "/providers/demeter-sante/report/operations",
+      "/providers/demeter-sante/report/operations/op-abort-1",
+      "/providers/demeter-sante/report/operations/op-abort-1",
+    ]);
+  });
 });
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function pathForCalls(mock: typeof backendFetchMock): string[] {
+  return mock.mock.calls.map(([path]) => path as string);
+}
