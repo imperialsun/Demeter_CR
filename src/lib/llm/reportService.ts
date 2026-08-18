@@ -1,4 +1,8 @@
-import { buildCustomReportUserPrompt, buildReportSystemPrompt, buildReportUserPrompt } from "@/lib/llm/reportPrompts";
+import {
+  buildCustomReportUserPrompt,
+  buildReportSystemPromptWithSource,
+  buildReportUserPrompt,
+} from "@/lib/llm/reportPrompts";
 import { parseReportJson, type ReportFormat, type ReportJson } from "@/lib/llm/reportSchema";
 import type { ReportDetailLevel } from "@/lib/llm/reportDetail";
 import {
@@ -7,6 +11,15 @@ import {
   type GenerationStrategy,
 } from "@/lib/llm/hfClient";
 import { generateWithMistralChat } from "@/lib/llm/mistralChatClient";
+import {
+  buildClarificationSystemPrompt,
+  buildClarificationUserPrompt,
+  normalizeReportSourceKind,
+  parseReportClarificationJson,
+  type ReportClarification,
+  type ReportClarificationGeneration,
+  type ReportSourceKind,
+} from "@/lib/llm/reportClarification";
 import {
   backendFetch,
   handleBackendUnauthorized,
@@ -22,6 +35,7 @@ interface GenerateReportBaseParams {
   temperature: number;
   maxTokens: number;
   detailLevel?: ReportDetailLevel;
+  sourceKind?: ReportSourceKind;
   template?: {
     id: string;
     name: string;
@@ -70,6 +84,8 @@ type DemeterReportOperationResponse = {
     templateName?: string;
     raw?: string;
     report?: ReportJson;
+    kind?: string;
+    clarification?: ReportClarification;
   };
 };
 
@@ -112,8 +128,11 @@ export async function generateReportDetailed(
         templateName: params.template.name,
         instructions: params.template.instructions,
         exampleOutline: params.template.exampleOutline,
+        sourceKind: params.sourceKind,
       })
-    : buildReportUserPrompt(params.format, sourceText, params.detailLevel);
+    : buildReportUserPrompt(params.format, sourceText, params.detailLevel, {
+        sourceKind: params.sourceKind,
+      });
 
   let generation: { text: string; strategy: GenerationStrategy };
   if (params.provider === "huggingface") {
@@ -126,7 +145,7 @@ export async function generateReportDetailed(
     generation = await generateWithChatThenFallbackText({
       client,
       modelId,
-      systemPrompt: buildReportSystemPrompt(params.detailLevel),
+      systemPrompt: buildReportSystemPromptWithSource(params.detailLevel, params.sourceKind),
       userPrompt,
       temperature: params.temperature,
       maxTokens: params.maxTokens,
@@ -141,7 +160,7 @@ export async function generateReportDetailed(
       apiUrl: params.mistralApiUrl,
       apiKey,
       modelId,
-      systemPrompt: buildReportSystemPrompt(params.detailLevel),
+      systemPrompt: buildReportSystemPromptWithSource(params.detailLevel, params.sourceKind),
       userPrompt,
       temperature: params.temperature,
       maxTokens: params.maxTokens,
@@ -155,6 +174,7 @@ export async function generateReportDetailed(
       temperature: params.temperature,
       maxTokens: params.maxTokens,
       detailLevel: params.detailLevel,
+      sourceKind: params.sourceKind,
       templateId: params.template?.id,
       pollTimeoutMs: params.pollTimeoutMs,
     });
@@ -206,6 +226,7 @@ async function generateWithDemeterReportQueue(params: {
   temperature: number;
   maxTokens: number;
   detailLevel?: ReportDetailLevel;
+  sourceKind?: ReportSourceKind;
   templateId?: string;
   pollTimeoutMs?: number;
 }): Promise<GenerateReportDetailedResult> {
@@ -241,6 +262,7 @@ async function runDemeterReportQueueOperation(
     temperature: number;
     maxTokens: number;
     detailLevel?: ReportDetailLevel;
+    sourceKind?: ReportSourceKind;
     templateId?: string;
     pollTimeoutMs?: number;
   },
@@ -253,6 +275,8 @@ async function runDemeterReportQueueOperation(
     temperature: params.temperature,
     maxTokens: params.maxTokens,
     detailLevel: params.detailLevel ?? "standard",
+    operationType: "report",
+    sourceKind: normalizeReportSourceKind(params.sourceKind),
     templateId: params.templateId,
   };
 
@@ -342,6 +366,180 @@ async function runDemeterReportQueueOperation(
       throw new Error("La génération du rapport a été annulée.");
     }
 
+    await new Promise((resolve) => setTimeout(resolve, DEMETER_REPORT_POLL_INTERVAL_MS));
+  }
+}
+
+type AnalyzeReportSourceBaseParams = {
+  modelId: string;
+  sourceText: string;
+  sourceKind?: ReportSourceKind;
+  temperature?: number;
+  maxTokens?: number;
+  pollTimeoutMs?: number;
+};
+
+export type AnalyzeReportSourceParams =
+  | (AnalyzeReportSourceBaseParams & {
+      provider: "huggingface";
+      hfToken: string;
+    })
+  | (AnalyzeReportSourceBaseParams & {
+      provider: "mistral";
+      mistralApiKey: string;
+      mistralApiUrl: string;
+    })
+  | (AnalyzeReportSourceBaseParams & {
+      provider: "demeter_sante";
+    });
+
+export async function analyzeReportSource(
+  params: AnalyzeReportSourceParams
+): Promise<ReportClarificationGeneration> {
+  const modelId = params.modelId.trim();
+  if (!modelId) throw new Error("Model ID manquant.");
+  const sourceText = params.sourceText.trim();
+  if (!sourceText) throw new Error("Source vide pour l'analyse de clarification.");
+
+  const sourceKind = normalizeReportSourceKind(params.sourceKind);
+  const temperature = params.temperature ?? 0;
+  const maxTokens = params.maxTokens ?? 512;
+  logger.info("[llm-api][report-service] Analyse de clarification · démarrage", {
+    provider: params.provider,
+    modelId,
+    sourceKind,
+    sourceLength: sourceText.length,
+  });
+
+  if (params.provider === "demeter_sante") {
+    return runDemeterClarificationQueueOperation({
+      modelId,
+      sourceText,
+      sourceKind,
+      temperature: 0,
+      maxTokens,
+      pollTimeoutMs: params.pollTimeoutMs,
+    });
+  }
+
+  let generation: { text: string; strategy: GenerationStrategy };
+  if (params.provider === "huggingface") {
+    const token = params.hfToken.trim();
+    if (!token) throw new Error("Token Hugging Face manquant.");
+    const client = await getLlmHfClient(token);
+    generation = await generateWithChatThenFallbackText({
+      client,
+      modelId,
+      systemPrompt: buildClarificationSystemPrompt(sourceKind),
+      userPrompt: buildClarificationUserPrompt(sourceText, sourceKind),
+      temperature,
+      maxTokens,
+      responseMode: "json",
+    });
+  } else {
+    const apiKey = params.mistralApiKey.trim();
+    if (!apiKey) throw new Error("Token API Mistral manquant.");
+    generation = await generateWithMistralChat({
+      apiUrl: params.mistralApiUrl,
+      apiKey,
+      modelId,
+      systemPrompt: buildClarificationSystemPrompt(sourceKind),
+      userPrompt: buildClarificationUserPrompt(sourceText, sourceKind),
+      temperature,
+      maxTokens,
+      responseMode: "json",
+    });
+  }
+
+  const clarification = parseReportClarificationJson(generation.text);
+  logger.info("[llm-api][report-service] Analyse de clarification · réponse reçue", {
+    provider: params.provider,
+    modelId,
+    sourceKind,
+    responseLength: generation.text.length,
+    questionCount: clarification.questions.length,
+  });
+  return {
+    clarification,
+    rawResponse: generation.text,
+    strategy: generation.strategy,
+  };
+}
+
+async function runDemeterClarificationQueueOperation(params: {
+  modelId: string;
+  sourceText: string;
+  sourceKind: ReportSourceKind;
+  temperature: number;
+  maxTokens: number;
+  pollTimeoutMs?: number;
+}): Promise<ReportClarificationGeneration> {
+  const submitBody = {
+    operationType: "clarification",
+    sourceText: params.sourceText,
+    sourceKind: params.sourceKind,
+    modelId: params.modelId,
+    temperature: 0,
+    maxTokens: params.maxTokens,
+  };
+  const submitPath = "/providers/demeter-sante/report/operations";
+  const submit = () =>
+    backendFetch(submitPath, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(submitBody),
+      timeoutMs: DEMETER_REPORT_REQUEST_TIMEOUT_MS,
+    });
+
+  let submitResponse = await submit();
+  if (!submitResponse.ok && submitResponse.status === 401) {
+    const refreshResult = await backendRefresh();
+    if (refreshResult === "expired") throw new BackendSessionExpiredError();
+    if (refreshResult === "failed") {
+      throw new Error("Impossible de renouveler la session backend Demeter Santé.");
+    }
+    submitResponse = await submit();
+  }
+  if (!submitResponse.ok) {
+    const error = await parseBackendHttpError(submitResponse, submitPath, "POST");
+    if ((error as Error & { status?: number }).status === 401) handleBackendUnauthorized(error);
+    throw error;
+  }
+
+  const submitPayload = (await submitResponse.json()) as DemeterReportOperationResponse;
+  const operationId = submitPayload.operationId?.trim();
+  if (!operationId) throw new Error("Réponse backend invalide: operationId manquant.");
+
+  const pollTimeoutMs = params.pollTimeoutMs ?? DEMETER_REPORT_POLL_TIMEOUT_MS;
+  const pollStartedAt = Date.now();
+  while (true) {
+    if (Date.now() - pollStartedAt > pollTimeoutMs) {
+      throw new Error("L'analyse de clarification a dépassé le délai maximal.");
+    }
+    const statusPath = `${submitPath}/${encodeURIComponent(operationId)}`;
+    const statusResponse = await backendFetch(statusPath, {
+      method: "GET",
+      timeoutMs: DEMETER_REPORT_REQUEST_TIMEOUT_MS,
+    });
+    if (!statusResponse.ok) {
+      const error = await parseBackendHttpError(statusResponse, statusPath, "GET");
+      if ((error as Error & { status?: number }).status === 401) handleBackendUnauthorized(error);
+      throw error;
+    }
+    const snapshot = (await statusResponse.json()) as DemeterReportOperationResponse;
+    if (snapshot.status === "completed") {
+      const clarification = snapshot.response?.clarification;
+      if (!clarification) {
+        throw new Error("Le backend a terminé sans renvoyer l'analyse de clarification.");
+      }
+      return {
+        clarification: parseReportClarificationJson(JSON.stringify(clarification)),
+        rawResponse: snapshot.response?.raw ?? "",
+        strategy: "chatCompletion",
+      };
+    }
+    if (snapshot.status === "failed") throw new Error(formatDemeterReportQueueError(snapshot));
+    if (snapshot.status === "cancelled") throw new Error("L'analyse de clarification a été annulée.");
     await new Promise((resolve) => setTimeout(resolve, DEMETER_REPORT_POLL_INTERVAL_MS));
   }
 }

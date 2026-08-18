@@ -1,4 +1,5 @@
 import type { ReportFormat } from "@/lib/llm/reportSchema";
+import type { ReportSourceKind } from "@/lib/llm/reportClarification";
 
 export const REPORT_DETAIL_LEVELS = ["standard", "verbose", "exhaustive"] as const;
 
@@ -101,8 +102,17 @@ export function buildReportDetailSummary(format: ReportFormat, level: ReportDeta
 export function buildReportDetailPromptRules(
   format: ReportFormat,
   level: ReportDetailLevel,
-  sourceText: string
+  sourceText: string,
+  sourceKind: ReportSourceKind = "transcription"
 ): string[] {
+  if (sourceKind === "word_note") {
+    return [
+      `niveau de détail demandé: ${buildReportDetailLevelLabel(level)}.`,
+      "développe uniquement les éléments explicitement présents dans la note Word; une sortie courte est acceptable si la source est insuffisante.",
+      "n'invente pas de contexte pour atteindre une longueur minimale.",
+      "conserve les abréviations ambiguës et signale les informations manquantes dans caveats.",
+    ];
+  }
   const targetWordCount = computeReportDetailTargetWordCount(format, level, sourceText);
   const targetWordLabel = targetWordCount <= 1 ? "mot" : "mots";
 

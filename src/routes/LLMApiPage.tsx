@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { ReportFormatResultsPanel } from "@/components/llm/ReportFormatResultsPanel";
 import { ReportFormatSwitchesSection } from "@/components/llm/ReportFormatSwitchesSection";
@@ -43,6 +44,11 @@ import { useBackendPermissions } from "@/hooks/useBackendPermissions";
 import { useReportTemplates } from "@/hooks/useReportTemplates";
 import { canAccessFeature, canUseLlmProvider } from "@/lib/backend-permissions";
 import { cn } from "@/lib/utils";
+import {
+  type ReportClarification,
+  type ReportClarificationAnswer,
+  type ReportSourceKind,
+} from "@/lib/llm/reportClarification";
 
 const LLM_HF_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans clé API Hugging Face.";
 const LLM_MISTRAL_TOKEN_REQUIRED_MESSAGE = "Ce module ne peut pas fonctionner sans clé API Mistral.";
@@ -117,10 +123,17 @@ function LLMApiPage() {
     () => enabledTemplates.filter((template) => customTemplateSelections[template.id] ?? true),
     [customTemplateSelections, enabledTemplates]
   );
-  const { status, progress, results, generateAll, downloadDocx } = useLlmReports({ selectedCustomTemplates });
+  const { status, progress, results, analyzeSource, generateAll, downloadDocx } = useLlmReports({ selectedCustomTemplates });
 
   const [source, setSource] = useState<"transcription" | "text">("transcription");
   const [manualText, setManualText] = useState("");
+  const [sourceKind, setSourceKind] = useState<ReportSourceKind>("transcription");
+  const [clarification, setClarification] = useState<ReportClarification | null>(null);
+  const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
+  const [clarificationState, setClarificationState] = useState<"idle" | "analyzing" | "ready" | "error">("idle");
+  const [clarificationError, setClarificationError] = useState("");
+  const [analyzedSourceKey, setAnalyzedSourceKey] = useState("");
+  const firstClarificationInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [importedFileMeta, setImportedFileMeta] = useState<ImportedFileMeta | null>(null);
   const [selectedTranscriptMode, setSelectedTranscriptMode] = useState<SessionTranscriptMode | null>(null);
@@ -224,6 +237,26 @@ function LLMApiPage() {
   );
 
   const sourceTextForBudget = source === "transcription" ? transcriptionText : manualText;
+  const activeSourceKey = `${llmApiProvider}|${activePipelineConfig.modelId}|${sourceKind}|${sourceTextForBudget.trim()}`;
+  useEffect(() => {
+    setClarification(null);
+    setClarificationAnswers({});
+    setClarificationState("idle");
+    setClarificationError("");
+    setAnalyzedSourceKey("");
+  }, [activeSourceKey]);
+
+  useEffect(() => {
+    if (clarificationState !== "ready" || !clarification?.needsClarification || clarification.questions.length === 0) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      firstClarificationInputRef.current?.focus();
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [clarification, clarificationState]);
   const sourceTokenEstimate = useMemo(() => estimateTokenCount(sourceTextForBudget), [sourceTextForBudget]);
   const tokenBudget = useMemo(
     () =>
@@ -258,12 +291,36 @@ function LLMApiPage() {
     isCurrentProviderAllowed &&
     hasSource &&
     sourceFitsModelContext &&
-    pipelineConfigValid;
+    pipelineConfigValid &&
+    clarificationState !== "analyzing";
 
   const percent = Math.round(Math.max(0, Math.min(1, progress)) * 100);
   const canSelectMemorySource = availableTranscripts.length > 0;
   const memorySourceActive = source === "transcription" && Boolean(activeTranscript);
   const documentSourceActive = source === "text";
+
+  const buildGenerationInput = () => {
+    if (source === "transcription") {
+      if (!effectiveTranscriptMode) return null;
+      return {
+        source: "transcription" as const,
+        transcriptMode: effectiveTranscriptMode,
+        sourceText: transcriptionText,
+        sourceKind,
+      };
+    }
+    return { source: "text" as const, text: manualText, sourceKind };
+  };
+
+  const generateWithAnswers = async (answers: ReportClarificationAnswer[] = []) => {
+    const input = buildGenerationInput();
+    if (!input) {
+      setLlmApiStatus("error", "Aucune transcription disponible dans la session.");
+      toast("Aucune transcription disponible dans la session.");
+      return;
+    }
+    await generateAll({ ...input, clarificationAnswers: answers });
+  };
 
   const runGeneration = async () => {
     if (!hasAllowedProvider || !isCurrentProviderAllowed) {
@@ -315,17 +372,50 @@ function LLMApiPage() {
       return;
     }
 
-    if (source === "transcription") {
-      if (!effectiveTranscriptMode) {
-        setLlmApiStatus("error", "Aucune transcription disponible dans la session.");
-        toast("Aucune transcription disponible dans la session.");
-        return;
-      }
-      await generateAll({ source: "transcription", transcriptMode: effectiveTranscriptMode, sourceText: transcriptionText });
+    const input = buildGenerationInput();
+    if (!input) {
+      setLlmApiStatus("error", "Aucune transcription disponible dans la session.");
+      toast("Aucune transcription disponible dans la session.");
       return;
     }
 
-    await generateAll({ source: "text", text: manualText });
+    if (clarificationState === "ready" && analyzedSourceKey === activeSourceKey) {
+      const answers = clarification?.questions.map((question) => ({
+        id: question.id,
+        question: question.question,
+        answer: clarificationAnswers[question.id] ?? "",
+      })) ?? [];
+      await generateWithAnswers(answers);
+      return;
+    }
+
+    setClarificationState("analyzing");
+    setClarificationError("");
+    setLlmApiStatus("preparing", "Analyse des informations manquantes avant rédaction");
+    try {
+      const result = await analyzeSource(input);
+      setClarification(result);
+      setAnalyzedSourceKey(activeSourceKey);
+      setClarificationState("ready");
+      if (result.needsClarification && result.questions.length > 0) {
+        setLlmApiStatus("idle", "Répondez aux questions ou continuez sans précision");
+        return;
+      }
+      await generateWithAnswers([]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "L'analyse de la source a échoué.";
+      setClarificationError(message);
+      setClarificationState("error");
+      setLlmApiStatus("error", message);
+      toast(message);
+    }
+  };
+
+  const continueWithoutClarification = async () => {
+    setClarificationState("ready");
+    setAnalyzedSourceKey(activeSourceKey);
+    setClarificationError("");
+    await generateWithAnswers([]);
   };
 
   const handleTranscriptModeChange = (value: string) => {
@@ -340,15 +430,18 @@ function LLMApiPage() {
     });
     setSelectedTranscriptMode(nextMode);
     setSource("transcription");
+    setSourceKind("transcription");
   };
 
   const selectMemorySource = () => {
     if (!canSelectMemorySource) return;
     setSource("transcription");
+    setSourceKind("transcription");
   };
 
   const selectDocumentSource = () => {
     setSource("text");
+    setSourceKind(importedFileMeta?.format === "docx" ? "word_note" : "text_note");
   };
 
   const handleSourcePanelKeyDown = (event: KeyboardEvent<HTMLElement>, selectSource: () => void) => {
@@ -429,6 +522,7 @@ function LLMApiPage() {
 
       setManualText(importedText);
       setSource("text");
+      setSourceKind(parsed.format === "docx" ? "word_note" : "text_note");
       setImportedFileMeta({
         name: file.name,
         format: parsed.format,
@@ -703,6 +797,63 @@ function LLMApiPage() {
               ) : null}
             </CardContent>
           </Card>
+
+          {clarificationState === "ready" && clarification?.needsClarification ? (
+            <Card data-testid="llm-clarification-panel">
+              <CardHeader>
+                <CardTitle>Informations à préciser avant rédaction</CardTitle>
+                <CardDescription>
+                  La source est conservée telle quelle. Ces réponses seront ajoutées séparément comme contexte confirmé.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {clarification.summary ? <p className="text-sm text-muted-foreground">{clarification.summary}</p> : null}
+                <div className="space-y-4">
+                  {clarification.questions.map((question, questionIndex) => (
+                    <div key={question.id} className="space-y-2">
+                      <Label htmlFor={`llm-clarification-${question.id}`}>{question.question}</Label>
+                      {question.rationale ? <p className="text-xs text-muted-foreground">{question.rationale}</p> : null}
+                      <Textarea
+                        ref={questionIndex === 0 ? firstClarificationInputRef : undefined}
+                        id={`llm-clarification-${question.id}`}
+                        value={clarificationAnswers[question.id] ?? ""}
+                        onChange={(event) =>
+                          setClarificationAnswers((current) => ({
+                            ...current,
+                            [question.id]: event.target.value,
+                          }))
+                        }
+                        placeholder="Réponse facultative"
+                        disabled={isBusy}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={() => void runGeneration()} disabled={!canGenerate}>
+                    Générer avec mes précisions
+                  </Button>
+                  <Button variant="outline" onClick={() => void continueWithoutClarification()} disabled={!canGenerate}>
+                    Continuer malgré les informations manquantes
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {clarificationState === "error" ? (
+            <Card data-testid="llm-clarification-error" className="border-destructive/60">
+              <CardHeader>
+                <CardTitle>Analyse préalable indisponible</CardTitle>
+                <CardDescription>{clarificationError || "La clarification n'a pas pu être chargée."}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button variant="outline" onClick={() => void continueWithoutClarification()} disabled={!canGenerate}>
+                  Continuer sans clarification
+                </Button>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <ReportFormatSwitchesSection
             values={llmApiReportEnabledFormats}

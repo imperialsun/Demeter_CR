@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { generateReport, generateReportDetailed } from "@/lib/llm/reportService";
+import { analyzeReportSource, generateReport, generateReportDetailed } from "@/lib/llm/reportService";
 
 const getLlmHfClientMock = vi.fn();
 const generateWithChatThenFallbackTextMock = vi.fn();
@@ -154,6 +154,37 @@ describe("reportService", () => {
     expect(generateWithChatThenFallbackTextMock).not.toHaveBeenCalled();
   });
 
+  it("analyzes missing information directly for Mistral", async () => {
+    generateWithMistralChatMock.mockResolvedValue({
+      text: JSON.stringify({
+        needsClarification: true,
+        summary: "Participants absents",
+        questions: [{ id: "participants", question: "Qui était présent ?", rationale: "Absent" }],
+      }),
+      strategy: "chatCompletion",
+    });
+
+    const result = await analyzeReportSource({
+      provider: "mistral",
+      modelId: "mistral-medium-latest",
+      mistralApiKey: "mistral_secret",
+      mistralApiUrl: "https://api.mistral.ai",
+      sourceText: "CR équipe / budget",
+      sourceKind: "word_note",
+    });
+
+    expect(result.clarification.questions[0]?.id).toBe("participants");
+    expect(generateWithMistralChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        temperature: 0,
+        maxTokens: 512,
+        systemPrompt: expect.stringContaining("prise de note Word très abrégée"),
+        userPrompt: expect.stringContaining("CR équipe / budget"),
+      })
+    );
+    expect(backendFetchMock).not.toHaveBeenCalled();
+  });
+
   it("uses extended request timeout for Demeter report queue calls", async () => {
     backendFetchMock
       .mockResolvedValueOnce({
@@ -196,6 +227,55 @@ describe("reportService", () => {
       2,
       "/providers/demeter-sante/report/operations/op-report-1",
       expect.objectContaining({ timeoutMs: 10 * 60_000 })
+    );
+  });
+
+  it("uses the existing Demeter report queue for clarification and polls it", async () => {
+    backendFetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ operationId: "op-clarification-1", status: "pending" }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          operationId: "op-clarification-1",
+          status: "completed",
+          response: {
+            kind: "clarification",
+            clarification: {
+              needsClarification: true,
+              summary: "Participants absents",
+              questions: [{ id: "participants", question: "Qui participait ?" }],
+            },
+          },
+        }),
+      });
+
+    const result = await analyzeReportSource({
+      provider: "demeter_sante",
+      modelId: "mistral-medium-latest",
+      sourceText: "CR équipe / budget",
+      sourceKind: "word_note",
+      pollTimeoutMs: 123_456,
+    });
+
+    expect(result.clarification.questions[0]?.question).toBe("Qui participait ?");
+    expect(backendFetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/providers/demeter-sante/report/operations",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"operationType":"clarification"'),
+      })
+    );
+    const submitOptions = backendFetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(submitOptions.body).toContain('"sourceKind":"word_note"');
+    expect(submitOptions.body).toContain('"temperature":0');
+    expect(backendFetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/providers/demeter-sante/report/operations/op-clarification-1",
+      expect.objectContaining({ method: "GET" })
     );
   });
 

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildReportSystemPrompt,
+  buildReportSystemPromptWithSource,
   buildReportUserPrompt,
   buildLongInputChunkPrompt,
   buildLongInputConsolidationPrompt,
@@ -29,6 +30,17 @@ describe("reportPrompts", () => {
     expect(prompt).toContain("Format cible: CRI");
     expect(prompt).toContain('"format": "CRI"');
     expect(prompt).toContain("SOURCE:");
+  });
+
+  it("does not impose transcription length minima on abbreviated Word notes", () => {
+    const systemPrompt = buildReportSystemPromptWithSource("exhaustive", "word_note");
+    const userPrompt = buildReportUserPrompt("CRI", "CR réunion / budget", "exhaustive", {
+      sourceKind: "word_note",
+    });
+
+    expect(systemPrompt).toContain("prise de note Word très abrégée");
+    expect(userPrompt).toContain("une longueur inférieure à la cible est acceptable");
+    expect(userPrompt).not.toContain("longueur minimale obligatoire");
   });
 
   it("keeps the default prompt free of detail-level constraints", () => {

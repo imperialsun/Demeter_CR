@@ -8,6 +8,7 @@ import { useAsrStore } from "@/store/asr-store";
 import LLMApiPage from "@/routes/LLMApiPage";
 
 const generateAll = vi.fn(async () => undefined);
+const analyzeSource = vi.fn(async () => ({ needsClarification: false, summary: "", questions: [] }));
 const downloadDocx = vi.fn(async () => undefined);
 const { toastMock, parseTranscriptFileMock, emitLlmEventMock } = vi.hoisted(() => ({
   toastMock: vi.fn(),
@@ -24,6 +25,7 @@ const hookState = {
   status: "idle",
   progress: 0,
   results: {},
+  analyzeSource,
   generateAll,
   downloadDocx,
 };
@@ -80,6 +82,8 @@ vi.mock("@/hooks/useBackendPermissions", () => ({
 describe("LLMApiPage", () => {
   beforeEach(() => {
     generateAll.mockClear();
+    analyzeSource.mockClear();
+    analyzeSource.mockResolvedValue({ needsClarification: false, summary: "", questions: [] });
     downloadDocx.mockClear();
     toastMock.mockClear();
     parseTranscriptFileMock.mockReset();
@@ -153,6 +157,7 @@ describe("LLMApiPage", () => {
         sourceText: "Segment 1\nSegment 2",
       })
     );
+    expect(document.activeElement?.tagName).not.toBe("TEXTAREA");
   });
 
   it("hydrates the latest transcription from sessionStorage before generating", async () => {
@@ -525,7 +530,12 @@ describe("LLMApiPage", () => {
     expect(useAsrStore.getState().sessionTranscriptMemories.upload?.label).toBe("Locale · demo.wav");
 
     await userEvent.click(generateButton);
-    expect(generateAll).toHaveBeenCalledWith({ source: "text", text: "Texte importe depuis fichier" });
+    expect(generateAll).toHaveBeenCalledWith({
+      source: "text",
+      text: "Texte importe depuis fichier",
+      sourceKind: "text_note",
+      clarificationAnswers: [],
+    });
   });
 
   it("accepts docx imports in free text mode", async () => {
@@ -554,6 +564,73 @@ describe("LLMApiPage", () => {
     expect(emitLlmEventMock).toHaveBeenCalledWith(
       "LLM_CLOUD_IMPORT_SUCCESS",
       expect.objectContaining({ fileName: "source.docx", format: "docx" })
+    );
+  });
+
+  it("shows clarification questions before generating an abbreviated Word note", async () => {
+    analyzeSource.mockResolvedValue({
+      needsClarification: true,
+      summary: "Participants absents",
+      questions: [{ id: "participants", question: "Qui participait ?", rationale: "Absent de la note." }],
+    });
+    parseTranscriptFileMock.mockResolvedValue({
+      text: "CR équipe / budget à revoir",
+      format: "docx",
+      extraction: "plain",
+    });
+
+    renderPage();
+    const fileInput = screen.getByLabelText("Importer un fichier de transcription", {
+      selector: "input#llm-source-file",
+    });
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(["docx"], "source.docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" })],
+      },
+    });
+    await waitFor(() => expect(screen.getAllByText("source.docx").length).toBeGreaterThan(0));
+
+    await userEvent.click(screen.getByRole("button", { name: /générer les comptes rendus/i }));
+    expect(analyzeSource).toHaveBeenCalled();
+    expect(generateAll).not.toHaveBeenCalled();
+    expect(await screen.findByTestId("llm-clarification-panel")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText("Qui participait ?")).toHaveFocus());
+    expect(screen.getByRole("button", { name: /générer avec mes précisions/i })).not.toHaveFocus();
+
+    await userEvent.type(screen.getByLabelText("Qui participait ?"), "Alice et Bob");
+    await userEvent.click(screen.getByRole("button", { name: /générer avec mes précisions/i }));
+    await waitFor(() => expect(generateAll).toHaveBeenCalled());
+    expect(generateAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceKind: "word_note",
+        text: "CR équipe / budget à revoir",
+        clarificationAnswers: [
+          expect.objectContaining({ id: "participants", answer: "Alice et Bob" }),
+        ],
+      })
+    );
+  });
+
+  it("allows continuing without clarification when analysis fails", async () => {
+    analyzeSource.mockRejectedValue(new Error("Queue indisponible"));
+    parseTranscriptFileMock.mockResolvedValue({ text: "CR abrégé", format: "docx", extraction: "plain" });
+
+    renderPage();
+    const fileInput = screen.getByLabelText("Importer un fichier de transcription", {
+      selector: "input#llm-source-file",
+    });
+    fireEvent.change(fileInput, {
+      target: {
+        files: [new File(["docx"], "source.docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" })],
+      },
+    });
+    await waitFor(() => expect(screen.getAllByText("source.docx").length).toBeGreaterThan(0));
+    await userEvent.click(screen.getByRole("button", { name: /générer les comptes rendus/i }));
+
+    const skipButton = await screen.findByRole("button", { name: /continuer sans clarification/i });
+    await userEvent.click(skipButton);
+    expect(generateAll).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceKind: "word_note", clarificationAnswers: [] })
     );
   });
 
@@ -617,7 +694,12 @@ describe("LLMApiPage", () => {
     const generateButton = screen.getByRole("button", { name: /générer les comptes rendus/i });
     expect(generateButton).not.toBeDisabled();
     await userEvent.click(generateButton);
-    expect(generateAll).toHaveBeenCalledWith({ source: "text", text: "Texte manuel conserve" });
+    expect(generateAll).toHaveBeenCalledWith({
+      source: "text",
+      text: "Texte manuel conserve",
+      sourceKind: "text_note",
+      clarificationAnswers: [],
+    });
   });
 
   it("shows clear toast when imported file is too large", async () => {

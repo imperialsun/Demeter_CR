@@ -18,7 +18,20 @@ import {
   buildCrnTranscriptBatches,
   mergeCrnReportResults,
 } from "@/lib/llm/crnBatchPipeline";
-import { generateReportDetailed, type GenerateReportDetailedResult } from "@/lib/llm/reportService";
+import {
+  analyzeReportSource,
+  generateReportDetailed,
+  type GenerateReportDetailedResult,
+  type AnalyzeReportSourceParams,
+} from "@/lib/llm/reportService";
+import {
+  buildClarifiedSourceText,
+  buildClarificationAnswersContext,
+  normalizeReportSourceKind,
+  type ReportClarification,
+  type ReportClarificationAnswer,
+  type ReportSourceKind,
+} from "@/lib/llm/reportClarification";
 import { getLlmHfClient, generateWithChatThenFallbackText } from "@/lib/llm/hfClient";
 import { generateWithMistralChat } from "@/lib/llm/mistralChatClient";
 import { resolveCloudRunStageDescriptor } from "@/lib/llm/reportTrace";
@@ -69,8 +82,19 @@ type ReportGenerationTarget = {
 };
 
 type GenerateInput =
-  | { source: "transcription"; transcriptMode: SessionTranscriptMode; sourceText?: string }
-  | { source: "text"; text?: string };
+  | {
+      source: "transcription";
+      transcriptMode: SessionTranscriptMode;
+      sourceText?: string;
+      sourceKind?: ReportSourceKind;
+      clarificationAnswers?: ReportClarificationAnswer[];
+    }
+  | {
+      source: "text";
+      text?: string;
+      sourceKind?: ReportSourceKind;
+      clarificationAnswers?: ReportClarificationAnswer[];
+    };
 
 type UseLlmReportsOptions = {
   providerOverride?: LlmApiProvider;
@@ -108,6 +132,61 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
   const setTelemetrySummary = useAsrStore((state) => state.setTelemetrySummary);
   const effectiveProvider = options.providerOverride ?? llmApiProvider;
   const selectedCustomTemplates = options.selectedCustomTemplates ?? enabledTemplates;
+
+  const analyzeSource = useCallback(
+    async (input: GenerateInput): Promise<ReportClarification> => {
+      const activePipelineConfig = resolveActiveLlmPipelineConfig(
+        {
+          llmApiHfModelId,
+          llmApiHfTemperature,
+          llmApiHfMaxTokens,
+          llmApiMistralModelId,
+          llmApiMistralTemperature,
+          llmApiMistralMaxTokens,
+        },
+        effectiveProvider
+      );
+      const sourceText = resolveSourceText(input, sessionTranscriptMemories);
+      const sourceKind = normalizeReportSourceKind(
+        input.sourceKind ?? (input.source === "text" ? "text_note" : "transcription")
+      );
+      const base = {
+        modelId: activePipelineConfig.modelId,
+        sourceText,
+        sourceKind,
+        temperature: 0,
+        maxTokens: 512,
+      } as const;
+      let params: AnalyzeReportSourceParams;
+      if (effectiveProvider === "huggingface") {
+        params = { ...base, provider: "huggingface", hfToken: hfApiToken };
+      } else if (effectiveProvider === "mistral") {
+        params = {
+          ...base,
+          provider: "mistral",
+          mistralApiKey,
+          mistralApiUrl: cloudMistralApiUrl,
+        };
+      } else {
+        params = { ...base, provider: "demeter_sante" };
+      }
+      const result = await analyzeReportSource(params);
+      return result.clarification;
+    },
+    [
+      cloudMistralApiUrl,
+      effectiveProvider,
+      hfApiToken,
+      llmApiHfMaxTokens,
+      llmApiHfModelId,
+      llmApiHfTemperature,
+      llmApiMistralMaxTokens,
+      llmApiMistralModelId,
+      llmApiMistralTemperature,
+      mistralApiKey,
+      sessionTranscriptMemories,
+    ]
+  );
 
   const generateAll = useCallback(
     async (input: GenerateInput) => {
@@ -227,11 +306,18 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
           throw new Error("Renseignez un model ID.");
         }
 
-        const sourceText = resolveSourceText(input, sessionTranscriptMemories);
+        const originalSourceText = resolveSourceText(input, sessionTranscriptMemories);
+        const sourceText = buildClarifiedSourceText(originalSourceText, input.clarificationAnswers);
+        const clarificationContext = buildClarificationAnswersContext(input.clarificationAnswers);
+        const sourceKind = normalizeReportSourceKind(
+          input.sourceKind ?? (input.source === "text" ? "text_note" : "transcription")
+        );
         setLlmApiResults({});
         markStage("source_resolved", {
-          sourceLength: sourceText.length,
+          sourceLength: originalSourceText.length,
           sourceTokenEstimate: estimateTokenCount(sourceText),
+          sourceKind,
+          clarificationAnswerCount: input.clarificationAnswers?.filter((answer) => answer.answer.trim()).length ?? 0,
         });
 
         let runtimeLimits: RuntimeModelLimits | undefined;
@@ -415,6 +501,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
                   temperature,
                   maxTokens: params.reportMaxTokens,
                   detailLevel: params.detailLevel,
+                  sourceKind,
                   hfToken,
                 });
               } else if (provider === "mistral") {
@@ -426,6 +513,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
                   temperature,
                   maxTokens: params.reportMaxTokens,
                   detailLevel: params.detailLevel,
+                  sourceKind,
                   mistralApiKey: mistralKey,
                   mistralApiUrl,
                 });
@@ -438,6 +526,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
                   temperature,
                   maxTokens: params.reportMaxTokens,
                   detailLevel: params.detailLevel,
+                  sourceKind,
                   pollTimeoutMs: demeterPollTimeoutMs,
                 });
               }
@@ -552,7 +641,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
                 pipelinePasses: 1 as const,
               }
             : await prepareLongInputForReports({
-                sourceText,
+                sourceText: originalSourceText,
                 thresholdTokens: chunkingProfile.thresholdTokens,
                 chunkTokens: chunkingProfile.chunkTokens,
                 chunkOverlapTokens: chunkingProfile.chunkOverlapTokens,
@@ -582,6 +671,12 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
                   });
                 },
               });
+        const reportSourceText =
+          provider === "demeter_sante"
+            ? sourceText
+            : clarificationContext
+              ? `${prepared.text}\n\n${clarificationContext}`
+              : prepared.text;
         markStage("prepare_long_input_done", {
           pipelinePasses: prepared.pipelinePasses,
           chunkCount: prepared.chunkCount,
@@ -590,7 +685,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
         });
 
         const requiresMonoPassGeneration = true;
-        const sourceTokensForGeneration = estimateTokenCount(prepared.text);
+        const sourceTokensForGeneration = estimateTokenCount(reportSourceText);
         const tokenBudget = requiresMonoPassGeneration
           ? resolveModelTokenBudget({
               modelId,
@@ -709,10 +804,11 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
                 provider: "huggingface",
                 format: item.format,
                 modelId,
-                sourceText: prepared.text,
+                sourceText: reportSourceText,
                 temperature,
                 maxTokens: reportMaxTokens,
                 detailLevel,
+                sourceKind,
                 hfToken,
                 template: item.template
                   ? {
@@ -728,10 +824,11 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
                 provider: "mistral",
                 format: item.format,
                 modelId,
-                sourceText: prepared.text,
+                sourceText: reportSourceText,
                 temperature,
                 maxTokens: reportMaxTokens,
                 detailLevel,
+                sourceKind,
                 mistralApiKey: mistralKey,
                 mistralApiUrl,
                 template: item.template
@@ -748,10 +845,11 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
                 provider: "demeter_sante",
                 format: item.format,
                 modelId,
-                sourceText: prepared.text,
+                sourceText: reportSourceText,
                 temperature,
                 maxTokens: reportMaxTokens,
                 detailLevel,
+                sourceKind,
                 template: item.template
                   ? {
                       id: item.template.id,
@@ -1119,6 +1217,7 @@ export function useLlmReports(options: UseLlmReportsOptions = {}) {
     status,
     progress,
     results,
+    analyzeSource,
     generateAll,
     downloadDocx,
   };

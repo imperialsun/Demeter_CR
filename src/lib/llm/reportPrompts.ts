@@ -4,6 +4,7 @@ import {
   buildReportDetailPromptRules,
   type ReportDetailLevel,
 } from "@/lib/llm/reportDetail";
+import type { ReportSourceKind } from "@/lib/llm/reportClarification";
 
 const COMMON_RULES = [
   "N'invente jamais d'informations absentes de la source.",
@@ -87,18 +88,47 @@ const FORMAT_STYLE_RULES: Record<ReportFormat, readonly string[]> = {
 };
 
 export function buildReportSystemPrompt(detailLevel?: ReportDetailLevel): string {
-  const detailPriorityRules = detailLevel
+  return buildReportSystemPromptWithSource(detailLevel, "transcription");
+}
+
+export function buildReportSystemPromptWithSource(
+  detailLevel?: ReportDetailLevel,
+  sourceKind: ReportSourceKind = "transcription"
+): string {
+  const detailPriorityRules = detailLevel && sourceKind !== "word_note"
     ? [
         `Niveau de detail actif: ${buildReportDetailLevelLabel(detailLevel)}.`,
         "La contrainte de longueur associee est prioritaire: considere-la comme une base minimale, un minimum obligatoire, pas comme une moyenne ni un plafond.",
         "Respecte cette contrainte avant toute recherche de concision.",
-      ]
-    : [];
+        ]
+      : [];
+
+  const sourceRules =
+    sourceKind === "word_note"
+      ? [
+          "La source est une prise de note Word très abrégée et potentiellement fragmentaire, pas nécessairement une transcription ASR.",
+          "Développe la rédaction uniquement à partir des éléments explicitement présents ou confirmés par l'utilisateur.",
+          "Conserve toute abréviation ambiguë et signale-la dans caveats au lieu de l'expanser arbitrairement.",
+          "Si la source ne permet pas d'atteindre le niveau de détail demandé, reste court et indique les manques dans caveats.",
+        ]
+      : sourceKind === "text_note"
+        ? [
+            "La source est une note texte potentiellement fragmentaire.",
+            "Ne transforme pas des mots-clés en faits non présents et signale les informations insuffisantes dans caveats.",
+          ]
+        : [];
 
   return [
     "Tu es un redacteur expert des comptes rendus professionnels.",
-    "Ta mission: transformer une transcription brute en compte rendu structure selon le format demande.",
+    "Ta mission: transformer une source brute en compte rendu structure selon le format demande.",
     ...COMMON_RULES,
+    ...sourceRules,
+    ...(detailLevel && sourceKind === "word_note"
+      ? [
+          `Niveau de detail actif: ${buildReportDetailLevelLabel(detailLevel)}, sans longueur minimale artificielle pour cette note Word.`,
+          "Développe uniquement les faits explicitement présents et reste court si la source est insuffisante.",
+        ]
+      : []),
     ...detailPriorityRules,
   ].join("\n");
 }
@@ -106,9 +136,13 @@ export function buildReportSystemPrompt(detailLevel?: ReportDetailLevel): string
 export function buildReportUserPrompt(
   format: ReportFormat,
   sourceText: string,
-  detailLevel?: ReportDetailLevel
+  detailLevel?: ReportDetailLevel,
+  options?: { sourceKind?: ReportSourceKind }
 ): string {
-  const detailRules = detailLevel ? buildReportDetailPromptRules(format, detailLevel, sourceText) : [];
+  const sourceKind = options?.sourceKind ?? "transcription";
+  const detailRules = detailLevel
+    ? buildReportDetailPromptRules(format, detailLevel, sourceText, sourceKind)
+    : [];
 
   return [
     `Format cible: ${format}.`,
@@ -140,6 +174,13 @@ export function buildReportUserPrompt(
     "- action_items: suites concretes si explicites dans la source.",
     "- caveats: zones d'incertitude / informations absentes.",
     ...FORMAT_STYLE_RULES[format].map((rule) => `- ${rule}`),
+    ...(sourceKind === "word_note"
+      ? [
+          "- la source peut être télégraphique : reformule les éléments présents sans compléter les éléments absents.",
+          "- une longueur inférieure à la cible est acceptable si la source est insuffisante.",
+          "- conserve les abréviations non résolues et signale-les dans caveats.",
+        ]
+      : []),
     "",
     "SOURCE:",
     sourceText,
@@ -150,12 +191,16 @@ export function buildCustomReportUserPrompt(params: {
   format: ReportFormat;
   sourceText: string;
   detailLevel?: ReportDetailLevel;
+  sourceKind?: ReportSourceKind;
   templateName: string;
   instructions: string;
   exampleOutline?: string;
 }): string {
   if (params.format === "CUSTOM") {
-    const detailRules = params.detailLevel ? buildReportDetailPromptRules(params.format, params.detailLevel, params.sourceText) : [];
+    const sourceKind = params.sourceKind ?? "transcription";
+    const detailRules = params.detailLevel
+      ? buildReportDetailPromptRules(params.format, params.detailLevel, params.sourceText, sourceKind)
+      : [];
     return [
       `Format cible: ${params.format}.`,
       FORMAT_PROMPT_GUIDELINES[params.format],
@@ -195,6 +240,12 @@ export function buildCustomReportUserPrompt(params: {
       "- action_items: suites concretes si explicites dans la source.",
       "- caveats: zones d'incertitude / informations absentes.",
       ...FORMAT_STYLE_RULES.CUSTOM.map((rule) => `- ${rule}`),
+      ...(sourceKind === "word_note"
+        ? [
+            "- la source est une note Word abrégée : n'expanse pas les abréviations ambiguës.",
+            "- une sortie courte est acceptable si aucun contenu supplémentaire n'est explicitement disponible.",
+          ]
+        : []),
       "",
       "SOURCE:",
       params.sourceText,
@@ -203,7 +254,9 @@ export function buildCustomReportUserPrompt(params: {
       .join("\n");
   }
 
-  const basePrompt = buildReportUserPrompt(params.format, params.sourceText, params.detailLevel);
+  const basePrompt = buildReportUserPrompt(params.format, params.sourceText, params.detailLevel, {
+    sourceKind: params.sourceKind,
+  });
   const customBlock = [
     "",
     "MODELE PERSONNALISE ORGANISATION:",
