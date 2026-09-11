@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { describe, it, expect } from 'vitest';
 import { decodeCompressedBlobToPcm, decodeFileFully, decodeFileSegmentToPcm } from './audio';
 import { mockAudioContext, mockDocumentAudio, mockMediaRecorder, mockOfflineAudioContext } from '../test/audioMocks';
