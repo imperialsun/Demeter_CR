@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 // Utilities to mock AudioContext, OfflineAudioContext, Audio element and MediaRecorder for tests
 // Ensure Blob.arrayBuffer exists in this environment (polyfill if missing)
 if (typeof (Blob.prototype as any).arrayBuffer !== 'function') {
