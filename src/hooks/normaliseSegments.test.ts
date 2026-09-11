@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useAsrStore } from "@/store/asr-store";
 import { normaliseSegments } from "./useTranscriptionController";

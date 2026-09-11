@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import '@testing-library/jest-dom';
 import { afterEach } from "vitest";
 
